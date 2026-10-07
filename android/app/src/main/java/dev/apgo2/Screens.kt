@@ -13,6 +13,10 @@ import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.platform.LocalContext
+import dev.apgo2.ui.mapSnapshot
+import dev.apgo2.ui.frameFor
+import dev.apgo2.ui.PREVIEW_DP
 import androidx.compose.runtime.rememberUpdatedState
 import dev.apgo2.ui.ToolPillRow
 import dev.apgo2.ui.ToolPill
@@ -230,10 +234,13 @@ private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
     val types = m.offers[r.id].orEmpty().size
     val dots by produceState(emptyList<PreviewDot>(), r.id, r.scannedAtMs, types) {
         value = if (r.scannedAtMs == null) emptyList() else withContext(Dispatchers.IO) {
-            m.engine.realmDots(r.id, 250u).map { PreviewDot(it.at.lat, it.at.lon, ApgoPalette.kind(it.kindId, it.family)) }
+            m.engine.realmDots(r.id, 90u).map { PreviewDot(it.at.lat, it.at.lon, ApgoPalette.kind(it.kindId, it.family)) }
         }
     }
     val outline = if (r.polygonActive) r.polygon.map { it.lat to it.lon } else r.circle?.let { circleRing(it.center.lat, it.center.lon, it.radiusM) }.orEmpty()
+    val context = LocalContext.current
+    val frame = frameFor(outline)
+    val map by produceState<android.graphics.Bitmap?>(null, frame?.key) { value = frame?.let { runCatching { mapSnapshot(context, it) }.getOrNull() } }
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -248,7 +255,7 @@ private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
                     Text("$types quest types", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            RealmPreview(outline, dots, Modifier.size(104.dp))
+            RealmPreview(outline, dots, map, Modifier.size(PREVIEW_DP.dp))
         }
     }
 }
