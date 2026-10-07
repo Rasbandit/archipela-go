@@ -33,7 +33,7 @@ fn main() {
         scanned_at_ms: None,
     };
     let t0 = Instant::now();
-    let atlas = scan_realm(&realm, &catalog, Some(&cache), 0).expect("scan");
+    let atlas = scan_realm(&realm, &catalog, Some(&cache), 0, &|_, _| {}).expect("scan");
     println!(
         "scan: {:.1}s, {} places, {} street points, warnings: {:?}",
         t0.elapsed().as_secs_f64(),

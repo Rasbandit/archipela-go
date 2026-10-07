@@ -192,14 +192,25 @@ fn fnv1a(s: &str) -> u64 {
     s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
 }
 
+fn query_cache_file(dir: &Path, query: &str) -> std::path::PathBuf {
+    dir.join(format!("q-{:016x}.json", fnv1a(query)))
+}
+
+fn is_fresh(file: &Path) -> bool {
+    std::fs::metadata(file).and_then(|m| m.modified()).ok().and_then(|t| SystemTime::now().duration_since(t).ok()).is_some_and(|age| age < CACHE_MAX_AGE)
+}
+
+/// Whether a query's answer is already in the cache and still fresh, so asking again costs no network.
+pub fn is_cached(query: &str, cache_dir: &Path) -> bool {
+    is_fresh(&query_cache_file(cache_dir, query))
+}
+
 /// Fetch any query with an on-disk cache keyed by the query text (30-day freshness).
 /// `start` rotates which endpoint is tried first so parallel jobs spread across servers.
 pub fn fetch_cached_from(query: &str, cache_dir: Option<&Path>, start: usize, deadline: Option<std::time::Instant>) -> Result<String, Error> {
-    let file = cache_dir.map(|d| d.join(format!("q-{:016x}.json", fnv1a(query))));
+    let file = cache_dir.map(|d| query_cache_file(d, query));
     if let Some(f) = &file {
-        let fresh =
-            std::fs::metadata(f).and_then(|m| m.modified()).ok().and_then(|t| SystemTime::now().duration_since(t).ok()).is_some_and(|age| age < CACHE_MAX_AGE);
-        if fresh {
+        if is_fresh(f) {
             return Ok(std::fs::read_to_string(f)?);
         }
     }

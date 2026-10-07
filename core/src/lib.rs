@@ -15,6 +15,7 @@ pub mod sampler;
 pub mod scan;
 pub mod slot;
 pub mod solo;
+pub mod tilegrid;
 pub mod traps;
 pub mod verify;
 pub mod yaml;

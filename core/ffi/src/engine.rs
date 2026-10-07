@@ -94,6 +94,20 @@ pub struct FindOut {
 }
 
 #[derive(Debug, uniffi::Record)]
+pub struct ScanPlanOut {
+    pub tiles: u32,
+    pub requests: u32,
+    /// Requests that are not in the cache and would go to the network.
+    pub missing: u32,
+}
+
+#[derive(Debug, uniffi::Record)]
+pub struct ScanProgressOut {
+    pub done: u32,
+    pub total: u32,
+}
+
+#[derive(Debug, uniffi::Record)]
 pub struct OfferOut {
     pub kind_id: String,
     pub name: String,
@@ -268,6 +282,9 @@ pub struct Engine {
     dir: PathBuf,
     catalog: Catalog,
     game: Mutex<Option<Game>>,
+    /// Requests finished and in all, for the scan in progress.
+    scan_done: std::sync::atomic::AtomicU32,
+    scan_total: std::sync::atomic::AtomicU32,
 }
 
 impl Engine {
@@ -337,7 +354,7 @@ impl Engine {
     pub fn new(dir: String) -> Arc<Self> {
         let dir = PathBuf::from(dir);
         let _ = std::fs::create_dir_all(&dir);
-        Arc::new(Self { dir, catalog: Catalog::builtin(), game: Mutex::new(None) })
+        Arc::new(Self { dir, catalog: Catalog::builtin(), game: Mutex::new(None), scan_done: Default::default(), scan_total: Default::default() })
     }
 
     pub fn catalog_size(&self) -> u32 {
@@ -388,16 +405,39 @@ impl Engine {
         self.store().delete(&id).map_err(err)
     }
 
-    /// Scan the realm over the network (cached) and save its atlas. Returns what it offers.
+    /// What scanning a realm would cost right now: tiles and requests, and how many are not in the cache yet (those are the ones that go to the network).
+    pub fn scan_plan(&self, id: String) -> ScanPlanOut {
+        let Some(realm) = self.store().get(&id) else { return ScanPlanOut { tiles: 0, requests: 0, missing: 0 } };
+        let cache = self.cache();
+        let p = apgo_core::scan::plan(&realm.shape.to_zone(), &self.catalog, &|q| apgo_core::overpass::is_cached(q, &cache));
+        ScanPlanOut { tiles: p.tiles as u32, requests: p.jobs as u32, missing: p.missing() as u32 }
+    }
+
+    /// Progress of the scan in progress: requests finished out of all of them.
+    pub fn scan_progress(&self) -> ScanProgressOut {
+        use std::sync::atomic::Ordering::Relaxed;
+        ScanProgressOut { done: self.scan_done.load(Relaxed), total: self.scan_total.load(Relaxed) }
+    }
+
+    /// Scan the realm over the network (through the shared tile cache) and save its atlas. Returns what it offers.
     pub fn scan_realm(&self, id: String, now_ms: u64) -> Result<Vec<OfferOut>, CoreError> {
+        use std::sync::atomic::Ordering::Relaxed;
         let store = self.store();
-        let mut realm = store.get(&id).ok_or_else(|| err("realm not found"))?;
-        let atlas = scan_realm(&realm, &self.catalog, Some(&self.cache()), now_ms).map_err(err)?;
+        let realm = store.get(&id).ok_or_else(|| err("realm not found"))?;
+        self.scan_done.store(0, Relaxed);
+        self.scan_total.store(0, Relaxed);
+        let atlas = scan_realm(&realm, &self.catalog, Some(&self.cache()), now_ms, &|done, total| {
+            self.scan_done.store(done as u32, Relaxed);
+            self.scan_total.store(total as u32, Relaxed);
+        })
+        .map_err(err)?;
         store.save_atlas(&atlas).map_err(err)?;
-        realm.scanned_at_ms = Some(now_ms);
-        store.save(&realm).map_err(err)?;
+        // The realm may have been edited while the scan ran: stamp the scan time on its current state, not on the copy read before.
+        let mut current = store.get(&id).ok_or_else(|| err("realm was deleted during the scan"))?;
+        current.scanned_at_ms = Some(now_ms);
+        store.save(&current).map_err(err)?;
         let mut zoned = atlas;
-        zoned.restrict_to(&realm.shape.to_zone());
+        zoned.restrict_to(&current.shape.to_zone());
         zoned.apply_marks(&store.marks(&id));
         Ok(self.offers_of(&zoned))
     }

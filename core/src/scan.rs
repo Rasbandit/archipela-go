@@ -13,7 +13,7 @@ use crate::overpass::{fetch_cached_from, Error};
 use std::time::{Duration, Instant};
 
 /// A scan stops after this long and keeps what it has; finished tiles are cached so a rescan continues.
-pub const SCAN_BUDGET: Duration = Duration::from_secs(150);
+pub const SCAN_BUDGET: Duration = Duration::from_secs(240);
 use crate::realm::Realm;
 use crate::zone::Zone;
 
@@ -124,28 +124,6 @@ pub fn poi_query(zone: &Zone, catalog: &Catalog) -> String {
 
 pub fn geom_query(zone: &Zone, catalog: &Catalog) -> String {
     geom_query_in(&zone.overpass_filter(), catalog)
-}
-
-/// Overpass bbox filters (`south,west,north,east`) covering the zone: public servers handle many small queries far
-/// better than one big one. Tiles are ~1.5 km, grown so there are never more than 16.
-pub fn tiles(zone: &Zone) -> Vec<String> {
-    let (sw, ne) = zone.bbox();
-    let h_m = (ne.lat - sw.lat) * 111_195.0;
-    let w_m = (ne.lon - sw.lon) * 111_195.0 * ((sw.lat + ne.lat) / 2.0).to_radians().cos();
-    let mut tile_m = 1500.0_f64;
-    while ((h_m / tile_m).ceil() * (w_m / tile_m).ceil()) > 16.0 {
-        tile_m *= 1.25;
-    }
-    let (rows, cols) = ((h_m / tile_m).ceil().max(1.0) as usize, (w_m / tile_m).ceil().max(1.0) as usize);
-    let (dlat, dlon) = ((ne.lat - sw.lat) / rows as f64, (ne.lon - sw.lon) / cols as f64);
-    let mut out = Vec::new();
-    for r in 0..rows {
-        for c in 0..cols {
-            let (s, w) = (sw.lat + dlat * r as f64, sw.lon + dlon * c as f64);
-            out.push(format!("{s},{w},{},{}", s + dlat, w + dlon));
-        }
-    }
-    out
 }
 
 fn osm_prefix(t: &str) -> char {
@@ -373,51 +351,129 @@ fn retain_in_zone(features: Vec<Feature>, zone: &Zone) -> Vec<Feature> {
     features.into_iter().filter(|f| zone.contains(f.point) || f.geometry.iter().any(|&p| zone.contains(p))).collect()
 }
 
-#[derive(Clone, Copy)]
-enum Job {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Job {
     Poi,
     Geom,
     Streets,
 }
 
-/// Scan a realm over the network: small tiles, three at a time, spread over the public servers, each cached.
-/// Tiles that still fail are skipped (the atlas is partial) unless everything fails.
-pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, now_ms: u64) -> Result<Atlas, Error> {
+/// The requests a scan of `zone` makes: per grid tile, places first, then streets (the generic quests), then trail/park geometry, so the most
+/// valuable data lands first. A request's text depends only on its tile, which is what lets realms share the query cache.
+pub fn jobs_for(zone: &Zone, catalog: &Catalog) -> Vec<(Job, String)> {
+    let tiles: Vec<String> = crate::tilegrid::tiles_for(zone).into_iter().map(|t| t.filter()).collect();
+    let mut jobs = Vec::new();
+    jobs.extend(tiles.iter().map(|t| (Job::Poi, poi_query_in(t, catalog))));
+    jobs.extend(tiles.iter().map(|t| (Job::Streets, crate::fill::streets_query_in(t))));
+    jobs.extend(tiles.iter().map(|t| (Job::Geom, geom_query_in(t, catalog))));
+    jobs
+}
+
+/// What a scan would cost: how many tiles and requests, and how many of those are already in the cache.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanPlan {
+    pub tiles: usize,
+    pub jobs: usize,
+    pub cached: usize,
+}
+
+impl ScanPlan {
+    pub fn missing(&self) -> usize {
+        self.jobs - self.cached
+    }
+}
+
+pub fn plan(zone: &Zone, catalog: &Catalog, is_cached: &dyn Fn(&str) -> bool) -> ScanPlan {
+    let jobs = jobs_for(zone, catalog);
+    ScanPlan { tiles: jobs.len() / 3, jobs: jobs.len(), cached: jobs.iter().filter(|(_, q)| is_cached(q)).count() }
+}
+
+/// How requests are paced. The public map servers are shared and slow: few requests at once, a pause between them, and quiet retries.
+#[derive(Debug, Clone, Copy)]
+pub struct Pacing {
+    pub workers: usize,
+    /// Pause a worker takes after each request that went to the network.
+    pub gap: Duration,
+    /// How many times a failed request is tried in all.
+    pub rounds: usize,
+    /// Wait before retry round n is `backoff * n`.
+    pub backoff: Duration,
+}
+
+impl Default for Pacing {
+    fn default() -> Self {
+        Pacing { workers: 2, gap: Duration::from_millis(250), rounds: 3, backoff: Duration::from_secs(4) }
+    }
+}
+
+pub type Fetch<'a> = &'a (dyn Fn(&str, usize, Option<Instant>) -> Result<String, Error> + Sync);
+
+/// Run the jobs, `done` out of `total` reported as they finish. Failed jobs are retried in later rounds (with growing waits) while the deadline allows.
+fn run_jobs(
+    jobs: &[(Job, String)],
+    fetch: Fetch,
+    pacing: &Pacing,
+    deadline: Instant,
+    progress: &(dyn Fn(usize, usize) + Sync),
+) -> Vec<Option<Result<String, Error>>> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
-    let zone = realm.shape.to_zone();
-    let tiles = tiles(&zone);
-    // Places first, then streets (the generic quests), then trail/park geometry: the most valuable data lands before the budget runs out.
-    let mut jobs: Vec<(Job, String)> = Vec::new();
-    for t in &tiles {
-        jobs.push((Job::Poi, poi_query_in(t, catalog)));
-    }
-    for t in &tiles {
-        jobs.push((Job::Streets, crate::fill::streets_query_in(t)));
-    }
-    for t in &tiles {
-        jobs.push((Job::Geom, geom_query_in(t, catalog)));
-    }
-    let deadline = Instant::now() + SCAN_BUDGET;
-    let next = AtomicUsize::new(0);
-    let results: Mutex<Vec<(Job, Result<String, Error>)>> = Mutex::new(Vec::new());
-    std::thread::scope(|s| {
-        for _ in 0..3 {
-            s.spawn(|| loop {
-                let i = next.fetch_add(1, Ordering::SeqCst);
-                let Some((job, q)) = jobs.get(i) else { break };
-                let r = fetch_cached_from(q, cache_dir, i, Some(deadline));
-                results.lock().unwrap_or_else(|e| e.into_inner()).push((*job, r));
-            });
+    let results: Mutex<Vec<Option<Result<String, Error>>>> = Mutex::new((0..jobs.len()).map(|_| None).collect());
+    let done = AtomicUsize::new(0);
+    let mut todo: Vec<usize> = (0..jobs.len()).collect();
+    for round in 0..pacing.rounds.max(1) {
+        if todo.is_empty() || (round > 0 && Instant::now() >= deadline) {
+            break;
         }
-    });
+        if round > 0 {
+            std::thread::sleep(pacing.backoff * round as u32);
+        }
+        let next = AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for _ in 0..pacing.workers.max(1) {
+                s.spawn(|| loop {
+                    let at = next.fetch_add(1, Ordering::SeqCst);
+                    let Some(&i) = todo.get(at) else { break };
+                    let r = fetch(&jobs[i].1, i, Some(deadline));
+                    let ok = r.is_ok();
+                    results.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
+                    if ok {
+                        progress(done.fetch_add(1, Ordering::SeqCst) + 1, jobs.len());
+                    }
+                    if !pacing.gap.is_zero() {
+                        std::thread::sleep(pacing.gap);
+                    }
+                });
+            }
+        });
+        let results_now = results.lock().unwrap_or_else(|e| e.into_inner());
+        todo.retain(|&i| matches!(results_now[i], Some(Err(_))));
+    }
+    results.into_inner().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Scan a realm with an injected fetcher (see [`scan_realm`]). Pieces that never arrive leave the atlas partial with a note, not an error;
+/// only a scan where nothing arrived at all fails.
+pub fn scan_with(
+    realm: &Realm,
+    catalog: &Catalog,
+    now_ms: u64,
+    fetch: Fetch,
+    pacing: &Pacing,
+    deadline: Instant,
+    progress: &(dyn Fn(usize, usize) + Sync),
+) -> Result<Atlas, Error> {
+    let zone = realm.shape.to_zone();
+    let jobs = jobs_for(&zone, catalog);
+    let results = run_jobs(&jobs, fetch, pacing, deadline, progress);
+
     let (mut a, mut b, mut streets, mut rough) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let (mut failed, total) = (0usize, jobs.len());
     let mut last_err = None;
-    for (job, r) in results.into_inner().unwrap_or_else(|e| e.into_inner()) {
+    for ((job, _), r) in jobs.iter().zip(results) {
         match r {
-            Ok(body) => match job {
+            Some(Ok(body)) => match job {
                 Job::Poi => a.extend(parse_features(&body).unwrap_or_default()),
                 Job::Geom => b.extend(parse_features(&body).unwrap_or_default()),
                 Job::Streets => {
@@ -430,10 +486,11 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
                     }
                 }
             },
-            Err(e) => {
+            Some(Err(e)) => {
                 failed += 1;
                 last_err = Some(e);
             }
+            None => failed += 1,
         }
     }
     if failed == total {
@@ -445,12 +502,15 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
     let rough: Vec<Point> = rough.into_iter().step_by(rstride).collect();
     let mut atlas = build_atlas(&realm.id, now_ms, retain_in_zone(merge(a, b), &zone), streets, catalog);
     atlas.streets_rough = rough;
-    atlas.warnings = if failed > 0 {
-        vec![format!("{failed} of {total} map requests did not finish in time; the scan is partial. Tap Rescan to continue (finished parts are cached).")]
-    } else {
-        vec![]
-    };
+    atlas.warnings = if failed > 0 { vec![format!("{failed} of {total} map requests are still pending")] } else { vec![] };
     Ok(atlas)
+}
+
+/// Scan a realm over the network: one small fixed tile at a time, two at a time with a pause between, each cached (and shared with every other
+/// realm that touches the same tile). `progress(done, total)` is called as requests finish.
+pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, now_ms: u64, progress: &(dyn Fn(usize, usize) + Sync)) -> Result<Atlas, Error> {
+    let fetch = |q: &str, start: usize, deadline: Option<Instant>| fetch_cached_from(q, cache_dir, start, deadline);
+    scan_with(realm, catalog, now_ms, &fetch, &Pacing::default(), Instant::now() + SCAN_BUDGET, progress)
 }
 
 #[cfg(test)]
@@ -464,6 +524,114 @@ mod tests {
       {"type":"way","id":3,"center":{"lat":40.002,"lon":-111.0},"tags":{"leisure":"park","name":"City Park"}},
       {"type":"node","id":4,"tags":{"amenity":"bench"}}
     ]}"#;
+
+    // ---- scanning: plan, retries, pacing, sharing between realms
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::Mutex as StdMutex;
+
+    const BENCH_BODY: &str = r#"{"elements":[{"type":"node","id":1,"lat":40.0005,"lon":-111.0005,"tags":{"amenity":"bench"}}]}"#;
+
+    fn quick() -> Pacing {
+        Pacing { workers: 2, gap: Duration::ZERO, rounds: 3, backoff: Duration::ZERO }
+    }
+
+    fn small_realm(center: Point, r: f64) -> Realm {
+        Realm { id: "r".into(), name: "R".into(), icon: None, shape: crate::realm::Shape::Circle { center, radius_m: r }, spare: None, scanned_at_ms: None }
+    }
+
+    #[test]
+    fn failed_jobs_are_retried_quietly_and_a_late_success_leaves_no_warning() {
+        let cat = Catalog::builtin();
+        let attempts: StdMutex<BTreeMap<String, usize>> = StdMutex::new(BTreeMap::new());
+        let fetch = |q: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
+            let mut m = attempts.lock().unwrap();
+            let n = m.entry(q.to_string()).or_insert(0);
+            *n += 1;
+            if *n < 3 {
+                Err(Error::Parse("busy".into()))
+            } else {
+                Ok(BENCH_BODY.to_string())
+            }
+        };
+        let a =
+            scan_with(&small_realm(Point::new(40.0, -111.0), 600.0), &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {}).unwrap();
+        assert!(a.warnings.is_empty(), "everything worked on the third try: {:?}", a.warnings);
+        assert!(attempts.lock().unwrap().values().all(|&n| n == 3));
+        assert!(a.matches.contains_key("bench_warmer"));
+    }
+
+    #[test]
+    fn a_job_that_keeps_failing_gives_a_partial_atlas_with_a_note_not_an_error() {
+        let cat = Catalog::builtin();
+        let fetch = |q: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
+            if q.contains("\"highway\"") && q.contains("out geom") {
+                Err(Error::Parse("down".into()))
+            } else {
+                Ok(BENCH_BODY.to_string())
+            }
+        };
+        let a =
+            scan_with(&small_realm(Point::new(40.0, -111.0), 600.0), &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {}).unwrap();
+        assert!(!a.warnings.is_empty());
+        assert!(a.matches.contains_key("bench_warmer"), "what did arrive is kept");
+    }
+
+    #[test]
+    fn when_every_request_fails_the_scan_fails() {
+        let cat = Catalog::builtin();
+        let fetch = |_: &str, _: usize, _: Option<Instant>| -> Result<String, Error> { Err(Error::Parse("down".into())) };
+        let r = scan_with(&small_realm(Point::new(40.0, -111.0), 600.0), &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {});
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn a_passed_deadline_stops_retrying() {
+        let cat = Catalog::builtin();
+        let calls = AtomicUsize::new(0);
+        let fetch = |_: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
+            calls.fetch_add(1, AtomicOrdering::SeqCst);
+            Err(Error::Parse("down".into()))
+        };
+        let jobs = jobs_for(&small_realm(Point::new(40.0, -111.0), 600.0).shape.to_zone(), &cat).len();
+        let _ = scan_with(&small_realm(Point::new(40.0, -111.0), 600.0), &cat, 0, &fetch, &quick(), Instant::now() - Duration::from_secs(1), &|_, _| {});
+        assert!(calls.load(AtomicOrdering::SeqCst) <= jobs, "no retry rounds once the budget is gone");
+    }
+
+    #[test]
+    fn progress_counts_up_to_the_number_of_jobs() {
+        let cat = Catalog::builtin();
+        let fetch = |_: &str, _: usize, _: Option<Instant>| -> Result<String, Error> { Ok(BENCH_BODY.to_string()) };
+        let last = AtomicUsize::new(0);
+        let total = AtomicUsize::new(0);
+        let _ = scan_with(&small_realm(Point::new(40.0, -111.0), 600.0), &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|done, of| {
+            last.fetch_max(done, AtomicOrdering::SeqCst);
+            total.store(of, AtomicOrdering::SeqCst);
+        });
+        assert_eq!(last.load(AtomicOrdering::SeqCst), total.load(AtomicOrdering::SeqCst));
+        assert!(total.load(AtomicOrdering::SeqCst) >= 3);
+    }
+
+    #[test]
+    fn the_plan_counts_what_is_cached_so_an_unchanged_area_costs_nothing() {
+        let cat = Catalog::builtin();
+        let z = small_realm(Point::new(40.0, -111.0), 2500.0).shape.to_zone();
+        let all = jobs_for(&z, &cat);
+        let everything = plan(&z, &cat, &|_| true);
+        assert_eq!((everything.jobs, everything.cached, everything.missing()), (all.len(), all.len(), 0));
+        let nothing = plan(&z, &cat, &|_| false);
+        assert_eq!(nothing.missing(), all.len());
+        assert_eq!(nothing.tiles * 3, nothing.jobs, "three requests per tile");
+    }
+
+    #[test]
+    fn moving_a_realm_only_needs_the_queries_of_the_tiles_it_newly_touches() {
+        let cat = Catalog::builtin();
+        let c = Point::new(40.0, -111.0);
+        let first: std::collections::BTreeSet<String> = jobs_for(&small_realm(c, 1500.0).shape.to_zone(), &cat).into_iter().map(|(_, q)| q).collect();
+        let moved = small_realm(crate::geo::destination(c, 90.0, 1200.0), 1500.0).shape.to_zone();
+        let p = plan(&moved, &cat, &|q| first.contains(q));
+        assert!(p.cached > 0 && p.missing() > 0 && p.missing() < p.jobs, "only part of the moved area is new: {p:?}");
+    }
 
     #[test]
     fn restricting_an_atlas_to_a_zone_drops_finds_and_streets_outside_it() {
@@ -632,12 +800,14 @@ mod tests {
     }
 
     #[test]
-    fn tiles_cover_the_zone_in_few_small_queries() {
+    fn a_small_realm_is_a_handful_of_tiles_and_a_huge_one_is_visibly_costly() {
+        let cat = Catalog::builtin();
         let small = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 1200.0 };
-        assert!((1..=4).contains(&tiles(&small).len()));
-        let big = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 40_000.0 };
-        assert!(tiles(&big).len() <= 16, "a huge drive realm must not explode into hundreds of queries");
-        assert!(tiles(&small)[0].split(',').count() == 4);
+        assert!((1..=6).contains(&plan(&small, &cat, &|_| false).tiles));
+        // Nothing hides the cost of a huge realm: the plan reports it so the app can ask first.
+        let big = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 20_000.0 };
+        assert!(plan(&big, &cat, &|_| false).missing() > 100);
+        assert_eq!(jobs_for(&small, &cat)[0].1, jobs_for(&small, &cat)[0].1, "the same area always asks the same questions");
     }
 
     #[test]
