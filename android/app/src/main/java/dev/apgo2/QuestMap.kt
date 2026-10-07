@@ -16,6 +16,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import android.graphics.PointF
 import android.view.MotionEvent
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
@@ -160,6 +161,7 @@ fun QuestMap(
     val longClickHandler by rememberUpdatedState(onMapLongClick)
     val handlesNow by rememberUpdatedState(handles)
     val moveNow by rememberUpdatedState(onHandleMove)
+    val circleNow by rememberUpdatedState(circle)
     val dragging = remember { intArrayOf(-1) } // index of the handle being dragged, or -1
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -188,9 +190,17 @@ fun QuestMap(
                 val move = moveNow
                 when (ev.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
-                        dragging[0] = if (move == null) -1 else handlesNow.withIndex().minByOrNull { (_, h) ->
-                            m.projection.toScreenLocation(h).let { hypot((it.x - ev.x).toDouble(), (it.y - ev.y).toDouble()) }
-                        }?.takeIf { (_, h) -> m.projection.toScreenLocation(h).let { hypot((it.x - ev.x).toDouble(), (it.y - ev.y).toDouble()) } < 32 * density }?.index ?: -1
+                        fun px(p: LatLng) = m.projection.toScreenLocation(p).let { PointF(it.x, it.y) }
+                        fun dist(a: PointF) = hypot((a.x - ev.x).toDouble(), (a.y - ev.y).toDouble())
+                        val grab = 32 * density
+                        // A handle point wins; otherwise a touch on a circle's ring (invisible handle, index 1) resizes it.
+                        val hit = handlesNow.withIndex().minByOrNull { (_, h) -> dist(px(h)) }?.takeIf { (_, h) -> dist(px(h)) < grab }?.index
+                        val onRing = circleNow?.let { (c, r) ->
+                            val centre = px(c)
+                            val edge = px(LatLng(c.latitude, c.longitude + r / (111_195.0 * cos(Math.toRadians(c.latitude)))))
+                            abs(hypot((centre.x - ev.x).toDouble(), (centre.y - ev.y).toDouble()) - hypot((edge.x - centre.x).toDouble(), (edge.y - centre.y).toDouble())) < grab
+                        } == true
+                        dragging[0] = if (move == null) -1 else hit ?: if (onRing) 1 else -1
                         dragging[0] >= 0
                     }
                     MotionEvent.ACTION_MOVE -> (dragging[0] >= 0).also { if (it) move?.invoke(dragging[0], m.projection.fromScreenLocation(PointF(ev.x, ev.y))) }

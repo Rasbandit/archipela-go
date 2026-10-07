@@ -193,10 +193,8 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
         else oc == null || circleCenter == null || oc.radiusM != radius.toDouble() || oc.center.lat != circleCenter.latitude || oc.center.lon != circleCenter.longitude
     }
 
-    // The circle has a handle at its center (moves it) and one on its east edge (resizes it); a polygon has one per corner.
-    val handles = if (polygon) m.draft.toList() else circleCenter?.let { c ->
-        listOf(c, LatLng(c.latitude, c.longitude + radius / (111_195.0 * kotlin.math.cos(Math.toRadians(c.latitude)))))
-    }.orEmpty()
+    // A circle has a handle at its center (moves it); its whole ring is an invisible handle (resizes it). A polygon has one per corner.
+    val handles = if (polygon) m.draft.toList() else listOfNotNull(circleCenter)
     fun moveHandle(i: Int, to: LatLng) {
         if (polygon) { if (i in m.draft.indices) m.draft[i] = to; return }
         val c = circleCenter ?: return
@@ -240,7 +238,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                         OutlinedButton(onClick = { m.draft.clear() }) { Text("Clear", fontSize = 12.sp) }
                     }
                 } else {
-                    Text("Radius: ${radius.toInt()} m. Drag the center to move it, the edge dot to resize.", fontSize = 12.sp)
+                    Text("Radius: ${radius.toInt()} m. Drag the center to move it, or the ring to resize.", fontSize = 12.sp)
                     Slider(radius, { radius = it }, valueRange = 300f..8000f)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
