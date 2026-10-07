@@ -112,6 +112,8 @@ pub struct RealmStatsOut {
     /// Total length of the trails (named paths and the like) that can serve quests.
     pub trail_m: f64,
     pub parks: u32,
+    /// How many differently named streets there are.
+    pub streets: u32,
     pub finds: u32,
     pub quest_types: u32,
 }
@@ -459,6 +461,7 @@ impl Engine {
             rough_share: atlas.rough_share(),
             trail_m,
             parks,
+            streets: atlas.street_count() as u32,
             finds: places.len() as u32,
             quest_types: self.offers_of(&atlas).len() as u32,
         })

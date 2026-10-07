@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,7 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.layout.statusBarsPadding
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -41,9 +41,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Transparent system bars, with dark or light icons chosen from the system theme (the app theme follows the same setting, so they agree).
+        enableEdgeToEdge()
         setContent {
             ApgoTheme {
-                Surface(Modifier.fillMaxSize().statusBarsPadding()) {
+                // No manual status-bar padding: Scaffold insets its own content, and this surface paints behind the bars.
+                Surface(Modifier.fillMaxSize()) {
                     val scope = rememberCoroutineScope()
                     val model = remember { AppModel(applicationContext, scope).also { it.refreshAll() } }
                     var permitted by remember { mutableStateOf(false) }

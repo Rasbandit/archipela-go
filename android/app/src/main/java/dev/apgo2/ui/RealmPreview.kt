@@ -111,9 +111,10 @@ suspend fun mapSnapshot(context: Context, frame: PreviewFrame): Bitmap? {
 @Composable
 fun RealmPreview(outline: List<Pair<Double, Double>>, dots: List<PreviewDot>, map: Bitmap?, modifier: Modifier = Modifier) {
     val ink = MaterialTheme.colorScheme.primary
+    val frameColor = MaterialTheme.colorScheme.outline
     val frame = frameFor(outline)
     Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-        if (frame == null) return@Canvas
+        if (frame == null) { drawRoundRect(frameColor, cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()), style = Stroke(width = 4.dp.toPx())); return@Canvas }
         map?.let { drawImage(it.asImageBitmap(), dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt())) }
         fun px(lat: Double, lon: Double) = frame.at(lat, lon).let { Offset(it.x * size.width, it.y * size.height) }
         val shape = Path().apply {
@@ -127,5 +128,7 @@ fun RealmPreview(outline: List<Pair<Double, Double>>, dots: List<PreviewDot>, ma
             val c = px(d.lat, d.lon)
             drawCircle(d.color, radius = if (map != null) 1.6.dp.toPx() else 1.8.dp.toPx(), center = c)
         }
+        // A border, so the picture does not melt into the card around it.
+        drawRoundRect(frameColor, cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()), style = Stroke(width = 4.dp.toPx()))
     }
 }

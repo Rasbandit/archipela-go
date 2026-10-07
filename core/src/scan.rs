@@ -31,6 +31,12 @@ pub struct Feature {
     pub geometry: Vec<Point>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NamedStreet {
+    pub name: String,
+    pub at: Point,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Atlas {
     pub realm_id: String,
@@ -44,6 +50,9 @@ pub struct Atlas {
     pub matches: BTreeMap<String, Vec<usize>>,
     #[serde(default)]
     pub warnings: Vec<String>,
+    /// One point per named street per ~500 m cell, so streets can be counted (and still counted after the zone shrinks).
+    #[serde(default)]
+    pub street_names: Vec<NamedStreet>,
     /// Every this-many street points were kept (the rest dropped to keep the atlas small); 0 or 1 means all.
     #[serde(default)]
     pub street_stride: u32,
@@ -62,11 +71,17 @@ impl Atlas {
         self.matches.retain(|_, v| !v.is_empty());
         self.streets.retain(|&p| zone.contains(p));
         self.streets_rough.retain(|&p| zone.contains(p));
+        self.street_names.retain(|s| zone.contains(s.at));
     }
 
     /// Walkable street length inside the atlas, in metres: the street points are spaced [`STREET_SPACING_M`] apart.
     pub fn walkable_m(&self) -> f64 {
         (self.streets.len() + self.streets_rough.len()) as f64 * f64::from(self.street_stride.max(1)) * STREET_SPACING_M
+    }
+
+    /// How many differently named streets there are (a street with several ways, or a long street, counts once).
+    pub fn street_count(&self) -> usize {
+        self.street_names.iter().map(|s| s.name.as_str()).collect::<BTreeSet<_>>().len()
     }
 
     /// The share of walkable street that is rough going (unpaved, unknown-surface paths, stairs), 0..1.
@@ -364,6 +379,7 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
         matches,
         warnings: vec![],
         street_stride: 1,
+        street_names: vec![],
         favorites: BTreeSet::new(),
     }
 }
@@ -493,6 +509,7 @@ pub fn scan_with(
     let (mut a, mut b, mut streets, mut rough) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     // A street that crosses a tile edge comes back from every tile it touches: each street point is kept once.
     let mut seen_street_points = std::collections::HashSet::new();
+    let mut named_streets: BTreeMap<(String, i64, i64), Point> = BTreeMap::new();
     let (mut failed, total) = (0usize, jobs.len());
     let mut last_err = None;
     for ((job, _), r) in jobs.iter().zip(results) {
@@ -504,6 +521,11 @@ pub fn scan_with(
                     for c in crate::fill::parse_streets(&body, &zone, STREET_SPACING_M).unwrap_or_default() {
                         if !seen_street_points.insert(c.id.clone()) {
                             continue;
+                        }
+                        if c.score > 0 {
+                            // `score` is 1 for a street that has a name
+                            let cell = ((c.point.lat / 0.005).floor() as i64, (c.point.lon / 0.005).floor() as i64);
+                            named_streets.entry((c.name.clone(), cell.0, cell.1)).or_insert(c.point);
                         }
                         if c.rough {
                             rough.push(c.point)
@@ -530,6 +552,7 @@ pub fn scan_with(
     let mut atlas = build_atlas(&realm.id, now_ms, retain_in_zone(merge(a, b), &zone), streets, catalog);
     atlas.streets_rough = rough;
     atlas.street_stride = stride as u32;
+    atlas.street_names = named_streets.into_iter().map(|((name, ..), at)| NamedStreet { name, at }).collect();
     atlas.warnings = if failed > 0 { vec![format!("{failed} of {total} map requests are still pending")] } else { vec![] };
     Ok(atlas)
 }
@@ -623,6 +646,40 @@ mod tests {
             .unwrap();
         let metres = a.walkable_m();
         assert!((1100.0..1300.0).contains(&metres), "one 1.2 km street, not two copies of it: {metres}");
+    }
+
+    #[test]
+    fn named_streets_are_counted_once_each_and_only_while_inside_the_zone() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let way = |id: i64, name: &str, a: Point, b: Point| {
+            format!(
+                r#"{{"type":"way","id":{id},"tags":{{"highway":"residential","name":"{name}"}},"geometry":[{{"lat":{},"lon":{}}},{{"lat":{},"lon":{}}}]}}"#,
+                a.lat, a.lon, b.lat, b.lon
+            )
+        };
+        let main_st = (
+            way(1, "Main Street", o, crate::geo::destination(o, 90.0, 900.0)),
+            way(2, "Main Street", crate::geo::destination(o, 90.0, 900.0), crate::geo::destination(o, 90.0, 1500.0)),
+        );
+        let elm = way(3, "Elm Avenue", o, crate::geo::destination(o, 0.0, 500.0));
+        let nameless = format!(
+            r#"{{"type":"way","id":4,"tags":{{"highway":"service"}},"geometry":[{{"lat":{},"lon":{}}},{{"lat":{},"lon":{}}}]}}"#,
+            o.lat,
+            o.lon,
+            o.lat + 0.001,
+            o.lon
+        );
+        let body = format!(r#"{{"elements":[{},{},{},{}]}}"#, main_st.0, main_st.1, elm, nameless);
+        let fetch = |q: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
+            Ok(if q.contains("\"highway\"~") && q.contains("out geom qt") { body.clone() } else { r#"{"elements":[]}"#.to_string() })
+        };
+        let mut a = scan_with(&small_realm(o, 3000.0), &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {}).unwrap();
+        assert_eq!(a.street_count(), 2, "Main Street (two ways) and Elm Avenue; the unnamed service road does not count");
+        a.restrict_to(&Zone::Circle { center: o, radius_m: 300.0 });
+        assert_eq!(a.street_count(), 2, "both start at the centre");
+        a.restrict_to(&Zone::Circle { center: crate::geo::destination(o, 180.0, 4000.0), radius_m: 300.0 });
+        assert_eq!(a.street_count(), 0);
     }
 
     #[test]

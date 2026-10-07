@@ -13,6 +13,9 @@ import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import uniffi.apgo_ffi.RealmStatsOut
+import dev.apgo2.ui.RealmStatsBox
+import dev.apgo2.ui.ScanFigures
 import androidx.compose.ui.platform.LocalContext
 import dev.apgo2.ui.mapSnapshot
 import dev.apgo2.ui.frameFor
@@ -53,7 +56,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import dev.apgo2.ui.IconLabel
 import dev.apgo2.ui.ApgoIcons
 import androidx.compose.material3.Icon
+import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.FindOut
+import uniffi.apgo_ffi.GeoPoint
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import dev.apgo2.ui.MarkToggle
@@ -472,12 +477,26 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
         }
 
         if (tab == AREA) {
-            // Area is just the map: a hint, nothing else.
+            // Area is just the map and a box of numbers about what is chosen.
             MapOverlayCard(Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }) {
-                Text(
-                    if (polygon) "Tap the map to add corners (${m.draft.size}). Drag a corner to move it." else "Drag the ring to resize it, the center to move it.",
-                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp),
-                )
+                if (polygon && m.draft.size < 3) {
+                    Text("Tap the map to add corners (${m.draft.size} of at least 3).", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    val circleOut = circleCenter?.let { CircleOut(GeoPoint(it.latitude, it.longitude), radius.toDouble()) }
+                    val corners = m.draft.toList()
+                    val shape = remember(polygon, radius, circleCenter, corners, m.home) {
+                        m.engine.shapeStats(circleOut, corners.map { GeoPoint(it.latitude, it.longitude) }, polygon && corners.size >= 3, m.home)
+                    }
+                    // What the scan found only describes the outline it was made for.
+                    val fresh = current?.scannedAtMs != null && !shapeDirty
+                    var found by remember(id) { mutableStateOf<RealmStatsOut?>(null) }
+                    LaunchedEffect(id, current?.scannedAtMs, shapeDirty) {
+                        val rid = id
+                        found = if (rid != null && fresh) withContext(Dispatchers.IO) { m.engine.realmStats(rid) } else null
+                    }
+                    val waiting = if (m.busy != null) "looking…" else "after scan"
+                    RealmStatsBox(shape.areaM2, shape.farthestM, found?.let { ScanFigures(it.walkableM, it.streets.toInt(), it.trailM, it.finds.toInt()) }, waiting)
+                }
             }
         } else {
             MapOverlayCard(Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }.fillMaxHeight(0.5f), fillHeight = true) {
