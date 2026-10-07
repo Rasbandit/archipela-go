@@ -52,3 +52,4 @@ If you need how to write an Archipelago apworld (skeleton, options, regions, tes
 If you need apworld gotchas (item pool size, Python version, manifest, Victory event in tests), see `docs/context/apworld-pitfalls.md`
 If you need example worlds to copy patterns from, see `docs/context/apworld-reference-implementations.md`
 If you need info on POI data sources, map tiles or POI architecture, see `docs/context/poi-data-sources.md`, `docs/context/map-rendering-and-tiles.md`, `docs/context/poi-atlas-and-server-options.md`
+If you need Spike B results (bulk POI generation timings, rural gaps, next fixes), see `docs/context/spike-b-location-generation-results.md`
