@@ -229,9 +229,17 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
         val next = if (f.mark == to) "none" else to // tapping a lit toggle clears it
         if (realmId != null && m.setFindMark(realmId, f.id, next)) { finds[finds.indexOfFirst { it.id == f.id }] = f.copy(mark = next); findsVersion++ }
     }
+    // Selecting a find brings it into view together with its callout. The callout's real height is measured once it is shown.
+    val screenDensity = LocalDensity.current.density
+    var bubblePx by remember { mutableIntStateOf(0) }
+    fun roomAbove() = (if (bubblePx > 0) bubblePx else (230 * screenDensity).toInt()) + (26 * screenDensity).toInt()
     fun show(f: FindOut) {
         selectedFind = f.id
-        focus = MapFocus(LatLng(f.at.lat, f.at.lon), ++focusNonce)
+        focus = MapFocus(LatLng(f.at.lat, f.at.lon), ++focusNonce, roomAbove())
+    }
+    LaunchedEffect(bubblePx) {
+        val f = finds.firstOrNull { it.id == selectedFind } ?: return@LaunchedEffect
+        if (bubblePx > 0) focus = MapFocus(LatLng(f.at.lat, f.at.lon), ++focusNonce, roomAbove())
     }
 
     // A changed outline (or a switch of which outline is real) means the finds must be fetched again; a new name or mode does not.
@@ -307,7 +315,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             onAnchor = { anchor = it },
         )
         visible.firstOrNull { it.id == selectedFind }?.let { f ->
-            anchor?.let { at -> FindBubble(f, at, onMark = { mark(f, it) }, onClose = { selectedFind = null }) }
+            anchor?.let { at -> FindBubble(f, at, onSize = { bubblePx = it.height }, onMark = { mark(f, it) }, onClose = { selectedFind = null }) }
         }
         MapOverlayCard(
             Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }.then(if (tab == DETAILS) Modifier.fillMaxHeight(0.5f) else Modifier),
@@ -395,7 +403,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
 
 /** A callout over the map for the selected find: what it is, what the quests mean, and how to complete them. */
 @Composable
-private fun FindBubble(f: FindOut, at: androidx.compose.ui.geometry.Offset, onMark: (String) -> Unit, onClose: () -> Unit) {
+private fun FindBubble(f: FindOut, at: androidx.compose.ui.geometry.Offset, onSize: (androidx.compose.ui.unit.IntSize) -> Unit, onMark: (String) -> Unit, onClose: () -> Unit) {
     val margin = with(LocalDensity.current) { 8.dp.roundToPx() }
     val gap = with(LocalDensity.current) { 26.dp.roundToPx() }
     val maxWidth = with(LocalDensity.current) { 300.dp.roundToPx() }
@@ -410,7 +418,7 @@ private fun FindBubble(f: FindOut, at: androidx.compose.ui.geometry.Offset, onMa
             }
         },
     ) {
-        Card(elevation = CardDefaults.cardElevation(6.dp)) {
+        Card(Modifier.onSizeChanged(onSize), elevation = CardDefaults.cardElevation(6.dp)) {
             Column(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 10.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(ApgoIcons.forKind(f.kindId, f.family), contentDescription = null, tint = ApgoPalette.kind(f.kindId, f.family), modifier = Modifier.size(24.dp))

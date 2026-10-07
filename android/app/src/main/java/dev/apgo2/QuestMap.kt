@@ -74,11 +74,11 @@ data class MapFind(val id: String, val at: LatLng, val kindId: String, val famil
 /** Ask the map to fit these points in view (inside the padding), after any padding change has settled. */
 data class MapFit(val points: List<LatLng>, val nonce: Int)
 
-/** Ask the map to fly to a point; [nonce] changes each time so the same point can be asked for twice. */
-data class MapFocus(val at: LatLng, val nonce: Int, val zoom: Double = 17.0)
-
-/** Height kept free above a focused pin, for its callout. */
-private const val FOCUS_ROOM_DP = 150
+/**
+ * Ask the map to bring a point into view; [nonce] changes each time so the same point can be asked for twice. [roomAbovePx] is the height of a
+ * callout that sits above the point: the point and its callout are centred together in the visible area. Zooms in only when the map is zoomed out.
+ */
+data class MapFocus(val at: LatLng, val nonce: Int, val roomAbovePx: Int = 0)
 
 private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 
@@ -404,10 +404,17 @@ fun QuestMap(
     LaunchedEffect(focus) {
         val f = focus ?: return@LaunchedEffect
         val m = map ?: return@LaunchedEffect
-        // Leave room above the pin for a callout: the pin settles in the lower part of the visible area.
-        val top = (overlayTopNow + FOCUS_ROOM_DP) * density
+        val height = mapView.height.toFloat()
+        if (height <= 0f) return@LaunchedEffect
+        // The visible area is the map minus the overlays. The point plus its callout form one block; centre that block in it.
+        // The camera target sits at the centre of the padded view, so the top padding is chosen to put the target (the point) where it belongs.
         val bottom = overlayBottomNow * density
-        m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(f.at).zoom(f.zoom).padding(0.0, top.toDouble(), 0.0, bottom.toDouble()).build()))
+        val top0 = overlayTopNow * density
+        val block = f.roomAbovePx + 20f * density // the callout, then the pin itself
+        val pinY = top0 + (height - bottom - top0 - block).coerceAtLeast(0f) / 2f + f.roomAbovePx
+        val top = (2f * pinY - height + bottom).coerceAtLeast(top0)
+        val zoom = if (m.cameraPosition.zoom < 16.0) 17.0 else m.cameraPosition.zoom
+        m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(f.at).zoom(zoom).padding(0.0, top.toDouble(), 0.0, bottom.toDouble()).build()))
     }
     LaunchedEffect(style, quests, selected) {
         style?.let { st -> quests.forEach { ensureImage(st, glyphName(it)) } }
