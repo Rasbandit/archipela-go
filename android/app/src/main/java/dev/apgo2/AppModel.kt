@@ -408,7 +408,20 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
-    fun apGoalSummary(): String? = apSlotJson?.let { runCatching { JSONObject(it).optString("goal") }.getOrNull() }
+    /** The goals of the connected game in words ("Letter Hunt, The Big One (any one)"), from slot_data v3 (or the single goal of v2). */
+    fun apGoalSummary(): String? = apSlotJson?.let { json ->
+        runCatching {
+            val o = JSONObject(json)
+            val goals = o.optJSONArray("goals")
+            if (goals == null) {
+                o.optString("goal").ifBlank { null }
+            } else {
+                val names = (0 until goals.length()).map { goals.getJSONObject(it).getString("id").replace('_', ' ') }
+                val rule = when (o.optString("goal_requirement")) { "all" -> "all" ; "at_least" -> "at least ${o.optInt("goal_need")}" ; else -> "any one" }
+                if (names.size == 1) names[0] else "${names.joinToString(", ")} ($rule)"
+            }
+        }.getOrNull()
+    }
 }
 
 /** At most one download per realm in this time. */

@@ -38,3 +38,13 @@ Contrast to note: those worlds hard-code every location and its rule; ours gener
 
 ## References
 `docs/context/archipela-go-game-design.md`, `docs/context/archipelago-concepts.md`, `apworld/docs/contract.md`, `docs/context/quest-types-and-phone-apis.md`
+
+
+## Several win conditions (apworld 0.3.0, slot_data schema 3)
+Follows Archipelago's own pattern (the Satisfactory world): `goal_selection` is an `OptionSet` of goal names, `goal_requirement` a `Choice`
+(`require_any_one_goal`, `require_all_goals`, `require_at_least_n_goals` + `goals_required`), one named `Range` per counting goal, and an `OptionGroup`
+"Goal Selection". The apworld never tells the server a player won: the client does, with `StatusUpdate` (`CLIENT_GOAL`) once `goal_need` goals are done
+(the generator's `completion_condition` only proves a seed is beatable). Letters are demanded by logic only when unavoidable (every selected goal needs
+letters, or all goals are required); otherwise the pool still holds them but logic ignores them. slot_data v3 carries `goals[{id,target}]`,
+`goal_requirement` and `goal_need`; the app also reads v2 (one `goal`). Verified with real `Generate.py` + `MultiServer` and the app's own reader
+(`cargo run --example parse_slot -- file.json`).

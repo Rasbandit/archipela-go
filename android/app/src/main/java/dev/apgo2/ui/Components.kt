@@ -40,10 +40,11 @@ fun modeLabel(mode: String) = if (mode == "drive") "car" else mode
 
 /** A selectable chip. The selected one is a solid fill, so it reads clearly against the card behind it. */
 @Composable
-fun ApgoChip(label: String, selected: Boolean, onClick: () -> Unit, textSize: TextUnit = 12.sp, icon: ImageVector? = null) {
+fun ApgoChip(label: String, selected: Boolean, onClick: () -> Unit, textSize: TextUnit = 12.sp, icon: ImageVector? = null, enabled: Boolean = true) {
     FilterChip(
         selected = selected,
         onClick = onClick,
+        enabled = enabled,
         label = { Text(label, fontSize = textSize) },
         leadingIcon = icon?.let { { Icon(it, contentDescription = null, modifier = Modifier.size(16.dp)) } },
         colors = FilterChipDefaults.filterChipColors(

@@ -37,6 +37,9 @@ object ApgoIcons {
     val Redo = Lucide.Redo2
     val Finds = Lucide.ListChecks
     val Close = Lucide.X
+    val Help = Lucide.CircleHelp
+    val Remove = Lucide.Trash2
+    val Check = Lucide.Check
     val Done = Lucide.Check
     val Saved = Lucide.CircleCheck
     val Me = Lucide.User

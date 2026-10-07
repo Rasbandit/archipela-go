@@ -117,23 +117,6 @@ import androidx.compose.ui.unit.sp
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.SoloOptionsIn
 
-private val FAMILIES = listOf("reach", "dwell", "landmark", "trail", "park", "water", "courier", "explore", "steps", "away")
-private val GOALS = listOf(
-    Triple("macguffin_short", "Letter Hunt", "Collect the letters A-P-G-O"),
-    Triple("macguffin_long", "Letter Hunt XL", "Collect ARCHIPELAGO"),
-    Triple("all_trips", "Completionist", "Finish every quest"),
-    Triple("boss", "The Big One", "Beat the boss quest"),
-    Triple("treasure_hunt", "Treasure Hunt", "Find the letters, then claim the treasure"),
-    Triple("zone_conqueror", "Zone Conqueror", "60% of every zone"),
-    Triple("well_rounded", "Well Rounded", "One quest of every type"),
-    Triple("quest_dex", "Quest-dex", "15 different kinds of quest"),
-    Triple("marathon", "Marathon", "42 km of tracked travel"),
-    Triple("explorer", "Explorer", "Reveal 300 map cells"),
-    Triple("streak", "Daily Habit", "Quest 7 days in a row"),
-    Triple("boss_rush", "Boss Rush", "Finish 5 hard quests"),
-)
-private val TRAPS = listOf("freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor")
-
 @Composable
 fun AppRoot(m: AppModel) {
     // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves the app as usual.
@@ -786,146 +769,6 @@ private const val BANNED = "banned"
 
 private fun distanceLabel(m: Double) = if (m < 1000) "${m.toInt()} m" else "%.1f km".format(m / 1000)
 
-// ---------------------------------------------------------------- new game
-@Composable
-fun NewGameScreen(m: AppModel) {
-    var goal by remember { mutableStateOf("macguffin_short") }
-    var target by remember { mutableStateOf("") }
-    var trips by remember { mutableFloatStateOf(60f) }
-    var preset by remember { mutableStateOf(1) }
-    var mpt by remember { mutableFloatStateOf(10f) }
-    var fog by remember { mutableStateOf(false) }
-    var trapsOn by remember { mutableStateOf(true) }
-    var bonus by remember { mutableStateOf(true) }
-    var name by remember { mutableStateOf("My game") }
-    val families = remember { mutableStateListOf(*FAMILIES.toTypedArray()) }
-    // Each zone is a realm played in one way of travelling: how you move is a choice of the game, not of the realm.
-    val zonePicks = remember { mutableStateListOf<Pair<String, String>>() }
-    var url by remember { mutableStateOf("localhost:38281") }
-    var slot by remember { mutableStateOf("Tester") }
-    val apZoneRealms = remember { mutableStateListOf<String>() }
-    val shares = listOf(Triple(70, 25, 5), Triple(50, 35, 15), Triple(20, 40, 40))
-
-    fun opts(): SoloOptionsIn {
-        val modes = zonePicks.map { it.second }
-        val (e, md, h) = shares[preset]
-        return SoloOptionsIn(
-            goal = goal, goalTarget = target.toUIntOrNull() ?: 0u, numberOfTrips = trips.toInt().toUInt(), zoneModes = modes,
-            easyShare = e.toUInt(), mediumShare = md.toUInt(), hardShare = h.toUInt(), minutesPerTier = mpt.toInt().toUInt(), minDistanceM = 150u,
-            questTypes = families.toList(), enabledTraps = if (trapsOn) TRAPS else emptyList(), trapRate = if (trapsOn) 30u else 0u,
-            enableEffortReductions = bonus, enableScouting = bonus || fog, enableCollection = bonus, reductionPercent = 8u, fogOfWar = fog, returnHome = false,
-        )
-    }
-
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Continue a game", style = MaterialTheme.typography.titleMedium)
-        if (m.games.isEmpty()) Text("No saved games yet.", fontSize = 12.sp)
-        m.games.forEach { g ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(g.name)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(onClick = { m.openGame(g.id) }) { Text("Open", fontSize = 12.sp) }
-                    OutlinedButton(onClick = { m.deleteGame(g.id) }) { Text("Delete", fontSize = 12.sp) }
-                }
-            }
-        }
-        HorizontalDivider()
-        Text("New game", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(name, { name = it }, label = { Text("Game name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-
-        Text("Zones, in order (the first is where you start; later ones are unlocked by keys and tools)", fontSize = 12.sp)
-        zonePicks.forEachIndexed { i, (id, mode) ->
-            val r = m.shownRealms.firstOrNull { it.id == id }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Zone ${i + 1}: ${r?.name ?: "?"} (${modeLabel(mode)})")
-                TextButton(onClick = { zonePicks.removeAt(i) }) { Text("Remove") }
-            }
-        }
-        val scanned = m.shownRealms.filter { it.scannedAtMs != null }
-        if (zonePicks.size < 6) {
-            Text(if (scanned.isEmpty()) "Scan a realm on the Realms tab to use it here." else "Add a zone:", fontSize = 12.sp)
-            scanned.forEach { r ->
-                @OptIn(ExperimentalLayoutApi::class)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PLAY_MODES.filter { (r.id to it) !in zonePicks }.forEach { mode ->
-                        OutlinedButton(onClick = { zonePicks.add(r.id to mode) }) { IconLabel("${r.name} · ${modeLabel(mode)}", ApgoIcons.mode(mode)) }
-                    }
-                }
-            }
-        }
-
-        Text("Win condition", fontSize = 13.sp)
-        GOALS.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { (id, title, _) -> ApgoChip(title, goal == id, { goal = id }) }
-            }
-        }
-        Text(GOALS.first { it.first == goal }.third, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-        OutlinedTextField(target, { target = it.filter(Char::isDigit) }, label = { Text("Goal target (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-
-        Text("Quests: ${trips.toInt()}", fontSize = 13.sp)
-        Slider(trips, { trips = it }, valueRange = 10f..300f)
-        Text("Difficulty mix", fontSize = 13.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Relaxed", "Balanced", "Challenging").forEachIndexed { i, t -> ApgoChip(t, preset == i, { preset = i }) }
-        }
-        Text("Minutes per difficulty tier: ${mpt.toInt()}", fontSize = 13.sp)
-        Slider(mpt, { mpt = it }, valueRange = 5f..30f)
-        Row(verticalAlignment = Alignment.CenterVertically) { Switch(fog, { fog = it }); Text("  Fog of war (discover quests)", Modifier.clickable { fog = !fog }, fontSize = 13.sp) }
-        Row(verticalAlignment = Alignment.CenterVertically) { Switch(trapsOn, { trapsOn = it }); Text("  Traps (Freeze, Leash, Detour…)", Modifier.clickable { trapsOn = !trapsOn }, fontSize = 13.sp) }
-        Row(verticalAlignment = Alignment.CenterVertically) { Switch(bonus, { bonus = it }); Text("  Bonus items (scouting, reductions)", Modifier.clickable { bonus = !bonus }, fontSize = 13.sp) }
-        Text("Terrain", fontSize = 13.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("any" to "Any", "prefer_paved" to "Prefer paved", "paved_only" to "Paved only").forEach { (id, label) ->
-                ApgoChip(label, m.surfacePref == id, { m.surfacePref = id })
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) { Switch(m.avoidStairs, { m.avoidStairs = it }); Text("  Avoid stairs", Modifier.clickable { m.avoidStairs = !m.avoidStairs }, fontSize = 13.sp) }
-        Text("Only some map data is tagged with surfaces, so \"paved\" is best effort.", fontSize = 11.sp)
-        Text("Quest types", fontSize = 13.sp)
-        FAMILIES.chunked(4).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                row.forEach { f -> ApgoChip(f, f in families, { if (f in families) families.remove(f) else families.add(f) }, textSize = 11.sp) }
-            }
-        }
-
-        val ready = zonePicks.isNotEmpty()
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(enabled = ready, onClick = { m.startSolo(opts(), zonePicks.map { it.first }, name) }) { Text("Play solo") }
-            OutlinedButton(enabled = ready, onClick = { m.exportYaml(opts()) }) { Text("Export YAML") }
-        }
-        if (!ready) Text("Add at least one zone to continue.", fontSize = 12.sp)
-
-        HorizontalDivider()
-        Text("Join an Archipelago game", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedTextField(url, { url = it }, label = { Text("Server") }, singleLine = true, modifier = Modifier.weight(1f))
-            OutlinedTextField(slot, { slot = it }, label = { Text("Slot") }, singleLine = true, modifier = Modifier.weight(1f))
-        }
-        Button(onClick = { apZoneRealms.clear(); m.connectAp(url, slot) }) { Text("Connect") }
-        Text("Status: ${m.apStatus}${m.apGoalSummary()?.let { "  ·  goal: $it" } ?: ""}", fontSize = 12.sp)
-        if (m.apZoneModes.isNotEmpty()) {
-            Text("This game needs ${m.apZoneModes.size} zone(s). Pick a matching realm for each:", fontSize = 12.sp)
-            m.apZoneModes.forEachIndexed { i, mode ->
-                val options = m.shownRealms.filter { it.scannedAtMs != null }
-                Text("Zone ${i + 1} (${modeLabel(mode)})", fontSize = 13.sp)
-                if (options.isEmpty()) Text("  no scanned $mode realm: create one first", fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    options.forEach { r ->
-                        ApgoChip(r.name, apZoneRealms.getOrNull(i) == r.id, {
-                            while (apZoneRealms.size <= i) apZoneRealms.add("")
-                            apZoneRealms[i] = r.id
-                        })
-                    }
-                }
-            }
-            val complete = apZoneRealms.size == m.apZoneModes.size && apZoneRealms.none { it.isBlank() }
-            Button(enabled = complete, onClick = { m.startApGame(apZoneRealms.toList(), "Archipelago: $slot") }) { Text("Start this game") }
-        }
-        Box(Modifier.height(24.dp))
-    }
-}
-
 // -------------------------------------------------------------------- play
 @Composable
 fun PlayScreen(m: AppModel) {
@@ -940,8 +783,23 @@ fun PlayScreen(m: AppModel) {
     val selected = m.quests.firstOrNull { it.locationId == m.selected }
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
-        Text(hud.goalLabel, style = MaterialTheme.typography.titleSmall)
-        LinearProgressIndicator(progress = { hud.goalProgress }, Modifier.fillMaxWidth())
+        if (hud.goals.size > 1) {
+            // Several goals: the rule and overall progress, then each goal with its own bar.
+            Text(hud.goalLabel.substringBefore(":"), style = MaterialTheme.typography.titleSmall)
+            LinearProgressIndicator(progress = { hud.goalProgress }, Modifier.fillMaxWidth())
+            hud.goals.forEach { g ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(if (g.achieved) ApgoIcons.Check else ApgoIcons.Play, contentDescription = if (g.achieved) "Done" else "Not done", tint = if (g.achieved) ApgoPalette.success else ApgoPalette.muted, modifier = Modifier.size(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(g.label, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        LinearProgressIndicator(progress = { g.progress }, Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        } else {
+            Text(hud.goalLabel, style = MaterialTheme.typography.titleSmall)
+            LinearProgressIndicator(progress = { hud.goalProgress }, Modifier.fillMaxWidth())
+        }
         Text(
             "Quests ${hud.done}/${hud.total} · keys ${hud.keys} · ${hud.tools.joinToString().ifBlank { "no tools" }} · letters ${hud.letters.ifBlank { "-" }} · ${"%.1f".format(hud.distanceKm)} km · streak ${hud.streakDays}d",
             fontSize = 11.sp,

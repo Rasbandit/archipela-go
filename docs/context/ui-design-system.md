@@ -30,6 +30,12 @@ panel, only a hint; Details has the half-height panel. Finds are fetched when De
 Read editor state inside click handlers, not from vals captured at composition (they can be stale by the time the lambda runs).
 Android reads a swipe that starts on a screen edge as Back: do not start drag gestures there (tests too).
 
+## Help and tooltips (ui/Help.kt, ui/HelpText.kt)
+All explanatory copy lives in `HelpText.kt` as `HelpTopic(title, body)` values under `object Help`; screens only point at a topic.
+`HelpTip(topic)` is a small ⓘ; `LabelWithHelp(text, topic)` is a label plus its ⓘ (the label can also be pressed and held). Tips are persistent
+Material rich tooltips, open one at a time, and close on a tap elsewhere. To explain something new: add a topic, then use one of the two components.
+Never write help text inline in a screen.
+
 ## Icons
 Lucide (https://lucide.dev, ISC) via `com.composables:icons-lucide-android` in `libs.versions.toml`. No emoji or glyph characters in UI text:
 add the icon to `ApgoIcons` (named by meaning, e.g. `Favorite`, not `Star`) and use it through `Icon`, `ApgoChip(icon=)`, `IconLabel` or
