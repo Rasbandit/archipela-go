@@ -226,15 +226,14 @@ fun QuestMap(
         if (style == null || centered) return@LaunchedEffect
         val pts = quests.filter { it.state != "hidden" }.mapNotNull { q -> q.anchor?.let { LatLng(it.lat, it.lon) } } + listOfNotNull(me, home)
         val realmPts = if (pts.isEmpty()) realms.flatMap { r -> r.circle?.let { listOf(LatLng(it.center.lat, it.center.lon)) } ?: r.polygon.map { LatLng(it.lat, it.lon) } } else emptyList()
-        val all = pts + realmPts
+        val all = (pts + realmPts).distinctBy { it.latitude to it.longitude }
         if (all.isEmpty()) return@LaunchedEffect
         kotlinx.coroutines.delay(400)
         mapView.post {
-            if (all.size == 1) m.moveCamera(CameraUpdateFactory.newLatLngZoom(all[0], 14.0))
-            else {
-                val b = org.maplibre.android.geometry.LatLngBounds.Builder().includes(all).build()
-                m.moveCamera(CameraUpdateFactory.newLatLngBounds(b, 60))
-            }
+            val bounds = org.maplibre.android.geometry.LatLngBounds.Builder().includes(all).build()
+            // Points that are (nearly) the same spot would zoom in to the rooftops: keep a neighbourhood view instead.
+            if (all.size == 1 || bounds.latitudeSpan < 0.004 && bounds.longitudeSpan < 0.004) m.moveCamera(CameraUpdateFactory.newLatLngZoom(bounds.center, 14.0))
+            else m.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 60))
         }
         centered = true
     }
