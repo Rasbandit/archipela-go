@@ -1,0 +1,2306 @@
+{
+ "version": 1,
+ "families": [
+  "reach",
+  "dwell",
+  "landmark",
+  "trail",
+  "park",
+  "water",
+  "courier",
+  "explore",
+  "steps",
+  "away",
+  "boss"
+ ],
+ "modes": [
+  "walk",
+  "run",
+  "bike",
+  "drive"
+ ],
+ "kinds": [
+  {
+   "id": "street_smarts",
+   "name": "Street Smarts",
+   "family": "reach",
+   "blurb": "Get to a spot on the street grid. The classic.",
+   "geom": "none",
+   "any_of": [],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 0
+  },
+  {
+   "id": "compass_rose",
+   "name": "Compass Rose",
+   "family": "reach",
+   "blurb": "Head out in a surprise compass direction from home.",
+   "geom": "none",
+   "any_of": [],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 0,
+   "sector": true
+  },
+  {
+   "id": "gallery_walls",
+   "name": "Gallery Without Walls",
+   "family": "landmark",
+   "blurb": "Find a public artwork.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "artwork"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "mural_mural",
+   "name": "Mural, Mural",
+   "family": "landmark",
+   "blurb": "Track down a mural.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "artwork"
+      ]
+     },
+     {
+      "key": "artwork_type",
+      "values": [
+       "mural"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "remember_when",
+   "name": "Remember When",
+   "family": "landmark",
+   "blurb": "Visit a memorial or monument.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "historic",
+      "values": [
+       "memorial",
+       "monument",
+       "wayside_cross",
+       "wayside_shrine"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "time_traveler",
+   "name": "Time Traveler",
+   "family": "landmark",
+   "blurb": "Stand somewhere with real history.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "historic",
+      "values": [
+       "castle",
+       "ruins",
+       "archaeological_site",
+       "fort",
+       "manor",
+       "city_gate",
+       "battlefield"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "museum_mile",
+   "name": "Museum Mile",
+   "family": "landmark",
+   "blurb": "Walk up to a museum or gallery.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "museum",
+       "gallery"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "eagle_eye",
+   "name": "Eagle Eye",
+   "family": "landmark",
+   "blurb": "Reach a marked viewpoint.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "viewpoint"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "summit_fever",
+   "name": "Summit Fever",
+   "family": "landmark",
+   "blurb": "Bag a named peak.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "natural",
+      "values": [
+       "peak"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "chasing_waterfalls",
+   "name": "Chasing Waterfalls",
+   "family": "landmark",
+   "blurb": "Go see a waterfall.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "waterway",
+      "values": [
+       "waterfall"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "bridge_troll",
+   "name": "Bridge Troll",
+   "family": "landmark",
+   "blurb": "Cross paths with a bridge.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "man_made",
+      "values": [
+       "bridge"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "tower_defense",
+   "name": "Tower Defense",
+   "family": "landmark",
+   "blurb": "Defend your honor at the base of a tower.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "man_made",
+      "values": [
+       "tower",
+       "water_tower"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "lighthouse_keeper",
+   "name": "Lighthouse Keeper",
+   "family": "landmark",
+   "blurb": "Visit a lighthouse.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "man_made",
+      "values": [
+       "lighthouse"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "flag_day",
+   "name": "Flag Day",
+   "family": "landmark",
+   "blurb": "Salute a flagpole.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "man_made",
+      "values": [
+       "flagpole"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "hydrant_hunter",
+   "name": "Hydrant Hunter",
+   "family": "landmark",
+   "blurb": "Find a fire hydrant. Works almost anywhere with a town.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "emergency",
+      "values": [
+       "fire_hydrant"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "rack_em_up",
+   "name": "Rack 'Em Up",
+   "family": "landmark",
+   "blurb": "Visit a bike rack.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "bicycle_parking"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "mailbox_maven",
+   "name": "Mailbox Maven",
+   "family": "landmark",
+   "blurb": "Locate a post box.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "post_box"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "tree_hugger",
+   "name": "Tree Hugger",
+   "family": "landmark",
+   "blurb": "Find a notable mapped tree.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "natural",
+      "values": [
+       "tree"
+      ]
+     },
+     {
+      "key": "denotation",
+      "values": [
+       "*"
+      ]
+     }
+    ],
+    [
+     {
+      "key": "natural",
+      "values": [
+       "tree"
+      ]
+     },
+     {
+      "key": "name",
+      "values": [
+       "*"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "nothing_but_net",
+   "name": "Nothing But Net",
+   "family": "landmark",
+   "blurb": "Visit a basketball court.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "pitch"
+      ]
+     },
+     {
+      "key": "sport",
+      "values": [
+       "basketball"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "love_all",
+   "name": "Love All",
+   "family": "landmark",
+   "blurb": "Visit a tennis court.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "pitch"
+      ]
+     },
+     {
+      "key": "sport",
+      "values": [
+       "tennis"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "dill_with_it",
+   "name": "Dill With It",
+   "family": "landmark",
+   "blurb": "Visit a pickleball court.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "pitch"
+      ]
+     },
+     {
+      "key": "sport",
+      "values": [
+       "pickleball"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "court_jester",
+   "name": "Court Jester",
+   "family": "landmark",
+   "blurb": "Visit any sports pitch.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "pitch"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "game_day",
+   "name": "Game Day",
+   "family": "landmark",
+   "blurb": "Visit a stadium.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "stadium"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "outdoor_gym",
+   "name": "Outdoor Gym",
+   "family": "landmark",
+   "blurb": "Find an outdoor fitness station.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "fitness_station"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "quiet_please",
+   "name": "Quiet Please",
+   "family": "landmark",
+   "blurb": "Visit a library.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "library"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "steeple_chase",
+   "name": "Steeple Chase",
+   "family": "landmark",
+   "blurb": "Chase down a place of worship.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "place_of_worship"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "make_a_wish",
+   "name": "Make a Wish",
+   "family": "landmark",
+   "blurb": "Visit a public fountain.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "fountain"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "brain_freeze",
+   "name": "Brain Freeze",
+   "family": "landmark",
+   "blurb": "Walk up to an ice cream shop.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "ice_cream"
+      ]
+     }
+    ],
+    [
+     {
+      "key": "shop",
+      "values": [
+       "ice_cream"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "rise_and_shine",
+   "name": "Rise and Shine",
+   "family": "landmark",
+   "blurb": "Visit a bakery.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "shop",
+      "values": [
+       "bakery"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "caffeine_quest",
+   "name": "Caffeine Quest",
+   "family": "landmark",
+   "blurb": "Visit a cafe.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "cafe"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "market_day",
+   "name": "Market Day",
+   "family": "landmark",
+   "blurb": "Visit a marketplace.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "marketplace"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "wild_side",
+   "name": "Wild Side",
+   "family": "landmark",
+   "blurb": "Visit a zoo or aquarium.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "zoo",
+       "aquarium"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "thrill_seeker",
+   "name": "Thrill Seeker",
+   "family": "landmark",
+   "blurb": "Reach a theme park.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "theme_park"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "merry_go_round",
+   "name": "Merry-Go-Round",
+   "family": "landmark",
+   "blurb": "Find a carousel.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "attraction",
+      "values": [
+       "carousel"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "lost_in_the_maze",
+   "name": "Lost in the Maze",
+   "family": "landmark",
+   "blurb": "Find a maze.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "attraction",
+      "values": [
+       "maze"
+      ]
+     }
+    ],
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "maze"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "sand_between_toes",
+   "name": "Sand Between Toes",
+   "family": "landmark",
+   "blurb": "Reach a beach.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "natural",
+      "values": [
+       "beach"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "spring_fling",
+   "name": "Spring Fling",
+   "family": "landmark",
+   "blurb": "Find a natural spring.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "natural",
+      "values": [
+       "spring"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "dam_good_walk",
+   "name": "Dam Good Walk",
+   "family": "landmark",
+   "blurb": "Visit a dam.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "waterway",
+      "values": [
+       "dam"
+      ]
+     }
+    ],
+    [
+     {
+      "key": "man_made",
+      "values": [
+       "dam"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "grape_expectations",
+   "name": "Grape Expectations",
+   "family": "landmark",
+   "blurb": "Visit a winery or vineyard.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "landuse",
+      "values": [
+       "vineyard"
+      ]
+     }
+    ],
+    [
+     {
+      "key": "craft",
+      "values": [
+       "winery"
+      ]
+     }
+    ],
+    [
+     {
+      "key": "shop",
+      "values": [
+       "wine"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "bus_stop_bingo",
+   "name": "Bus Stop Bingo",
+   "family": "landmark",
+   "blurb": "Hit a bus stop.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "highway",
+      "values": [
+       "bus_stop"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "all_aboard",
+   "name": "All Aboard",
+   "family": "landmark",
+   "blurb": "Visit a train or tram stop.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "railway",
+      "values": [
+       "station",
+       "halt",
+       "tram_stop"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "know_your_block",
+   "name": "Know Your Block",
+   "family": "landmark",
+   "blurb": "Reach a named neighbourhood's centre.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "place",
+      "values": [
+       "neighbourhood",
+       "suburb",
+       "quarter"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "reach",
+    "radius_m": 60
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "pit_stop",
+   "name": "Pit Stop",
+   "family": "landmark",
+   "blurb": "Locate a public restroom.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "toilets"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "hydration_station",
+   "name": "Hydration Station",
+   "family": "landmark",
+   "blurb": "Find drinking water.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "drinking_water"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "plug_in",
+   "name": "Plug In",
+   "family": "landmark",
+   "blurb": "Visit an EV charging station.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "charging_station"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "camp_out",
+   "name": "Camp Out",
+   "family": "landmark",
+   "blurb": "Visit a campsite.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "camp_site",
+       "caravan_site"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "hut_to_hut",
+   "name": "Hut to Hut",
+   "family": "landmark",
+   "blurb": "Reach a mountain hut.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "alpine_hut",
+       "wilderness_hut"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "spelunker",
+   "name": "Spelunker",
+   "family": "landmark",
+   "blurb": "Find a cave entrance.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "natural",
+      "values": [
+       "cave_entrance"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "hot_stuff",
+   "name": "Hot Stuff",
+   "family": "landmark",
+   "blurb": "Find a hot spring.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "natural",
+      "values": [
+       "hot_spring"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "campus_crawl",
+   "name": "Campus Crawl",
+   "family": "landmark",
+   "blurb": "Visit a college campus.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "university",
+       "college"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "reach",
+    "radius_m": 60
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "dock_of_the_bay",
+   "name": "Dock of the Bay",
+   "family": "landmark",
+   "blurb": "Visit a marina.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "marina"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "reach",
+    "radius_m": 60
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "bench_warmer",
+   "name": "Bench Warmer",
+   "family": "dwell",
+   "blurb": "Sit on a bench for a few minutes.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "bench"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "dwell",
+    "minutes": 3,
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "picnic_break",
+   "name": "Picnic Break",
+   "family": "dwell",
+   "blurb": "Take a break at a picnic spot.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "picnic_site"
+      ]
+     }
+    ],
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "picnic_table"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "dwell",
+    "minutes": 5,
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "under_the_roof",
+   "name": "Under the Roof",
+   "family": "dwell",
+   "blurb": "Wait out a few minutes in a shelter.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "amenity",
+      "values": [
+       "shelter"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "dwell",
+    "minutes": 3,
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "swing_time",
+   "name": "Swing Time",
+   "family": "dwell",
+   "blurb": "Hang out at a playground.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "playground"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "dwell",
+    "minutes": 3,
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "scenic_pause",
+   "name": "Scenic Pause",
+   "family": "dwell",
+   "blurb": "Stay a while at a viewpoint.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "viewpoint"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "dwell",
+    "minutes": 3,
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "soak_it_in",
+   "name": "Soak It In",
+   "family": "dwell",
+   "blurb": "Linger at a named attraction.",
+   "geom": "point",
+   "any_of": [
+    [
+     {
+      "key": "tourism",
+      "values": [
+       "attraction"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "dwell",
+    "minutes": 3,
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "take_five",
+   "name": "Take Five",
+   "family": "dwell",
+   "blurb": "Stand still outdoors for five minutes, anywhere.",
+   "geom": "none",
+   "any_of": [],
+   "require_name": false,
+   "verify": {
+    "type": "dwell",
+    "minutes": 5,
+    "radius_m": 40
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 0
+  },
+  {
+   "id": "touch_grass",
+   "name": "Touch Grass",
+   "family": "park",
+   "blurb": "Spend a few minutes inside a park.",
+   "geom": "area",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "park",
+       "nature_reserve",
+       "common",
+       "recreation_ground"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "dwell_in_area",
+    "minutes": 3
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "dog_days",
+   "name": "Dog Days",
+   "family": "park",
+   "blurb": "Visit a dog park.",
+   "geom": "area",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "dog_park"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "dwell_in_area",
+    "minutes": 3
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "garden_party",
+   "name": "Garden Party",
+   "family": "park",
+   "blurb": "Visit a public named garden.",
+   "geom": "area",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "garden"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "dwell_in_area",
+    "minutes": 3
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1,
+   "none_of": [
+    {
+     "key": "access",
+     "values": [
+      "private",
+      "no"
+     ]
+    },
+    {
+     "key": "garden:type",
+     "values": [
+      "residential"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "wild_things",
+   "name": "Wild Things",
+   "family": "park",
+   "blurb": "Spend time in a protected area.",
+   "geom": "area",
+   "any_of": [
+    [
+     {
+      "key": "boundary",
+      "values": [
+       "protected_area"
+      ]
+     }
+    ],
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "nature_reserve"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "dwell_in_area",
+    "minutes": 5
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "perimeter_patrol",
+   "name": "Perimeter Patrol",
+   "family": "park",
+   "blurb": "Walk the whole outline of a park.",
+   "geom": "line",
+   "any_of": [
+    [
+     {
+      "key": "leisure",
+      "values": [
+       "park"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "follow_line",
+    "corridor_m": 25,
+    "coverage": 0.85,
+    "min_len_m": 300,
+    "max_len_m": 6000
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1,
+   "outline": true
+  },
+  {
+   "id": "trail_boss",
+   "name": "Trail Boss",
+   "family": "trail",
+   "blurb": "Walk a named trail end to end.",
+   "geom": "line",
+   "any_of": [
+    [
+     {
+      "key": "highway",
+      "values": [
+       "path",
+       "footway",
+       "track"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "follow_line",
+    "corridor_m": 25,
+    "coverage": 0.9,
+    "min_len_m": 800,
+    "max_len_m": 15000
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1,
+   "none_of": [
+    {
+     "key": "footway",
+     "values": [
+      "sidewalk",
+      "crossing"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "full_circle",
+   "name": "Full Circle",
+   "family": "trail",
+   "blurb": "Complete a loop trail.",
+   "geom": "line",
+   "any_of": [
+    [
+     {
+      "key": "highway",
+      "values": [
+       "path",
+       "footway",
+       "track"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "follow_line",
+    "corridor_m": 25,
+    "coverage": 0.9,
+    "min_len_m": 600,
+    "max_len_m": 10000
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1,
+   "none_of": [
+    {
+     "key": "footway",
+     "values": [
+      "sidewalk",
+      "crossing"
+     ]
+    }
+   ],
+   "closed": true
+  },
+  {
+   "id": "pedal_pusher",
+   "name": "Pedal Pusher",
+   "family": "trail",
+   "blurb": "Ride a named cycle route.",
+   "geom": "line",
+   "any_of": [
+    [
+     {
+      "key": "highway",
+      "values": [
+       "cycleway"
+      ]
+     }
+    ],
+    [
+     {
+      "key": "route",
+      "values": [
+       "bicycle",
+       "mtb"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "follow_line",
+    "corridor_m": 25,
+    "coverage": 0.9,
+    "min_len_m": 1500,
+    "max_len_m": 40000
+   },
+   "modes": [
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "ridge_runner",
+   "name": "Ridge Runner",
+   "family": "trail",
+   "blurb": "Follow a ridge line.",
+   "geom": "line",
+   "any_of": [
+    [
+     {
+      "key": "natural",
+      "values": [
+       "ridge"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "follow_line",
+    "corridor_m": 30,
+    "coverage": 0.8,
+    "min_len_m": 500,
+    "max_len_m": 10000
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "stairmaster",
+   "name": "Stairmaster",
+   "family": "trail",
+   "blurb": "Climb a flight of public stairs.",
+   "geom": "line",
+   "any_of": [
+    [
+     {
+      "key": "highway",
+      "values": [
+       "steps"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "follow_line",
+    "corridor_m": 15,
+    "coverage": 0.8,
+    "min_len_m": 20,
+    "max_len_m": 400
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "follow_the_flow",
+   "name": "Follow the Flow",
+   "family": "water",
+   "blurb": "Follow a stream or river.",
+   "geom": "line",
+   "any_of": [
+    [
+     {
+      "key": "waterway",
+      "values": [
+       "stream",
+       "river"
+      ]
+     }
+    ]
+   ],
+   "require_name": true,
+   "verify": {
+    "type": "follow_line",
+    "corridor_m": 40,
+    "coverage": 0.8,
+    "min_len_m": 500,
+    "max_len_m": 10000
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "towpath_tour",
+   "name": "Towpath Tour",
+   "family": "water",
+   "blurb": "Follow a canal.",
+   "geom": "line",
+   "any_of": [
+    [
+     {
+      "key": "waterway",
+      "values": [
+       "canal"
+      ]
+     }
+    ]
+   ],
+   "require_name": false,
+   "verify": {
+    "type": "follow_line",
+    "corridor_m": 40,
+    "coverage": 0.8,
+    "min_len_m": 500,
+    "max_len_m": 10000
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 1
+  },
+  {
+   "id": "special_delivery",
+   "name": "Special Delivery",
+   "family": "courier",
+   "blurb": "Pick up at A, deliver to B before time runs out.",
+   "geom": "none",
+   "any_of": [],
+   "require_name": false,
+   "verify": {
+    "type": "courier",
+    "legs": 2
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 0
+  },
+  {
+   "id": "there_and_back",
+   "name": "There and Back Again",
+   "family": "courier",
+   "blurb": "Go out far, then return home within the time limit.",
+   "geom": "none",
+   "any_of": [],
+   "require_name": false,
+   "verify": {
+    "type": "round_trip"
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 0
+  },
+  {
+   "id": "cartographer",
+   "name": "Cartographer",
+   "family": "explore",
+   "blurb": "Reveal a handful of new map cells by walking them.",
+   "geom": "none",
+   "any_of": [],
+   "require_name": false,
+   "verify": {
+    "type": "cover_cells",
+    "cells": 8,
+    "cell_m": 150
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 0
+  },
+  {
+   "id": "step_up",
+   "name": "Step Up",
+   "family": "steps",
+   "blurb": "Rack up steps (counts on the phone's step sensor).",
+   "geom": "none",
+   "any_of": [],
+   "require_name": false,
+   "verify": {
+    "type": "steps",
+    "steps": 2000
+   },
+   "modes": [
+    "walk",
+    "run"
+   ],
+   "min_features": 0
+  },
+  {
+   "id": "wanderlust",
+   "name": "Wanderlust",
+   "family": "away",
+   "blurb": "Spend time well away from home.",
+   "geom": "none",
+   "any_of": [],
+   "require_name": false,
+   "verify": {
+    "type": "away",
+    "min_distance_m": 1000,
+    "minutes": 60
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 0
+  },
+  {
+   "id": "the_big_one",
+   "name": "The Big One",
+   "family": "boss",
+   "blurb": "The hardest thing your realm offers.",
+   "geom": "none",
+   "any_of": [],
+   "require_name": false,
+   "verify": {
+    "type": "boss"
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike",
+    "drive"
+   ],
+   "min_features": 0
+  }
+ ]
+}

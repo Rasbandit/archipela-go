@@ -1,6 +1,6 @@
 //! Play zones: where the game may place trips.
 
-use crate::geo::{distance_m, Point};
+use crate::geo::{distance_m, point_in_polygon, Point};
 
 #[derive(Debug, Clone)]
 pub enum Zone {
@@ -70,18 +70,4 @@ impl Zone {
             }
         }
     }
-}
-
-/// Ray casting on lat/lon (planar; fine at city scale).
-fn point_in_polygon(p: Point, v: &[Point]) -> bool {
-    let mut inside = false;
-    let mut j = v.len().wrapping_sub(1);
-    for i in 0..v.len() {
-        let (a, b) = (v[i], v[j]);
-        if (a.lat > p.lat) != (b.lat > p.lat) && p.lon < (b.lon - a.lon) * (p.lat - a.lat) / (b.lat - a.lat) + a.lon {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
 }
