@@ -334,7 +334,7 @@ mod tests {
     }
 
     fn realm(mode: Mode) -> Realm {
-        Realm { id: "r".into(), name: "R".into(), mode, shape: Shape::Circle { center: home(), radius_m: 9000.0 }, scanned_at_ms: None }
+        Realm { id: "r".into(), name: "R".into(), mode, shape: Shape::Circle { center: home(), radius_m: 9000.0 }, spare: None, scanned_at_ms: None }
     }
 
     fn feature(id: &str, tags: &[(&str, &str)], p: Point, geometry: Vec<Point>) -> Feature {

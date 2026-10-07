@@ -24,7 +24,8 @@ fn main() {
     let catalog = Catalog::builtin();
     let cache = std::env::temp_dir().join("apgo-playsim-cache");
 
-    let realm = Realm { id: "r".into(), name: "Sim realm".into(), mode, shape: Shape::Circle { center: home, radius_m: radius }, scanned_at_ms: None };
+    let realm =
+        Realm { id: "r".into(), name: "Sim realm".into(), mode, shape: Shape::Circle { center: home, radius_m: radius }, spare: None, scanned_at_ms: None };
     let t0 = Instant::now();
     let atlas = scan_realm(&realm, &catalog, Some(&cache), 0).expect("scan");
     println!(

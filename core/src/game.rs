@@ -535,7 +535,14 @@ mod tests {
     }
 
     fn realm(id: &str, mode: Mode) -> (Realm, Atlas) {
-        let r = Realm { id: id.into(), name: format!("Realm {id}"), mode, shape: Shape::Circle { center: home(), radius_m: 6000.0 }, scanned_at_ms: None };
+        let r = Realm {
+            id: id.into(),
+            name: format!("Realm {id}"),
+            mode,
+            shape: Shape::Circle { center: home(), radius_m: 6000.0 },
+            spare: None,
+            scanned_at_ms: None,
+        };
         let mut streets = Vec::new();
         for n in -40..=40 {
             for e in -40..=40 {

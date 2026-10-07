@@ -40,8 +40,12 @@ pub struct RealmOut {
     pub id: String,
     pub name: String,
     pub mode: String,
+    /// The circle if the realm has one (active or kept in reserve).
     pub circle: Option<CircleOut>,
+    /// The polygon corners (empty if none), active or kept in reserve.
     pub polygon: Vec<GeoPoint>,
+    /// Which of the two is the realm's real outline.
+    pub polygon_active: bool,
     pub scanned_at_ms: Option<u64>,
     pub places: u32,
     /// Set when a scan stopped early (slow public map servers); Rescan continues from the cache.
@@ -285,26 +289,47 @@ impl Engine {
             .list()
             .into_iter()
             .map(|r| {
-                let (circle, polygon) = match &r.shape {
-                    Shape::Circle { center, radius_m } => (Some(CircleOut { center: gp(*center), radius_m: *radius_m }), vec![]),
-                    Shape::Polygon { vertices } => (None, vertices.iter().map(|p| gp(*p)).collect()),
-                };
+                let circle = r.circle().map(|(center, radius_m)| CircleOut { center: gp(center), radius_m });
+                let polygon: Vec<GeoPoint> = r.polygon().unwrap_or_default().iter().map(|p| gp(*p)).collect();
+                let polygon_active = r.polygon_active();
                 let atlas = store.load_atlas(&r.id);
                 let places = atlas.as_ref().map_or(0, |a| a.features.len() as u32);
                 let warning = atlas.and_then(|a| a.warnings.first().cloned());
-                RealmOut { id: r.id, name: r.name, mode: r.mode.name().into(), circle, polygon, scanned_at_ms: r.scanned_at_ms, places, warning }
+                RealmOut {
+                    id: r.id,
+                    name: r.name,
+                    mode: r.mode.name().into(),
+                    circle,
+                    polygon,
+                    polygon_active,
+                    scanned_at_ms: r.scanned_at_ms,
+                    places,
+                    warning,
+                }
             })
             .collect()
     }
 
-    pub fn save_realm(&self, id: String, name: String, mode: String, circle: Option<CircleOut>, polygon: Vec<GeoPoint>) -> Result<(), CoreError> {
+    /// Saves a realm with both outlines it has; `polygon_active` picks the real one, the other is kept in reserve.
+    pub fn save_realm(
+        &self,
+        id: String,
+        name: String,
+        mode: String,
+        circle: Option<CircleOut>,
+        polygon: Vec<GeoPoint>,
+        polygon_active: bool,
+    ) -> Result<(), CoreError> {
         let mode = Mode::parse(&mode).ok_or_else(|| err(format!("unknown mode {mode}")))?;
-        let shape = match circle {
-            Some(c) => Shape::Circle { center: pt(&c.center), radius_m: c.radius_m },
-            None => Shape::Polygon { vertices: polygon.iter().map(pt).collect() },
+        let circle = circle.map(|c| Shape::Circle { center: pt(&c.center), radius_m: c.radius_m });
+        let polygon = (!polygon.is_empty()).then(|| Shape::Polygon { vertices: polygon.iter().map(pt).collect() });
+        let (shape, spare) = match (polygon_active, circle, polygon) {
+            (true, c, Some(p)) => (p, c),
+            (false, Some(c), p) => (c, p),
+            _ => return Err(err("the active outline is missing")),
         };
         let prev = self.store().get(&id);
-        self.store().save(&Realm { id, name, mode, shape, scanned_at_ms: prev.and_then(|p| p.scanned_at_ms) }).map_err(err)
+        self.store().save(&Realm { id, name, mode, shape, spare, scanned_at_ms: prev.and_then(|p| p.scanned_at_ms) }).map_err(err)
     }
 
     pub fn delete_realm(&self, id: String) -> Result<(), CoreError> {

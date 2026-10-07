@@ -44,9 +44,39 @@ pub struct Realm {
     pub id: String,
     pub name: String,
     pub mode: Mode,
+    /// The active shape: the one scanned and played in.
     pub shape: Shape,
+    /// The other kind of shape (circle or polygon), kept so switching back and forth in the editor loses no work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spare: Option<Shape>,
     #[serde(default)]
     pub scanned_at_ms: Option<u64>,
+}
+
+impl Realm {
+    fn each_shape(&self) -> impl Iterator<Item = &Shape> {
+        std::iter::once(&self.shape).chain(self.spare.iter())
+    }
+
+    /// The circle (center, radius in metres), whether active or kept in reserve.
+    pub fn circle(&self) -> Option<(Point, f64)> {
+        self.each_shape().find_map(|s| match s {
+            Shape::Circle { center, radius_m } => Some((*center, *radius_m)),
+            Shape::Polygon { .. } => None,
+        })
+    }
+
+    /// The polygon corners, whether active or kept in reserve.
+    pub fn polygon(&self) -> Option<&[Point]> {
+        self.each_shape().find_map(|s| match s {
+            Shape::Polygon { vertices } => Some(vertices.as_slice()),
+            Shape::Circle { .. } => None,
+        })
+    }
+
+    pub fn polygon_active(&self) -> bool {
+        matches!(self.shape, Shape::Polygon { .. })
+    }
 }
 
 /// Files under one directory: `realms.json`, `home.json`, `atlas/<realm id>.json`.
@@ -142,8 +172,37 @@ mod tests {
             name: "Home Turf".into(),
             mode: Mode::Walk,
             shape: Shape::Circle { center: Point::new(40.0, -111.0), radius_m: 1500.0 },
+            spare: None,
             scanned_at_ms: None,
         }
+    }
+
+    #[test]
+    fn a_realm_keeps_both_shapes_but_only_one_is_active() {
+        let tri = vec![Point::new(40.0, -111.0), Point::new(40.0, -110.99), Point::new(40.01, -111.0)];
+        let mut r = realm("a"); // active circle
+        assert!(r.circle().is_some() && r.polygon().is_none() && !r.polygon_active());
+        r.spare = Some(Shape::Polygon { vertices: tri.clone() });
+        assert_eq!(r.polygon().unwrap(), tri.as_slice());
+        assert_eq!(r.circle().unwrap().1, 1500.0);
+        assert!(!r.polygon_active());
+        // The scan zone is the active shape only.
+        assert!(matches!(r.shape.to_zone(), Zone::Circle { .. }));
+
+        let store = RealmStore::new(tmp("spare"));
+        store.save(&r).unwrap();
+        let back = store.get("a").unwrap();
+        assert_eq!(back.polygon().unwrap().len(), 3, "the inactive shape survives a save and reload");
+    }
+
+    #[test]
+    fn realms_saved_before_spare_shapes_still_load() {
+        let old = r#"[{"id":"a","name":"Old","mode":"walk","shape":{"kind":"circle","center":{"lat":40.0,"lon":-111.0},"radius_m":900.0},"scanned_at_ms":5}]"#;
+        let dir = tmp("legacy");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("realms.json"), old).unwrap();
+        let r = RealmStore::new(&dir).get("a").unwrap();
+        assert!(r.spare.is_none() && r.circle().is_some() && r.polygon().is_none());
     }
 
     #[test]
