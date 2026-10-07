@@ -7,7 +7,8 @@ use apgo_core::assign::SurfacePref;
 use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Mode};
 use apgo_core::game::{Backend, Event, Game, NewGame, QuestState};
-use apgo_core::geo::Point;
+use apgo_core::geo::{distance_m, Point};
+use apgo_core::marks::Mark;
 use apgo_core::realm::{Realm, RealmStore, Shape};
 use apgo_core::scan::{scan_realm, Atlas};
 use apgo_core::slot::SlotData;
@@ -50,6 +51,21 @@ pub struct RealmOut {
     pub places: u32,
     /// Set when a scan stopped early (slow public map servers); Rescan continues from the cache.
     pub warning: Option<String>,
+}
+
+/// One scanned place a realm can use for quests, with the player's mark on it.
+#[derive(Debug, uniffi::Record)]
+pub struct PlaceOut {
+    pub id: String,
+    /// The place's own name, or the name of its first quest kind when it has none ("Bench").
+    pub name: String,
+    pub named: bool,
+    /// Names of the quest kinds this place can serve.
+    pub kinds: Vec<String>,
+    pub at: GeoPoint,
+    pub distance_m: f64,
+    /// "none" | "favorite" | "banned"
+    pub mark: String,
 }
 
 #[derive(Debug, uniffi::Record)]
@@ -246,7 +262,8 @@ impl Engine {
         ids.iter()
             .map(|id| {
                 let r = store.get(id).ok_or_else(|| err(format!("realm {id} not found")))?;
-                let a = store.load_atlas(id).ok_or_else(|| err(format!("realm \"{}\" has not been scanned yet", r.name)))?;
+                let mut a = store.load_atlas(id).ok_or_else(|| err(format!("realm \"{}\" has not been scanned yet", r.name)))?;
+                a.apply_marks(&store.marks(id)); // banned places are left out, favorites are preferred
                 Ok((r, a))
             })
             .collect()
@@ -350,9 +367,63 @@ impl Engine {
     pub fn realm_offers(&self, id: String) -> Vec<OfferOut> {
         let store = self.store();
         match (store.get(&id), store.load_atlas(&id)) {
-            (Some(r), Some(a)) => self.offers_of(&r, &a),
+            (Some(r), Some(mut a)) => {
+                a.apply_marks(&store.marks(&id));
+                self.offers_of(&r, &a)
+            }
             _ => vec![],
         }
+    }
+
+    /// Every scanned place that can serve a quest, with the player's mark on it, nearest first.
+    pub fn realm_places(&self, id: String) -> Vec<PlaceOut> {
+        let store = self.store();
+        let (Some(realm), Some(atlas)) = (store.get(&id), store.load_atlas(&id)) else { return vec![] };
+        let marks = store.marks(&id);
+        let home = store.home().unwrap_or_else(|| realm.shape.center());
+        let mut kinds_of: std::collections::BTreeMap<usize, Vec<String>> = std::collections::BTreeMap::new();
+        for (kind_id, idxs) in &atlas.matches {
+            let Some(kind) = self.catalog.kind(kind_id).filter(|k| k.allows(realm.mode)) else { continue };
+            for &i in idxs {
+                kinds_of.entry(i).or_default().push(kind.name.clone());
+            }
+        }
+        let mut out: Vec<PlaceOut> = kinds_of
+            .into_iter()
+            .map(|(i, kinds)| {
+                let f = &atlas.features[i];
+                PlaceOut {
+                    id: f.id.clone(),
+                    name: f.name.clone().unwrap_or_else(|| kinds[0].clone()),
+                    named: f.name.is_some(),
+                    at: gp(f.point),
+                    distance_m: distance_m(home, f.point),
+                    mark: match marks.get(&f.id) {
+                        Mark::None => "none",
+                        Mark::Favorite => "favorite",
+                        Mark::Banned => "banned",
+                    }
+                    .into(),
+                    kinds,
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| a.distance_m.total_cmp(&b.distance_m));
+        out
+    }
+
+    /// `mark` is "none", "favorite" or "banned". Takes effect the next time quests are made or re-rolled.
+    pub fn set_place_mark(&self, realm_id: String, place_id: String, mark: String) -> Result<(), CoreError> {
+        let mark = match mark.as_str() {
+            "none" => Mark::None,
+            "favorite" => Mark::Favorite,
+            "banned" => Mark::Banned,
+            other => return Err(err(format!("unknown mark {other}"))),
+        };
+        let store = self.store();
+        let mut marks = store.marks(&realm_id);
+        marks.set(&place_id, mark);
+        store.save_marks(&realm_id, &marks).map_err(err)
     }
 
     pub fn home(&self) -> Option<GeoPoint> {
