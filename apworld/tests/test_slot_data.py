@@ -92,3 +92,11 @@ def test_schema_rejects_bad_data() -> None:
     broken = {**data, "trips": [{**data["trips"][0], "effort_tier": 11}]}  # type: ignore[index]
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(broken, SCHEMA)
+
+
+def test_committed_sample_matches_schema() -> None:
+    sample = json.loads((Path(__file__).parents[1] / "docs" / "slot_data.sample.json").read_text())
+    jsonschema.validate(sample, SCHEMA)
+    assert sample["boss"] is not None
+    assert [z["mode"] for z in sample["zones"]] == ["walk", "bike", "drive"]
+    assert len(sample["trips"]) == 60

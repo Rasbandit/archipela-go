@@ -1,0 +1,23 @@
+# Sample player YAML for Archipela-Go 2: Electric Boogaloo (apworld v2).
+name: Tester
+game: "Archipela-Go 2: Electric Boogaloo"
+"Archipela-Go 2: Electric Boogaloo":
+  goal: boss
+  goal_target: 0
+  number_of_trips: 60
+  zone_modes: [walk, bike, drive]
+  easy_share: 50
+  medium_share: 35
+  hard_share: 15
+  minutes_per_tier: 10
+  minimum_distance: 150
+  quest_types: [reach, dwell, landmark, courier, away, explore, trail, water, park, steps]
+  enabled_traps: [freeze, fog, shuffle, silence, leash, detour, toll, slow, honor]
+  trap_rate: 30
+  enable_effort_reductions: true
+  enable_scouting_distance_bonuses: true
+  enable_collection_distance_bonuses: true
+  reduction_percent: 8
+  fog_of_war: false
+  return_home: false
+  death_link: false
