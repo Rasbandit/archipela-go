@@ -126,8 +126,8 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     }
 
     /** Favorite or ban a scanned place ("none" clears it). Offers update now; quests change the next time they are made or re-rolled. */
-    fun setPlaceMark(realmId: String, placeId: String, mark: String): Boolean =
-        runCatching { engine.setPlaceMark(realmId, placeId, mark) }
+    fun setFindMark(realmId: String, placeId: String, mark: String): Boolean =
+        runCatching { engine.setFindMark(realmId, placeId, mark) }
             .onSuccess { offers[realmId] = engine.realmOffers(realmId) }
             .onFailure { status = "Could not save: ${it.message}" }
             .isSuccess

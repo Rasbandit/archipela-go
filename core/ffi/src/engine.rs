@@ -53,15 +53,18 @@ pub struct RealmOut {
     pub warning: Option<String>,
 }
 
-/// One scanned place a realm can use for quests, with the player's mark on it.
+/// One find: a scanned spot a realm can use for quests, with the player's mark on it.
 #[derive(Debug, uniffi::Record)]
-pub struct PlaceOut {
+pub struct FindOut {
     pub id: String,
-    /// The place's own name, or the name of its first quest kind when it has none ("Bench").
+    /// The find's own name, or the name of its first quest kind when it has none ("Bench Warmer").
     pub name: String,
     pub named: bool,
-    /// Names of the quest kinds this place can serve.
+    /// Names of the quest kinds this find can serve.
     pub kinds: Vec<String>,
+    /// The first quest kind's id and family, for choosing an icon.
+    pub kind_id: String,
+    pub family: String,
     pub at: GeoPoint,
     pub distance_m: f64,
     /// "none" | "favorite" | "banned"
@@ -136,6 +139,7 @@ pub struct QuestOut {
     pub name: String,
     pub place: String,
     pub family: String,
+    pub kind_id: String,
     pub difficulty: String,
     pub tier: u8,
     pub effort_min: f64,
@@ -375,27 +379,29 @@ impl Engine {
         }
     }
 
-    /// Every scanned place that can serve a quest, with the player's mark on it, nearest first.
-    pub fn realm_places(&self, id: String) -> Vec<PlaceOut> {
+    /// Every find in a realm (a scanned spot that can serve a quest), with the player's mark on it, nearest first.
+    pub fn realm_finds(&self, id: String) -> Vec<FindOut> {
         let store = self.store();
         let (Some(realm), Some(atlas)) = (store.get(&id), store.load_atlas(&id)) else { return vec![] };
         let marks = store.marks(&id);
         let home = store.home().unwrap_or_else(|| realm.shape.center());
-        let mut kinds_of: std::collections::BTreeMap<usize, Vec<String>> = std::collections::BTreeMap::new();
+        let mut kinds_of: std::collections::BTreeMap<usize, Vec<(String, String, String)>> = std::collections::BTreeMap::new();
         for (kind_id, idxs) in &atlas.matches {
             let Some(kind) = self.catalog.kind(kind_id).filter(|k| k.allows(realm.mode)) else { continue };
             for &i in idxs {
-                kinds_of.entry(i).or_default().push(kind.name.clone());
+                kinds_of.entry(i).or_default().push((kind.id.clone(), kind.name.clone(), kind.family.clone()));
             }
         }
-        let mut out: Vec<PlaceOut> = kinds_of
+        let mut out: Vec<FindOut> = kinds_of
             .into_iter()
             .map(|(i, kinds)| {
                 let f = &atlas.features[i];
-                PlaceOut {
+                FindOut {
                     id: f.id.clone(),
-                    name: f.name.clone().unwrap_or_else(|| kinds[0].clone()),
+                    name: f.name.clone().unwrap_or_else(|| kinds[0].1.clone()),
                     named: f.name.is_some(),
+                    kind_id: kinds[0].0.clone(),
+                    family: kinds[0].2.clone(),
                     at: gp(f.point),
                     distance_m: distance_m(home, f.point),
                     mark: match marks.get(&f.id) {
@@ -404,7 +410,7 @@ impl Engine {
                         Mark::Banned => "banned",
                     }
                     .into(),
-                    kinds,
+                    kinds: kinds.into_iter().map(|(_, name, _)| name).collect(),
                 }
             })
             .collect();
@@ -413,7 +419,7 @@ impl Engine {
     }
 
     /// `mark` is "none", "favorite" or "banned". Takes effect the next time quests are made or re-rolled.
-    pub fn set_place_mark(&self, realm_id: String, place_id: String, mark: String) -> Result<(), CoreError> {
+    pub fn set_find_mark(&self, realm_id: String, find_id: String, mark: String) -> Result<(), CoreError> {
         let mark = match mark.as_str() {
             "none" => Mark::None,
             "favorite" => Mark::Favorite,
@@ -422,7 +428,7 @@ impl Engine {
         };
         let store = self.store();
         let mut marks = store.marks(&realm_id);
-        marks.set(&place_id, mark);
+        marks.set(&find_id, mark);
         store.save_marks(&realm_id, &marks).map_err(err)
     }
 
@@ -563,6 +569,7 @@ impl Engine {
                         name: q.name,
                         place: q.place,
                         family: q.family,
+                        kind_id: q.kind_id,
                         difficulty: q.difficulty,
                         tier: q.tier,
                         effort_min: q.effort_min,

@@ -43,6 +43,8 @@ pub struct QuestView {
     pub name: String,
     pub place: String,
     pub family: String,
+    /// The quest kind's id ("bench_warmer"), for choosing an icon.
+    pub kind_id: String,
     pub difficulty: String,
     pub tier: u8,
     pub effort_min: f64,
@@ -261,6 +263,7 @@ impl Game {
                     name: a.quest_name.clone(),
                     place: a.place.clone(),
                     family: a.family.clone(),
+                    kind_id: a.kind_id.clone(),
                     difficulty,
                     tier: a.tier,
                     effort_min: a.effort_min,
@@ -603,6 +606,15 @@ mod tests {
         let views = g.quest_views();
         assert!(views.iter().any(|v| v.zone == 2 && v.state == QuestState::Locked));
         assert!(views.iter().filter(|v| v.zone == 1).all(|v| v.state == QuestState::Open));
+    }
+
+    #[test]
+    fn quest_views_carry_the_kind_id_so_the_ui_can_pick_an_icon() {
+        let g = game(&reach_only(&[Mode::Walk], 5, "all_trips"), Backend::Solo, 4);
+        for (v, a) in g.quest_views().iter().zip(&g.assignments) {
+            assert!(!v.kind_id.is_empty());
+            assert_eq!(v.kind_id, a.kind_id);
+        }
     }
 
     #[test]

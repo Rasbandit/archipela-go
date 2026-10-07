@@ -5,13 +5,16 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,11 +64,11 @@ fun <T> ChoiceChips(
 @Composable
 fun ModeChips(selected: String, onSelect: (String) -> Unit) = ChoiceChips(MODES, selected, onSelect, ::modeLabel, icon = ApgoIcons::mode)
 
-/** A panel floating over a full-page map. */
+/** A panel floating over a full-page map. With [fillHeight] its content may use all the height the caller gives the card (for lists). */
 @Composable
-fun MapOverlayCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun MapOverlayCard(modifier: Modifier = Modifier, fillHeight: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     Card(modifier.fillMaxWidth().padding(8.dp)) {
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
+        Column(Modifier.padding(10.dp).then(if (fillHeight) Modifier.fillMaxHeight() else Modifier), verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
     }
 }
 
@@ -100,5 +103,24 @@ fun IconLabel(text: String, icon: ImageVector?, textSize: TextUnit = 12.sp) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         if (icon != null) Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
         Text(text, fontSize = textSize)
+    }
+}
+
+/** A row of icon-only single-choice toggles, for tight spaces. Each needs a [description] for accessibility. */
+@Composable
+fun <T> IconChoices(options: List<T>, selected: T, onSelect: (T) -> Unit, icon: (T) -> ImageVector, description: (T) -> String) {
+    Row {
+        options.forEach { option ->
+            FilledIconToggleButton(
+                checked = option == selected,
+                onCheckedChange = { onSelect(option) },
+                colors = IconButtonDefaults.filledIconToggleButtonColors(
+                    containerColor = Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    checkedContainerColor = MaterialTheme.colorScheme.primary,
+                    checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) { Icon(icon(option), contentDescription = description(option), modifier = Modifier.size(20.dp)) }
+        }
     }
 }

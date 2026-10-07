@@ -18,11 +18,17 @@ widgets or write colours themselves.
   (`secondaryContainer`) blended into the card behind it.
 - Map layers read the palette once when the style loads, so map colours are not theme-reactive on purpose (the basemap is light).
 
+## Vocabulary
+A **find** is a scanned spot a realm can use for a quest (a bench, a park, a trail start, a fountain). The UI says "finds"; core code says
+feature/place. FFI: `FindOut`, `realm_finds`, `set_find_mark`. A **mark** is a favorite or a ban on a find (per realm).
+
 ## Icons
 Lucide (https://lucide.dev, ISC) via `com.composables:icons-lucide-android` in `libs.versions.toml`. No emoji or glyph characters in UI text:
 add the icon to `ApgoIcons` (named by meaning, e.g. `Favorite`, not `Star`) and use it through `Icon`, `ApgoChip(icon=)`, `IconLabel` or
 `MarkToggle`. Screens never import the icon library. The ISC notice lives in `THIRD_PARTY_NOTICES.md` and must stay with the app.
 Chosen over Material Icons Extended for a friendlier, more distinctive look.
+Quest kinds and finds get their own icon: `ApgoIcons.forKind(kindId, family)` (about 60 kind overrides, falling back to the family icon).
+Map symbols are bitmaps, so `ui/MapIcons.kt` draws the same Lucide `ImageVector`s into images (`renderPin` for finds, `renderGlyph` on quest markers).
 
 ## Where the colours come from
 Archipelago's web theme, ArchipelagoMW/Archipelago `WebHostLib/static/styles` (MIT): ocean theme `#11233e` panels, `#93dcff` headings,

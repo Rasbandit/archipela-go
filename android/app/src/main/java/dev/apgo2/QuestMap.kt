@@ -23,6 +23,7 @@ import kotlin.math.sin
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -39,8 +40,14 @@ import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.layers.PropertyFactory.fillColor
 import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
+import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
+import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconOpacity
+import org.maplibre.android.style.layers.PropertyFactory.iconSize
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory.symbolSortKey
 import org.maplibre.android.style.layers.PropertyFactory.textAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.textAnchor
 import org.maplibre.android.style.layers.PropertyFactory.textOffset
@@ -53,10 +60,19 @@ import org.maplibre.android.style.layers.PropertyFactory.textIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.textSize
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.sources.GeoJsonSource
+import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.renderGlyph
+import dev.apgo2.ui.renderPin
 import dev.apgo2.ui.hex
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
+
+/** A find drawn on the map: an icon pin for its quest kind, coloured by the player's mark ("none" | "favorite" | "banned"). */
+data class MapFind(val id: String, val at: LatLng, val kindId: String, val family: String, val mark: String, val selected: Boolean)
+
+/** Ask the map to fly to a point; [nonce] changes each time so the same point can be asked for twice. */
+data class MapFocus(val at: LatLng, val nonce: Int, val zoom: Double = 17.0)
 
 private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 
@@ -84,16 +100,20 @@ private fun circleRing(lat: Double, lon: Double, radiusM: Double): List<Pair<Dou
         (lat + dLat) to (lon + dLon)
     }
 
+private fun glyphName(q: QuestOut) = "glyph|${q.kindId}|${q.family}"
+
+private fun findImage(f: MapFind) = "pin|${f.kindId}|${f.family}|${f.mark}"
+
 private fun questFeatures(quests: List<QuestOut>, selected: Long?): List<JSONObject> =
     quests.filter { it.state != "hidden" && it.anchor != null && it.shape != "line" }.map {
         val a = it.anchor!!
         feature(
             pointGeo(a.lat, a.lon),
-            JSONObject().put("state", it.state).put("diff", if (it.boss) "boss" else it.difficulty).put("sel", it.locationId == selected),
+            JSONObject().put("state", it.state).put("diff", if (it.boss) "boss" else it.difficulty).put("sel", it.locationId == selected).put("img", glyphName(it)),
         )
     } + quests.filter { it.state != "hidden" && it.shape == "courier" && it.anchorB != null }.map {
         val b = it.anchorB!!
-        feature(pointGeo(b.lat, b.lon), JSONObject().put("state", it.state).put("diff", "easy").put("sel", it.locationId == selected))
+        feature(pointGeo(b.lat, b.lon), JSONObject().put("state", it.state).put("diff", "easy").put("sel", it.locationId == selected).put("img", glyphName(it)))
     }
 
 private fun lineFeatures(quests: List<QuestOut>): List<JSONObject> =
@@ -161,6 +181,11 @@ fun QuestMap(
     /** Points the user can pick up and drag; [onHandleMove] gets the handle index and its new position. */
     handles: List<LatLng> = emptyList(),
     onHandleMove: ((Int, LatLng) -> Unit)? = null,
+    /** Finds drawn as icon pins; tapping one calls [onFindClick] with its id. */
+    finds: List<MapFind> = emptyList(),
+    onFindClick: ((String) -> Unit)? = null,
+    /** Fly the camera here (kept clear of the bottom overlay). */
+    focus: MapFocus? = null,
 ) {
     val context = LocalContext.current
     val density = androidx.compose.ui.platform.LocalDensity.current.density
@@ -174,6 +199,8 @@ fun QuestMap(
     val clickHandler by rememberUpdatedState(onMapClick)
     val longClickHandler by rememberUpdatedState(onMapLongClick)
     val handlesNow by rememberUpdatedState(handles)
+    val findClickNow by rememberUpdatedState(onFindClick)
+    val addedImages = remember { mutableSetOf<String>() }
     val moveNow by rememberUpdatedState(onHandleMove)
     val circleNow by rememberUpdatedState(circle)
     val dragging = remember { intArrayOf(-1) } // index of the handle being dragged, or -1
@@ -198,7 +225,12 @@ fun QuestMap(
     LaunchedEffect(mapView) {
         mapView.getMapAsync { m ->
             map = m
-            m.addOnMapClickListener { ll -> clickHandler(ll); true }
+            m.addOnMapClickListener { ll ->
+                // A tap on a find pin selects it; any other tap goes to the screen (e.g. adding a polygon corner).
+                val hit = findClickNow?.let { _ -> m.queryRenderedFeatures(m.projection.toScreenLocation(ll), "finds-layer", "finds-sel").firstOrNull() }
+                if (hit != null) findClickNow?.invoke(hit.getStringProperty("id")) else clickHandler(ll)
+                true
+            }
             // A touch that starts on a handle drags it; anything else falls through to the map (pan, zoom, tap).
             mapView.setOnTouchListener { _, ev ->
                 val move = moveNow
@@ -225,14 +257,14 @@ fun QuestMap(
             m.addOnMapLongClickListener { ll -> longClickHandler?.invoke(ll) != null }
             m.setStyle(Style.Builder().fromUri(STYLE_URL)) { s ->
                 val empty = fc(emptyList())
-                listOf("realms", "areas", "lines", "quests", "draft", "marks", "home", "handles", "radius", "ringknobs", "ringlabel", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
+                listOf("realms", "areas", "lines", "quests", "finds", "draft", "marks", "home", "handles", "radius", "ringknobs", "ringlabel", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
                 s.addLayer(FillLayer("realms-fill", "realms").withProperties(fillColor(ApgoPalette.realm.hex()), fillOpacity(0.07f)))
                 s.addLayer(LineLayer("realms-line", "realms").withProperties(lineColor(ApgoPalette.realm.hex()), lineWidth(1.8f)))
                 s.addLayer(FillLayer("areas-fill", "areas").withProperties(fillColor(stateColor()), fillOpacity(0.18f)))
                 s.addLayer(LineLayer("lines-layer", "lines").withProperties(lineColor(stateColor()), lineWidth(4f)))
                 s.addLayer(
                     CircleLayer("quests-sel", "quests").withFilter(Expression.eq(Expression.get("sel"), Expression.literal(true))).withProperties(
-                        circleRadius(19f), circleColor(ApgoPalette.onMap.hex()), circleStrokeColor(ApgoPalette.realm.hex()), circleStrokeWidth(3f),
+                        circleRadius(21f), circleColor(ApgoPalette.onMap.hex()), circleStrokeColor(ApgoPalette.realm.hex()), circleStrokeWidth(3f),
                     ),
                 )
                 s.addLayer(
@@ -240,13 +272,26 @@ fun QuestMap(
                         circleRadius(
                             Expression.match(
                                 Expression.get("diff"), Expression.literal(8f),
-                                Expression.stop("easy", Expression.literal(6f)),
-                                Expression.stop("medium", Expression.literal(9f)),
-                                Expression.stop("hard", Expression.literal(12f)),
+                                Expression.stop("easy", Expression.literal(9f)),
+                                Expression.stop("medium", Expression.literal(11f)),
+                                Expression.stop("hard", Expression.literal(13f)),
                                 Expression.stop("boss", Expression.literal(16f)),
                             ),
                         ),
                         circleColor(stateColor()), circleStrokeColor(ApgoPalette.onMap.hex()), circleStrokeWidth(1.5f),
+                    ),
+                )
+                s.addLayer(SymbolLayer("quests-icons", "quests").withProperties(iconImage(Expression.get("img")), iconSize(0.42f), iconAllowOverlap(true), iconIgnorePlacement(true)))
+                // Finds: icon pins that thin out by collision, favorites winning over plain ones and banned ones; the selected find always shows.
+                s.addLayer(
+                    SymbolLayer("finds-layer", "finds").withProperties(
+                        iconImage(Expression.get("img")), iconSize(0.55f), iconAllowOverlap(false), iconIgnorePlacement(false),
+                        symbolSortKey(Expression.get("z")), iconOpacity(Expression.get("op")),
+                    ),
+                )
+                s.addLayer(
+                    SymbolLayer("finds-sel", "finds").withFilter(Expression.eq(Expression.get("sel"), Expression.literal(true))).withProperties(
+                        iconImage(Expression.get("img")), iconSize(0.85f), iconAllowOverlap(true), iconIgnorePlacement(true),
                     ),
                 )
                 s.addLayer(LineLayer("draft-line", "draft").withProperties(lineColor(ApgoPalette.draft.hex()), lineWidth(3f)))
@@ -278,7 +323,42 @@ fun QuestMap(
     }
 
     LaunchedEffect(style, realms) { style?.getSourceAs<GeoJsonSource>("realms")?.setGeoJson(fc(realmFeatures(realms))) }
+    fun ensureImage(s: Style, name: String) {
+        if (!addedImages.add(name)) return
+        val parts = name.split("|")
+        val icon = ApgoIcons.forKind(parts[1], parts[2])
+        s.addImage(
+            name,
+            if (parts[0] == "pin") {
+                renderPin(icon, 72, fill = when (parts[3]) { "favorite" -> ApgoPalette.favorite; "banned" -> ApgoPalette.muted; else -> ApgoPalette.teal })
+            } else {
+                renderGlyph(icon, 40)
+            },
+        )
+    }
+    LaunchedEffect(style, finds) {
+        val st = style ?: return@LaunchedEffect
+        finds.map(::findImage).toSet().forEach { ensureImage(st, it) }
+        st.getSourceAs<GeoJsonSource>("finds")?.setGeoJson(
+            fc(
+                finds.map {
+                    feature(
+                        pointGeo(it.at.latitude, it.at.longitude),
+                        JSONObject().put("id", it.id).put("img", findImage(it)).put("sel", it.selected)
+                            .put("z", when (it.mark) { "favorite" -> 0; "banned" -> 2; else -> 1 }).put("op", if (it.mark == "banned") 0.55 else 1.0),
+                    )
+                },
+            ),
+        )
+    }
+    LaunchedEffect(focus) {
+        val f = focus ?: return@LaunchedEffect
+        val m = map ?: return@LaunchedEffect
+        val bottom = overlayBottomDp * density
+        m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(f.at).zoom(f.zoom).padding(0.0, 0.0, 0.0, bottom.toDouble()).build()))
+    }
     LaunchedEffect(style, quests, selected) {
+        style?.let { st -> quests.forEach { ensureImage(st, glyphName(it)) } }
         style?.getSourceAs<GeoJsonSource>("quests")?.setGeoJson(fc(questFeatures(quests, selected)))
         style?.getSourceAs<GeoJsonSource>("lines")?.setGeoJson(fc(lineFeatures(quests)))
         style?.getSourceAs<GeoJsonSource>("areas")?.setGeoJson(fc(areaFeatures(quests)))
