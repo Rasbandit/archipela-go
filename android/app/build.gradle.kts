@@ -30,4 +30,5 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation("${libs.jna.get()}@aar")
     implementation(libs.maplibre)
+    implementation(libs.lucide)
 }

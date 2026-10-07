@@ -1,13 +1,17 @@
-# Third-Party Notices
+# Third-party notices
 
-## Archipelago
+## Lucide icons
 
-The apworld runs on [Archipelago](https://github.com/ArchipelagoMW/Archipelago) (MIT licensed). It is a
-runtime dependency of the host application and is not bundled in this repository. Tests clone a pinned
-release into `.ap/` (git-ignored).
+The in-app icons come from Lucide, through `com.composables:icons-lucide-android` (the Composables port).
 
-## Archipela-Go! (upstream)
+ISC License
 
-Inspiration only: [aki665/react-native-archipelago](https://github.com/aki665/react-native-archipelago)
-(MIT, Copyright (c) 2024 aki665). No upstream code is copied. If any is copied later, keep its copyright
-notice here. The upstream apworld has no license, so it is never copied or redistributed.
+Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+
+Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+## Archipelago colours
+
+Colours in `android/.../ui/Palette.kt` follow the Archipelago web theme (MIT, ArchipelagoMW/Archipelago). The Archipelago logo is CC BY-NC 4.0 and is not used. See `docs/context/ui-design-system.md`.

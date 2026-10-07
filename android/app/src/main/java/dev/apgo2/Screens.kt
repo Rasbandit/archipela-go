@@ -11,6 +11,9 @@ import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.compose.foundation.layout.Arrangement
+import dev.apgo2.ui.IconLabel
+import dev.apgo2.ui.ApgoIcons
+import androidx.compose.material3.Icon
 import uniffi.apgo_ffi.PlaceOut
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -90,7 +93,7 @@ fun AppRoot(m: AppModel) {
         bottomBar = {
             NavigationBar {
                 listOf("Realms", "New Game", "Play").forEachIndexed { i, t ->
-                    NavigationBarItem(selected = m.tab == i, onClick = { m.tab = i }, icon = { Text(listOf("◎", "✚", "▶")[i]) }, label = { Text(t) })
+                    NavigationBarItem(selected = m.tab == i, onClick = { m.tab = i }, icon = { Icon(listOf(ApgoIcons.Realms, ApgoIcons.NewGame, ApgoIcons.Play)[i], contentDescription = t) }, label = { Text(t) })
                 }
             }
         },
@@ -134,7 +137,7 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Realms: places you play in", style = MaterialTheme.typography.titleMedium)
-            Button(onClick = onNew) { Text("+ New realm", fontSize = 12.sp) }
+            Button(onClick = onNew) { IconLabel("New realm", ApgoIcons.Add) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = { m.setHomeHere() }) { Text("Set home here", fontSize = 12.sp) }
@@ -152,10 +155,10 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
                         }
                         val on = m.offers[r.id].orEmpty()
                         Text(if (r.scannedAtMs == null) "Not scanned yet" else "${r.places} places · ${on.size} quest kinds on offer", fontSize = 12.sp)
-                        r.warning?.let { FeedbackText("⚠ $it", Tone.Warning, 11.sp) }
+                        r.warning?.let { FeedbackText(it, Tone.Warning, 11.sp) }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            OutlinedButton(onClick = { m.scan(r.id) }) { Text(if (r.scannedAtMs == null) "Scan" else "Rescan", fontSize = 12.sp) }
-                            OutlinedButton(onClick = { m.deleteRealm(r.id) }) { Text("Delete", fontSize = 12.sp) }
+                            OutlinedButton(onClick = { m.scan(r.id) }) { IconLabel(if (r.scannedAtMs == null) "Scan" else "Rescan", ApgoIcons.Rescan) }
+                            OutlinedButton(onClick = { m.deleteRealm(r.id) }) { IconLabel("Delete", ApgoIcons.Delete) }
                             TextButton(onClick = { expanded = if (expanded == r.id) null else r.id }) { Text(if (expanded == r.id) "Hide quests" else "Quests", fontSize = 12.sp) }
                         }
                         if (expanded == r.id) {
@@ -294,7 +297,10 @@ private fun PlacesList(m: AppModel, realmId: String) {
         fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     OutlinedTextField(query, { query = it }, label = { Text("Search places or quest types") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-    ChoiceChips(listOf(ALL, FAVORITE, BANNED), filter, { filter = it }, { when (it) { ALL -> "All"; FAVORITE -> "★ Favorites"; else -> "⛔ Banned" } })
+    ChoiceChips(
+        listOf(ALL, FAVORITE, BANNED), filter, { filter = it }, { when (it) { ALL -> "All"; FAVORITE -> "Favorites"; else -> "Banned" } },
+        icon = { when (it) { FAVORITE -> ApgoIcons.Favorite; BANNED -> ApgoIcons.Banned; else -> null } },
+    )
     LazyColumn(Modifier.fillMaxWidth()) {
         items(shown, key = { it.id }) { p ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -310,8 +316,8 @@ private fun PlacesList(m: AppModel, realmId: String) {
                         fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                MarkToggle("★", p.mark == FAVORITE, ApgoPalette.favorite) { mark(p, FAVORITE) }
-                MarkToggle("⛔", p.mark == BANNED, ApgoPalette.banned) { mark(p, BANNED) }
+                MarkToggle(ApgoIcons.Favorite, "Favorite", p.mark == FAVORITE, ApgoPalette.favorite) { mark(p, FAVORITE) }
+                MarkToggle(ApgoIcons.Banned, "Ban", p.mark == BANNED, ApgoPalette.banned) { mark(p, BANNED) }
             }
             HorizontalDivider()
         }
@@ -478,13 +484,16 @@ fun PlayScreen(m: AppModel) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             m.zones.forEach { z ->
-                Text(
-                    "Z${z.id} ${modeLabel(z.mode)} ${if (z.unlocked) "✓" else "🔒${if (z.keysNeeded > 0u) " ${z.keysNeeded}key" else ""}${z.tool?.let { "+$it" } ?: ""}"}",
-                    fontSize = 11.sp, color = if (z.unlocked) ApgoPalette.success else ApgoPalette.muted,
-                )
+                val tint = if (z.unlocked) ApgoPalette.success else ApgoPalette.muted
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Icon(ApgoIcons.mode(z.mode), contentDescription = null, tint = tint, modifier = Modifier.size(13.dp))
+                    Text("Z${z.id}", fontSize = 11.sp, color = tint)
+                    Icon(if (z.unlocked) ApgoIcons.Unlocked else ApgoIcons.Locked, contentDescription = if (z.unlocked) "Unlocked" else "Locked", tint = tint, modifier = Modifier.size(13.dp))
+                    if (!z.unlocked) Text("${if (z.keysNeeded > 0u) "${z.keysNeeded}key" else ""}${z.tool?.let { "+$it" } ?: ""}", fontSize = 11.sp, color = tint)
+                }
             }
         }
-        (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let { FeedbackText("⚠ " + it.joinToString("  ·  "), Tone.Danger) }
+        (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let { FeedbackText(it.joinToString("  ·  "), Tone.Danger) }
         QuestMap(
             m.quests, m.realms, emptyList(), m.me,
             hud.thaw?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) }, hud.waypoint?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) },

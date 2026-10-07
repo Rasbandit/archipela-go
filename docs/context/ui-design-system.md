@@ -7,7 +7,8 @@ widgets or write colours themselves.
 |--|--|
 | `Palette.kt` | `ApgoPalette`: every colour (brand, quest states, map/editor, feedback) plus `Color.hex()` for MapLibre style expressions |
 | `Theme.kt` | light and dark `ColorScheme`s built from the palette, and `ApgoTheme` (wraps the app in `MainActivity`) |
-| `Components.kt` | `ApgoChip`, `ChoiceChips`, `ModeChips`, `MapOverlayCard`, `FeedbackText`/`Tone`, `MODES`, `modeLabel()` |
+| `Components.kt` | `ApgoChip`, `ChoiceChips`, `ModeChips`, `MapOverlayCard`, `FeedbackText`/`Tone`, `MarkToggle`, `IconLabel`, `MODES`, `modeLabel()` |
+| `Icons.kt` | `ApgoIcons`: every icon named by meaning, backed by Lucide |
 
 ## Rules
 - A colour is added to `ApgoPalette`, never inlined (`Color(0x...)` or `"#rrggbb"`). The quest list dot and the map marker use the same
@@ -16,6 +17,12 @@ widgets or write colours themselves.
 - A pattern used twice becomes a component in `Components.kt`. Selected chips are a solid `primary` fill because the Material default
   (`secondaryContainer`) blended into the card behind it.
 - Map layers read the palette once when the style loads, so map colours are not theme-reactive on purpose (the basemap is light).
+
+## Icons
+Lucide (https://lucide.dev, ISC) via `com.composables:icons-lucide-android` in `libs.versions.toml`. No emoji or glyph characters in UI text:
+add the icon to `ApgoIcons` (named by meaning, e.g. `Favorite`, not `Star`) and use it through `Icon`, `ApgoChip(icon=)`, `IconLabel` or
+`MarkToggle`. Screens never import the icon library. The ISC notice lives in `THIRD_PARTY_NOTICES.md` and must stay with the app.
+Chosen over Material Icons Extended for a friendlier, more distinctive look.
 
 ## Where the colours come from
 Archipelago's web theme, ArchipelagoMW/Archipelago `WebHostLib/static/styles` (MIT): ocean theme `#11233e` panels, `#93dcff` headings,
