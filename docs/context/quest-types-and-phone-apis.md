@@ -5,6 +5,10 @@ _Last verified: 2026-10-07 (API facts from Perplexity summaries of developer.and
 ## Status
 Ideas, not commitments. v1 ships only `reach_point`. Goal from the owner: "a genuinely fun game out of walking", using as many phone capabilities as sensible, all opt-in.
 
+## Owner Decisions (2026-10-07)
+Dropped as unreliable: NFC stamps, photo/camera quests, "touch grass", weather quests, social/team features (for now). Prefer only what the phone can prove.
+Added: trail/hike quests, cardinal (GPS-bearing) quests, Freeze trap, zones + tools progression. Details: `docs/context/progression-zones-and-tools.md`.
+
 ## Design Principles
 1. **Opt-in per capability.** Every quest type declares `needs: [capabilities]`. The player grants OS permissions in the app; nothing is requested up front.
 2. **Generation precedes permissions.** The apworld cannot know what the phone will allow. Add a YAML option (e.g. `quest_types`, an OptionSet) so only chosen types are generated, and give each slot a `fallback` quest of equal difficulty (e.g. heart-rate zone -> timed brisk walk) if the capability is missing at play time.

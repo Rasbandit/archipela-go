@@ -57,3 +57,4 @@ If you need the Android build/run loop, versions and gotchas, see `docs/context/
 If you need the dev Archipelago server loop (`just ap-host`) and Android-to-server gotchas, see `docs/context/android-dev-workflow.md`
 If you need how our game maps onto Archipelago (YAML, apworld, fill, phone) or the Zelda reference worlds, see `docs/context/archipelago-game-model.md`
 If you need quest-type ideas, phone sensor/health API permissions and the quest table, see `docs/context/quest-types-and-phone-apis.md`
+If you need progression design (zones as regions, Bike/Car tools, trail quests, Freeze trap, OSM trail data findings), see `docs/context/progression-zones-and-tools.md`
