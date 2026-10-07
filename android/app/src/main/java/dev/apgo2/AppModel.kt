@@ -123,14 +123,64 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             .getOrNull()
     }
 
-    fun scan(id: String) {
+    /** A scan that needs a lot of downloading and waits for the player's go-ahead. */
+    data class ScanAsk(val id: String, val requests: Int, val tiles: Int)
+
+    var scanAsk by mutableStateOf<ScanAsk?>(null)
+    /** 0..1 while a scan runs; null when it has no measurable progress. */
+    var busyFraction by mutableStateOf<Float?>(null)
+    private val scanning = mutableSetOf<String>()
+    private val waitingToScan = mutableSetOf<String>()
+    private val lastDownload = mutableMapOf<String, Long>()
+    private val quietRetries = mutableMapOf<String, Int>()
+
+    /**
+     * Fetch the finds of a realm. Anything already downloaded (by this or any other realm) is reused, so a repeated or overlapping scan costs nothing.
+     * Downloads are rationed: at most one per realm every [SCAN_COOLDOWN_MS] (a request inside the window is deferred, not lost), and a big area asks
+     * first. Trouble reaching the map servers is retried quietly in the background.
+     */
+    fun scan(id: String, confirmed: Boolean = false) {
         scope.launch {
-            busy = "Scanning realm..."
+            if (id in scanning) return@launch
+            val plan = withContext(Dispatchers.IO) { engine.scanPlan(id) }
+            if (plan.missing > 0u) {
+                val wait = SCAN_COOLDOWN_MS - (now() - (lastDownload[id] ?: 0L))
+                if (wait > 0) {
+                    if (waitingToScan.add(id)) scope.launch { delay(wait); waitingToScan.remove(id); scan(id, confirmed) }
+                    return@launch
+                }
+                if (plan.missing >= BIG_SCAN_REQUESTS.toUInt() && !confirmed) {
+                    scanAsk = ScanAsk(id, plan.missing.toInt(), plan.tiles.toInt())
+                    return@launch
+                }
+            }
+            scanning.add(id)
+            busy = "Looking for finds…"
+            busyFraction = null
+            val progress = scope.launch {
+                while (true) {
+                    val p = engine.scanProgress()
+                    if (p.total > 0u) { busyFraction = p.done.toFloat() / p.total.toFloat(); busy = "Looking for finds… ${p.done} of ${p.total}" }
+                    delay(400)
+                }
+            }
             val result = withContext(Dispatchers.IO) { runCatching { engine.scanRealm(id, now().toULong()) } }
+            progress.cancel()
+            scanning.remove(id)
             busy = null
-            result.onSuccess { offers[id] = it; status = "Scan done: ${it.size} quest kinds on offer" }
-                .onFailure { status = "Scan failed: ${it.message}" }
+            busyFraction = null
+            if (plan.missing > 0u) lastDownload[id] = now()
             realms = engine.realms()
+            result.onSuccess { offers[id] = it; status = "" }
+                .onFailure { status = "Couldn't reach the map servers just now. Trying again in a moment." }
+            // Pieces that did not arrive (or a failure) are picked up again later, a few times, without bothering the player.
+            val partial = result.isFailure || realms.firstOrNull { it.id == id }?.warning != null
+            if (partial && (quietRetries[id] ?: 0) < MAX_QUIET_RETRIES) {
+                quietRetries[id] = (quietRetries[id] ?: 0) + 1
+                scope.launch { delay(QUIET_RETRY_MS); scan(id, confirmed = true) }
+            } else if (!partial) {
+                quietRetries.remove(id)
+            }
         }
     }
 
@@ -357,3 +407,12 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
 
     fun apGoalSummary(): String? = apSlotJson?.let { runCatching { JSONObject(it).optString("goal") }.getOrNull() }
 }
+
+/** At most one download per realm in this time. */
+private const val SCAN_COOLDOWN_MS = 20_000L
+
+/** A scan needing this many downloads asks first (about 20 tiles). */
+private const val BIG_SCAN_REQUESTS = 60
+
+private const val QUIET_RETRY_MS = 45_000L
+private const val MAX_QUIET_RETRIES = 4

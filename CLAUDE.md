@@ -63,3 +63,4 @@ If you need measured OpenStreetMap tag coverage (surface/lit/parks/trails), the 
 If you need the v1 architecture, verified results, known gaps and how to run the emulator/e2e, see `docs/context/v1-architecture-and-status.md`
 If you need the full list of quest kinds (names, map filters, proof, modes), see `docs/context/quest-catalog.md` (generated)
 If you need the Android UI design system (palette, theme, shared components, rules) or the Archipelago logo/icon licence finding, see `docs/context/ui-design-system.md`
+If you need how scans, the tile grid, the shared cache, pacing/retries and the scan cooldown work, see `docs/context/scan-and-tile-cache.md`

@@ -137,7 +137,10 @@ fun AppRoot(m: AppModel) {
         },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            m.busy?.let { Text(it, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), fontSize = 12.sp); LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            m.busy?.let {
+                Text(it, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), fontSize = 12.sp)
+                m.busyFraction?.let { f -> LinearProgressIndicator(progress = { f }, modifier = Modifier.fillMaxWidth()) } ?: LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
             if (m.status.isNotBlank()) Text(m.status, Modifier.padding(horizontal = 12.dp, vertical = 2.dp), fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
             Box(Modifier.weight(1f)) {
                 when (m.tab) {
@@ -147,6 +150,15 @@ fun AppRoot(m: AppModel) {
                 }
             }
         }
+    }
+    m.scanAsk?.let { ask ->
+        AlertDialog(
+            onDismissRequest = { m.scanAsk = null },
+            title = { Text("A big area") },
+            text = { Text("Finding places here needs about ${ask.requests} downloads (${ask.tiles} map areas) and may take a few minutes. It only has to be done once for each area.") },
+            confirmButton = { TextButton(onClick = { m.scanAsk = null; m.scan(ask.id, confirmed = true) }) { Text("Continue") } },
+            dismissButton = { TextButton(onClick = { m.scanAsk = null }) { Text("Not now") } },
+        )
     }
     m.yamlText?.let { y ->
         val clip = LocalClipboardManager.current
