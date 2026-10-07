@@ -79,3 +79,42 @@ pub fn lattice(zone: &Zone, spacing_m: f64) -> Vec<Candidate> {
     }
     out
 }
+
+/// One piece of a walkable street: a unique key (so a street returned by two tiles is counted once), its length in metres and whether it is rough going.
+pub struct StreetSegment {
+    pub key: (i64, i64, i64, i64),
+    pub len_m: f64,
+    pub rough: bool,
+}
+
+/// The real length of the walkable streets in a response, inside `zone`. Sidewalks and crossings are left out: they run alongside streets that are
+/// counted already, and would double the total. A segment counts when its middle is inside the zone.
+pub fn street_segments(body: &str, zone: &Zone) -> Result<Vec<StreetSegment>, Error> {
+    let v: Value = serde_json::from_str(body).map_err(|e| Error::Parse(e.to_string()))?;
+    let elements = v.get("elements").and_then(Value::as_array).ok_or_else(|| Error::Parse("no elements".into()))?;
+    let q = |x: f64| (x * 1e6).round() as i64;
+    let mut out = Vec::new();
+    for e in elements {
+        let Some(geom) = e.get("geometry").and_then(Value::as_array) else { continue };
+        let tag_map: std::collections::BTreeMap<String, String> = e
+            .get("tags")
+            .and_then(Value::as_object)
+            .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+            .unwrap_or_default();
+        if tag_map.get("footway").is_some_and(|f| f == "sidewalk" || f == "crossing") || tag_map.get("highway").is_some_and(|h| h == "crossing") {
+            continue;
+        }
+        let rough = crate::scan::is_rough(&tag_map);
+        let pts: Vec<Point> = geom.iter().filter_map(|g| Some(Point::new(g.get("lat")?.as_f64()?, g.get("lon")?.as_f64()?))).collect();
+        for w in pts.windows(2) {
+            let mid = Point::new((w[0].lat + w[1].lat) / 2.0, (w[0].lon + w[1].lon) / 2.0);
+            if !zone.contains(mid) {
+                continue;
+            }
+            let (a, b) = ((q(w[0].lat), q(w[0].lon)), (q(w[1].lat), q(w[1].lon)));
+            let (a, b) = if a <= b { (a, b) } else { (b, a) };
+            out.push(StreetSegment { key: (a.0, a.1, b.0, b.1), len_m: distance_m(w[0], w[1]), rough });
+        }
+    }
+    Ok(out)
+}
