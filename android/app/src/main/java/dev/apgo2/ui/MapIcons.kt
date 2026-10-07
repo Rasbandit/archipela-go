@@ -47,10 +47,10 @@ private fun DrawScope.icon(icon: ImageVector, at: Float, sizePx: Float, color: C
 }
 
 /** A round badge with the icon inside: the pin for a find on the map. */
-fun renderPin(icon: ImageVector, sizePx: Int, fill: Color, glyph: Color = Color.White, ring: Color = Color.White): Bitmap = render(sizePx) {
+fun renderPin(icon: ImageVector, sizePx: Int, fill: Color, glyph: Color = Color.White, ring: Color = Color.White, ringFraction: Float = 0.07f): Bitmap = render(sizePx) {
     val s = sizePx.toFloat()
     drawCircle(ring, radius = s / 2)
-    drawCircle(fill, radius = s / 2 - s * 0.07f)
+    drawCircle(fill, radius = s / 2 - s * ringFraction)
     val inner = s * 0.54f
     icon(icon, (s - inner) / 2, inner, glyph)
 }

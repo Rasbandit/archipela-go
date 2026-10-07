@@ -45,6 +45,15 @@ object ApgoPalette {
     val waypoint = Color(0xFF8E24AA)
     val onMap = Color.White // halos, outlines and knob fills
 
+    // One colour per quest family: pins and icons of a kind of find share it. All hold white text/glyphs.
+    private val families = mapOf(
+        "reach" to Color(0xFF2F6B83), "dwell" to Color(0xFFC77700), "landmark" to Color(0xFF7B4FB5), "trail" to Color(0xFF3A8F3A),
+        "park" to Color(0xFF689F38), "water" to Color(0xFF1976D2), "courier" to Color(0xFFB3472E), "explore" to Color(0xFF3F51B5),
+        "steps" to Color(0xFF546E7A), "away" to Color(0xFFC2185B), "boss" to Color(0xFF8D6E00),
+    )
+
+    fun family(family: String): Color = families[family] ?: teal
+
     // Marks on places
     val favorite = Color(0xFFF9A825)
     val banned = Color(0xFFC62828)

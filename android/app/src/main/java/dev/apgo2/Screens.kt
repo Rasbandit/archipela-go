@@ -13,7 +13,8 @@ import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.material3.IconButton
@@ -257,8 +258,23 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
         }
     }
 
-    val screenDp = LocalConfiguration.current.screenHeightDp
-    val panelDp = if (tab == DETAILS) screenDp / 2 else 190
+    // The map keeps clear of the panel by padding itself with the panel's real height.
+    var panelPx by remember { mutableIntStateOf(0) }
+    val panelDp = (panelPx / LocalDensity.current.density).toInt()
+    var fit by remember(realmId) { mutableStateOf<MapFit?>(null) }
+    var fitNonce by remember { mutableIntStateOf(0) }
+    fun shapePoints(): List<LatLng> {
+        if (polygon) return m.draft.toList()
+        val c = circleCenter ?: return emptyList()
+        val dLat = radius / 111_195.0
+        val dLon = radius / (111_195.0 * kotlin.math.cos(Math.toRadians(c.latitude)))
+        return listOf(LatLng(c.latitude + dLat, c.longitude), LatLng(c.latitude - dLat, c.longitude), LatLng(c.latitude, c.longitude + dLon), LatLng(c.latitude, c.longitude - dLon))
+    }
+    fun goTab(to: Int) {
+        // Back to Area: after the map settles, fit the whole shape in the smaller view.
+        if (tab == DETAILS && to == AREA) fit = MapFit(shapePoints(), ++fitNonce)
+        tab = to
+    }
     val listState = rememberLazyListState()
     LaunchedEffect(selectedFind) {
         val id = selectedFind ?: return@LaunchedEffect
@@ -278,10 +294,14 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             finds = mapFinds,
             onFindClick = if (tab == DETAILS) { id -> finds.firstOrNull { it.id == id }?.let(::show) } else null,
             focus = focus,
+            fit = fit,
         )
-        MapOverlayCard(Modifier.align(Alignment.BottomCenter).then(if (tab == DETAILS) Modifier.fillMaxHeight(0.5f) else Modifier), fillHeight = tab == DETAILS) {
+        MapOverlayCard(
+            Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }.then(if (tab == DETAILS) Modifier.fillMaxHeight(0.5f) else Modifier),
+            fillHeight = tab == DETAILS,
+        ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                ChoiceChips(listOf(AREA, DETAILS), tab, { tab = it }, { if (it == AREA) "Area" else "Details" })
+                ChoiceChips(listOf(AREA, DETAILS), tab, ::goTab, { if (it == AREA) "Area" else "Details" })
             }
             if (tab == AREA) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -332,7 +352,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                         ) {
                             Icon(
                                 ApgoIcons.forKind(f.kindId, f.family), contentDescription = null, modifier = Modifier.padding(horizontal = 8.dp).size(22.dp),
-                                tint = if (f.mark == BANNED) ApgoPalette.muted else MaterialTheme.colorScheme.primary,
+                                tint = if (f.mark == BANNED) ApgoPalette.muted else ApgoPalette.family(f.family),
                             )
                             Column(Modifier.weight(1f).alpha(if (f.mark == BANNED) 0.5f else 1f)) {
                                 Text(
@@ -354,7 +374,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onClose) { Text("Cancel") }
-                Button(onClick = { if (original == null && tab == AREA) tab = DETAILS else save() }) { Text(primaryLabel) }
+                Button(onClick = { if (original == null && tab == AREA) goTab(DETAILS) else save() }) { Text(primaryLabel) }
             }
         }
     }

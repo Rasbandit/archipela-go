@@ -71,6 +71,9 @@ import uniffi.apgo_ffi.RealmOut
 /** A find drawn on the map: an icon pin for its quest kind, coloured by the player's mark ("none" | "favorite" | "banned"). */
 data class MapFind(val id: String, val at: LatLng, val kindId: String, val family: String, val mark: String, val selected: Boolean)
 
+/** Ask the map to fit these points in view (inside the padding), after any padding change has settled. */
+data class MapFit(val points: List<LatLng>, val nonce: Int)
+
 /** Ask the map to fly to a point; [nonce] changes each time so the same point can be asked for twice. */
 data class MapFocus(val at: LatLng, val nonce: Int, val zoom: Double = 17.0)
 
@@ -186,6 +189,7 @@ fun QuestMap(
     onFindClick: ((String) -> Unit)? = null,
     /** Fly the camera here (kept clear of the bottom overlay). */
     focus: MapFocus? = null,
+    fit: MapFit? = null,
 ) {
     val context = LocalContext.current
     val density = androidx.compose.ui.platform.LocalDensity.current.density
@@ -201,6 +205,12 @@ fun QuestMap(
     val handlesNow by rememberUpdatedState(handles)
     val findClickNow by rememberUpdatedState(onFindClick)
     val addedImages = remember { mutableSetOf<String>() }
+    val padApplied = remember { booleanArrayOf(false) }
+    val overlayTopNow by rememberUpdatedState(overlayTopDp)
+    val overlayBottomNow by rememberUpdatedState(overlayBottomDp)
+    // A bounds update replaces the map's padding with the padding it is given, so it must include the overlays to centre in the visible area.
+    fun fitTo(bounds: org.maplibre.android.geometry.LatLngBounds, pad: Int) =
+        CameraUpdateFactory.newLatLngBounds(bounds, pad, pad + (overlayTopNow * density).toInt(), pad, pad + (overlayBottomNow * density).toInt())
     val moveNow by rememberUpdatedState(onHandleMove)
     val circleNow by rememberUpdatedState(circle)
     val dragging = remember { intArrayOf(-1) } // index of the handle being dragged, or -1
@@ -281,17 +291,17 @@ fun QuestMap(
                         circleColor(stateColor()), circleStrokeColor(ApgoPalette.onMap.hex()), circleStrokeWidth(1.5f),
                     ),
                 )
-                s.addLayer(SymbolLayer("quests-icons", "quests").withProperties(iconImage(Expression.get("img")), iconSize(0.42f), iconAllowOverlap(true), iconIgnorePlacement(true)))
+                s.addLayer(SymbolLayer("quests-icons", "quests").withProperties(iconImage(Expression.get("img")), iconSize(0.38f), iconAllowOverlap(true), iconIgnorePlacement(true)))
                 // Finds: icon pins that thin out by collision, favorites winning over plain ones and banned ones; the selected find always shows.
                 s.addLayer(
                     SymbolLayer("finds-layer", "finds").withProperties(
-                        iconImage(Expression.get("img")), iconSize(0.55f), iconAllowOverlap(false), iconIgnorePlacement(false),
+                        iconImage(Expression.get("img")), iconSize(0.62f), iconAllowOverlap(false), iconIgnorePlacement(false),
                         symbolSortKey(Expression.get("z")), iconOpacity(Expression.get("op")),
                     ),
                 )
                 s.addLayer(
                     SymbolLayer("finds-sel", "finds").withFilter(Expression.eq(Expression.get("sel"), Expression.literal(true))).withProperties(
-                        iconImage(Expression.get("img")), iconSize(0.85f), iconAllowOverlap(true), iconIgnorePlacement(true),
+                        iconImage(Expression.get("img")), iconSize(0.92f), iconAllowOverlap(true), iconIgnorePlacement(true),
                     ),
                 )
                 s.addLayer(LineLayer("draft-line", "draft").withProperties(lineColor(ApgoPalette.draft.hex()), lineWidth(3f)))
@@ -330,9 +340,13 @@ fun QuestMap(
         s.addImage(
             name,
             if (parts[0] == "pin") {
-                renderPin(icon, 72, fill = when (parts[3]) { "favorite" -> ApgoPalette.favorite; "banned" -> ApgoPalette.muted; else -> ApgoPalette.teal })
+                when (parts[3]) {
+                    "favorite" -> renderPin(icon, 96, fill = ApgoPalette.family(parts[2]), ring = ApgoPalette.favorite, ringFraction = 0.13f)
+                    "banned" -> renderPin(icon, 96, fill = ApgoPalette.muted)
+                    else -> renderPin(icon, 96, fill = ApgoPalette.family(parts[2]))
+                }
             } else {
-                renderGlyph(icon, 40)
+                renderGlyph(icon, 48)
             },
         )
     }
@@ -351,11 +365,29 @@ fun QuestMap(
             ),
         )
     }
+    // The map's padding is the part of it covered by overlays. Changing it keeps the camera target, so the point that was at the centre of the
+    // visible map slides to the centre of the new visible area. The first value is applied at once, later ones ease.
+    LaunchedEffect(map, overlayTopDp, overlayBottomDp) {
+        val m = map ?: return@LaunchedEffect
+        if (overlayTopDp == 0 && overlayBottomDp == 0 && !padApplied[0]) return@LaunchedEffect
+        val top = overlayTopDp * density
+        val bottom = overlayBottomDp * density
+        if (!padApplied[0]) { m.setPadding(0, top.toInt(), 0, bottom.toInt()); padApplied[0] = true }
+        else m.easeCamera(CameraUpdateFactory.paddingTo(0.0, top.toDouble(), 0.0, bottom.toDouble()), 350)
+    }
+    LaunchedEffect(fit) {
+        val f = fit ?: return@LaunchedEffect
+        val m = map ?: return@LaunchedEffect
+        if (f.points.size < 2) return@LaunchedEffect
+        kotlinx.coroutines.delay(400) // let a padding change settle first
+        val bounds = org.maplibre.android.geometry.LatLngBounds.Builder().includes(f.points).build()
+        val pad = (24 * density).toInt()
+        m.animateCamera(fitTo(bounds, pad), 500)
+    }
     LaunchedEffect(focus) {
         val f = focus ?: return@LaunchedEffect
         val m = map ?: return@LaunchedEffect
-        val bottom = overlayBottomDp * density
-        m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(f.at).zoom(f.zoom).padding(0.0, 0.0, 0.0, bottom.toDouble()).build()))
+        m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(f.at).zoom(f.zoom).build()))
     }
     LaunchedEffect(style, quests, selected) {
         style?.let { st -> quests.forEach { ensureImage(st, glyphName(it)) } }
@@ -400,7 +432,7 @@ fun QuestMap(
         if (dragging[0] >= 0) return@LaunchedEffect // never fight the finger
         val b = org.maplibre.android.geometry.LatLngBounds.Builder().includes(circleRing(c.latitude, c.longitude, r).map { LatLng(it.first, it.second) }).build()
         val pad = (24 * density).toInt()
-        mapView.post { m.animateCamera(CameraUpdateFactory.newLatLngBounds(b, pad, pad + (overlayTopDp * density).toInt(), pad, pad + (overlayBottomDp * density).toInt())) }
+        mapView.post { m.animateCamera(fitTo(b, pad)) }
         centered = true
     }
     // Frame the action once: all visible quests plus you, or just you. Done after layout so the camera move is not dropped.
@@ -417,7 +449,7 @@ fun QuestMap(
             val bounds = if (all.size >= 2) org.maplibre.android.geometry.LatLngBounds.Builder().includes(all).build() else null
             // One spot, or points that are nearly the same, would zoom in to the rooftops: keep a neighbourhood view instead.
             if (bounds == null || bounds.latitudeSpan < 0.004 && bounds.longitudeSpan < 0.004) m.moveCamera(CameraUpdateFactory.newLatLngZoom(bounds?.center ?: all[0], 14.0))
-            else m.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 60))
+            else m.moveCamera(fitTo(bounds, 60))
         }
         centered = true
     }
