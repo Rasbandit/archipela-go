@@ -246,7 +246,7 @@ fun QuestMap(
     LaunchedEffect(style, me, quests.isNotEmpty(), realms.size) {
         val m = map ?: return@LaunchedEffect
         if (style == null || centered) return@LaunchedEffect
-        val pts = quests.filter { it.state != "hidden" }.mapNotNull { q -> q.anchor?.let { LatLng(it.lat, it.lon) } } + listOfNotNull(me, home)
+        val pts = quests.filter { it.state != "hidden" }.mapNotNull { q -> q.anchor?.let { LatLng(it.lat, it.lon) } } + listOfNotNull(me, home) + draft
         val realmPts = if (pts.isEmpty()) realms.flatMap { r -> r.circle?.let { listOf(LatLng(it.center.lat, it.center.lon)) } ?: r.polygon.map { LatLng(it.lat, it.lon) } } else emptyList()
         val all = (pts + realmPts).distinctBy { it.latitude to it.longitude }
         if (all.isEmpty()) return@LaunchedEffect

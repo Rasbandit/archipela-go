@@ -124,12 +124,13 @@ fun AppRoot(m: AppModel) {
 /** Two views: the list of realms, and a full-page map editor for a new one. */
 @Composable
 fun RealmsScreen(m: AppModel) {
-    var editing by remember { mutableStateOf(false) }
-    if (editing) RealmEditor(m) { editing = false } else RealmList(m) { editing = true }
+    // null = the list; "" = a new realm; otherwise the id of the realm being edited.
+    var editing by remember { mutableStateOf<String?>(null) }
+    editing?.let { id -> RealmEditor(m, id.ifEmpty { null }) { editing = null } } ?: RealmList(m, onNew = { editing = "" }, onEdit = { editing = it })
 }
 
 @Composable
-private fun RealmList(m: AppModel, onNew: () -> Unit) {
+private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) {
     var expanded by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -141,9 +142,10 @@ private fun RealmList(m: AppModel, onNew: () -> Unit) {
             Text(if (m.home == null) "No home yet: distances are measured from your first realm." else "Home is set. Distances are measured from it.", fontSize = 11.sp)
         }
         if (m.realms.isEmpty()) Text("No realms yet. Tap + New realm to draw one.", fontSize = 13.sp)
+        else Text("Tap a realm to see it on the map and edit it.", fontSize = 11.sp)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(m.realms, key = { it.id }) { r ->
-                Card(Modifier.fillMaxWidth().clickable { expanded = if (expanded == r.id) null else r.id }) {
+                Card(Modifier.fillMaxWidth().clickable { onEdit(r.id) }) {
                     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                             Text(r.name, style = MaterialTheme.typography.titleSmall)
@@ -155,6 +157,7 @@ private fun RealmList(m: AppModel, onNew: () -> Unit) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedButton(onClick = { m.scan(r.id) }) { Text(if (r.scannedAtMs == null) "Scan" else "Rescan", fontSize = 12.sp) }
                             OutlinedButton(onClick = { m.deleteRealm(r.id) }) { Text("Delete", fontSize = 12.sp) }
+                            TextButton(onClick = { expanded = if (expanded == r.id) null else r.id }) { Text(if (expanded == r.id) "Hide quests" else "Quests", fontSize = 12.sp) }
                         }
                         if (expanded == r.id) {
                             HorizontalDivider()
@@ -168,20 +171,30 @@ private fun RealmList(m: AppModel, onNew: () -> Unit) {
     }
 }
 
-/** The map is the whole page; name, mode and shape controls float over it. */
+/** The map is the whole page; name, mode and shape controls float over it. [realmId] null creates a realm, otherwise edits it. */
 @Composable
-private fun RealmEditor(m: AppModel, onClose: () -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var mode by remember { mutableStateOf("walk") }
-    var polygon by remember { mutableStateOf(false) }
-    var radius by remember { mutableFloatStateOf(1500f) }
-    var center by remember { mutableStateOf<LatLng?>(null) }
-    val circleCenter = center ?: m.me // follows your GPS until it is moved
+private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
+    val original = remember(realmId) { m.realms.firstOrNull { it.id == realmId } }
+    var name by remember(realmId) { mutableStateOf(original?.name ?: "") }
+    var mode by remember(realmId) { mutableStateOf(original?.mode ?: "walk") }
+    var polygon by remember(realmId) { mutableStateOf(original != null && original.circle == null) }
+    var radius by remember(realmId) { mutableFloatStateOf(original?.circle?.radiusM?.toFloat() ?: 1500f) }
+    var center by remember(realmId) { mutableStateOf(original?.circle?.let { LatLng(it.center.lat, it.center.lon) }) }
+    remember(realmId) { m.draft.clear(); if (original?.circle == null) original?.polygon?.forEach { m.draft.add(LatLng(it.lat, it.lon)) } }
+    val circleCenter = center ?: m.me // a new circle follows your GPS until it is moved
     DisposableEffect(Unit) { onDispose { m.draft.clear() } }
+
+    // A changed outline means the places must be fetched again; a new name or mode does not.
+    fun shapeChanged(): Boolean {
+        val o = original ?: return true
+        val oc = o.circle
+        return if (polygon) oc != null || o.polygon.size != m.draft.size || o.polygon.indices.any { o.polygon[it].lat != m.draft[it].latitude || o.polygon[it].lon != m.draft[it].longitude }
+        else oc == null || circleCenter == null || oc.radiusM != radius.toDouble() || oc.center.lat != circleCenter.latitude || oc.center.lon != circleCenter.longitude
+    }
 
     Box(Modifier.fillMaxSize()) {
         QuestMap(
-            emptyList(), m.realms, m.draft.toList(), m.me, null, null, null, { if (polygon) m.draft.add(it) },
+            emptyList(), m.realms.filter { it.id != realmId }, m.draft.toList(), m.me, null, null, null, { if (polygon) m.draft.add(it) },
             Modifier.fillMaxSize(),
             home = m.home?.let { LatLng(it.lat, it.lon) },
             onMapLongClick = { m.setHome(it) },
@@ -210,14 +223,14 @@ private fun RealmEditor(m: AppModel, onClose: () -> Unit) {
                         OutlinedButton(onClick = { m.draft.clear() }) { Text("Clear", fontSize = 12.sp) }
                     }
                 } else {
-                    Text("Radius: ${radius.toInt()} m, centered on you.", fontSize = 12.sp)
+                    Text("Radius: ${radius.toInt()} m" + if (center == null) ", centered on you." else "", fontSize = 12.sp)
                     Slider(radius, { radius = it }, valueRange = 300f..8000f)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = {
-                        val ok = if (polygon) m.saveDraftRealm(name, mode) else m.saveCircleRealm(name, mode, radius.toDouble(), circleCenter)
-                        if (ok) onClose()
-                    }) { Text("Save + scan") }
+                        val circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() }
+                        if (m.saveRealm(realmId, name, mode, circle, m.draft.toList(), rescan = shapeChanged())) onClose()
+                    }) { Text(if (original == null) "Save + scan" else "Save") }
                     OutlinedButton(onClick = onClose) { Text("Cancel") }
                 }
             }

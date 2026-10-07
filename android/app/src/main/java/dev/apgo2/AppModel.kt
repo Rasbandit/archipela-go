@@ -97,21 +97,16 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     fun homePoint(): GeoPoint? = engine.home() ?: realms.firstOrNull()?.let { r -> r.circle?.center ?: r.polygon.firstOrNull() }
 
     // ----------------------------------------------------------------- realms
-    /** Saves the drawn polygon as a realm and starts its scan. Returns false (with a status message) when it could not be saved. */
-    fun saveDraftRealm(name: String, mode: String): Boolean {
-        if (draft.size < 3) { status = "Tap at least 3 points on the map"; return false }
-        val id = UUID.randomUUID().toString()
-        return runCatching { engine.saveRealm(id, name.ifBlank { "Realm ${realms.size + 1}" }, mode, null, draft.map { GeoPoint(it.latitude, it.longitude) }) }
-            .onSuccess { draft.clear(); refreshAll(); scan(id) }
-            .onFailure { status = "Could not save: ${it.message}" }
-            .isSuccess
-    }
-
-    fun saveCircleRealm(name: String, mode: String, radiusM: Double, center: LatLng?): Boolean {
-        val c = center ?: run { status = "No location yet"; return false }
-        val id = UUID.randomUUID().toString()
-        return runCatching { engine.saveRealm(id, name.ifBlank { "Realm ${realms.size + 1}" }, mode, CircleOut(GeoPoint(c.latitude, c.longitude), radiusM), emptyList()) }
-            .onSuccess { refreshAll(); scan(id) }
+    /**
+     * Creates (id == null) or updates a realm from a circle or polygon, then rescans it when [rescan] is set.
+     * Returns false (with a status message) when it could not be saved.
+     */
+    fun saveRealm(id: String?, name: String, mode: String, circle: Pair<LatLng, Double>?, polygon: List<LatLng>, rescan: Boolean): Boolean {
+        if (circle == null && polygon.size < 3) { status = "Tap at least 3 points on the map"; return false }
+        val rid = id ?: UUID.randomUUID().toString()
+        val c = circle?.let { (p, r) -> CircleOut(GeoPoint(p.latitude, p.longitude), r) }
+        return runCatching { engine.saveRealm(rid, name.ifBlank { "Realm ${realms.size + 1}" }, mode, c, if (c == null) polygon.map { GeoPoint(it.latitude, it.longitude) } else emptyList()) }
+            .onSuccess { draft.clear(); refreshAll(); if (rescan) scan(rid) }
             .onFailure { status = "Could not save: ${it.message}" }
             .isSuccess
     }
