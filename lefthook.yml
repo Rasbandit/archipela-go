@@ -1,0 +1,21 @@
+pre-commit:
+  parallel: true
+  commands:
+    ruff-format:
+      glob: "*.py"
+      run: uv run --project apworld ruff format --check {staged_files}
+    ruff-lint:
+      glob: "*.py"
+      run: uv run --project apworld ruff check {staged_files}
+    typos:
+      run: typos {staged_files}
+    gitleaks:
+      run: gitleaks protect --staged --no-banner
+pre-push:
+  commands:
+    check:
+      run: just check
+commit-msg:
+  commands:
+    committed:
+      run: committed --commit-file {1}

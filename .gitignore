@@ -1,0 +1,10 @@
+.ap/
+.superpowers/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.pyright/
+*.apworld

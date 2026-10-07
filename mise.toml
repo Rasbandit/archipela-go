@@ -1,0 +1,9 @@
+[tools]
+python = "3.12"
+uv = "latest"
+just = "latest"
+lefthook = "latest"
+gitleaks = "latest"
+typos = "latest"
+actionlint = "latest"
+"aqua:crate-ci/committed" = "latest"
