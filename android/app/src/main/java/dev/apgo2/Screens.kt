@@ -194,7 +194,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
 
     Box(Modifier.fillMaxSize()) {
         QuestMap(
-            emptyList(), m.realms.filter { it.id != realmId }, if (polygon) m.draft.toList() else emptyList(), m.me, null, null, null, { if (polygon) m.draft.add(it) },
+            emptyList(), emptyList(), if (polygon) m.draft.toList() else emptyList(), m.me, null, null, null, { if (polygon) m.draft.add(it) },
             Modifier.fillMaxSize(),
             home = m.home?.let { LatLng(it.lat, it.lon) },
             onMapLongClick = { m.setHome(it) },
