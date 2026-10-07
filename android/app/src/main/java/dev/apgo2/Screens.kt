@@ -166,6 +166,8 @@ fun RealmsScreen(m: AppModel) {
 @Composable
 private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) {
     val snackbar = remember { SnackbarHostState() }
+    var asking by remember { mutableStateOf<RealmOut?>(null) }
+    ConfirmDelete(asking, onConfirm = { r -> asking = null; m.deleteWithUndo(r.id) }, onDismiss = { asking = null })
     // Show an Undo bar for each delete; when it goes away without Undo (or the screen is left) the realm is really deleted.
     LaunchedEffect(m.undo) {
         val u = m.undo ?: return@LaunchedEffect
@@ -189,7 +191,7 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
             if (m.shownRealms.isEmpty()) Text("No realms yet. Tap New realm to draw one.", fontSize = 13.sp)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(m.shownRealms, key = { it.id }) { r ->
-                    val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { if (it == SwipeToDismissBoxValue.EndToStart) m.deleteWithUndo(r.id); false })
+                    val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { if (it == SwipeToDismissBoxValue.EndToStart) asking = r; false })
                     SwipeToDismissBox(
                         state = dismiss,
                         enableDismissFromStartToEnd = false,
@@ -246,6 +248,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     var name by remember(realmId) { mutableStateOf(original?.name ?: "") }
     var icon by remember(realmId) { mutableStateOf(original?.icon) }
     var pickingIcon by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf<RealmOut?>(null) }
     var polygon by remember(realmId) { mutableStateOf(original?.polygonActive == true) }
     var radius by remember(realmId) { mutableFloatStateOf(original?.circle?.radiusM?.toFloat() ?: 1500f) }
     var center by remember(realmId) { mutableStateOf(original?.circle?.let { LatLng(it.center.lat, it.center.lon) }) }
@@ -367,18 +370,19 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             onAnchor = { anchor = it },
         )
         RealmEditorDialogs(pickingIcon, icon, { icon = it }, { pickingIcon = false })
+        ConfirmDelete(confirmDelete, onConfirm = { r -> confirmDelete = null; m.deleteWithUndo(r.id); onClose() }, onDismiss = { confirmDelete = null })
         visible.firstOrNull { it.id == selectedFind }?.let { f ->
             anchor?.let { at -> FindBubble(f, at, onSize = { bubblePx = it.height }, onMark = { mark(f, it) }, onClose = { selectedFind = null }) }
         }
         // A way out that is always visible, whichever tab is open.
         IconButton(
             onClick = onClose,
-            modifier = Modifier.align(Alignment.TopStart).padding(top = 8.dp, start = 8.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), CircleShape),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), CircleShape),
         ) { Icon(ApgoIcons.Close, contentDescription = "Close without saving") }
         if (tab == AREA) {
             // Drawing tools float on the map, like in a map editor: shape first, then (for a polygon) undo and clear.
             Column(
-                Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), RoundedCornerShape(24.dp)).padding(4.dp),
+                Modifier.align(Alignment.TopStart).padding(top = 12.dp, start = 12.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), RoundedCornerShape(24.dp)).padding(4.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 ToolButton(ApgoIcons.Circle, "Circle", selected = !polygon) { polygon = false }
@@ -430,6 +434,10 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                             Modifier.padding(vertical = 4.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (original != null && original.scannedAtMs == null) TextButton(onClick = { m.scan(original.id) }) { IconLabel("Scan now", ApgoIcons.Rescan) }
+                        if (original != null) TextButton(onClick = { confirmDelete = original }) {
+                            Icon(ApgoIcons.Delete, contentDescription = null, tint = ApgoPalette.danger, modifier = Modifier.size(16.dp))
+                            Text("  Delete realm", fontSize = 12.sp, color = ApgoPalette.danger)
+                        }
                     }
                     items(shown, key = { it.id }) { f ->
                         Row(
@@ -460,23 +468,23 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onClose) { Text("Cancel") }
-                if (original != null) {
-                    var menu by remember { mutableStateOf(false) }
-                    Box {
-                        IconButton(onClick = { menu = true }) { Icon(ApgoIcons.More, contentDescription = "More") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Delete realm", color = ApgoPalette.danger) },
-                                leadingIcon = { Icon(ApgoIcons.Delete, contentDescription = null, tint = ApgoPalette.danger) },
-                                onClick = { menu = false; m.deleteWithUndo(original.id); onClose() },
-                            )
-                        }
-                    }
-                }
                 Button(onClick = { if (original == null && tab == AREA) goTab(DETAILS) else save() }) { Text(primaryLabel) }
             }
         }
     }
+}
+
+/** Asks before a realm is deleted (swipe or editor). [realm] null shows nothing. */
+@Composable
+private fun ConfirmDelete(realm: RealmOut?, onConfirm: (RealmOut) -> Unit, onDismiss: () -> Unit) {
+    val r = realm ?: return
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete ${r.name}?") },
+        text = { Text("Its finds and your favorites and bans go with it. Games already started keep their quests.") },
+        confirmButton = { TextButton(onClick = { onConfirm(r) }) { Text("Delete", color = ApgoPalette.danger) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** The dialogs of the realm editor: pick an icon. */
