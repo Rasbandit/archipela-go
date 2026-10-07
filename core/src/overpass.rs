@@ -148,6 +148,33 @@ pub fn fetch(endpoints: &[&str], query: &str) -> Result<String, Error> {
     Err(Error::AllEndpointsFailed(failures))
 }
 
+fn fnv1a(s: &str) -> u64 {
+    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+}
+
+/// Fetch any query with an on-disk cache keyed by the query text (30-day freshness).
+pub fn fetch_cached(query: &str, cache_dir: Option<&Path>) -> Result<String, Error> {
+    let file = cache_dir.map(|d| d.join(format!("q-{:016x}.json", fnv1a(query))));
+    if let Some(f) = &file {
+        let fresh = std::fs::metadata(f)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| SystemTime::now().duration_since(t).ok())
+            .is_some_and(|age| age < CACHE_MAX_AGE);
+        if fresh {
+            return Ok(std::fs::read_to_string(f)?);
+        }
+    }
+    let body = fetch(&ENDPOINTS, query)?;
+    if let Some(f) = &file {
+        if let Some(dir) = f.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(f, &body)?;
+    }
+    Ok(body)
+}
+
 /// Candidates around `home`, fetched once per ~5 km tile and cached on disk for 30 days.
 pub fn fetch_pois(home: Point, radius_m: u32, cache_dir: Option<&Path>) -> Result<Vec<Candidate>, Error> {
     let file = cache_dir.map(|d| d.join(format!("{}.json", cache_key(home, radius_m))));
