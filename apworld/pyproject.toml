@@ -34,8 +34,10 @@ typeCheckingMode = "standard"
 strict = [
   "ap_go2/constants.py",
   "ap_go2/names.py",
-  "ap_go2/reductions.py",
-  "ap_go2/trips.py",
+  "ap_go2/effort.py",
+  "ap_go2/distribution.py",
+  "ap_go2/zones.py",
+  "ap_go2/locations.py",
   "ap_go2/item_plan.py",
   "ap_go2/validation.py",
   "ap_go2/slot_data.py",

@@ -15,17 +15,15 @@ from worlds.AutoWorld import World  # type: ignore[import-not-found]
 from worlds.generic.Rules import set_rule  # type: ignore[import-not-found]
 
 from . import names
-from .constants import GAME_NAME
+from .constants import BOSS_GOALS, GAME_NAME
+from .distribution import QuestPlan, generate_quests
 from .item_plan import ItemPlan, plan_items
-from .items import ITEM_NAME_TO_ID, ITEM_TABLE
-from .locations import LOCATION_NAME_TO_ID
+from .items import ITEM_NAME_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE
+from .locations import LOCATION_NAME_GROUPS, LOCATION_NAME_TO_ID
 from .options import ApGo2Options
-from .reductions import logic_reductions, reductions_needed, tier_step_m
 from .slot_data import build_slot_data
-from .trips import Trip, effective_locks, generate_trips
 from .validation import goal_letter_counts, validate_settings
-
-_GOAL_NAMES = {0: "all_trips", 1: "macguffin_short", 2: "macguffin_long"}
+from .zones import Zone, build_zones
 
 
 class ApGo2Item(Item):  # type: ignore[misc]
@@ -37,7 +35,7 @@ class ApGo2Location(Location):  # type: ignore[misc]
 
 
 class ApGo2World(World):  # type: ignore[misc]
-    """Real-world trips are the checks: travel to places, send locations, earn items."""
+    """Real-world quests are the checks: travel, complete quests, earn items."""
 
     game = GAME_NAME
     options_dataclass = ApGo2Options
@@ -45,103 +43,92 @@ class ApGo2World(World):  # type: ignore[misc]
     topology_present = False
     item_name_to_id = ITEM_NAME_TO_ID
     location_name_to_id = LOCATION_NAME_TO_ID
+    item_name_groups = ITEM_NAME_GROUPS
+    location_name_groups = LOCATION_NAME_GROUPS
 
-    trips: list[Trip]
-    locks: int
+    zones: list[Zone]
+    quests: QuestPlan
     plan: ItemPlan
-    tier_step: float
+    trap_keys: list[str]
 
     @property
     def goal_name(self) -> str:
-        return _GOAL_NAMES[self.options.goal.value]
+        return self.options.goal.current_key
 
     def generate_early(self) -> None:
         opts = self.options
-        modes = sorted(opts.allowed_modes.value)
+        self.trap_keys = [k for k in names.TRAP_KEYS if k in opts.enabled_traps.value]
+        shares = (opts.easy_share.value, opts.medium_share.value, opts.hard_share.value)
         try:
-            validate_settings(
+            modes = validate_settings(
                 goal=self.goal_name,
                 trips=opts.number_of_trips.value,
-                locks=opts.number_of_locks.value,
-                min_m=opts.minimum_distance.value,
-                max_m=opts.maximum_distance.value,
-                modes=modes,
+                zone_modes=list(opts.zone_modes.value),
+                shares=shares,
+                families=opts.quest_types.value,
+                traps=opts.enabled_traps.value,
             )
         except ValueError as exc:
             msg = f"{self.game} ({self.player_name}): {exc}"
             raise OptionError(msg) from exc
 
-        count = opts.number_of_trips.value
-        self.locks = effective_locks(opts.number_of_locks.value, count)
+        self.zones = build_zones(modes)
+        families = sorted(opts.quest_types.value)
+        self.quests = generate_quests(
+            rng=self.random,
+            zone_modes=modes,
+            trips=opts.number_of_trips.value,
+            shares=shares,
+            families=families,
+            boss=self.goal_name in BOSS_GOALS,
+        )
+        locations = len(self.quests.trips) + (1 if self.quests.boss else 0)
         self.plan = plan_items(
             rng=self.random,
-            trips=count,
-            locks=self.locks,
+            locations=locations,
             goal=self.goal_name,
-            reductions_enabled=bool(opts.enable_distance_reductions),
+            zone_modes=modes,
+            effort=bool(opts.enable_effort_reductions),
             scouting=bool(opts.enable_scouting_distance_bonuses),
             collection=bool(opts.enable_collection_distance_bonuses),
             trap_rate=opts.trap_rate.value,
+            traps=self.trap_keys,
         )
-        self.tier_step = tier_step_m(
-            opts.maximum_distance.value,
-            opts.reduction_percent.value,
-            logic_reductions(self.plan.expected_reductions, opts.reduction_percent.value),
-        )
-        self.trips = generate_trips(self.random, count=count, locks=self.locks, modes=modes)
 
-    def reductions_needed_for(self, trip: Trip) -> int:
-        return reductions_needed(
-            trip.distance_tier,
-            max_distance_m=self.options.maximum_distance.value,
-            step_m=self.tier_step,
-            reduction_percent=self.options.reduction_percent.value,
+    def _enter_rule(self, zone: Zone) -> Callable[[CollectionState], bool]:
+        keys, tool = zone.keys_needed, zone.tool
+        return lambda state: (
+            state.has(names.ZONE_KEY, self.player, keys)
+            and (tool is None or state.has(tool, self.player))
         )
 
     def create_regions(self) -> None:
         menu = Region("Menu", self.player, self.multiworld)
-        areas = [
-            Region(names.area_name(k), self.player, self.multiworld) for k in range(self.locks + 1)
-        ]
-        self.multiworld.regions += [menu, *areas]
+        regions = [Region(names.zone_name(z.id), self.player, self.multiworld) for z in self.zones]
+        self.multiworld.regions += [menu, *regions]
 
-        menu.connect(areas[0], "Start")
-        for k in range(1, len(areas)):
-            areas[k - 1].connect(
-                areas[k],
-                f"Unlock {names.area_name(k)}",
-                lambda state, k=k: state.has(names.KEY, self.player, k),
+        menu.connect(regions[0], "Start")
+        for prev, region, zone in zip(regions, regions[1:], self.zones[1:], strict=False):
+            prev.connect(region, f"Unlock {region.name}", self._enter_rule(zone))
+
+        quests = [*self.quests.trips, *([self.quests.boss] if self.quests.boss else [])]
+        for quest in quests:
+            region = regions[quest.zone - 1]
+            region.locations.append(
+                ApGo2Location(self.player, quest.name, LOCATION_NAME_TO_ID[quest.name], region)
             )
 
-        for trip in self.trips:
-            name = names.trip_name(trip.number)
-            area = areas[trip.key_needed]
-            location = ApGo2Location(self.player, name, LOCATION_NAME_TO_ID[name], area)
-            need = self.reductions_needed_for(trip)
-            if need:
-                set_rule(
-                    location,
-                    lambda state, need=need: state.has(names.REDUCTION, self.player, need),
-                )
-            area.locations.append(location)
-
-        goal = ApGo2Location(self.player, names.GOAL_LOCATION, None, menu)
-        victory = ApGo2Item(names.VICTORY, ItemClassification.progression, None, self.player)
-        goal.place_locked_item(victory)
-        set_rule(goal, self._goal_rule())
-        menu.locations.append(goal)
+        letters = goal_letter_counts(self.goal_name)
+        home = menu if self.goal_name.startswith("macguffin") else regions[-1]
+        goal = ApGo2Location(self.player, names.GOAL_LOCATION, None, home)
+        goal.place_locked_item(
+            ApGo2Item(names.VICTORY, ItemClassification.progression, None, self.player)
+        )
+        if letters:
+            set_rule(goal, lambda state: state.has_all_counts(letters, self.player))
+        home.locations.append(goal)
         self.multiworld.completion_condition[self.player] = lambda state: state.has(
             names.VICTORY, self.player
-        )
-
-    def _goal_rule(self) -> Callable[[CollectionState], bool]:
-        letters = goal_letter_counts(self.goal_name)
-        if letters:
-            return lambda state: state.has_all_counts(letters, self.player)
-        most = max(self.reductions_needed_for(t) for t in self.trips)
-        return lambda state: (
-            state.has(names.KEY, self.player, self.locks)
-            and state.has(names.REDUCTION, self.player, most)
         )
 
     def create_item(self, name: str) -> Item:
@@ -159,12 +146,14 @@ class ApGo2World(World):  # type: ignore[misc]
         opts = self.options
         return build_slot_data(
             goal=self.goal_name,
-            minimum_distance_m=opts.minimum_distance.value,
-            maximum_distance_m=opts.maximum_distance.value,
-            allowed_modes=sorted(opts.allowed_modes.value),
+            goal_target=opts.goal_target.value,
+            minutes_per_tier=opts.minutes_per_tier.value,
+            reduction_percent=opts.reduction_percent.value,
+            min_distance_m=opts.minimum_distance.value,
+            fog_of_war=bool(opts.fog_of_war),
             return_home=bool(opts.return_home),
             death_link=bool(opts.death_link),
-            reduction_percent=opts.reduction_percent.value,
-            tier_step_m=self.tier_step,
-            trips=self.trips,
+            enabled_traps=self.trap_keys,
+            zones=self.zones,
+            quests=self.quests,
         )

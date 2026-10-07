@@ -1,42 +1,54 @@
-"""Client contract v1: build the slot_data dict. Pure and JSON-serializable."""
+"""Client contract v2: build the slot_data dict. Pure and JSON-serializable."""
 
 from collections.abc import Sequence
 from typing import Any
 
-from .constants import ID_OFFSET, SCHEMA_VERSION
-from .trips import Trip
+from .constants import SCHEMA_VERSION
+from .distribution import Quest, QuestPlan
+from .locations import location_id
+from .zones import Zone
+
+
+def quest_entry(quest: Quest) -> dict[str, Any]:
+    return {
+        "location_id": location_id(quest),
+        "zone": quest.zone,
+        "mode": quest.mode,
+        "difficulty": quest.difficulty,
+        "effort_tier": quest.tier,
+        "type": quest.family,
+    }
 
 
 def build_slot_data(  # noqa: PLR0913
     *,
     goal: str,
-    minimum_distance_m: int,
-    maximum_distance_m: int,
-    allowed_modes: Sequence[str],
+    goal_target: int,
+    minutes_per_tier: int,
+    reduction_percent: int,
+    min_distance_m: int,
+    fog_of_war: bool,
     return_home: bool,
     death_link: bool,
-    reduction_percent: int,
-    tier_step_m: float,
-    trips: Sequence[Trip],
+    enabled_traps: Sequence[str],
+    zones: Sequence[Zone],
+    quests: QuestPlan,
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "goal": goal,
-        "min_distance_m": minimum_distance_m,
-        "max_distance_m": maximum_distance_m,
-        "allowed_modes": sorted(allowed_modes),
+        "goal_target": goal_target,
+        "minutes_per_tier": minutes_per_tier,
+        "reduction_percent": reduction_percent,
+        "min_distance_m": min_distance_m,
+        "fog_of_war": fog_of_war,
         "return_home": return_home,
         "death_link": death_link,
-        "reduction_percent": reduction_percent,
-        "tier_step_m": tier_step_m,
-        "trips": [
-            {
-                "location_id": ID_OFFSET + t.number,
-                "type": "reach_point",
-                "distance_tier": t.distance_tier,
-                "key_needed": t.key_needed,
-                "mode": t.mode,
-            }
-            for t in trips
+        "enabled_traps": list(enabled_traps),
+        "zones": [
+            {"id": z.id, "mode": z.mode, "zone_keys_needed": z.keys_needed, "tool": z.tool}
+            for z in zones
         ],
+        "trips": [quest_entry(q) for q in quests.trips],
+        "boss": quest_entry(quests.boss) if quests.boss else None,
     }
