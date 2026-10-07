@@ -129,21 +129,53 @@ fn post(agent: &ureq::Agent, url: &str, query: &str) -> Result<String, String> {
 }
 
 /// Try each endpoint (two attempts each, with backoff) until one returns a valid body.
+/// Process-wide health of each public endpoint (success +1, failure -3, clamped): healthy servers are tried first.
+static HEALTH: [std::sync::atomic::AtomicI64; 3] = [std::sync::atomic::AtomicI64::new(0), std::sync::atomic::AtomicI64::new(0), std::sync::atomic::AtomicI64::new(0)];
+
+fn bump(i: usize, delta: i64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let cur = HEALTH[i].load(Relaxed);
+    HEALTH[i].store((cur + delta).clamp(-12, 6), Relaxed);
+}
+
+/// Endpoint indexes best-first; equally healthy ones are rotated by `start` to spread load.
+pub fn order_endpoints(health: &[i64], start: usize) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..health.len()).collect();
+    idx.rotate_left(start % health.len().max(1));
+    idx.sort_by(|a, b| health[*b].cmp(&health[*a]));
+    idx
+}
+
+/// Try the endpoints best-first (45 s first round, a longer second round), updating their health.
 pub fn fetch(endpoints: &[&str], query: &str) -> Result<String, Error> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(90)))
-        .http_status_as_error(false)
-        .build()
-        .into();
+    fetch_from(endpoints, query, 0)
+}
+
+fn fetch_from(endpoints: &[&str], query: &str, start: usize) -> Result<String, Error> {
+    use std::sync::atomic::Ordering::Relaxed;
     let mut failures = Vec::new();
-    for url in endpoints {
-        for attempt in 0..2u64 {
+    for (round, secs) in [(0u64, 30u64), (1, 70)] {
+        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(secs))).http_status_as_error(false).build().into();
+        let health: Vec<i64> = (0..endpoints.len()).map(|i| ENDPOINTS.iter().position(|e| *e == endpoints[i]).map_or(0, |k| HEALTH[k].load(Relaxed))).collect();
+        for i in order_endpoints(&health, start) {
+            let url = endpoints[i];
+            let slot = ENDPOINTS.iter().position(|e| *e == url);
             match post(&agent, url, query) {
-                Ok(body) => return Ok(body),
-                Err(e) => failures.push(format!("{url}: {e}")),
+                Ok(body) => {
+                    if let Some(k) = slot {
+                        bump(k, 1);
+                    }
+                    return Ok(body);
+                }
+                Err(e) => {
+                    if let Some(k) = slot {
+                        bump(k, -3);
+                    }
+                    failures.push(format!("{url}: {e}"));
+                }
             }
-            std::thread::sleep(Duration::from_secs(1 + attempt));
         }
+        std::thread::sleep(Duration::from_secs(2 + round * 3));
     }
     Err(Error::AllEndpointsFailed(failures))
 }
@@ -153,7 +185,8 @@ fn fnv1a(s: &str) -> u64 {
 }
 
 /// Fetch any query with an on-disk cache keyed by the query text (30-day freshness).
-pub fn fetch_cached(query: &str, cache_dir: Option<&Path>) -> Result<String, Error> {
+/// `start` rotates which endpoint is tried first so parallel jobs spread across servers.
+pub fn fetch_cached_from(query: &str, cache_dir: Option<&Path>, start: usize) -> Result<String, Error> {
     let file = cache_dir.map(|d| d.join(format!("q-{:016x}.json", fnv1a(query))));
     if let Some(f) = &file {
         let fresh = std::fs::metadata(f)
@@ -165,7 +198,7 @@ pub fn fetch_cached(query: &str, cache_dir: Option<&Path>) -> Result<String, Err
             return Ok(std::fs::read_to_string(f)?);
         }
     }
-    let body = fetch(&ENDPOINTS, query)?;
+    let body = fetch_from(&ENDPOINTS, query, start)?;
     if let Some(f) = &file {
         if let Some(dir) = f.parent() {
             std::fs::create_dir_all(dir)?;
@@ -173,6 +206,10 @@ pub fn fetch_cached(query: &str, cache_dir: Option<&Path>) -> Result<String, Err
         std::fs::write(f, &body)?;
     }
     Ok(body)
+}
+
+pub fn fetch_cached(query: &str, cache_dir: Option<&Path>) -> Result<String, Error> {
+    fetch_cached_from(query, cache_dir, 0)
 }
 
 /// Candidates around `home`, fetched once per ~5 km tile and cached on disk for 30 days.
@@ -237,6 +274,13 @@ mod tests {
         assert!(q.contains("around:5000,45.5,-122.6"));
         assert!(q.contains("[out:json]"));
         assert!(q.contains("out center"));
+    }
+
+    #[test]
+    fn healthy_endpoints_are_tried_first_and_ties_rotate() {
+        assert_eq!(order_endpoints(&[0, 5, -3], 0), vec![1, 0, 2]);
+        assert_eq!(order_endpoints(&[2, 2, 2], 1), vec![1, 2, 0]);
+        assert_eq!(order_endpoints(&[-9, -9, 4], 2), vec![2, 0, 1]);
     }
 
     #[test]

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::{Catalog, Geom, Kind, Mode, Verify};
 use crate::effort::{cadence_steps_per_min, mid, travel_min};
 use crate::fill::lattice;
-use crate::geo::{bearing_deg, distance_m, polyline_len_m, Point};
+use crate::geo::{bearing_deg, distance_m, point_inside, polyline_len_m, Point};
 use crate::realm::Realm;
 use crate::scan::{Atlas, Feature};
 
@@ -108,7 +108,9 @@ fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point) -> Option<(Tar
         Verify::Dwell { minutes, radius_m } => Some((Target::Dwell { p: f.point, r: *radius_m, minutes: *minutes }, travel_min(to_f, mode) + minutes)),
         Verify::DwellInArea { minutes } => {
             let poly = if f.geometry.len() >= 3 { f.geometry.clone() } else { vec![] };
-            Some((Target::DwellArea { poly, center: f.point, r: 80.0, minutes: *minutes }, travel_min(to_f, mode) + minutes))
+            // The OSM "center" can fall outside a concave park; always target a point inside the outline.
+            let center = if poly.len() >= 3 { point_inside(&poly) } else { f.point };
+            Some((Target::DwellArea { poly, center, r: 80.0, minutes: *minutes }, travel_min(distance_m(home, center), mode) + minutes))
         }
         Verify::FollowLine { corridor_m, coverage, min_len_m, max_len_m } => {
             let len = polyline_len_m(&f.geometry);

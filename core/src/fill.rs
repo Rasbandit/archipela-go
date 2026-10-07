@@ -8,11 +8,12 @@ use crate::zone::Zone;
 
 const WALKABLE: &str = "^(residential|living_street|pedestrian|footway|path|cycleway|track|service|unclassified|tertiary|secondary|steps|bridleway)$";
 
+pub fn streets_query_in(filter: &str) -> String {
+    format!("[out:json][timeout:40];\nway({filter})[\"highway\"~\"{WALKABLE}\"][\"access\"!~\"^(private|no)$\"];\nout geom qt;")
+}
+
 pub fn streets_query(zone: &Zone) -> String {
-    format!(
-        "[out:json][timeout:90];\nway({})[\"highway\"~\"{WALKABLE}\"][\"access\"!~\"^(private|no)$\"];\nout geom qt;",
-        zone.overpass_filter()
-    )
+    streets_query_in(&zone.overpass_filter())
 }
 
 /// Points every `spacing_m` along each street/path polyline, kept only inside the zone.

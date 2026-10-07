@@ -76,6 +76,34 @@ pub fn point_in_polygon(p: Point, v: &[Point]) -> bool {
     inside
 }
 
+/// A point guaranteed to be inside `poly` (falls back to the first vertex nudged inward for degenerate shapes).
+pub fn point_inside(poly: &[Point]) -> Point {
+    let c = centroid(poly);
+    if poly.len() < 3 || point_in_polygon(c, poly) {
+        return c;
+    }
+    // Midpoints of vertex pairs and triples scan the interior of most concave polygons.
+    let n = poly.len();
+    for step in [n / 2, n / 3, n / 4, 1] {
+        let step = step.max(1);
+        for i in 0..n {
+            let (a, b) = (poly[i], poly[(i + step) % n]);
+            let m = Point::new((a.lat + b.lat) / 2.0, (a.lon + b.lon) / 2.0);
+            if point_in_polygon(m, poly) {
+                return m;
+            }
+        }
+    }
+    for i in 0..n {
+        let (a, b, c2) = (poly[i], poly[(i + 1) % n], poly[(i + 2) % n]);
+        let m = Point::new((a.lat + b.lat + c2.lat) / 3.0, (a.lon + b.lon + c2.lon) / 3.0);
+        if point_in_polygon(m, poly) {
+            return m;
+        }
+    }
+    poly[0]
+}
+
 /// Point reached by moving `dist_m` from `from` along `bearing_deg`.
 pub fn destination(from: Point, bearing_deg: f64, dist_m: f64) -> Point {
     let d = dist_m / EARTH_RADIUS_M;
@@ -112,6 +140,16 @@ mod tests {
         let line = [Point::new(40.0, -111.0), destination(Point::new(40.0, -111.0), 0.0, 1000.0)];
         let d = densify(&line, 20.0);
         assert!(d.len() >= 50 && (polyline_len_m(&line) - 1000.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn point_inside_handles_concave_shapes() {
+        // an L shape whose vertex-average centroid lies outside the polygon
+        let l = [Point::new(0.0, 0.0), Point::new(0.0, 10.0), Point::new(1.0, 10.0), Point::new(1.0, 1.0), Point::new(10.0, 1.0), Point::new(10.0, 0.0)];
+        assert!(!point_in_polygon(centroid(&l), &l), "test shape must have a centroid outside");
+        assert!(point_in_polygon(point_inside(&l), &l));
+        let tri = [Point::new(0.0, 0.0), Point::new(0.0, 1.0), Point::new(1.0, 0.0)];
+        assert!(point_in_polygon(point_inside(&tri), &tri));
     }
 
     #[test]

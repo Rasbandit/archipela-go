@@ -6,10 +6,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::catalog::{Catalog, Cond, Geom, Kind, Mode};
-use crate::fill::fetch_streets;
+use crate::catalog::{Catalog, Geom, Kind, Mode};
 use crate::geo::{centroid, distance_m, Point};
-use crate::overpass::{fetch_cached, Error};
+use crate::overpass::{fetch_cached_from, Error};
 use crate::realm::Realm;
 use crate::zone::Zone;
 
@@ -32,6 +31,8 @@ pub struct Atlas {
     pub streets: Vec<Point>,
     /// quest kind id -> indexes into `features`.
     pub matches: BTreeMap<String, Vec<usize>>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 impl Atlas {
@@ -51,42 +52,69 @@ impl Atlas {
     }
 }
 
-fn selector(c: &Cond) -> String {
-    if c.values.iter().any(|v| v == "*") {
-        format!("[\"{}\"]", c.key)
-    } else if c.values.len() == 1 {
-        format!("[\"{}\"=\"{}\"]", c.key, c.values[0])
-    } else {
-        format!("[\"{}\"~\"^({})$\"]", c.key, c.values.join("|"))
-    }
-}
-
+/// One statement per (main tag key, needs-a-name): values are unioned, exact filtering happens locally.
+/// (A hundred separate statements time out on dense downtowns; ~20 unions do not.)
 fn statements(kinds: &[&Kind], filter: &str, element: &str) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
+    let mut unions: BTreeMap<(String, bool), BTreeSet<String>> = BTreeMap::new();
     for k in kinds {
         for group in &k.any_of {
-            let mut sel: String = group.iter().map(selector).collect();
-            if k.require_name {
-                sel.push_str("[\"name\"]");
-            }
-            out.insert(format!("{element}({filter}){sel};"));
+            // the most selective condition: the first one that names concrete values
+            let Some(c) = group.iter().find(|c| !c.values.iter().any(|v| v == "*")) else { continue };
+            unions.entry((c.key.clone(), k.require_name)).or_default().extend(c.values.iter().cloned());
         }
     }
-    out
+    unions
+        .into_iter()
+        .map(|((key, named), values)| {
+            let vals: Vec<String> = values.into_iter().collect();
+            let sel = if vals.len() == 1 { format!("[\"{key}\"=\"{}\"]", vals[0]) } else { format!("[\"{key}\"~\"^({})$\"]", vals.join("|")) };
+            format!("{element}({filter}){sel}{};", if named { "[\"name\"]" } else { "" })
+        })
+        .collect()
 }
 
 /// Query A: points and area centers for point/area kinds.
-pub fn poi_query(zone: &Zone, catalog: &Catalog) -> String {
+pub fn poi_query_in(filter: &str, catalog: &Catalog) -> String {
     let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| matches!(k.geom, Geom::Point | Geom::Area)).collect();
-    let body: String = statements(&kinds, &zone.overpass_filter(), "nwr").into_iter().collect::<Vec<_>>().join("\n");
-    format!("[out:json][timeout:90];\n(\n{body}\n);\nout center tags qt;")
+    let body: String = statements(&kinds, filter, "nwr").into_iter().collect::<Vec<_>>().join("\n");
+    format!("[out:json][timeout:40];\n(\n{body}\n);\nout center tags qt;")
 }
 
 /// Query B: full geometry (ways only) for line kinds and for area kinds (polygon outlines).
-pub fn geom_query(zone: &Zone, catalog: &Catalog) -> String {
+pub fn geom_query_in(filter: &str, catalog: &Catalog) -> String {
     let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| matches!(k.geom, Geom::Line | Geom::Area)).collect();
-    let body: String = statements(&kinds, &zone.overpass_filter(), "way").into_iter().collect::<Vec<_>>().join("\n");
-    format!("[out:json][timeout:90];\n(\n{body}\n);\nout geom tags qt;")
+    let body: String = statements(&kinds, filter, "way").into_iter().collect::<Vec<_>>().join("\n");
+    format!("[out:json][timeout:40];\n(\n{body}\n);\nout geom tags qt;")
+}
+
+pub fn poi_query(zone: &Zone, catalog: &Catalog) -> String {
+    poi_query_in(&zone.overpass_filter(), catalog)
+}
+
+pub fn geom_query(zone: &Zone, catalog: &Catalog) -> String {
+    geom_query_in(&zone.overpass_filter(), catalog)
+}
+
+/// Overpass bbox filters (`south,west,north,east`) covering the zone: public servers handle many small queries far
+/// better than one big one. Tiles are ~1.5 km, grown so there are never more than 16.
+pub fn tiles(zone: &Zone) -> Vec<String> {
+    let (sw, ne) = zone.bbox();
+    let h_m = (ne.lat - sw.lat) * 111_195.0;
+    let w_m = (ne.lon - sw.lon) * 111_195.0 * ((sw.lat + ne.lat) / 2.0).to_radians().cos();
+    let mut tile_m = 1500.0_f64;
+    while ((h_m / tile_m).ceil() * (w_m / tile_m).ceil()) > 16.0 {
+        tile_m *= 1.25;
+    }
+    let (rows, cols) = ((h_m / tile_m).ceil().max(1.0) as usize, (w_m / tile_m).ceil().max(1.0) as usize);
+    let (dlat, dlon) = ((ne.lat - sw.lat) / rows as f64, (ne.lon - sw.lon) / cols as f64);
+    let mut out = Vec::new();
+    for r in 0..rows {
+        for c in 0..cols {
+            let (s, w) = (sw.lat + dlat * r as f64, sw.lon + dlon * c as f64);
+            out.push(format!("{s},{w},{},{}", s + dlat, w + dlon));
+        }
+    }
+    out
 }
 
 fn osm_prefix(t: &str) -> char {
@@ -217,18 +245,64 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
             Geom::None => {}
         }
     }
-    Atlas { realm_id: realm_id.to_string(), scanned_at_ms: now_ms, features, streets, matches }
+    Atlas { realm_id: realm_id.to_string(), scanned_at_ms: now_ms, features, streets, matches, warnings: vec![] }
 }
 
-/// Scan a realm over the network (two bulk queries + streets), all cached on disk.
+#[derive(Clone, Copy)]
+enum Job {
+    Poi,
+    Geom,
+    Streets,
+}
+
+/// Scan a realm over the network: small tiles, three at a time, spread over the public servers, each cached.
+/// Tiles that still fail are skipped (the atlas is partial) unless everything fails.
 pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, now_ms: u64) -> Result<Atlas, Error> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
     let zone = realm.shape.to_zone();
-    let a = parse_features(&fetch_cached(&poi_query(&zone, catalog), cache_dir)?)?;
-    let b = parse_features(&fetch_cached(&geom_query(&zone, catalog), cache_dir)?)?;
-    let streets: Vec<Point> = fetch_streets(&zone, 60.0, cache_dir).map(|c| c.into_iter().map(|x| x.point).collect()).unwrap_or_default();
+    let tiles = tiles(&zone);
+    let jobs: Vec<(Job, String)> = tiles
+        .iter()
+        .flat_map(|t| [(Job::Poi, poi_query_in(t, catalog)), (Job::Geom, geom_query_in(t, catalog)), (Job::Streets, crate::fill::streets_query_in(t))])
+        .collect();
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<(Job, Result<String, Error>)>> = Mutex::new(Vec::new());
+    std::thread::scope(|s| {
+        for _ in 0..3 {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::SeqCst);
+                let Some((job, q)) = jobs.get(i) else { break };
+                let r = fetch_cached_from(q, cache_dir, i);
+                results.lock().unwrap_or_else(|e| e.into_inner()).push((*job, r));
+            });
+        }
+    });
+    let (mut a, mut b, mut streets) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut failed, total) = (0usize, jobs.len());
+    let mut last_err = None;
+    for (job, r) in results.into_inner().unwrap_or_else(|e| e.into_inner()) {
+        match r {
+            Ok(body) => match job {
+                Job::Poi => a.extend(parse_features(&body).unwrap_or_default()),
+                Job::Geom => b.extend(parse_features(&body).unwrap_or_default()),
+                Job::Streets => streets.extend(crate::fill::parse_streets(&body, &zone, 60.0).unwrap_or_default().into_iter().map(|c| c.point)),
+            },
+            Err(e) => {
+                failed += 1;
+                last_err = Some(e);
+            }
+        }
+    }
+    if failed == total {
+        return Err(last_err.unwrap_or(Error::Parse("nothing could be fetched".into())));
+    }
     let stride = (streets.len() / 12_000).max(1);
     let streets = streets.into_iter().step_by(stride).collect();
-    Ok(build_atlas(&realm.id, now_ms, merge(a, b), streets, catalog))
+    let mut atlas = build_atlas(&realm.id, now_ms, merge(a, b), streets, catalog);
+    atlas.warnings = if failed > 0 { vec![format!("{failed} of {total} map requests failed; the scan is partial. Rescan later for more places.")] } else { vec![] };
+    Ok(atlas)
 }
 
 #[cfg(test)]
@@ -309,11 +383,21 @@ mod tests {
     }
 
     #[test]
+    fn tiles_cover_the_zone_in_few_small_queries() {
+        let small = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 1200.0 };
+        assert!((1..=4).contains(&tiles(&small).len()));
+        let big = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 40_000.0 };
+        assert!(tiles(&big).len() <= 16, "a huge drive realm must not explode into hundreds of queries");
+        assert!(tiles(&small)[0].split(',').count() == 4);
+    }
+
+    #[test]
     fn queries_contain_filters_and_the_zone() {
         let cat = Catalog::builtin();
         let zone = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 1000.0 };
         let q = poi_query(&zone, &cat);
-        assert!(q.contains("around:1000,40,-111") && q.contains("[\"tourism\"=\"artwork\"]") && q.contains("out center"));
+        assert!(q.contains("around:1000,40,-111") && q.contains("\"tourism\"") && q.contains("artwork") && q.contains("out center"));
+        assert!(q.matches("nwr(").count() < 40, "queries must stay small: {} statements", q.matches("nwr(").count());
         let g = geom_query(&zone, &cat);
         assert!(g.contains("way(around:1000") && g.contains("out geom") && g.contains("highway"));
     }
