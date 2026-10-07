@@ -339,8 +339,9 @@ fun QuestMap(
                 // You and home are badges: a person on blue, a house on green.
                 s.addImage("badge-me", renderPin(ApgoIcons.Me, 120, fill = ApgoPalette.me))
                 s.addImage("marker-home", renderMarker(ApgoIcons.Home, 168, ApgoPalette.home))
-                s.addLayer(SymbolLayer("home-layer", "home").withProperties(iconImage("marker-home"), iconSize(0.8f), iconAllowOverlap(true), iconIgnorePlacement(true)))
+                // You first, then home on top: when they are in the same spot the house is the one you see.
                 s.addLayer(SymbolLayer("me-layer", "me").withProperties(iconImage("badge-me"), iconSize(0.75f), iconAllowOverlap(true), iconIgnorePlacement(true)))
+                s.addLayer(SymbolLayer("home-layer", "home").withProperties(iconImage("marker-home"), iconSize(0.8f), iconAllowOverlap(true), iconIgnorePlacement(true)))
                 style = s
             }
         }

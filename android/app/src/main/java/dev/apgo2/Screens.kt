@@ -208,7 +208,7 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
         }
     }
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             HomeCard(m) { m.pickingHome = true }
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Realms", style = MaterialTheme.typography.titleMedium)
