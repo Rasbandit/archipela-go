@@ -101,6 +101,8 @@ struct Cand {
 }
 
 const SPACING_M: f64 = 40.0;
+/// The least share of a trail a quest asks for.
+const MIN_TRAIL_SHARE: f64 = 0.25;
 /// How many effort-minutes of misfit a favorite place can make up for.
 const FAVORITE_BONUS_MIN: f64 = 6.0;
 
@@ -131,7 +133,7 @@ fn best_point(pool: &[Point], origin: Point, mode: Mode, want_min: f64, min_dist
         .min_by(|a, b| (travel_min(distance_m(origin, *a), mode) - want_min).abs().total_cmp(&(travel_min(distance_m(origin, *b), mode) - want_min).abs()))
 }
 
-fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point) -> Option<(Target, f64)> {
+fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point, want: f64) -> Option<(Target, f64)> {
     let to_f = distance_m(home, f.point);
     match &k.verify {
         Verify::Reach { radius_m } => Some((Target::Point { p: f.point, r: *radius_m }, travel_min(to_f, mode))),
@@ -149,7 +151,13 @@ fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point) -> Option<(Tar
             }
             let nearest = f.geometry.iter().map(|p| distance_m(home, *p)).fold(f64::MAX, f64::min);
             let pace = mode.m_per_min() * if mode == Mode::Walk { 0.8 } else { 1.0 };
-            Some((Target::Line { pts: f.geometry.clone(), corridor_m: *corridor_m, coverage: *coverage }, travel_min(nearest, mode) + len / pace))
+            // Ask for the share of the line that fits the effort wanted, so a long trail makes a fair quest too: never above the kind's own
+            // share, and never less than a quarter of it (or 150 m).
+            let travel = travel_min(nearest, mode);
+            let full = len / pace;
+            let floor = MIN_TRAIL_SHARE.max(150.0 / len).min(*coverage);
+            let share = ((want - travel) / full).clamp(floor, *coverage);
+            Some((Target::Line { pts: f.geometry.clone(), corridor_m: *corridor_m, coverage: share }, travel + share * full))
         }
         _ => None,
     }
@@ -238,7 +246,7 @@ fn one(
                 if used_pts.iter().any(|u| distance_m(*u, f.point) < SPACING_M) {
                     continue;
                 }
-                if let Some((target, effort)) = feature_target(k, f, z.mode, p.home) {
+                if let Some((target, effort)) = feature_target(k, f, z.mode, p.home, want) {
                     cands.push(Cand {
                         // A favorite counts as a better fit than it is, so it is picked when it is anywhere near the right effort.
                         score: (effort - want).abs() - if z.atlas.favorites.contains(&f.id) { FAVORITE_BONUS_MIN } else { 0.0 },
@@ -477,6 +485,34 @@ mod tests {
     }
 
     #[test]
+    fn a_long_trail_asks_only_for_the_share_that_fits_the_effort_and_a_short_one_stays_whole() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        let trail = |name: &str, len: f64| {
+            let t0 = destination(home(), 90.0, 300.0);
+            feature(
+                &format!("L:trail_boss:{name}"),
+                &[("highway", "path"), ("name", name)],
+                t0,
+                vec![t0, destination(t0, 90.0, len / 2.0), destination(t0, 90.0, len)],
+            )
+        };
+        let make = |len: f64| {
+            let a = crate::scan::build_atlas("r", 0, vec![trail("Long Ridge", len)], atlas(&cat, false).streets, &cat);
+            let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+            assign(&[slot(1, "trail", 3, Mode::Walk)], &z, &cat, &params(1)).remove(0)
+        };
+        let long = make(4000.0);
+        let Target::Line { coverage, .. } = long.target else { panic!("expected a line, got {:?}", long.target) };
+        assert!((0.25..0.9).contains(&coverage), "partial coverage {coverage}");
+        assert!((long.effort_min - 25.0).abs() < 6.0, "effort {} should be near the 25 min asked for", long.effort_min);
+
+        let short = make(900.0); // walking all of it is well under the effort asked for
+        let Target::Line { coverage: whole, .. } = short.target else { panic!("expected a line") };
+        assert!((whole - 0.9).abs() < 1e-9, "a short trail keeps the kind's own coverage, got {whole}");
+    }
+
+    #[test]
     fn family_with_no_places_falls_back_to_a_street_quest_and_says_so() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, false));
@@ -503,7 +539,8 @@ mod tests {
             &cat,
             &params(2),
         );
-        assert!(matches!(out[0].target, Target::DwellArea { .. }), "{:?}", out[0].target);
+        // A park can be spent time in or walked around (Perimeter Patrol, whose share now fits the effort asked for).
+        assert!(matches!(out[0].target, Target::DwellArea { .. } | Target::Line { .. }), "{:?}", out[0].target);
         assert!(matches!(out[1].target, Target::Line { .. }), "{:?}", out[1].target);
         assert!(matches!(out[2].target, Target::Courier { .. } | Target::RoundTrip { .. }));
         assert!(matches!(out[3].target, Target::Steps { .. }));

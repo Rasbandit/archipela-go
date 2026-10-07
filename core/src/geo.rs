@@ -11,6 +11,15 @@ pub struct Point {
 }
 
 impl Point {
+    /// The smaller of two points by (lat, lon): a canonical choice that does not depend on a line's direction.
+    pub fn min_by_coords(self, other: Point) -> Point {
+        if (self.lat, self.lon) <= (other.lat, other.lon) {
+            self
+        } else {
+            other
+        }
+    }
+
     pub const fn new(lat: f64, lon: f64) -> Self {
         Self { lat, lon }
     }

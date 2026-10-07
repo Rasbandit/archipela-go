@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::catalog::{Catalog, Geom, Kind, Mode};
+use crate::catalog::{Catalog, Geom, Kind, Mode, Verify};
 use crate::geo::{centroid, distance_m, Point};
 use crate::marks::Marks;
 use crate::overpass::{fetch_cached_from, Error};
@@ -153,6 +153,12 @@ fn osm_prefix(t: &str) -> char {
 }
 
 /// Parse an Overpass body into features (`out center` and `out geom` shapes).
+/// Some ways carry their own OSM id as a `name` ("w999448118"); that is a data slip, not a name.
+fn looks_like_osm_id(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some('n' | 'w' | 'r')) && chars.clone().count() > 0 && chars.all(|c| c.is_ascii_digit())
+}
+
 pub fn parse_features(body: &str) -> Result<Vec<Feature>, Error> {
     let v: Value = serde_json::from_str(body).map_err(|e| Error::Parse(e.to_string()))?;
     let els = v.get("elements").and_then(Value::as_array).ok_or_else(|| Error::Parse("no elements".into()))?;
@@ -175,7 +181,8 @@ pub fn parse_features(body: &str) -> Result<Vec<Feature>, Error> {
             _ if !geometry.is_empty() => centroid(&geometry),
             _ => continue,
         };
-        out.push(Feature { id: format!("{}{}", osm_prefix(t), id), name: tags.get("name").cloned(), point, tags, geometry });
+        let name = tags.get("name").filter(|n| !looks_like_osm_id(n)).cloned();
+        out.push(Feature { id: format!("{}{}", osm_prefix(t), id), name, point, tags, geometry });
     }
     Ok(out)
 }
@@ -247,6 +254,41 @@ pub fn stitch(ways: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
     chains
 }
 
+/// Largest gap bridged when joining the pieces of one trail or staircase.
+const LINK_M: f64 = 30.0;
+
+/// Join chains whose ends are within [`LINK_M`] of each other (a straight connector spans the gap), closest pair first.
+pub fn link(mut chains: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
+    loop {
+        let mut best: Option<(f64, usize, usize, bool, bool)> = None; // distance, i, j, flip i, flip j
+        for i in 0..chains.len() {
+            for j in i + 1..chains.len() {
+                let (a, b) = (&chains[i], &chains[j]);
+                // join tail of the (maybe reversed) i to head of the (maybe reversed) j
+                for (flip_i, end_i) in [(false, *a.last().unwrap()), (true, a[0])] {
+                    for (flip_j, end_j) in [(false, b[0]), (true, *b.last().unwrap())] {
+                        let d = distance_m(end_i, end_j);
+                        if d < LINK_M && best.is_none_or(|(bd, ..)| d < bd) {
+                            best = Some((d, i, j, flip_i, flip_j));
+                        }
+                    }
+                }
+            }
+        }
+        let Some((_, i, j, flip_i, flip_j)) = best else { return chains };
+        let mut second = chains.remove(j);
+        let mut first = chains.remove(i);
+        if flip_i {
+            first.reverse();
+        }
+        if flip_j {
+            second.reverse();
+        }
+        first.extend(second);
+        chains.push(first);
+    }
+}
+
 pub fn is_closed(pts: &[Point]) -> bool {
     pts.len() >= 4 && distance_m(pts[0], *pts.last().unwrap()) < 15.0
 }
@@ -267,30 +309,41 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
                 }
             }
             Geom::Line => {
+                // Ways of a named trail go together; unnamed ways (stair flights, path scraps) are grouped by proximity alone.
                 let mut by_name: BTreeMap<String, (Vec<Vec<Point>>, bool)> = BTreeMap::new();
                 for f in &features[..base] {
                     if f.geometry.len() >= 2 && k.matches(&f.tags) {
-                        let e = by_name.entry(f.name.clone().unwrap_or_else(|| f.id.clone())).or_default();
+                        let e = by_name.entry(f.name.clone().unwrap_or_default()).or_default();
                         e.0.push(f.geometry.clone());
                         e.1 |= is_rough(&f.tags);
                     }
                 }
+                let (min_len, max_len) = match k.verify {
+                    Verify::FollowLine { min_len_m, max_len_m, .. } => (min_len_m, max_len_m),
+                    _ => (0.0, f64::MAX),
+                };
                 let mut idxs = Vec::new();
                 for (name, (ways, rough_any)) in by_name {
-                    for (n, chain) in stitch(ways).into_iter().enumerate() {
-                        if k.closed && !is_closed(&chain) {
+                    for chain in link(stitch(ways)) {
+                        // A piece too short (or too long) for the kind could never become a quest, so it is not a find either.
+                        let len = crate::geo::polyline_len_m(&chain);
+                        if len < min_len || len > max_len || (k.closed && !is_closed(&chain)) {
                             continue;
                         }
                         let mut tags = BTreeMap::new();
-                        tags.insert("name".to_string(), name.clone());
+                        if !name.is_empty() {
+                            tags.insert("name".to_string(), name.clone());
+                        }
                         if rough_any {
                             tags.insert("rough".to_string(), "yes".to_string());
                         }
+                        // The id is the kind, the name and where the line starts, so it is the same after a rescan (marks are keyed by it).
+                        let start = chain[0].min_by_coords(*chain.last().unwrap());
                         idxs.push(features.len());
                         features.push(Feature {
-                            id: format!("L:{}:{}:{}", k.id, name, n),
+                            id: format!("L:{}:{}:{:.5}_{:.5}", k.id, if name.is_empty() { "~" } else { &name }, start.lat, start.lon),
                             point: centroid(&chain),
-                            name: Some(name.clone()),
+                            name: (!name.is_empty()).then(|| name.clone()),
                             tags,
                             geometry: chain,
                         });
@@ -431,6 +484,63 @@ mod tests {
         a.restrict_to(&zone);
         assert_eq!(a.matches["bench_warmer"], vec![0], "only the bench inside the zone is kept");
         assert_eq!((a.streets, a.streets_rough), (vec![inside], vec![]));
+    }
+
+    fn way(id: &str, name: Option<&str>, tags: &[(&str, &str)], pts: Vec<Point>) -> Feature {
+        let mut t: BTreeMap<String, String> = tags.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        if let Some(n) = name {
+            t.insert("name".into(), n.into());
+        }
+        Feature { id: id.into(), point: pts[0], name: name.map(String::from), tags: t, geometry: pts }
+    }
+
+    #[test]
+    fn fragments_of_one_trail_with_small_gaps_join_into_a_single_find() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let end1 = destination(o, 0.0, 600.0);
+        let start2 = destination(o, 0.0, 625.0); // a 25 m gap
+        let end2 = destination(o, 0.0, 1300.0);
+        let tags = [("highway", "path")];
+        let a = build_atlas(
+            "r",
+            0,
+            vec![way("w1", Some("Ridge Trail"), &tags, vec![o, end1]), way("w2", Some("Ridge Trail"), &tags, vec![start2, end2])],
+            vec![],
+            &cat,
+        );
+        let hits = &a.matches["trail_boss"];
+        assert_eq!(hits.len(), 1, "one trail, not two pieces");
+        assert!(crate::geo::polyline_len_m(&a.features[hits[0]].geometry) > 1200.0);
+    }
+
+    #[test]
+    fn a_trail_shorter_than_its_kind_minimum_is_not_a_find() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let a = build_atlas("r", 0, vec![way("w1", Some("Union Way"), &[("highway", "path")], vec![o, destination(o, 0.0, 12.0)])], vec![], &cat);
+        assert!(!a.matches.contains_key("trail_boss"), "12 m is not a trail");
+    }
+
+    #[test]
+    fn unnamed_stair_flights_close_together_become_one_staircase_and_a_lone_flight_is_dropped() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let flight = |id: &str, from: f64| way(id, None, &[("highway", "steps")], vec![destination(o, 0.0, from), destination(o, 0.0, from + 8.0)]);
+        // three flights 8 m long with 12 m between them, and one flight far away
+        let far = way("w9", None, &[("highway", "steps")], vec![destination(o, 90.0, 3000.0), destination(o, 90.0, 3008.0)]);
+        let a = build_atlas("r", 0, vec![flight("w1", 0.0), flight("w2", 20.0), flight("w3", 40.0), far], vec![], &cat);
+        let hits = &a.matches["stairmaster"];
+        assert_eq!(hits.len(), 1, "the three flights are one staircase; the lone far flight is too short to be a find");
+        assert!(crate::geo::polyline_len_m(&a.features[hits[0]].geometry) >= 20.0);
+    }
+
+    #[test]
+    fn a_name_that_is_just_an_osm_id_is_not_a_name() {
+        let body = r#"{"elements":[{"type":"way","id":5,"center":{"lat":40.0,"lon":-111.0},"tags":{"highway":"steps","name":"w999448118"}},
+                                    {"type":"way","id":6,"center":{"lat":40.0,"lon":-111.0},"tags":{"highway":"path","name":"Ridge Trail"}}]}"#;
+        let f = parse_features(body).unwrap();
+        assert_eq!((f[0].name.clone(), f[1].name.clone()), (None, Some("Ridge Trail".to_string())));
     }
 
     #[test]
