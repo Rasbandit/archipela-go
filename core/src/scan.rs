@@ -282,6 +282,11 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
     Atlas { realm_id: realm_id.to_string(), scanned_at_ms: now_ms, features, streets, streets_rough: vec![], matches, warnings: vec![] }
 }
 
+/// Tiles are bounding boxes, so fetched features spill outside circles and polygons: keep only what touches the zone.
+fn retain_in_zone(features: Vec<Feature>, zone: &Zone) -> Vec<Feature> {
+    features.into_iter().filter(|f| zone.contains(f.point) || f.geometry.iter().any(|&p| zone.contains(p))).collect()
+}
+
 #[derive(Clone, Copy)]
 enum Job {
     Poi,
@@ -352,7 +357,7 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
     let streets = streets.into_iter().step_by(stride).collect();
     let rstride = (rough.len() / 4_000).max(1);
     let rough: Vec<Point> = rough.into_iter().step_by(rstride).collect();
-    let mut atlas = build_atlas(&realm.id, now_ms, merge(a, b), streets, catalog);
+    let mut atlas = build_atlas(&realm.id, now_ms, retain_in_zone(merge(a, b), &zone), streets, catalog);
     atlas.streets_rough = rough;
     atlas.warnings = if failed > 0 {
         vec![format!("{failed} of {total} map requests did not finish in time; the scan is partial. Tap Rescan to continue (finished parts are cached).")]
@@ -373,6 +378,17 @@ mod tests {
       {"type":"way","id":3,"center":{"lat":40.002,"lon":-111.0},"tags":{"leisure":"park","name":"City Park"}},
       {"type":"node","id":4,"tags":{"amenity":"bench"}}
     ]}"#;
+
+    #[test]
+    fn features_outside_the_zone_are_dropped_but_trails_touching_it_stay() {
+        let zone = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 500.0 };
+        let feat = |id: &str, p: Point, geometry: Vec<Point>| Feature { id: id.into(), point: p, name: None, tags: BTreeMap::new(), geometry };
+        let inside = Point::new(40.001, -111.0);
+        let outside = destination(Point::new(40.0, -111.0), 90.0, 900.0);
+        let kept = retain_in_zone(vec![feat("in", inside, vec![]), feat("out", outside, vec![]), feat("trail", outside, vec![outside, inside])], &zone);
+        let ids: Vec<&str> = kept.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, ["in", "trail"]);
+    }
 
     #[test]
     fn parses_nodes_centers_and_skips_unlocatable() {
