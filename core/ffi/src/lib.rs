@@ -9,6 +9,8 @@ use apgo_core::zone::Zone;
 
 uniffi::setup_scaffolding!();
 
+pub mod engine;
+
 /// Must match the apworld's game name exactly (apworld/ap_go2/constants.py).
 const GAME_NAME: &str = "Archipela-Go 2: Electric Boogaloo";
 
@@ -255,6 +257,13 @@ impl ApSession {
                 }
             })
             .collect()
+    }
+
+    /// Location ids the server already has as checked (use after reconnecting).
+    pub fn checked_location_ids(&self) -> Vec<i64> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(client) = conn.client() else { return vec![] };
+        client.checked_locations().map(|l| l.id()).collect()
     }
 
     /// Tell the server this location was checked.

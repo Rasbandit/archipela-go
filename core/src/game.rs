@@ -433,6 +433,38 @@ impl Game {
         Ok(n)
     }
 
+    /// Human-readable list of active traps (for the HUD).
+    pub fn trap_labels(&self) -> Vec<String> {
+        use crate::traps::Trap;
+        self.traps
+            .active
+            .iter()
+            .map(|t| match t {
+                Trap::Freeze { .. } => "Frozen: reach the thaw point",
+                Trap::Fog { .. } => "Fog: map hidden",
+                Trap::Silence { .. } => "Silence",
+                Trap::Leash { .. } => "Leash: stay near home",
+                Trap::Detour { visited: false, .. } => "Detour: visit the waypoint",
+                Trap::Detour { .. } => "Detour done",
+                Trap::Toll { .. } => "Toll: keep moving",
+                Trap::Slow { .. } => "Slow: dwell x2",
+            })
+            .map(String::from)
+            .collect()
+    }
+
+    pub fn last_pos(&self) -> Option<Point> {
+        self.last_fix.map(|f| f.point())
+    }
+
+    pub fn blocked_reason(&self) -> Option<String> {
+        self.last_fix.and_then(|f| self.traps.blocks_checks(f.point()))
+    }
+
+    pub fn streak_days(&self, now_ms: i64) -> u32 {
+        streak(&self.stats.quest_days, now_ms / DAY_MS)
+    }
+
     pub fn path_for(dir: &Path, id: &str) -> PathBuf {
         let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
         dir.join("games").join(format!("{safe}.json"))
