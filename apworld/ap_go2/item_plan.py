@@ -28,7 +28,7 @@ def plan_items(  # noqa: PLR0913
     *,
     rng: random.Random,
     locations: int,
-    goal: str,
+    goal: str | Iterable[str],
     zone_modes: Sequence[str],
     effort: bool,
     scouting: bool,

@@ -2,7 +2,10 @@ import pytest
 from worlds.ap_go2.constants import FAMILIES, GOALS
 from worlds.ap_go2.names import TRAP_KEYS
 from worlds.ap_go2.validation import (
+    check_requirement,
+    goal_ids_from_selection,
     goal_letter_counts,
+    letters_needed_by_logic,
     mandatory_count,
     min_trips,
     normalize_zone_modes,
@@ -123,3 +126,50 @@ def test_rejects_too_few_trips() -> None:
 
 def test_zones_need_quests_in_each() -> None:
     assert min_trips("all_trips", ["walk", "walk", "walk"]) >= 3
+
+
+def test_letters_for_several_goals_take_the_most_demanding() -> None:
+    both = goal_letter_counts(["macguffin_short", "macguffin_long"])
+    assert both == goal_letter_counts("macguffin_long")
+    assert goal_letter_counts(["boss", "quest_dex"]) == {}
+    assert goal_letter_counts(["treasure_hunt", "boss"]) == goal_letter_counts("macguffin_short")
+
+
+def test_a_goal_selection_maps_names_to_ids_in_game_order() -> None:
+    assert goal_ids_from_selection(["Quest-dex", "letter hunt", "The Big One"]) == [
+        "macguffin_short",
+        "boss",
+        "quest_dex",
+    ]
+
+
+def test_a_goal_selection_must_be_real_and_not_empty() -> None:
+    with pytest.raises(ValueError, match="empty"):
+        goal_ids_from_selection([])
+    with pytest.raises(ValueError, match="Win Instantly"):
+        goal_ids_from_selection(["Win Instantly"])
+
+
+def test_letters_are_logic_only_when_unavoidable() -> None:
+    assert letters_needed_by_logic(["macguffin_short"], "any")
+    assert letters_needed_by_logic(["macguffin_short", "macguffin_long"], "any")
+    assert not letters_needed_by_logic(["macguffin_short", "boss"], "any")
+    assert not letters_needed_by_logic(["macguffin_short", "boss"], "at_least")
+    assert letters_needed_by_logic(["macguffin_short", "boss"], "all")
+
+
+def test_the_number_of_goals_required_must_fit() -> None:
+    check_requirement(["boss", "quest_dex"], "at_least", 2)
+    check_requirement(["boss"], "any", 99)  # unused unless at_least
+    with pytest.raises(ValueError, match="goals_required"):
+        check_requirement(["boss", "quest_dex"], "at_least", 3)
+    with pytest.raises(ValueError, match="requirement"):
+        check_requirement(["boss"], "sometimes", 1)
+
+
+def test_several_goals_are_validated_together() -> None:
+    assert check(goal=["boss", "macguffin_long"], trips=40) == ["walk"]
+    with pytest.raises(ValueError, match="goal"):
+        check(goal=["boss", "nope"])
+    with pytest.raises(ValueError, match="at least one goal"):
+        check(goal=[])

@@ -22,8 +22,9 @@ def quest_entry(quest: Quest) -> dict[str, Any]:
 
 def build_slot_data(  # noqa: PLR0913
     *,
-    goal: str,
-    goal_target: int,
+    goals: Sequence[tuple[str, int]],
+    goal_requirement: str,
+    goal_need: int,
     minutes_per_tier: int,
     reduction_percent: int,
     min_distance_m: int,
@@ -36,8 +37,9 @@ def build_slot_data(  # noqa: PLR0913
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
-        "goal": goal,
-        "goal_target": goal_target,
+        "goals": [{"id": gid, "target": target} for gid, target in goals],
+        "goal_requirement": goal_requirement,
+        "goal_need": goal_need,
         "minutes_per_tier": minutes_per_tier,
         "reduction_percent": reduction_percent,
         "min_distance_m": min_distance_m,

@@ -1,7 +1,13 @@
 {
-  "schema_version": 2,
-  "goal": "boss",
-  "goal_target": 0,
+  "schema_version": 3,
+  "goals": [
+    {
+      "id": "boss",
+      "target": 0
+    }
+  ],
+  "goal_requirement": "any",
+  "goal_need": 1,
   "minutes_per_tier": 10,
   "reduction_percent": 8,
   "min_distance_m": 150,

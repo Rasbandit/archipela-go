@@ -1,9 +1,16 @@
-# Sample player YAML for Archipela-Go 2: Electric Boogaloo (apworld v2).
+# Sample player YAML for Archipela-Go 2: Electric Boogaloo (apworld v3).
 name: Tester
 game: "Archipela-Go 2: Electric Boogaloo"
 "Archipela-Go 2: Electric Boogaloo":
-  goal: boss
-  goal_target: 0
+  goal_selection: [The Big One, Quest-dex]
+  goal_requirement: require_any_one_goal
+  goals_required: 2
+  goal_zone_conqueror_percent: 60
+  goal_quest_dex_kinds: 15
+  goal_marathon_kilometers: 42
+  goal_explorer_cells: 300
+  goal_streak_days: 7
+  goal_boss_rush_hard_quests: 5
   number_of_trips: 60
   zone_modes: [walk, bike, drive]
   easy_share: 50

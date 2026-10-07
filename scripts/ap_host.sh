@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Dev Archipelago server with OUR apworld, single player "Tester".
-#   [APGO_ZONES=walk,bike,drive] [APGO_GOAL=macguffin_short] scripts/ap_host.sh start [trips]
+#   [APGO_ZONES=walk,bike,drive] [APGO_GOALS="Letter Hunt,The Big One"] [APGO_REQ=require_all_goals] scripts/ap_host.sh start [trips]
 #                                      generate a seed and host it on :38281 (+ adb reverse to the phone)
 #   scripts/ap_host.sh stop | status | log
 set -euo pipefail
@@ -28,12 +28,15 @@ case "${1:-}" in
     "$0" stop >/dev/null 2>&1 || true
     rm -rf "$dev"; mkdir -p "$dev/players" "$dev/out"
     zones="${APGO_ZONES:-walk,bike,drive}"
-    goal="${APGO_GOAL:-macguffin_short}"
+    goals="${APGO_GOALS:-Letter Hunt}"
+    req="${APGO_REQ:-require_any_one_goal}"
     cat > "$dev/players/Tester.yaml" <<YAML
 name: Tester
 game: "$game"
 "$game":
-  goal: $goal
+  goal_selection: [${goals}]
+  goal_requirement: $req
+  goals_required: ${APGO_NEED:-2}
   number_of_trips: $trips
   zone_modes: [${zones//,/, }]
   easy_share: 50
@@ -54,7 +57,7 @@ PY" >"$dev/server.log" 2>&1 &
     echo $! > "$dev/server.pid"
     sleep 4
     adb reverse tcp:$port tcp:$port >/dev/null 2>&1 && echo "adb reverse set: phone localhost:$port -> this machine" || echo "(no phone for adb reverse)"
-    echo "server up (pid $(cat "$dev/server.pid")), slot Tester, $trips trips, zones $zones, goal $goal. Connect to localhost:$port"
+    echo "server up (pid $(cat "$dev/server.pid")), slot Tester, $trips trips, zones $zones, goals $goals ($req). Connect to localhost:$port"
     ;;
   stop)
     [ -f "$dev/server.pid" ] && kill "$(cat "$dev/server.pid")" 2>/dev/null || true

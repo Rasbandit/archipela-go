@@ -11,18 +11,23 @@ from BaseClasses import (  # type: ignore[import-not-found]
     Region,
 )
 from Options import OptionError  # type: ignore[import-not-found]
-from worlds.AutoWorld import World  # type: ignore[import-not-found]
+from worlds.AutoWorld import WebWorld, World  # type: ignore[import-not-found]
 from worlds.generic.Rules import set_rule  # type: ignore[import-not-found]
 
 from . import names
-from .constants import BOSS_GOALS, GAME_NAME
+from .constants import BOSS_GOALS, GAME_NAME, GOAL_TARGET_OPTIONS, LETTER_GOALS
 from .distribution import QuestPlan, generate_quests
 from .item_plan import ItemPlan, plan_items
 from .items import ITEM_NAME_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE
 from .locations import LOCATION_NAME_GROUPS, LOCATION_NAME_TO_ID
-from .options import ApGo2Options
+from .options import ApGo2Options, option_groups
 from .slot_data import build_slot_data
-from .validation import goal_letter_counts, validate_settings
+from .validation import (
+    check_requirement,
+    goal_ids_from_selection,
+    letters_needed_by_logic,
+    validate_settings,
+)
 from .zones import Zone, build_zones
 
 
@@ -34,12 +39,20 @@ class ApGo2Location(Location):  # type: ignore[misc]
     game = GAME_NAME
 
 
+class ApGo2Web(WebWorld):  # type: ignore[misc]
+    """Web pages of the world: only what Archipelago needs from us today (its option groups)."""
+
+    option_groups = option_groups
+    rich_text_options_doc = True
+
+
 class ApGo2World(World):  # type: ignore[misc]
     """Real-world quests are the checks: travel, complete quests, earn items."""
 
     game = GAME_NAME
     options_dataclass = ApGo2Options
     options: ApGo2Options  # type: ignore[assignment]
+    web = ApGo2Web()
     topology_present = False
     item_name_to_id = ITEM_NAME_TO_ID
     location_name_to_id = LOCATION_NAME_TO_ID
@@ -50,18 +63,25 @@ class ApGo2World(World):  # type: ignore[misc]
     quests: QuestPlan
     plan: ItemPlan
     trap_keys: list[str]
-
-    @property
-    def goal_name(self) -> str:
-        return self.options.goal.current_key
+    goals: list[str]
+    goal_requirement: str
+    goal_need: int
 
     def generate_early(self) -> None:
         opts = self.options
         self.trap_keys = [k for k in names.TRAP_KEYS if k in opts.enabled_traps.value]
         shares = (opts.easy_share.value, opts.medium_share.value, opts.hard_share.value)
         try:
+            self.goals = goal_ids_from_selection(opts.goal_selection.value)
+            self.goal_requirement = {0: "any", 1: "all", 2: "at_least"}[opts.goal_requirement.value]
+            check_requirement(self.goals, self.goal_requirement, opts.goals_required.value)
+            self.goal_need = {
+                "any": 1,
+                "all": len(self.goals),
+                "at_least": opts.goals_required.value,
+            }[self.goal_requirement]
             modes = validate_settings(
-                goal=self.goal_name,
+                goal=self.goals,
                 trips=opts.number_of_trips.value,
                 zone_modes=list(opts.zone_modes.value),
                 shares=shares,
@@ -80,13 +100,13 @@ class ApGo2World(World):  # type: ignore[misc]
             trips=opts.number_of_trips.value,
             shares=shares,
             families=families,
-            boss=self.goal_name in BOSS_GOALS,
+            boss=any(g in BOSS_GOALS for g in self.goals),
         )
         locations = len(self.quests.trips) + (1 if self.quests.boss else 0)
         self.plan = plan_items(
             rng=self.random,
             locations=locations,
-            goal=self.goal_name,
+            goal=self.goals,
             zone_modes=modes,
             effort=bool(opts.enable_effort_reductions),
             scouting=bool(opts.enable_scouting_distance_bonuses),
@@ -118,8 +138,9 @@ class ApGo2World(World):  # type: ignore[misc]
                 ApGo2Location(self.player, quest.name, LOCATION_NAME_TO_ID[quest.name], region)
             )
 
-        letters = goal_letter_counts(self.goal_name)
-        home = menu if self.goal_name.startswith("macguffin") else regions[-1]
+        # Letters are demanded only when unavoidable (see letters_needed_by_logic).
+        letters = letters_needed_by_logic(self.goals, self.goal_requirement)
+        home = menu if all(g in LETTER_GOALS for g in self.goals) else regions[-1]
         goal = ApGo2Location(self.player, names.GOAL_LOCATION, None, home)
         goal.place_locked_item(
             ApGo2Item(names.VICTORY, ItemClassification.progression, None, self.player)
@@ -145,8 +166,17 @@ class ApGo2World(World):  # type: ignore[misc]
     def fill_slot_data(self) -> dict[str, Any]:
         opts = self.options
         return build_slot_data(
-            goal=self.goal_name,
-            goal_target=opts.goal_target.value,
+            goals=[
+                (
+                    gid,
+                    getattr(opts, GOAL_TARGET_OPTIONS[gid]).value
+                    if gid in GOAL_TARGET_OPTIONS
+                    else 0,
+                )
+                for gid in self.goals
+            ],
+            goal_requirement=self.goal_requirement,
+            goal_need=self.goal_need,
             minutes_per_tier=opts.minutes_per_tier.value,
             reduction_percent=opts.reduction_percent.value,
             min_distance_m=opts.minimum_distance.value,

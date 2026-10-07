@@ -9,7 +9,7 @@ use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::Mode;
-use crate::slot::{QuestSlot, SlotData, ZoneSlot};
+use crate::slot::{check_goal_specs, GoalMode, GoalSpec, QuestSlot, SlotData, ZoneSlot, CURRENT_SCHEMA};
 
 pub const ID_OFFSET: i64 = 8_902_400_000_000;
 pub const BLOCK_SIZE: i64 = 1000;
@@ -72,8 +72,12 @@ fn mode_index(m: Mode) -> i64 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SoloOptions {
+    /// The win condition. When `goals` is not empty it takes over (and these two are only the single-goal form).
     pub goal: String,
     pub goal_target: u32,
+    pub goals: Vec<GoalSpec>,
+    pub goal_mode: GoalMode,
+    pub goal_need: u32,
     pub number_of_trips: u32,
     pub zone_modes: Vec<Mode>,
     pub easy_share: u32,
@@ -82,6 +86,8 @@ pub struct SoloOptions {
     pub minutes_per_tier: u32,
     pub min_distance_m: u32,
     pub quest_types: Vec<String>,
+    /// Quest types for each zone, in zone order. A missing or empty entry uses `quest_types`.
+    pub zone_quest_types: Vec<Vec<String>>,
     pub enabled_traps: Vec<String>,
     pub trap_rate: u32,
     pub enable_effort_reductions: bool,
@@ -97,6 +103,9 @@ impl Default for SoloOptions {
         SoloOptions {
             goal: "macguffin_short".into(),
             goal_target: 0,
+            goals: vec![],
+            goal_mode: GoalMode::All,
+            goal_need: 0,
             number_of_trips: 100,
             zone_modes: vec![Mode::Walk],
             easy_share: 50,
@@ -105,6 +114,7 @@ impl Default for SoloOptions {
             minutes_per_tier: 10,
             min_distance_m: 150,
             quest_types: FAMILIES.iter().map(|s| s.to_string()).collect(),
+            zone_quest_types: vec![],
             enabled_traps: ["freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor"].iter().map(|s| s.to_string()).collect(),
             trap_rate: 30,
             enable_effort_reductions: false,
@@ -136,6 +146,26 @@ fn has_boss(goal: &str) -> bool {
     matches!(goal, "boss" | "treasure_hunt")
 }
 
+/// The letters a set of goals needs: the long word covers the short one, so the longest asked for is enough.
+fn letters_for_goals(goals: &[GoalSpec]) -> &'static str {
+    goals.iter().map(|g| letters_for(&g.id)).max_by_key(|l| l.len()).unwrap_or("")
+}
+
+fn has_boss_goal(goals: &[GoalSpec]) -> bool {
+    goals.iter().any(|g| has_boss(&g.id))
+}
+
+impl SoloOptions {
+    /// The win conditions: the `goals` list, or the single `goal`.
+    pub fn goal_list(&self) -> Vec<GoalSpec> {
+        if self.goals.is_empty() {
+            vec![GoalSpec { id: self.goal.clone(), target: self.goal_target }]
+        } else {
+            self.goals.clone()
+        }
+    }
+}
+
 /// Largest-remainder split of `total` by weights (zero weights get zero).
 fn split(total: u32, weights: &[u32]) -> Vec<u32> {
     let sum: u32 = weights.iter().sum();
@@ -156,9 +186,7 @@ pub fn validate(o: &SoloOptions) -> Result<(), String> {
     if o.zone_modes.is_empty() || o.zone_modes.len() > 6 {
         return Err("zone_modes needs 1 to 6 zones".into());
     }
-    if !GOALS.contains(&o.goal.as_str()) {
-        return Err(format!("unknown goal {}", o.goal));
-    }
+    check_goal_specs(&o.goal_list(), o.goal_mode, o.goal_need)?;
     if o.easy_share + o.medium_share + o.hard_share == 0 {
         return Err("at least one difficulty share must be above 0".into());
     }
@@ -167,11 +195,11 @@ pub fn validate(o: &SoloOptions) -> Result<(), String> {
     }
     let zones = o.zone_modes.len() as u32;
     let tools = tool_names(o).len() as u32;
-    let mandatory = letters_for(&o.goal).len() as u32 + (zones - 1) + tools;
+    let mandatory = letters_for_goals(&o.goal_list()).len() as u32 + (zones - 1) + tools;
     if o.number_of_trips < mandatory.max(zones) {
         return Err(format!("number_of_trips ({}) is too small; this setup needs at least {}", o.number_of_trips, mandatory.max(zones)));
     }
-    if let Some(bad) = o.quest_types.iter().find(|q| !FAMILIES.contains(&q.as_str())) {
+    if let Some(bad) = o.quest_types.iter().chain(o.zone_quest_types.iter().flatten()).find(|q| !FAMILIES.contains(&q.as_str())) {
         return Err(format!("unknown quest type {bad}"));
     }
     Ok(())
@@ -214,11 +242,12 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     let per_zone = split(o.number_of_trips, &vec![1; zn]);
     let mut counters: BTreeMap<(usize, i64), i64> = BTreeMap::new();
     let mut trips: Vec<QuestSlot> = Vec::new();
-    let mut quest_types: Vec<String> = o.quest_types.clone();
-    if !quest_types.iter().any(|q| q == "reach") {
-        quest_types.push("reach".into());
-    }
     for (zi, zone) in zones.iter().enumerate() {
+        // A zone's own list wins; an empty or missing one means the game's list. Walking to a point is always allowed.
+        let mut quest_types: Vec<String> = o.zone_quest_types.get(zi).filter(|v| !v.is_empty()).unwrap_or(&o.quest_types).clone();
+        if !quest_types.iter().any(|q| q == "reach") {
+            quest_types.push("reach".into());
+        }
         let counts = split(per_zone[zi], &[o.easy_share, o.medium_share, o.hard_share]);
         let mut fams: Vec<&str> = Vec::new();
         for f in FAMILIES.iter().filter(|f| quest_types.iter().any(|q| q == **f) && family_allows(f, zone.mode)) {
@@ -242,7 +271,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
             }
         }
     }
-    let boss = has_boss(&o.goal).then(|| {
+    let boss = has_boss_goal(&o.goal_list()).then(|| {
         let last = zones.last().expect("zones");
         QuestSlot {
             location_id: ID_OFFSET + 12 * BLOCK_SIZE + 1,
@@ -265,7 +294,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
             }
         }
     }
-    let letters: Vec<String> = letters_for(&o.goal).chars().map(|c| format!("Letter {c}")).collect();
+    let letters: Vec<String> = letters_for_goals(&o.goal_list()).chars().map(|c| format!("Letter {c}")).collect();
     let mut free = total_locs as i64 - unlock.len() as i64 - letters.len() as i64;
     let mut other: Vec<String> = Vec::new();
     let add_useful = |name: &str, share_pct: u32, min: u32, free: &mut i64, other: &mut Vec<String>| {
@@ -325,9 +354,12 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     }
 
     let slot = SlotData {
-        schema_version: 2,
-        goal: o.goal.clone(),
-        goal_target: o.goal_target,
+        schema_version: CURRENT_SCHEMA,
+        goal: o.goal_list()[0].id.clone(),
+        goal_target: o.goal_list()[0].target,
+        goals: o.goal_list(),
+        goal_mode: o.goal_mode,
+        goal_need: o.goal_need,
         minutes_per_tier: o.minutes_per_tier,
         reduction_percent: o.reduction_percent,
         min_distance_m: o.min_distance_m,
@@ -373,6 +405,55 @@ mod tests {
 
     fn opts(zones: &[Mode], trips: u32, goal: &str) -> SoloOptions {
         SoloOptions { zone_modes: zones.to_vec(), number_of_trips: trips, goal: goal.into(), ..SoloOptions::default() }
+    }
+
+    #[test]
+    fn several_goals_together_ask_for_everything_each_one_needs() {
+        let mut o = opts(&[Mode::Walk], 60, "macguffin_short");
+        o.goals = vec![GoalSpec { id: "macguffin_long".into(), target: 0 }, GoalSpec { id: "boss".into(), target: 0 }];
+        o.goal_mode = GoalMode::All;
+        let g = generate(&o, 3).unwrap();
+        assert!(g.slot.boss.is_some(), "the boss goal needs a boss quest");
+        let letters = g.rewards.values().filter(|r| r.starts_with("Letter ")).count();
+        assert_eq!(letters, "ARCHIPELAGO".len(), "the long word needs all its letters");
+        assert_eq!(g.slot.goals.len(), 2);
+        assert_eq!(g.slot.goal_mode, GoalMode::All);
+        assert_eq!(g.slot.goal, "macguffin_long", "the first goal also fills the single-goal field older readers use");
+    }
+
+    #[test]
+    fn a_goal_list_is_checked_like_a_single_goal() {
+        let mut o = opts(&[Mode::Walk], 60, "boss");
+        o.goals = vec![GoalSpec { id: "nonsense".into(), target: 0 }];
+        assert!(validate(&o).is_err());
+        o.goals = vec![GoalSpec { id: "boss".into(), target: 0 }, GoalSpec { id: "quest_dex".into(), target: 4 }];
+        o.goal_mode = GoalMode::AtLeast;
+        o.goal_need = 3;
+        assert!(validate(&o).unwrap_err().contains("goal"), "3 of 2 goals is impossible");
+        o.goal_need = 2;
+        assert!(validate(&o).is_ok());
+    }
+
+    #[test]
+    fn each_zone_can_have_its_own_quest_types() {
+        let mut o = opts(&[Mode::Walk, Mode::Walk], 80, "all_trips");
+        o.zone_quest_types = vec![vec!["park".into()], vec!["dwell".into()]];
+        let g = generate(&o, 5).unwrap();
+        let fams = |zone: u32| -> std::collections::BTreeSet<String> { g.slot.trips.iter().filter(|q| q.zone == zone).map(|q| q.family.clone()).collect() };
+        let allowed = |zone: u32, own: &str| fams(zone).iter().all(|f| f == own || f == "reach"); // reach is always allowed
+        assert!(allowed(1, "park"), "zone 1 got {:?}", fams(1));
+        assert!(allowed(2, "dwell"), "zone 2 got {:?}", fams(2));
+        assert!(fams(1).contains("park") && fams(2).contains("dwell"));
+    }
+
+    #[test]
+    fn a_zone_with_no_quest_types_of_its_own_uses_the_games_list() {
+        let mut o = opts(&[Mode::Walk, Mode::Walk], 80, "all_trips");
+        o.quest_types = vec!["trail".into()];
+        o.zone_quest_types = vec![vec![], vec!["dwell".into()]];
+        let g = generate(&o, 5).unwrap();
+        let fams = |zone: u32| -> std::collections::BTreeSet<String> { g.slot.trips.iter().filter(|q| q.zone == zone).map(|q| q.family.clone()).collect() };
+        assert!(fams(1).iter().all(|f| f == "trail" || f == "reach"), "zone 1 got {:?}", fams(1));
     }
 
     #[test]

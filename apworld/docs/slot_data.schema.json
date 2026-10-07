@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Archipela-Go 2 slot_data v2",
+  "title": "Archipela-Go 2 slot_data v3",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version",
-    "goal",
-    "goal_target",
+    "goals",
+    "goal_requirement",
+    "goal_need",
     "minutes_per_tier",
     "reduction_percent",
     "min_distance_m",
@@ -19,35 +20,96 @@
     "boss"
   ],
   "properties": {
-    "schema_version": { "const": 2 },
-    "goal": {
+    "schema_version": {
+      "const": 3
+    },
+    "goals": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "target"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "macguffin_short",
+              "macguffin_long",
+              "all_trips",
+              "boss",
+              "treasure_hunt",
+              "zone_conqueror",
+              "well_rounded",
+              "quest_dex",
+              "marathon",
+              "explorer",
+              "streak",
+              "boss_rush"
+            ]
+          },
+          "target": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        }
+      }
+    },
+    "goal_requirement": {
       "enum": [
-        "macguffin_short",
-        "macguffin_long",
-        "all_trips",
-        "boss",
-        "treasure_hunt",
-        "zone_conqueror",
-        "well_rounded",
-        "quest_dex",
-        "marathon",
-        "explorer",
-        "streak",
-        "boss_rush"
+        "any",
+        "all",
+        "at_least"
       ]
     },
-    "goal_target": { "type": "integer", "minimum": 0, "maximum": 1000 },
-    "minutes_per_tier": { "type": "integer", "minimum": 5, "maximum": 30 },
-    "reduction_percent": { "type": "integer", "minimum": 1, "maximum": 25 },
-    "min_distance_m": { "type": "integer", "minimum": 50, "maximum": 5000 },
-    "fog_of_war": { "type": "boolean" },
-    "return_home": { "type": "boolean" },
-    "death_link": { "type": "boolean" },
+    "goal_need": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12
+    },
+    "minutes_per_tier": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 30
+    },
+    "reduction_percent": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 25
+    },
+    "min_distance_m": {
+      "type": "integer",
+      "minimum": 50,
+      "maximum": 5000
+    },
+    "fog_of_war": {
+      "type": "boolean"
+    },
+    "return_home": {
+      "type": "boolean"
+    },
+    "death_link": {
+      "type": "boolean"
+    },
     "enabled_traps": {
       "type": "array",
       "uniqueItems": true,
       "items": {
-        "enum": ["freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor"]
+        "enum": [
+          "freeze",
+          "fog",
+          "shuffle",
+          "silence",
+          "leash",
+          "detour",
+          "toll",
+          "slow",
+          "honor"
+        ]
       }
     },
     "zones": {
@@ -57,12 +119,34 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "mode", "zone_keys_needed", "tool"],
+        "required": [
+          "id",
+          "mode",
+          "zone_keys_needed",
+          "tool"
+        ],
         "properties": {
-          "id": { "type": "integer", "minimum": 1, "maximum": 6 },
-          "mode": { "$ref": "#/$defs/mode" },
-          "zone_keys_needed": { "type": "integer", "minimum": 0, "maximum": 5 },
-          "tool": { "enum": ["Running Shoes", "Bike", "Car", null] }
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "mode": {
+            "$ref": "#/$defs/mode"
+          },
+          "zone_keys_needed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "tool": {
+            "enum": [
+              "Running Shoes",
+              "Bike",
+              "Car",
+              null
+            ]
+          }
         }
       }
     },
@@ -70,25 +154,70 @@
       "type": "array",
       "minItems": 1,
       "maxItems": 1000,
-      "items": { "$ref": "#/$defs/quest" }
+      "items": {
+        "$ref": "#/$defs/quest"
+      }
     },
     "boss": {
-      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/quest" }]
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/quest"
+        }
+      ]
     }
   },
   "$defs": {
-    "mode": { "enum": ["walk", "run", "bike", "drive"] },
+    "mode": {
+      "enum": [
+        "walk",
+        "run",
+        "bike",
+        "drive"
+      ]
+    },
     "quest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["location_id", "zone", "mode", "difficulty", "effort_tier", "type"],
+      "required": [
+        "location_id",
+        "zone",
+        "mode",
+        "difficulty",
+        "effort_tier",
+        "type"
+      ],
       "properties": {
-        "location_id": { "type": "integer", "minimum": 1 },
-        "zone": { "type": "integer", "minimum": 1, "maximum": 6 },
-        "mode": { "$ref": "#/$defs/mode" },
-        "difficulty": { "enum": ["easy", "medium", "hard"] },
-        "effort_tier": { "type": "integer", "minimum": 1, "maximum": 10 },
-        "type": { "type": "string", "minLength": 1 }
+        "location_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "zone": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
+        "mode": {
+          "$ref": "#/$defs/mode"
+        },
+        "difficulty": {
+          "enum": [
+            "easy",
+            "medium",
+            "hard"
+          ]
+        },
+        "effort_tier": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   }

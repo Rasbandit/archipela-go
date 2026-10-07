@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::assign::Assignment;
-use crate::slot::SlotData;
+use crate::slot::{GoalMode, GoalSpec, SlotData};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GoalStatus {
@@ -61,9 +61,44 @@ fn or_default(target: u32, default: u32) -> u32 {
     }
 }
 
+/// Every goal of the game with its own progress, for the UI.
+pub fn evaluate_each(c: &GoalCtx) -> Vec<(GoalSpec, GoalStatus)> {
+    c.slot
+        .goal_list()
+        .into_iter()
+        .map(|g| {
+            let st = evaluate_one(c, &g.id, g.target);
+            (g, st)
+        })
+        .collect()
+}
+
+/// The game's win condition: its goal, or several goals combined by the slot's rule (any, all, or at least N).
 pub fn evaluate(c: &GoalCtx) -> GoalStatus {
-    let g = c.slot.goal.as_str();
-    let t = c.slot.goal_target;
+    let mut each = evaluate_each(c);
+    if each.len() == 1 {
+        return each.remove(0).1; // one goal keeps its own label and progress
+    }
+    let n = each.len();
+    let need = match c.slot.goal_mode {
+        GoalMode::Any => 1,
+        GoalMode::All => n,
+        GoalMode::AtLeast => (c.slot.goal_need as usize).clamp(1, n),
+    };
+    let done = each.iter().filter(|(_, s)| s.achieved).count();
+    let mut progress: Vec<f32> = each.iter().map(|(_, s)| s.progress).collect();
+    progress.sort_by(|a, b| b.total_cmp(a));
+    let shown = progress.iter().take(need).sum::<f32>() / need as f32; // the closest `need` goals are what count
+    let header = match c.slot.goal_mode {
+        GoalMode::Any => format!("Finish any one of {n} goals"),
+        GoalMode::All => format!("Finish all {n} goals"),
+        GoalMode::AtLeast => format!("Finish {need} of {n} goals"),
+    };
+    let parts: Vec<&str> = each.iter().map(|(_, s)| s.label.as_str()).collect();
+    GoalStatus { progress: shown, achieved: done >= need, label: format!("{header} ({done} done): {}", parts.join(" · ")) }
+}
+
+fn evaluate_one(c: &GoalCtx, g: &str, t: u32) -> GoalStatus {
     let trips_total = c.slot.trips.len() as f64;
     let boss_done = c.slot.boss.as_ref().is_some_and(|b| c.done.contains(&b.location_id));
     let done_assign = || c.assignments.iter().filter(|a| c.done.contains(&a.location_id));
@@ -139,7 +174,7 @@ mod tests {
     use crate::assign::Target;
     use crate::catalog::Mode;
     use crate::geo::Point;
-    use crate::slot::{QuestSlot, ZoneSlot};
+    use crate::slot::{GoalMode, GoalSpec, QuestSlot, ZoneSlot};
 
     fn slot(goal: &str, target: u32) -> SlotData {
         let q = |id: i64, zone: u32, diff: &str, fam: &str| QuestSlot {
@@ -167,7 +202,19 @@ mod tests {
             ],
             trips: vec![q(1, 1, "easy", "reach"), q(2, 1, "hard", "dwell"), q(3, 2, "hard", "landmark"), q(4, 2, "hard", "reach")],
             boss: Some(QuestSlot { location_id: 9, zone: 2, mode: Mode::Walk, difficulty: "hard".into(), effort_tier: 10, family: "boss".into() }),
+            goals: vec![],
+            goal_mode: GoalMode::All,
+            goal_need: 0,
         }
+    }
+
+    /// A slot whose win condition is several goals combined by `mode`.
+    fn multi(goals: &[(&str, u32)], mode: GoalMode, need: u32) -> SlotData {
+        let mut s = slot(goals[0].0, goals[0].1);
+        s.goals = goals.iter().map(|(id, t)| GoalSpec { id: (*id).into(), target: *t }).collect();
+        s.goal_mode = mode;
+        s.goal_need = need;
+        s
     }
 
     fn assigns(slot: &SlotData) -> Vec<Assignment> {
@@ -197,6 +244,59 @@ mod tests {
         let it: Vec<String> = items.iter().map(|x| x.to_string()).collect();
         let _ = Point::new(0.0, 0.0);
         evaluate(&GoalCtx { slot: s, assignments: &a, done: &d, items: &it, distance_m: dist, cells_discovered: cells, streak_days: streak })
+    }
+
+    #[test]
+    fn a_slot_without_a_goals_list_plays_its_single_goal_exactly_as_before() {
+        let s = slot("boss", 0);
+        assert_eq!(s.goal_list(), vec![GoalSpec { id: "boss".into(), target: 0 }]);
+        let st = eval(&s, &[9], &[], 0.0, 0, 0);
+        assert!(st.achieved);
+        assert_eq!(st.label, "Defeat The Big One", "a single goal keeps its own label");
+    }
+
+    #[test]
+    fn any_of_several_goals_is_won_by_the_first_one_finished() {
+        let s = multi(&[("boss", 0), ("quest_dex", 3)], GoalMode::Any, 0);
+        assert!(!eval(&s, &[], &[], 0.0, 0, 0).achieved);
+        assert!(eval(&s, &[9], &[], 0.0, 0, 0).achieved, "the boss alone is enough");
+        assert!(eval(&s, &[1, 2, 3], &[], 0.0, 0, 0).achieved, "so are three kinds of quest");
+    }
+
+    #[test]
+    fn all_of_several_goals_needs_every_one_and_shows_the_average_progress() {
+        let s = multi(&[("boss", 0), ("quest_dex", 2)], GoalMode::All, 0);
+        let half = eval(&s, &[9], &[], 0.0, 0, 0); // boss done, 1 of 2 kinds
+        assert!(!half.achieved);
+        assert!((half.progress - 0.75).abs() < 1e-6, "mean of 1.0 and 0.5, got {}", half.progress);
+        assert!(eval(&s, &[9, 1, 2], &[], 0.0, 0, 0).achieved);
+    }
+
+    #[test]
+    fn at_least_n_of_several_goals_counts_finished_goals() {
+        let s = multi(&[("boss", 0), ("quest_dex", 2), ("marathon", 5)], GoalMode::AtLeast, 2);
+        assert!(!eval(&s, &[9], &[], 0.0, 0, 0).achieved, "only one goal is done");
+        assert!(eval(&s, &[9], &[], 5000.0, 0, 0).achieved, "boss and 5 km are two");
+        assert!(eval(&s, &[1, 2], &[], 5000.0, 0, 0).achieved, "so are two kinds and 5 km");
+    }
+
+    #[test]
+    fn each_goal_reports_its_own_status_for_the_ui() {
+        let s = multi(&[("boss", 0), ("quest_dex", 2)], GoalMode::All, 0);
+        let a = assigns(&s);
+        let d: BTreeSet<i64> = [9].into_iter().collect();
+        let each = evaluate_each(&GoalCtx { slot: &s, assignments: &a, done: &d, items: &[], distance_m: 0.0, cells_discovered: 0, streak_days: 0 });
+        assert_eq!(each.len(), 2);
+        assert_eq!((each[0].0.id.as_str(), each[0].1.achieved), ("boss", true));
+        assert_eq!((each[1].0.id.as_str(), each[1].1.achieved), ("quest_dex", false));
+    }
+
+    #[test]
+    fn an_unusable_combination_is_refused() {
+        assert!(multi(&[("boss", 0)], GoalMode::AtLeast, 2).check_goals().is_err(), "needs 2 of 1 goals");
+        assert!(multi(&[("nonsense", 0)], GoalMode::All, 0).check_goals().is_err());
+        assert!(multi(&[("boss", 0), ("boss", 0)], GoalMode::All, 0).check_goals().is_err(), "the same goal twice");
+        assert!(multi(&[("boss", 0), ("quest_dex", 3)], GoalMode::AtLeast, 2).check_goals().is_ok());
     }
 
     #[test]

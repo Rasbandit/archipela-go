@@ -3,43 +3,146 @@ from dataclasses import dataclass
 from Options import (  # type: ignore[import-not-found]
     Choice,
     DeathLink,
+    OptionGroup,
     OptionList,
     OptionSet,
     PerGameCommonOptions,
     Range,
     Toggle,
 )
+from schema import And, Schema  # type: ignore[import-not-found]
 
-from .constants import FAMILIES, MAX_GOAL_TARGET, MAX_TRIPS
+from .constants import FAMILIES, GOAL_NAMES, MAX_GOAL_TARGET, MAX_TRIPS
 from .names import TRAP_KEYS
 
 
-class Goal(Choice):
-    """Win condition. The last seven are checked by the client once the last zone is reachable."""
+class GoalSelection(OptionSet):
+    """What will be your goal(s)? Choose one or several.
 
-    display_name = "Goal"
-    option_macguffin_short = 0
-    option_macguffin_long = 1
-    option_all_trips = 2
-    option_boss = 3
-    option_treasure_hunt = 4
-    option_zone_conqueror = 5
-    option_well_rounded = 6
-    option_quest_dex = 7
-    option_marathon = 8
-    option_explorer = 9
-    option_streak = 10
-    option_boss_rush = 11
+    Configure them further with the other goal options.
+
+    - **Letter Hunt**: collect the letters of APGO.
+    - **Letter Hunt XL**: collect the letters of ARCHIPELAGO.
+    - **Completionist**: finish every quest.
+    - **The Big One**: finish the Boss Quest in the last zone.
+    - **Treasure Hunt**: collect APGO, then finish the Boss Quest.
+    - **Zone Conqueror**: finish a percentage of the quests in every zone.
+    - **Well Rounded**: finish one quest of every enabled type.
+    - **Quest-dex**: finish N different kinds of quest.
+    - **Marathon**: travel N kilometers on quests.
+    - **Explorer**: reveal N map cells.
+    - **Daily Habit**: finish a quest on N days in a row.
+    - **Boss Rush**: finish N hard quests.
+
+    Every goal except the letter goals is checked by the app once the last zone can be reached.
+    """
+
+    display_name = "Select your Goals"
+    rich_text_doc = True
+    valid_keys = frozenset(GOAL_NAMES.values())
+    default = frozenset({GOAL_NAMES["macguffin_short"]})
+    schema = Schema(And(set, len), error="goal_selection is empty: choose at least one goal")
+
+
+class GoalRequirement(Choice):
+    """Of the goals selected in *Select your Goals*, how many must be finished?
+
+    - **Require any one goal**: the first one you finish wins.
+    - **Require all goals**: every selected goal.
+    - **Require at least N goals**: the number set in *Goals Required*.
+    """
+
+    display_name = "Goal Requirements"
+    rich_text_doc = True
+    option_require_any_one_goal = 0
+    option_require_all_goals = 1
+    option_require_at_least_n_goals = 2
     default = 0
 
 
-class GoalTarget(Range):
-    """Target N for goals that count something (0 = the client uses the goal's default)."""
+class GoalsRequired(Range):
+    """How many of the selected goals must be finished.
 
-    display_name = "Goal Target"
-    range_start = 0
+    Does nothing unless *Goal Requirements* is *Require at least N goals*.
+    It cannot be more than the number of goals selected.
+    """
+
+    display_name = "Goals Required"
+    range_start = 1
+    range_end = len(GOAL_NAMES)
+    default = 2
+
+
+class GoalZoneConquerorPercent(Range):
+    """Does nothing if the *Zone Conqueror* goal is not selected.
+
+    Finish this percentage of the quests in every zone.
+    """
+
+    display_name = "Zone Conqueror Percent"
+    range_start = 1
+    range_end = 100
+    default = 60
+
+
+class GoalQuestDexKinds(Range):
+    """Does nothing if the *Quest-dex* goal is not selected.
+
+    Finish this many different kinds of quest.
+    """
+
+    display_name = "Quest-dex Kinds"
+    range_start = 1
+    range_end = 80
+    default = 15
+
+
+class GoalMarathonKilometers(Range):
+    """Does nothing if the *Marathon* goal is not selected.
+
+    Travel this many kilometers while doing quests.
+    """
+
+    display_name = "Marathon Kilometers"
+    range_start = 1
     range_end = MAX_GOAL_TARGET
-    default = 0
+    default = 42
+
+
+class GoalExplorerCells(Range):
+    """Does nothing if the *Explorer* goal is not selected.
+
+    Reveal this many map cells (each about 150 meters across).
+    """
+
+    display_name = "Explorer Cells"
+    range_start = 1
+    range_end = MAX_GOAL_TARGET
+    default = 300
+
+
+class GoalStreakDays(Range):
+    """Does nothing if the *Daily Habit* goal is not selected.
+
+    Finish at least one quest on this many days in a row.
+    """
+
+    display_name = "Daily Habit Days"
+    range_start = 1
+    range_end = 365
+    default = 7
+
+
+class GoalBossRushHardQuests(Range):
+    """Does nothing if the *Boss Rush* goal is not selected.
+
+    Finish this many Hard quests.
+    """
+
+    display_name = "Boss Rush Hard Quests"
+    range_start = 1
+    range_end = 100
+    default = 5
 
 
 class NumberOfTrips(Range):
@@ -167,8 +270,15 @@ class ReturnHome(Toggle):
 
 @dataclass
 class ApGo2Options(PerGameCommonOptions):
-    goal: Goal
-    goal_target: GoalTarget
+    goal_selection: GoalSelection
+    goal_requirement: GoalRequirement
+    goals_required: GoalsRequired
+    goal_zone_conqueror_percent: GoalZoneConquerorPercent
+    goal_quest_dex_kinds: GoalQuestDexKinds
+    goal_marathon_kilometers: GoalMarathonKilometers
+    goal_explorer_cells: GoalExplorerCells
+    goal_streak_days: GoalStreakDays
+    goal_boss_rush_hard_quests: GoalBossRushHardQuests
     number_of_trips: NumberOfTrips
     zone_modes: ZoneModes
     easy_share: EasyShare
@@ -186,3 +296,21 @@ class ApGo2Options(PerGameCommonOptions):
     fog_of_war: FogOfWar
     return_home: ReturnHome
     death_link: DeathLink
+
+
+option_groups = [
+    OptionGroup(
+        "Goal Selection",
+        [
+            GoalSelection,
+            GoalRequirement,
+            GoalsRequired,
+            GoalZoneConquerorPercent,
+            GoalQuestDexKinds,
+            GoalMarathonKilometers,
+            GoalExplorerCells,
+            GoalStreakDays,
+            GoalBossRushHardQuests,
+        ],
+    ),
+]

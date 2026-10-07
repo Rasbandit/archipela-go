@@ -4,7 +4,7 @@ from worlds.ap_go2 import constants
 def test_identity_constants() -> None:
     assert constants.GAME_NAME == "Archipela-Go 2: Electric Boogaloo"
     assert constants.ID_OFFSET == 8_902_400_000_000
-    assert constants.SCHEMA_VERSION == 2
+    assert constants.SCHEMA_VERSION == 3
 
 
 def test_limits_and_enums() -> None:

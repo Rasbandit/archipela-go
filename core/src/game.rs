@@ -12,9 +12,10 @@ use crate::assign::{assign, AssignParams, Assignment, SlotIn, SurfacePref, Targe
 use crate::catalog::{Catalog, Mode};
 use crate::fog::{anchor, reveal_radius, Fog};
 use crate::geo::{distance_m, Point};
-use crate::goal::{evaluate, GoalCtx, GoalStatus};
+use crate::goal::{evaluate, evaluate_each, GoalCtx, GoalStatus};
 use crate::realm::Realm;
 use crate::scan::Atlas;
+use crate::slot::GoalSpec;
 use crate::slot::SlotData;
 use crate::traps::Traps;
 use crate::verify::{Fix, Status, Tracker, MAX_ACCURACY_M};
@@ -213,6 +214,23 @@ impl Game {
 
     fn unlocked_set(&self) -> BTreeSet<u32> {
         self.slot.zones.iter().map(|z| z.id).filter(|z| self.zone_unlocked(*z)).collect()
+    }
+
+    fn goal_ctx(&self, now_ms: i64) -> GoalCtx<'_> {
+        GoalCtx {
+            slot: &self.slot,
+            assignments: &self.assignments,
+            done: &self.done,
+            items: &self.items,
+            distance_m: self.stats.distance_m,
+            cells_discovered: self.fog.cells.len(),
+            streak_days: streak(&self.stats.quest_days, now_ms / DAY_MS),
+        }
+    }
+
+    /// Each goal of the game with its own progress.
+    pub fn goal_statuses(&self, now_ms: i64) -> Vec<(GoalSpec, GoalStatus)> {
+        evaluate_each(&self.goal_ctx(now_ms))
     }
 
     pub fn goal_status(&self, now_ms: i64) -> GoalStatus {

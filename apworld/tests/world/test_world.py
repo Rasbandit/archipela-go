@@ -6,10 +6,13 @@ import pytest
 from BaseClasses import CollectionState
 from Fill import distribute_items_restrictive
 from Options import OptionError
+from schema import SchemaError
 from test.bases import WorldTestBase  # type: ignore[import-not-found]
 from worlds.ap_go2 import names
-from worlds.ap_go2.constants import GAME_NAME, GOALS
+from worlds.ap_go2.constants import GAME_NAME, GOAL_NAMES, GOALS
 from worlds.ap_go2.locations import LOCATION_NAME_GROUPS
+from worlds.ap_go2.options import GoalSelection
+from worlds.AutoWorld import AutoWorldRegister  # type: ignore[import-not-found]
 from worlds.generic.Rules import exclusion_rules
 
 SCHEMA = json.loads(
@@ -54,7 +57,7 @@ class TestDefaultSeed(Base):
 class TestThreeZonesLong(Base):
     options = {  # noqa: RUF012
         "zone_modes": MULTI,
-        "goal": "macguffin_short",
+        "goal_selection": [GOAL_NAMES["macguffin_short"]],
         "number_of_trips": 60,
         "enable_effort_reductions": True,
         "enable_scouting_distance_bonuses": True,
@@ -97,7 +100,11 @@ class TestThreeZonesLong(Base):
 
 
 class TestBossGoal(Base):
-    options = {"zone_modes": ["walk", "bike"], "goal": "boss", "number_of_trips": 30}  # noqa: RUF012
+    options = {  # noqa: RUF012
+        "zone_modes": ["walk", "bike"],
+        "goal_selection": [GOAL_NAMES["boss"]],
+        "number_of_trips": 30,
+    }
 
     def test_boss_location_and_pool(self) -> None:
         assert len(self.multiworld.itempool) == 31
@@ -118,7 +125,11 @@ class TestBossGoal(Base):
 
 
 class TestTreasureHunt(Base):
-    options = {"zone_modes": ["walk", "run"], "goal": "treasure_hunt", "number_of_trips": 30}  # noqa: RUF012
+    options = {  # noqa: RUF012
+        "zone_modes": ["walk", "run"],
+        "goal_selection": [GOAL_NAMES["treasure_hunt"]],
+        "number_of_trips": 30,
+    }
 
     def test_letters_and_boss(self) -> None:
         assert len(self.get_items_by_name("Letter A")) == 1
@@ -137,7 +148,11 @@ class TestTreasureHunt(Base):
 
 
 class TestAllTrips(Base):
-    options = {"goal": "all_trips", "zone_modes": ["run", "walk"], "number_of_trips": 20}  # noqa: RUF012
+    options = {  # noqa: RUF012
+        "goal_selection": [GOAL_NAMES["all_trips"]],
+        "zone_modes": ["run", "walk"],
+        "number_of_trips": 20,
+    }
 
     def test_run_walk_needs_only_key(self) -> None:
         data = self.world.fill_slot_data()
@@ -147,7 +162,7 @@ class TestAllTrips(Base):
 
 
 class TestSingleZone(Base):
-    options = {"goal": "all_trips", "number_of_trips": 1}  # noqa: RUF012
+    options = {"goal_selection": [GOAL_NAMES["all_trips"]], "number_of_trips": 1}  # noqa: RUF012
 
     def test_beatable_at_start(self) -> None:
         assert self.goal_reachable(CollectionState(self.multiworld))
@@ -160,7 +175,7 @@ class TestTrapPoolRestricted(Base):
         "enabled_traps": ["freeze"],
         "trap_rate": 100,
         "number_of_trips": 40,
-        "goal": "all_trips",
+        "goal_selection": [GOAL_NAMES["all_trips"]],
     }
 
     def test_only_freeze_traps(self) -> None:
@@ -171,13 +186,17 @@ class TestTrapPoolRestricted(Base):
 
 def _make_goal_test(goal: str) -> type:
     class _T(Base):
-        options = {"goal": goal, "zone_modes": ["walk", "bike"], "number_of_trips": 40}  # noqa: RUF012
+        options = {  # noqa: RUF012
+            "goal_selection": [GOAL_NAMES[goal]],
+            "zone_modes": ["walk", "bike"],
+            "number_of_trips": 40,
+        }
 
         def test_beatable_and_valid(self) -> None:
             self.collect_all_but([])
             self.assertBeatable(True)
             jsonschema.validate(self.world.fill_slot_data(), SCHEMA)
-            assert self.world.fill_slot_data()["goal"] == goal
+            assert self.world.fill_slot_data()["goals"][0]["id"] == goal
 
     _T.__name__ = f"TestGoal_{goal}"
     _T.__qualname__ = _T.__name__
@@ -218,7 +237,7 @@ class TestLargeSeed(Base):
     options = {  # noqa: RUF012
         "number_of_trips": 1000,
         "zone_modes": ["walk", "run", "bike", "drive", "walk", "run"],
-        "goal": "macguffin_long",
+        "goal_selection": [GOAL_NAMES["macguffin_long"]],
     }
 
     def test_generates_and_fills(self) -> None:
@@ -250,7 +269,10 @@ class TestInvalidSettings(WorldTestBase):
         self.assert_rejected({"easy_share": 0, "medium_share": 0, "hard_share": 0}, "share")
 
     def test_too_few_trips(self) -> None:
-        self.assert_rejected({"goal": "macguffin_long", "number_of_trips": 5}, "number_of_trips")
+        self.assert_rejected(
+            {"goal_selection": [GOAL_NAMES["macguffin_long"]], "number_of_trips": 5},
+            "number_of_trips",
+        )
         self.assert_rejected({"zone_modes": MULTI, "number_of_trips": 2}, "number_of_trips")
 
     def test_unknown_family(self) -> None:
@@ -258,3 +280,111 @@ class TestInvalidSettings(WorldTestBase):
 
     def test_unknown_trap(self) -> None:
         self.assert_rejected({"enabled_traps": ["boom"]}, "enabled_traps")
+
+    def test_no_goal_selected(self) -> None:
+        # Archipelago checks the option's schema while parsing (as in its Satisfactory world).
+        with pytest.raises(SchemaError, match="goal_selection"):
+            GoalSelection.from_any([])
+
+    def test_unknown_goal(self) -> None:
+        self.assert_rejected({"goal_selection": ["Win Instantly"]}, "goal_selection")
+
+    def test_more_goals_required_than_selected(self) -> None:
+        self.assert_rejected(
+            {
+                "goal_selection": ["Marathon", "Explorer"],
+                "goal_requirement": "require_at_least_n_goals",
+                "goals_required": 3,
+            },
+            "goals_required",
+        )
+
+
+class TestSeveralGoalsAny(Base):
+    """Any one of: letters or the boss. Letters can be skipped, so logic must not demand them."""
+
+    options = {  # noqa: RUF012
+        "goal_selection": ["Letter Hunt", "The Big One"],
+        "goal_requirement": "require_any_one_goal",
+        "zone_modes": ["walk", "bike"],
+        "number_of_trips": 40,
+    }
+
+    def test_pool_still_holds_the_letters_and_the_boss_exists(self) -> None:
+        assert len(self.get_items_by_name("Letter A")) == 1
+        assert self.multiworld.get_location(names.BOSS_LOCATION, self.player)
+
+    def test_logic_needs_the_last_zone_but_not_the_letters(self) -> None:
+        state = CollectionState(self.multiworld)
+        self.collect_all_but(["Letter A", "Letter P", "Letter G", "Letter O", names.VICTORY], state)
+        assert self.goal_reachable(state)
+
+    def test_slot_data_lists_both_goals(self) -> None:
+        data = self.world.fill_slot_data()
+        jsonschema.validate(data, SCHEMA)
+        assert [g["id"] for g in data["goals"]] == ["macguffin_short", "boss"]
+        assert (data["goal_requirement"], data["goal_need"]) == ("any", 1)
+
+
+class TestSeveralGoalsAll(Base):
+    options = {  # noqa: RUF012
+        "goal_selection": ["Letter Hunt", "Quest-dex"],
+        "goal_requirement": "require_all_goals",
+        "goal_quest_dex_kinds": 9,
+        "number_of_trips": 40,
+    }
+
+    def test_every_goal_is_required_so_letters_are_logic(self) -> None:
+        state = CollectionState(self.multiworld)
+        self.collect_all_but(["Letter O", names.VICTORY], state)
+        assert not self.goal_reachable(state)
+        state.collect(self.get_items_by_name("Letter O")[0])
+        assert self.goal_reachable(state)
+
+    def test_targets_follow_their_own_option(self) -> None:
+        data = self.world.fill_slot_data()
+        jsonschema.validate(data, SCHEMA)
+        assert {g["id"]: g["target"] for g in data["goals"]} == {
+            "macguffin_short": 0,
+            "quest_dex": 9,
+        }
+        assert (data["goal_requirement"], data["goal_need"]) == ("all", 2)
+
+
+class TestSeveralGoalsAtLeast(Base):
+    options = {  # noqa: RUF012
+        "goal_selection": ["Marathon", "Explorer", "Daily Habit"],
+        "goal_requirement": "require_at_least_n_goals",
+        "goals_required": 2,
+        "goal_marathon_kilometers": 10,
+        "number_of_trips": 30,
+    }
+
+    def test_slot_data_carries_the_count_and_each_target(self) -> None:
+        data = self.world.fill_slot_data()
+        jsonschema.validate(data, SCHEMA)
+        assert (data["goal_requirement"], data["goal_need"]) == ("at_least", 2)
+        targets = {g["id"]: g["target"] for g in data["goals"]}
+        assert targets == {"marathon": 10, "explorer": 300, "streak": 7}
+
+    def test_beatable(self) -> None:
+        self.collect_all_but([])
+        self.assertBeatable(True)
+
+
+class TestOptionVerification(WorldTestBase):
+    """WorldTestBase skips Archipelago's option checks; run them as Generate.py does."""
+
+    game = GAME_NAME
+    auto_construct = False
+
+    def verify(self, names: list[str]) -> None:
+        option = GoalSelection.from_any(names)
+        option.verify(AutoWorldRegister.world_types[GAME_NAME], "Tester", {})  # type: ignore[arg-type]
+
+    def test_every_goal_name_is_accepted_as_written(self) -> None:
+        self.verify(list(GOAL_NAMES.values()))
+
+    def test_a_misspelled_goal_is_rejected_with_the_valid_names(self) -> None:
+        with pytest.raises(OptionError, match="Quest-dex"):
+            self.verify(["Quest dex"])

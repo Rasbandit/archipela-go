@@ -25,8 +25,9 @@ def build(modes: list[str] | None = None, boss: bool = True, **over: object) -> 
         boss=boss,
     )
     args: dict[str, object] = {
-        "goal": "boss" if boss else "all_trips",
-        "goal_target": 0,
+        "goals": [("boss" if boss else "all_trips", 0)],
+        "goal_requirement": "any",
+        "goal_need": 1,
         "minutes_per_tier": 10,
         "reduction_percent": 8,
         "min_distance_m": 150,
@@ -43,12 +44,12 @@ def build(modes: list[str] | None = None, boss: bool = True, **over: object) -> 
 def test_output_matches_schema_and_is_json_serializable() -> None:
     data = build()
     jsonschema.validate(json.loads(json.dumps(data)), SCHEMA)
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == 3
 
 
 def test_schema_accepts_every_goal() -> None:
     for goal in GOALS:
-        jsonschema.validate({**build(), "goal": goal, "goal_target": 7}, SCHEMA)
+        jsonschema.validate({**build(), "goals": [{"id": goal, "target": 7}]}, SCHEMA)
 
 
 def test_zones_and_boss_shape() -> None:
@@ -86,7 +87,14 @@ def test_trip_ids_unique_and_in_blocks() -> None:
 
 def test_schema_rejects_bad_data() -> None:
     data = build()
-    for key, value in (("schema_version", 1), ("goal", "nope"), ("minutes_per_tier", 0)):
+    for key, value in (
+        ("schema_version", 2),
+        ("goals", [{"id": "nope", "target": 0}]),
+        ("goals", []),
+        ("goal_requirement", "sometimes"),
+        ("goal_need", 0),
+        ("minutes_per_tier", 0),
+    ):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate({**data, key: value}, SCHEMA)
     broken = {**data, "trips": [{**data["trips"][0], "effort_tier": 11}]}  # type: ignore[index]
@@ -100,3 +108,18 @@ def test_committed_sample_matches_schema() -> None:
     assert sample["boss"] is not None
     assert [z["mode"] for z in sample["zones"]] == ["walk", "bike", "drive"]
     assert len(sample["trips"]) == 60
+
+
+def test_several_goals_keep_their_order_and_targets() -> None:
+    data = build(
+        goals=[("quest_dex", 9), ("marathon", 42), ("boss", 0)],
+        goal_requirement="at_least",
+        goal_need=2,
+    )
+    jsonschema.validate(data, SCHEMA)
+    assert data["goals"] == [
+        {"id": "quest_dex", "target": 9},
+        {"id": "marathon", "target": 42},
+        {"id": "boss", "target": 0},
+    ]
+    assert (data["goal_requirement"], data["goal_need"]) == ("at_least", 2)

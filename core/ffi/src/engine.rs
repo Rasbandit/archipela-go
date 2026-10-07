@@ -141,10 +141,30 @@ pub struct OfferOut {
     pub count: u32,
 }
 
+/// One chosen win condition and its parameter (0 means that goal's default).
+#[derive(Debug, uniffi::Record)]
+pub struct GoalPickIn {
+    pub id: String,
+    pub target: u32,
+}
+
+/// One goal's progress, for the Play screen.
+#[derive(Debug, uniffi::Record)]
+pub struct GoalLineOut {
+    pub id: String,
+    pub label: String,
+    pub progress: f32,
+    pub achieved: bool,
+}
+
 #[derive(Debug, uniffi::Record)]
 pub struct SoloOptionsIn {
-    pub goal: String,
-    pub goal_target: u32,
+    /// The win conditions (at least one).
+    pub goals: Vec<GoalPickIn>,
+    /// How they combine: "any", "all" or "at_least".
+    pub goal_requirement: String,
+    /// For "at_least": how many of the goals must be finished.
+    pub goal_need: u32,
     pub number_of_trips: u32,
     pub zone_modes: Vec<String>,
     pub easy_share: u32,
@@ -153,6 +173,8 @@ pub struct SoloOptionsIn {
     pub minutes_per_tier: u32,
     pub min_distance_m: u32,
     pub quest_types: Vec<String>,
+    /// Quest types for each zone, in zone order; an empty list uses `quest_types`.
+    pub zone_quest_types: Vec<Vec<String>>,
     pub enabled_traps: Vec<String>,
     pub trap_rate: u32,
     pub enable_effort_reductions: bool,
@@ -165,9 +187,19 @@ pub struct SoloOptionsIn {
 
 fn to_core(o: SoloOptionsIn) -> Result<SoloOptions, CoreError> {
     let zone_modes = o.zone_modes.iter().map(|m| Mode::parse(m).ok_or_else(|| err(format!("unknown mode {m}")))).collect::<Result<Vec<_>, _>>()?;
+    let goal_mode = match o.goal_requirement.as_str() {
+        "any" => apgo_core::slot::GoalMode::Any,
+        "all" => apgo_core::slot::GoalMode::All,
+        "at_least" => apgo_core::slot::GoalMode::AtLeast,
+        other => return Err(err(format!("unknown goal requirement {other}"))),
+    };
     Ok(SoloOptions {
-        goal: o.goal,
-        goal_target: o.goal_target,
+        goal: String::new(),
+        goal_target: 0,
+        goals: o.goals.into_iter().map(|g| apgo_core::slot::GoalSpec { id: g.id, target: g.target }).collect(),
+        goal_mode,
+        goal_need: o.goal_need,
+        zone_quest_types: o.zone_quest_types,
         number_of_trips: o.number_of_trips,
         zone_modes,
         easy_share: o.easy_share,
@@ -233,6 +265,8 @@ pub struct ZoneOut {
 
 #[derive(Debug, uniffi::Record)]
 pub struct HudOut {
+    /// Each goal with its own progress (one entry for a single-goal game).
+    pub goals: Vec<GoalLineOut>,
     pub goal_label: String,
     pub goal_progress: f32,
     pub goal_achieved: bool,
@@ -781,6 +815,11 @@ impl Engine {
             letters.sort_unstable();
             let tools: Vec<String> = ["Running Shoes", "Bike", "Car"].iter().filter(|t| g.items.iter().any(|i| i == *t)).map(|t| t.to_string()).collect();
             HudOut {
+                goals: g
+                    .goal_statuses(now_ms)
+                    .into_iter()
+                    .map(|(spec, st)| GoalLineOut { id: spec.id, label: st.label, progress: st.progress, achieved: st.achieved })
+                    .collect(),
                 goal_label: s.label,
                 goal_progress: s.progress,
                 goal_achieved: s.achieved,
