@@ -27,7 +27,7 @@ fn main() {
     let realm = Realm {
         id: "r".into(),
         name: "Sim realm".into(),
-        modes: vec![mode],
+        icon: None,
         shape: Shape::Circle { center: home, radius_m: radius },
         spare: None,
         scanned_at_ms: None,

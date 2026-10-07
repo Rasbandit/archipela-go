@@ -149,10 +149,6 @@ fn zone_ctx<'a>(slot: &SlotData, zone_realms: &[String], realms: &'a [(Realm, At
     for (i, z) in slot.zones.iter().enumerate() {
         let id = zone_realms.get(i).ok_or_else(|| format!("zone {} has no realm assigned", z.id))?;
         let (realm, atlas) = realms.iter().find(|(r, _)| &r.id == id).map(|(r, a)| (r, a)).ok_or_else(|| format!("realm {id} not found"))?;
-        if !realm.allows(z.mode) {
-            let tags: Vec<&str> = realm.modes.iter().map(|m| m.name()).collect();
-            return Err(format!("zone {} is a {} zone but realm \"{}\" is tagged {}", z.id, z.mode.name(), realm.name, tags.join("/")));
-        }
         out.push(ZoneCtx { zone: z.id, mode: z.mode, realm, atlas });
     }
     Ok(out)
@@ -538,11 +534,11 @@ mod tests {
         Point::new(40.0, -111.0)
     }
 
-    fn realm(id: &str, mode: Mode) -> (Realm, Atlas) {
+    fn realm(id: &str, _mode: Mode) -> (Realm, Atlas) {
         let r = Realm {
             id: id.into(),
             name: format!("Realm {id}"),
-            modes: vec![mode],
+            icon: None,
             shape: Shape::Circle { center: home(), radius_m: 6000.0 },
             spare: None,
             scanned_at_ms: None,
@@ -691,48 +687,19 @@ mod tests {
     }
 
     #[test]
-    fn a_realm_allowing_several_modes_can_serve_a_zone_of_any_of_them() {
+    fn any_realm_can_serve_zones_of_any_mode_because_travel_is_the_games_choice() {
         let o = reach_only(&[Mode::Walk, Mode::Bike], 12, "all_trips");
         let g1 = generate(&o, 1).unwrap();
-        let mut both = realm("r0", Mode::Walk);
-        both.0.modes = crate::realm::normalize_modes([Mode::Walk, Mode::Bike]);
-        let realms = vec![both];
-        let make = |zone_realms: Vec<String>| {
-            Game::create(
-                NewGame {
-                    id: "x".into(),
-                    name: "x".into(),
-                    backend: Backend::Solo,
-                    seed_name: "s".into(),
-                    slot: g1.slot.clone(),
-                    zone_realms,
-                    realms: &realms,
-                    home: home(),
-                    seed: 1,
-                    solo_rewards: g1.rewards.clone(),
-                    surface: SurfacePref::Any,
-                    avoid_stairs: false,
-                },
-                &Catalog::builtin(),
-            )
-        };
-        assert!(make(vec!["r0".into(), "r0".into()]).is_ok(), "one walk/bike realm serves both a walk zone and a bike zone");
-    }
-
-    #[test]
-    fn realm_mode_must_match_zone_mode_and_reroll_keeps_finished_quests() {
-        let o = reach_only(&[Mode::Walk, Mode::Bike], 12, "all_trips");
-        let g1 = generate(&o, 1).unwrap();
-        let bad = vec![realm("r0", Mode::Walk), realm("r1", Mode::Walk)];
-        let err = Game::create(
+        let realms = vec![realm("r0", Mode::Walk)];
+        let created = Game::create(
             NewGame {
                 id: "x".into(),
                 name: "x".into(),
                 backend: Backend::Solo,
                 seed_name: "s".into(),
                 slot: g1.slot,
-                zone_realms: vec!["r0".into(), "r1".into()],
-                realms: &bad,
+                zone_realms: vec!["r0".into(), "r0".into()], // one realm, used for a walking zone and a biking zone
+                realms: &realms,
                 home: home(),
                 seed: 1,
                 solo_rewards: g1.rewards,
@@ -741,8 +708,12 @@ mod tests {
             },
             &Catalog::builtin(),
         );
-        assert!(err.err().unwrap().contains("tagged"));
+        assert!(created.is_ok());
+    }
 
+    #[test]
+    fn reroll_keeps_finished_quests() {
+        let o = reach_only(&[Mode::Walk, Mode::Bike], 12, "all_trips");
         let mut g = game(&o, Backend::Solo, 1);
         let q = g.quest_views().into_iter().find(|v| v.zone == 1).unwrap();
         g.on_fix(fixat(q.anchor.unwrap(), 1), None);

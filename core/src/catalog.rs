@@ -16,6 +16,9 @@ pub enum Mode {
 impl Mode {
     pub const ALL: [Mode; 4] = [Mode::Walk, Mode::Run, Mode::Bike, Mode::Drive];
 
+    /// The modes a game can use for now. Car is left out until it is supported.
+    pub const PLAY: [Mode; 3] = [Mode::Walk, Mode::Run, Mode::Bike];
+
     pub fn name(self) -> &'static str {
         match self {
             Mode::Walk => "walk",

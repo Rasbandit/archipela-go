@@ -355,15 +355,8 @@ mod tests {
         Point::new(40.0, -111.0)
     }
 
-    fn realm(mode: Mode) -> Realm {
-        Realm {
-            id: "r".into(),
-            name: "R".into(),
-            modes: vec![mode],
-            shape: Shape::Circle { center: home(), radius_m: 9000.0 },
-            spare: None,
-            scanned_at_ms: None,
-        }
+    fn realm(_mode: Mode) -> Realm {
+        Realm { id: "r".into(), name: "R".into(), icon: None, shape: Shape::Circle { center: home(), radius_m: 9000.0 }, spare: None, scanned_at_ms: None }
     }
 
     fn feature(id: &str, tags: &[(&str, &str)], p: Point, geometry: Vec<Point>) -> Feature {

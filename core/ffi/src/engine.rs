@@ -40,8 +40,8 @@ pub struct CircleOut {
 pub struct RealmOut {
     pub id: String,
     pub name: String,
-    /// The kinds of travel the realm is for ("walk", "run", "bike"): it allows the quest kinds of any of them.
-    pub modes: Vec<String>,
+    /// The icon picked for the realm, if any.
+    pub icon: Option<String>,
     /// The circle if the realm has one (active or kept in reserve).
     pub circle: Option<CircleOut>,
     /// The polygon corners (empty if none), active or kept in reserve.
@@ -52,6 +52,14 @@ pub struct RealmOut {
     pub places: u32,
     /// Set when a scan stopped early (slow public map servers); Rescan continues from the cache.
     pub warning: Option<String>,
+}
+
+/// A find reduced to what a small map preview needs.
+#[derive(Debug, uniffi::Record)]
+pub struct DotOut {
+    pub at: GeoPoint,
+    pub kind_id: String,
+    pub family: String,
 }
 
 /// A quest kind a find can serve, with what it means and how it is completed.
@@ -283,10 +291,10 @@ impl Engine {
     }
 
     /// Finds of a (zoned) atlas: place index -> the quest kinds it can serve for this realm's mode.
-    fn kinds_by_place<'a>(&'a self, realm: &Realm, atlas: &Atlas) -> std::collections::BTreeMap<usize, Vec<&'a apgo_core::catalog::Kind>> {
+    fn kinds_by_place<'a>(&'a self, atlas: &Atlas) -> std::collections::BTreeMap<usize, Vec<&'a apgo_core::catalog::Kind>> {
         let mut out: std::collections::BTreeMap<usize, Vec<&apgo_core::catalog::Kind>> = std::collections::BTreeMap::new();
         for (kind_id, idxs) in &atlas.matches {
-            let Some(kind) = self.catalog.kind(kind_id).filter(|k| realm.modes.iter().any(|&m| k.allows(m))) else { continue };
+            let Some(kind) = self.catalog.kind(kind_id).filter(|k| Mode::PLAY.iter().any(|&m| k.allows(m))) else { continue };
             for &i in idxs {
                 out.entry(i).or_default().push(kind);
             }
@@ -310,9 +318,9 @@ impl Engine {
         self.store().home().or_else(|| realms.first().map(|(r, _)| r.shape.center())).unwrap_or(Point::new(0.0, 0.0))
     }
 
-    fn offers_of(&self, realm: &Realm, atlas: &Atlas) -> Vec<OfferOut> {
+    fn offers_of(&self, atlas: &Atlas) -> Vec<OfferOut> {
         let mut v: Vec<OfferOut> = atlas
-            .offers(&self.catalog, &realm.modes)
+            .offers(&self.catalog, &Mode::PLAY)
             .into_iter()
             .filter_map(|(id, count)| {
                 self.catalog.kind(&id).map(|k| OfferOut { kind_id: id, name: k.name.clone(), family: k.family.clone(), blurb: k.blurb.clone(), count })
@@ -348,19 +356,9 @@ impl Engine {
                 let polygon_active = r.polygon_active();
                 let atlas = store.load_atlas(&r.id);
                 // Count finds (zoned, usable by this realm's mode), the same number the Details list shows.
-                let places = self.zoned_atlas(&r).map_or(0, |a| self.kinds_by_place(&r, &a).len() as u32);
+                let places = self.zoned_atlas(&r).map_or(0, |a| self.kinds_by_place(&a).len() as u32);
                 let warning = atlas.and_then(|a| a.warnings.first().cloned());
-                RealmOut {
-                    id: r.id,
-                    name: r.name,
-                    modes: r.modes.iter().map(|m| m.name().to_string()).collect(),
-                    circle,
-                    polygon,
-                    polygon_active,
-                    scanned_at_ms: r.scanned_at_ms,
-                    places,
-                    warning,
-                }
+                RealmOut { id: r.id, name: r.name, icon: r.icon.clone(), circle, polygon, polygon_active, scanned_at_ms: r.scanned_at_ms, places, warning }
             })
             .collect()
     }
@@ -370,13 +368,11 @@ impl Engine {
         &self,
         id: String,
         name: String,
-        modes: Vec<String>,
+        icon: Option<String>,
         circle: Option<CircleOut>,
         polygon: Vec<GeoPoint>,
         polygon_active: bool,
     ) -> Result<(), CoreError> {
-        let modes = modes.iter().map(|m| Mode::parse(m).ok_or_else(|| err(format!("unknown mode {m}")))).collect::<Result<Vec<_>, _>>()?;
-        let modes = apgo_core::realm::normalize_modes(modes);
         let circle = circle.map(|c| Shape::Circle { center: pt(&c.center), radius_m: c.radius_m });
         let polygon = (!polygon.is_empty()).then(|| Shape::Polygon { vertices: polygon.iter().map(pt).collect() });
         let (shape, spare) = match (polygon_active, circle, polygon) {
@@ -385,7 +381,7 @@ impl Engine {
             _ => return Err(err("the active outline is missing")),
         };
         let prev = self.store().get(&id);
-        self.store().save(&Realm { id, name, modes, shape, spare, scanned_at_ms: prev.and_then(|p| p.scanned_at_ms) }).map_err(err)
+        self.store().save(&Realm { id, name, icon, shape, spare, scanned_at_ms: prev.and_then(|p| p.scanned_at_ms) }).map_err(err)
     }
 
     pub fn delete_realm(&self, id: String) -> Result<(), CoreError> {
@@ -403,18 +399,32 @@ impl Engine {
         let mut zoned = atlas;
         zoned.restrict_to(&realm.shape.to_zone());
         zoned.apply_marks(&store.marks(&id));
-        Ok(self.offers_of(&realm, &zoned))
+        Ok(self.offers_of(&zoned))
     }
 
     pub fn realm_offers(&self, id: String) -> Vec<OfferOut> {
         let store = self.store();
-        match store.get(&id).and_then(|r| self.zoned_atlas(&r).map(|a| (r, a))) {
-            Some((r, mut a)) => {
+        match store.get(&id).and_then(|r| self.zoned_atlas(&r)) {
+            Some(mut a) => {
                 a.apply_marks(&store.marks(&id));
-                self.offers_of(&r, &a)
+                self.offers_of(&a)
             }
             None => vec![],
         }
+    }
+
+    /// An evenly spread sample of at most `max` of a realm's usable finds (banned ones left out), for drawing a preview of the realm.
+    pub fn realm_dots(&self, id: String, max: u32) -> Vec<DotOut> {
+        let store = self.store();
+        let Some(mut atlas) = store.get(&id).and_then(|r| self.zoned_atlas(&r)) else { return vec![] };
+        atlas.apply_marks(&store.marks(&id));
+        let places = self.kinds_by_place(&atlas);
+        let stride = (places.len() / max.max(1) as usize).max(1);
+        places
+            .into_iter()
+            .step_by(stride)
+            .map(|(i, kinds)| DotOut { at: gp(atlas.features[i].point), kind_id: kinds[0].id.clone(), family: kinds[0].family.clone() })
+            .collect()
     }
 
     /// Every find in a realm (a scanned spot that can serve a quest), with the player's mark on it, nearest first.
@@ -423,7 +433,7 @@ impl Engine {
         let Some((realm, atlas)) = store.get(&id).and_then(|r| self.zoned_atlas(&r).map(|a| (r, a))) else { return vec![] };
         let marks = store.marks(&id);
         let home = store.home().unwrap_or_else(|| realm.shape.center());
-        let kinds_of = self.kinds_by_place(&realm, &atlas);
+        let kinds_of = self.kinds_by_place(&atlas);
         let mut out: Vec<FindOut> = kinds_of
             .into_iter()
             .map(|(i, kinds)| {
