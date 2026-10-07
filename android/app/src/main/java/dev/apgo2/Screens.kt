@@ -13,6 +13,8 @@ import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.layout.layout
+import androidx.compose.material3.CardDefaults
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
@@ -205,6 +207,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     var selectedFind by remember(realmId) { mutableStateOf<String?>(null) }
     var focus by remember(realmId) { mutableStateOf<MapFocus?>(null) }
     var focusNonce by remember { mutableIntStateOf(0) }
+    var anchor by remember(realmId) { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
     var query by remember(realmId) { mutableStateOf("") }
     var filter by remember(realmId) { mutableStateOf(ALL) }
     LaunchedEffect(realmId, original?.scannedAtMs) {
@@ -213,9 +216,14 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             finds.clear(); finds.addAll(all); findsVersion++
         }
     }
-    val mapFinds = remember(findsVersion, selectedFind) { finds.map { MapFind(it.id, LatLng(it.at.lat, it.at.lon), it.kindId, it.family, it.mark, it.id == selectedFind) } }
-    val shown = remember(findsVersion, query, filter) {
-        finds.filter { f -> (filter == ALL || f.mark == filter) && (query.isBlank() || f.name.contains(query, true) || f.kinds.any { it.contains(query, true) }) }
+    // Only finds inside the shape being drawn count. What was scanned for an earlier shape can lie outside the new one.
+    val draftKey = m.draft.toList()
+    val visible = remember(findsVersion, polygon, radius, circleCenter, draftKey) {
+        finds.filter { f -> insideShape(f.at.lat, f.at.lon, polygon, circleCenter, radius.toDouble(), draftKey) }
+    }
+    val mapFinds = remember(visible, selectedFind) { visible.map { MapFind(it.id, LatLng(it.at.lat, it.at.lon), it.kindId, it.family, it.mark, it.id == selectedFind) } }
+    val shown = remember(visible, query, filter) {
+        visible.filter { f -> (filter == ALL || f.mark == filter) && (query.isBlank() || f.name.contains(query, true) || f.kinds.any { it.name.contains(query, true) }) }
     }
     fun mark(f: FindOut, to: String) {
         val next = if (f.mark == to) "none" else to // tapping a lit toggle clears it
@@ -272,7 +280,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     }
     fun goTab(to: Int) {
         // Back to Area: after the map settles, fit the whole shape in the smaller view.
-        if (tab == DETAILS && to == AREA) fit = MapFit(shapePoints(), ++fitNonce)
+        if (tab == DETAILS && to == AREA) { fit = MapFit(shapePoints(), ++fitNonce); selectedFind = null }
         tab = to
     }
     val listState = rememberLazyListState()
@@ -290,12 +298,17 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             onMapLongClick = { m.setHome(it) },
             circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() },
             overlayTopDp = 16, overlayBottomDp = panelDp,
-            handles = handles, onHandleMove = ::moveHandle,
+            handles = handles, onHandleMove = if (tab == AREA) ::moveHandle else null, editable = tab == AREA,
             finds = mapFinds,
-            onFindClick = if (tab == DETAILS) { id -> finds.firstOrNull { it.id == id }?.let(::show) } else null,
+            onFindClick = if (tab == DETAILS) { id -> visible.firstOrNull { it.id == id }?.let(::show) } else null,
             focus = focus,
             fit = fit,
+            anchor = visible.firstOrNull { it.id == selectedFind }?.let { LatLng(it.at.lat, it.at.lon) },
+            onAnchor = { anchor = it },
         )
+        visible.firstOrNull { it.id == selectedFind }?.let { f ->
+            anchor?.let { at -> FindBubble(f, at, onMark = { mark(f, it) }, onClose = { selectedFind = null }) }
+        }
         MapOverlayCard(
             Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }.then(if (tab == DETAILS) Modifier.fillMaxHeight(0.5f) else Modifier),
             fillHeight = tab == DETAILS,
@@ -340,7 +353,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                             when {
                                 original?.scannedAtMs == null -> "Finds show up here after the first scan."
                                 findsVersion == 0 -> "Loading finds…"
-                                else -> "${shown.size} of ${finds.size} finds · ${finds.count { it.mark == FAVORITE }} favorites · ${finds.count { it.mark == BANNED }} banned"
+                                else -> "${shown.size} of ${visible.size} finds · ${visible.count { it.mark == FAVORITE }} favorites · ${visible.count { it.mark == BANNED }} banned"
                             },
                             Modifier.padding(vertical = 4.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -352,7 +365,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                         ) {
                             Icon(
                                 ApgoIcons.forKind(f.kindId, f.family), contentDescription = null, modifier = Modifier.padding(horizontal = 8.dp).size(22.dp),
-                                tint = if (f.mark == BANNED) ApgoPalette.muted else ApgoPalette.family(f.family),
+                                tint = if (f.mark == BANNED) ApgoPalette.muted else ApgoPalette.kind(f.kindId, f.family),
                             )
                             Column(Modifier.weight(1f).alpha(if (f.mark == BANNED) 0.5f else 1f)) {
                                 Text(
@@ -361,7 +374,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                                 )
                                 // An unnamed find is titled by its first quest kind, so the subtitle must not repeat it.
                                 Text(
-                                    (if (f.named) f.kinds else listOf("unnamed") + f.kinds.drop(1)).joinToString(", ") + " · ${distanceLabel(f.distanceM)}",
+                                    (if (f.named) f.kinds.map { it.name } else listOf("unnamed") + f.kinds.drop(1).map { it.name }).joinToString(", ") + " · ${distanceLabel(f.distanceM)}",
                                     maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -378,6 +391,67 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             }
         }
     }
+}
+
+/** A callout over the map for the selected find: what it is, what the quests mean, and how to complete them. */
+@Composable
+private fun FindBubble(f: FindOut, at: androidx.compose.ui.geometry.Offset, onMark: (String) -> Unit, onClose: () -> Unit) {
+    val margin = with(LocalDensity.current) { 8.dp.roundToPx() }
+    val gap = with(LocalDensity.current) { 26.dp.roundToPx() }
+    val maxWidth = with(LocalDensity.current) { 300.dp.roundToPx() }
+    Box(
+        Modifier.layout { measurable, constraints ->
+            val p = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0, maxWidth = minOf(maxWidth, constraints.maxWidth - 2 * margin)))
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                // Above the pin when it fits, else below it, and always inside the screen.
+                val x = (at.x - p.width / 2f).toInt().coerceIn(margin, maxOf(margin, constraints.maxWidth - p.width - margin))
+                val above = at.y - p.height - gap
+                p.place(x, if (above >= margin) above.toInt() else (at.y + gap / 2).toInt())
+            }
+        },
+    ) {
+        Card(elevation = CardDefaults.cardElevation(6.dp)) {
+            Column(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 10.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(ApgoIcons.forKind(f.kindId, f.family), contentDescription = null, tint = ApgoPalette.kind(f.kindId, f.family), modifier = Modifier.size(24.dp))
+                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                        Text(f.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text("${distanceLabel(f.distanceM)} from home" + if (f.named) "" else " · unnamed", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    MarkToggle(ApgoIcons.Favorite, "Favorite", f.mark == FAVORITE, ApgoPalette.favorite) { onMark(FAVORITE) }
+                    MarkToggle(ApgoIcons.Banned, "Ban", f.mark == BANNED, ApgoPalette.banned) { onMark(BANNED) }
+                    IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = "Close") }
+                }
+                f.kinds.take(2).forEach { k ->
+                    Column(Modifier.padding(end = 8.dp)) {
+                        Text(k.name, style = MaterialTheme.typography.labelLarge, color = ApgoPalette.kind(k.id, k.family))
+                        Text("${k.blurb} ${k.how}", fontSize = 12.sp, lineHeight = 16.sp)
+                    }
+                }
+                if (f.kinds.size > 2) Text("+ ${f.kinds.size - 2} more quest types", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (f.tags.isNotEmpty()) Text("Mapped as ${f.tags.joinToString(" · ")}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
+            }
+        }
+    }
+}
+
+/** Whether a point lies inside the shape being edited: the circle, or the polygon when it has 3 or more corners. */
+private fun insideShape(lat: Double, lon: Double, polygon: Boolean, center: LatLng?, radiusM: Double, corners: List<LatLng>): Boolean {
+    if (polygon) {
+        if (corners.size < 3) return true // nothing drawn yet: do not hide everything
+        var inside = false
+        var j = corners.lastIndex
+        for (i in corners.indices) { // ray casting
+            val (a, b) = corners[i] to corners[j]
+            if ((a.latitude > lat) != (b.latitude > lat) && lon < (b.longitude - a.longitude) * (lat - a.latitude) / (b.latitude - a.latitude) + a.longitude) inside = !inside
+            j = i
+        }
+        return inside
+    }
+    val c = center ?: return true
+    val dy = (lat - c.latitude) * 111_195.0
+    val dx = (lon - c.longitude) * 111_195.0 * kotlin.math.cos(Math.toRadians(c.latitude))
+    return dx * dx + dy * dy <= radiusM * radiusM
 }
 
 private const val AREA = 0

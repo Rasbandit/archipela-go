@@ -28,6 +28,7 @@ object ApgoIcons {
     val Delete = Lucide.Trash2
     val Rescan = Lucide.RefreshCw
     val Undo = Lucide.Undo2
+    val Close = Lucide.X
     val All = Lucide.List
     val ClearAll = Lucide.Eraser
 

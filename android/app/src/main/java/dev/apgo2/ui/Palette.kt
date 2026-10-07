@@ -47,12 +47,29 @@ object ApgoPalette {
 
     // One colour per quest family: pins and icons of a kind of find share it. All hold white text/glyphs.
     private val families = mapOf(
-        "reach" to Color(0xFF2F6B83), "dwell" to Color(0xFFC77700), "landmark" to Color(0xFF7B4FB5), "trail" to Color(0xFF3A8F3A),
+        "reach" to Color(0xFF2F6B83), "dwell" to Color(0xFFC77700), "landmark" to Color(0xFF455A64), "trail" to Color(0xFF3A8F3A),
         "park" to Color(0xFF689F38), "water" to Color(0xFF1976D2), "courier" to Color(0xFFB3472E), "explore" to Color(0xFF3F51B5),
-        "steps" to Color(0xFF546E7A), "away" to Color(0xFFC2185B), "boss" to Color(0xFF8D6E00),
+        "steps" to Color(0xFF546E7A), "away" to Color(0xFFAD1457), "boss" to Color(0xFF8D6E00),
     )
 
     fun family(family: String): Color = families[family] ?: teal
+
+    // The landmark family is half the catalog, so it is split into sub-groups with a colour each.
+    private val landmarkGroups: Map<Color, List<String>> = mapOf(
+        Color(0xFF7B4FB5) to listOf("gallery_walls", "mural_mural", "remember_when", "time_traveler", "museum_mile", "steeple_chase", "quiet_please", "campus_crawl"), // culture
+        Color(0xFFF57C00) to listOf("brain_freeze", "rise_and_shine", "caffeine_quest", "market_day", "grape_expectations", "hydration_station"), // food and drink
+        Color(0xFF5D4037) to listOf("bus_stop_bingo", "all_aboard", "rack_em_up", "plug_in"), // getting around
+        Color(0xFF0097A7) to listOf("nothing_but_net", "love_all", "dill_with_it", "court_jester", "game_day", "outdoor_gym", "thrill_seeker", "merry_go_round", "lost_in_the_maze"), // sport and play
+        Color(0xFF00796B) to listOf(
+            "eagle_eye", "summit_fever", "chasing_waterfalls", "dam_good_walk", "sand_between_toes", "lighthouse_keeper", "wild_side", "spring_fling",
+            "tree_hugger", "spelunker", "hot_stuff", "make_a_wish", "dock_of_the_bay", "bridge_troll",
+        ), // views and nature
+        Color(0xFF455A64) to listOf("hydrant_hunter", "mailbox_maven", "flag_day", "tower_defense", "pit_stop", "know_your_block", "camp_out", "hut_to_hut"), // city services
+    )
+    private val kindColors: Map<String, Color> = landmarkGroups.flatMap { (color, ids) -> ids.map { it to color } }.toMap()
+
+    /** The colour of a find or quest of this kind: its landmark sub-group, else its family. */
+    fun kind(kindId: String, family: String): Color = kindColors[kindId] ?: family(family)
 
     // Marks on places
     val favorite = Color(0xFFF9A825)

@@ -77,6 +77,9 @@ data class MapFit(val points: List<LatLng>, val nonce: Int)
 /** Ask the map to fly to a point; [nonce] changes each time so the same point can be asked for twice. */
 data class MapFocus(val at: LatLng, val nonce: Int, val zoom: Double = 17.0)
 
+/** Height kept free above a focused pin, for its callout. */
+private const val FOCUS_ROOM_DP = 150
+
 private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 
 private fun coord(lat: Double, lon: Double) = JSONArray().put(lon).put(lat)
@@ -142,16 +145,16 @@ private fun realmFeatures(realms: List<RealmOut>): List<JSONObject> = realms.map
     }
 }
 
-private fun draftFeatures(draft: List<LatLng>, circle: Pair<LatLng, Double>?): List<JSONObject> {
+private fun draftFeatures(draft: List<LatLng>, circle: Pair<LatLng, Double>?, editable: Boolean): List<JSONObject> {
     val out = mutableListOf<JSONObject>()
     if (circle != null) {
         val (c, r) = circle
         out += feature(JSONObject().put("type", "Polygon").put("coordinates", JSONArray().put(ring(circleRing(c.latitude, c.longitude, r)))))
-        out += feature(pointGeo(c.latitude, c.longitude))
+        if (editable) out += feature(pointGeo(c.latitude, c.longitude)) // the centre handle's dot
     }
     if (draft.size >= 3) out += feature(JSONObject().put("type", "Polygon").put("coordinates", JSONArray().put(ring(draft.map { it.latitude to it.longitude }))))
     else if (draft.size == 2) out += feature(JSONObject().put("type", "LineString").put("coordinates", JSONArray().put(coord(draft[0].latitude, draft[0].longitude)).put(coord(draft[1].latitude, draft[1].longitude))))
-    draft.forEach { out += feature(pointGeo(it.latitude, it.longitude)) }
+    if (editable) draft.forEach { out += feature(pointGeo(it.latitude, it.longitude)) } // the corner dots
     return out
 }
 
@@ -190,6 +193,11 @@ fun QuestMap(
     /** Fly the camera here (kept clear of the bottom overlay). */
     focus: MapFocus? = null,
     fit: MapFit? = null,
+    /** A point to keep a callout attached to: [onAnchor] gets its screen position in the map's pixels (null when off screen) as the camera moves. */
+    anchor: LatLng? = null,
+    onAnchor: ((androidx.compose.ui.geometry.Offset?) -> Unit)? = null,
+    /** When false the drawn shape is only an outline: no handles, radius line, label or corner dots (and [onHandleMove] is not called). */
+    editable: Boolean = true,
 ) {
     val context = LocalContext.current
     val density = androidx.compose.ui.platform.LocalDensity.current.density
@@ -206,6 +214,8 @@ fun QuestMap(
     val findClickNow by rememberUpdatedState(onFindClick)
     val addedImages = remember { mutableSetOf<String>() }
     val padApplied = remember { booleanArrayOf(false) }
+    val anchorNow by rememberUpdatedState(anchor)
+    val onAnchorNow by rememberUpdatedState(onAnchor)
     val overlayTopNow by rememberUpdatedState(overlayTopDp)
     val overlayBottomNow by rememberUpdatedState(overlayBottomDp)
     // A bounds update replaces the map's padding with the padding it is given, so it must include the overlays to centre in the visible area.
@@ -264,6 +274,9 @@ fun QuestMap(
                     else -> dragging[0] >= 0
                 }
             }
+            fun reportAnchor() = onAnchorNow?.invoke(anchorNow?.let { a -> m.projection.toScreenLocation(a).let { androidx.compose.ui.geometry.Offset(it.x, it.y) } })
+            m.addOnCameraMoveListener(::reportAnchor)
+            m.addOnCameraIdleListener(::reportAnchor)
             m.addOnMapLongClickListener { ll -> longClickHandler?.invoke(ll) != null }
             m.setStyle(Style.Builder().fromUri(STYLE_URL)) { s ->
                 val empty = fc(emptyList())
@@ -341,9 +354,9 @@ fun QuestMap(
             name,
             if (parts[0] == "pin") {
                 when (parts[3]) {
-                    "favorite" -> renderPin(icon, 96, fill = ApgoPalette.family(parts[2]), ring = ApgoPalette.favorite, ringFraction = 0.13f)
+                    "favorite" -> renderPin(icon, 96, fill = ApgoPalette.kind(parts[1], parts[2]), ring = ApgoPalette.favorite, ringFraction = 0.13f)
                     "banned" -> renderPin(icon, 96, fill = ApgoPalette.muted)
-                    else -> renderPin(icon, 96, fill = ApgoPalette.family(parts[2]))
+                    else -> renderPin(icon, 96, fill = ApgoPalette.kind(parts[1], parts[2]))
                 }
             } else {
                 renderGlyph(icon, 48)
@@ -384,10 +397,17 @@ fun QuestMap(
         val pad = (24 * density).toInt()
         m.animateCamera(fitTo(bounds, pad), 500)
     }
+    LaunchedEffect(anchor, map) {
+        val m = map ?: return@LaunchedEffect
+        onAnchorNow?.invoke(anchor?.let { a -> m.projection.toScreenLocation(a).let { androidx.compose.ui.geometry.Offset(it.x, it.y) } })
+    }
     LaunchedEffect(focus) {
         val f = focus ?: return@LaunchedEffect
         val m = map ?: return@LaunchedEffect
-        m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(f.at).zoom(f.zoom).build()))
+        // Leave room above the pin for a callout: the pin settles in the lower part of the visible area.
+        val top = (overlayTopNow + FOCUS_ROOM_DP) * density
+        val bottom = overlayBottomNow * density
+        m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(f.at).zoom(f.zoom).padding(0.0, top.toDouble(), 0.0, bottom.toDouble()).build()))
     }
     LaunchedEffect(style, quests, selected) {
         style?.let { st -> quests.forEach { ensureImage(st, glyphName(it)) } }
@@ -395,15 +415,15 @@ fun QuestMap(
         style?.getSourceAs<GeoJsonSource>("lines")?.setGeoJson(fc(lineFeatures(quests)))
         style?.getSourceAs<GeoJsonSource>("areas")?.setGeoJson(fc(areaFeatures(quests)))
     }
-    LaunchedEffect(style, draft, circle) { style?.getSourceAs<GeoJsonSource>("draft")?.setGeoJson(fc(draftFeatures(draft, circle))) }
+    LaunchedEffect(style, draft, circle, editable) { style?.getSourceAs<GeoJsonSource>("draft")?.setGeoJson(fc(draftFeatures(draft, circle, editable))) }
     LaunchedEffect(style, thaw, waypoint) {
         val marks = mutableListOf<JSONObject>()
         thaw?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", ApgoPalette.thaw.hex())) }
         waypoint?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", ApgoPalette.waypoint.hex())) }
         style?.getSourceAs<GeoJsonSource>("marks")?.setGeoJson(fc(marks))
     }
-    LaunchedEffect(style, circle) {
-        val geo = circle?.let { (c, r) ->
+    LaunchedEffect(style, circle, editable) {
+        val geo = circle?.takeIf { editable }?.let { (c, r) ->
             val dLon = r / (111_195.0 * cos(Math.toRadians(c.latitude)))
             val text = if (r < 1000) "${r.toInt()} m" else "%.1f km".format(r / 1000)
             val line = JSONObject().put("type", "LineString").put("coordinates", JSONArray().put(coord(c.latitude, c.longitude)).put(coord(c.latitude, c.longitude + dLon)))
