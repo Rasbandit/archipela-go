@@ -48,3 +48,6 @@ If you need info on Archipelago client libraries (Rust, JVM, TS, C#), see `docs/
 If you need info on Archipela-Go! game design (apworld, items, slot_data), see `docs/context/archipela-go-game-design.md`
 If you need info on the upstream React Native app architecture and license, see `docs/context/archipela-go-upstream-architecture.md`
 If you need info on location generation (upstream bug and Overpass redesign), see `docs/context/archipela-go-location-generation.md`
+If you need how to write an Archipelago apworld (skeleton, options, regions, tests, packaging), see `docs/context/apworld-development-guide.md`
+If you need apworld gotchas (item pool size, Python version, manifest, Victory event in tests), see `docs/context/apworld-pitfalls.md`
+If you need example worlds to copy patterns from, see `docs/context/apworld-reference-implementations.md`
