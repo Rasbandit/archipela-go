@@ -1,4 +1,42 @@
+# Archipela-Go 2
+
+Our own successor to Archipela-Go! (upstream `aki665/react-native-archipelago`, stale): an Archipelago multiworld game
+where checks are real-world places reached by walking, biking or driving. Android first, iOS later. Upstream is
+inspiration only; we write our own apworld and client.
+
+## Status
+Brainstorming done for sub-project 1 (apworld + contract + repo tooling). Spec written, awaiting owner review:
+`docs/superpowers/specs/2026-10-07-apworld-design.md`. No code yet. Next: implementation plan (`writing-plans`),
+then TDD build. Branch: `docs/context-research` (never work on main).
+
+## Planned stack (lean, not final until spiked)
+Rust core (AP protocol via `archipelago_rs`, location generation, geofence, SQLite) + Kotlin/Compose Android UI
+via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monorepo: `apworld/`, `core/`, `android/`,
+`docs/`. Run an Android build + connect spike for Rust before committing to the stack.
+
+## Sub-projects (each: spec, plan, build)
+1. Apworld + client contract + root/Python tooling (spec done)
+2. Rust core  3. Android app  4. Rust/Kotlin tooling  5. iOS
+
+## Key decisions
+- Own apworld, game name `Archipela-Go 2: Electric Boogaloo`, new ID offset, MIT license.
+- Compact location pool `Trip #1..#1000`; attributes in `slot_data` (`schema_version` gated; `type` hook).
+- Player-declared travel modes with client-enforced speed bands.
+- v1 mechanics: distance reductions, scouting + collection distance, traps, DeathLink, return-home. v1 challenge
+  type: `reach_point` only. Backlog: timed run, ordered points, steps, elevation, One Hard Travel.
+- Location generation: bulk Overpass tiles + local sampling + cache + endpoint fallback (fixes upstream's hang).
+Full table and rationale: `docs/context/project-decisions.md`.
+
+## Conventions
+- Conventional commits (`feat:`, `fix:`, `docs:`), subject under 50 chars. Small, tightly scoped steps.
+- TDD: failing tests first; never edit tests to fit bad code.
+- Upstream code is MIT (keep notice if copying); upstream apworld has NO license: reimplement, never copy.
+- Web research: use Perplexity, Firecrawl and GitHub MCPs, not built-in WebSearch/WebFetch.
+- Life OS / work-log tagging is intentionally skipped in this project (owner decision).
+- Parallel agents must not edit this file concurrently (two agents once overwrote each other's index lines).
+
 ## Context Docs
+If you need the project decision log, risks and unverified items, see `docs/context/project-decisions.md`
 If you need info on the Archipelago websocket protocol (packets, items_handling, DataStorage), see `docs/context/archipelago-network-protocol.md`
 If you need info on Archipelago concepts (worlds, apworlds, YAML, hints, classification), see `docs/context/archipelago-concepts.md`
 If you need info on Archipelago client libraries (Rust, JVM, TS, C#), see `docs/context/archipelago-client-libraries.md`
