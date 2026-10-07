@@ -238,7 +238,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     let letters: Vec<String> = letters_for(&o.goal).chars().map(|c| format!("Letter {c}")).collect();
     let mut free = total_locs as i64 - unlock.len() as i64 - letters.len() as i64;
     let mut other: Vec<String> = Vec::new();
-    let mut add_useful = |name: &str, share_pct: u32, min: u32, free: &mut i64, other: &mut Vec<String>| {
+    let add_useful = |name: &str, share_pct: u32, min: u32, free: &mut i64, other: &mut Vec<String>| {
         let want = ((f64::from(total_locs) * f64::from(share_pct) / 100.0).floor() as u32).max(min).min((*free).max(0) as u32);
         other.extend(std::iter::repeat(name.to_string()).take(want as usize));
         *free -= i64::from(want);
@@ -275,7 +275,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
         locs.push((b.location_id, b.zone, true));
     }
     let mut rewards: BTreeMap<i64, String> = BTreeMap::new();
-    let mut place = |item: &str, max_zone: u32, rewards: &mut BTreeMap<i64, String>, rng: &mut StdRng| -> Result<(), String> {
+    let place = |item: &str, max_zone: u32, rewards: &mut BTreeMap<i64, String>, rng: &mut StdRng| -> Result<(), String> {
         let open: Vec<i64> = locs.iter().filter(|(id, z, boss)| *z <= max_zone && !*boss && !rewards.contains_key(id)).map(|(id, _, _)| *id).collect();
         let id = *open.choose(rng).ok_or("not enough quests to hold the keys and tools; add more trips")?;
         rewards.insert(id, item.to_string());
