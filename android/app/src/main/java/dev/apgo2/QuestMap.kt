@@ -100,8 +100,13 @@ private fun realmFeatures(realms: List<RealmOut>): List<JSONObject> = realms.map
     }
 }
 
-private fun draftFeatures(draft: List<LatLng>): List<JSONObject> {
+private fun draftFeatures(draft: List<LatLng>, circle: Pair<LatLng, Double>?): List<JSONObject> {
     val out = mutableListOf<JSONObject>()
+    if (circle != null) {
+        val (c, r) = circle
+        out += feature(JSONObject().put("type", "Polygon").put("coordinates", JSONArray().put(ring(circleRing(c.latitude, c.longitude, r)))))
+        out += feature(pointGeo(c.latitude, c.longitude))
+    }
     if (draft.size >= 3) out += feature(JSONObject().put("type", "Polygon").put("coordinates", JSONArray().put(ring(draft.map { it.latitude to it.longitude }))))
     else if (draft.size == 2) out += feature(JSONObject().put("type", "LineString").put("coordinates", JSONArray().put(coord(draft[0].latitude, draft[0].longitude)).put(coord(draft[1].latitude, draft[1].longitude))))
     draft.forEach { out += feature(pointGeo(it.latitude, it.longitude)) }
@@ -129,6 +134,11 @@ fun QuestMap(
     modifier: Modifier = Modifier,
     home: LatLng? = null,
     onMapLongClick: ((LatLng) -> Unit)? = null,
+    /** Circle being edited: center and radius in metres. */
+    circle: Pair<LatLng, Double>? = null,
+    /** Height of overlays covering the top and bottom of the map, so framing keeps the circle clear of them. */
+    overlayTopDp: Int = 0,
+    overlayBottomDp: Int = 0,
 ) {
     val context = LocalContext.current
     val mapView = remember {
@@ -191,7 +201,7 @@ fun QuestMap(
                 )
                 s.addLayer(LineLayer("draft-line", "draft").withProperties(lineColor("#ef6c00"), lineWidth(3f)))
                 s.addLayer(FillLayer("draft-fill", "draft").withProperties(fillColor("#ef6c00"), fillOpacity(0.15f)))
-                s.addLayer(CircleLayer("draft-pts", "draft").withProperties(circleRadius(5f), circleColor("#ef6c00"), circleStrokeColor("#ffffff"), circleStrokeWidth(1.5f)))
+                s.addLayer(CircleLayer("draft-pts", "draft").withFilter(Expression.eq(Expression.geometryType(), Expression.literal("Point"))).withProperties(circleRadius(5f), circleColor("#ef6c00"), circleStrokeColor("#ffffff"), circleStrokeWidth(1.5f)))
                 s.addLayer(CircleLayer("marks-layer", "marks").withProperties(circleRadius(12f), circleColor(Expression.get("color")), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
                 s.addLayer(CircleLayer("home-ring", "home").withProperties(circleRadius(14f), circleColor("#2e7d32"), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
                 s.addLayer(CircleLayer("home-dot", "home").withProperties(circleRadius(5f), circleColor("#ffffff")))
@@ -207,7 +217,7 @@ fun QuestMap(
         style?.getSourceAs<GeoJsonSource>("lines")?.setGeoJson(fc(lineFeatures(quests)))
         style?.getSourceAs<GeoJsonSource>("areas")?.setGeoJson(fc(areaFeatures(quests)))
     }
-    LaunchedEffect(style, draft) { style?.getSourceAs<GeoJsonSource>("draft")?.setGeoJson(fc(draftFeatures(draft))) }
+    LaunchedEffect(style, draft, circle) { style?.getSourceAs<GeoJsonSource>("draft")?.setGeoJson(fc(draftFeatures(draft, circle))) }
     LaunchedEffect(style, thaw, waypoint) {
         val marks = mutableListOf<JSONObject>()
         thaw?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", "#00acc1")) }
@@ -220,6 +230,18 @@ fun QuestMap(
     LaunchedEffect(style, me) {
         style?.getSourceAs<GeoJsonSource>("me")?.setGeoJson(fc(me?.let { listOf(feature(pointGeo(it.latitude, it.longitude))) } ?: emptyList()))
     }
+    // Keep a circle being edited fully in view as its radius changes (not when it only moves).
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    LaunchedEffect(style, circle?.second) {
+        val m = map ?: return@LaunchedEffect
+        val (c, r) = circle ?: return@LaunchedEffect
+        if (style == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(250)
+        val b = org.maplibre.android.geometry.LatLngBounds.Builder().includes(circleRing(c.latitude, c.longitude, r).map { LatLng(it.first, it.second) }).build()
+        val pad = (24 * density).toInt()
+        mapView.post { m.animateCamera(CameraUpdateFactory.newLatLngBounds(b, pad, pad + (overlayTopDp * density).toInt(), pad, pad + (overlayBottomDp * density).toInt())) }
+        centered = true
+    }
     // Frame the action once: all visible quests plus you, or just you. Done after layout so the camera move is not dropped.
     LaunchedEffect(style, me, quests.isNotEmpty(), realms.size) {
         val m = map ?: return@LaunchedEffect
@@ -229,10 +251,11 @@ fun QuestMap(
         val all = (pts + realmPts).distinctBy { it.latitude to it.longitude }
         if (all.isEmpty()) return@LaunchedEffect
         kotlinx.coroutines.delay(400)
+        if (centered) return@LaunchedEffect // a circle being edited already framed the map
         mapView.post {
-            val bounds = org.maplibre.android.geometry.LatLngBounds.Builder().includes(all).build()
-            // Points that are (nearly) the same spot would zoom in to the rooftops: keep a neighbourhood view instead.
-            if (all.size == 1 || bounds.latitudeSpan < 0.004 && bounds.longitudeSpan < 0.004) m.moveCamera(CameraUpdateFactory.newLatLngZoom(bounds.center, 14.0))
+            val bounds = if (all.size >= 2) org.maplibre.android.geometry.LatLngBounds.Builder().includes(all).build() else null
+            // One spot, or points that are nearly the same, would zoom in to the rooftops: keep a neighbourhood view instead.
+            if (bounds == null || bounds.latitudeSpan < 0.004 && bounds.longitudeSpan < 0.004) m.moveCamera(CameraUpdateFactory.newLatLngZoom(bounds?.center ?: all[0], 14.0))
             else m.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 60))
         }
         centered = true

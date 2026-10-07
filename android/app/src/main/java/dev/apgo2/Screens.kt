@@ -35,6 +35,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -120,44 +121,27 @@ fun AppRoot(m: AppModel) {
 }
 
 // ------------------------------------------------------------------ realms
+/** Two views: the list of realms, and a full-page map editor for a new one. */
 @Composable
 fun RealmsScreen(m: AppModel) {
-    var name by remember { mutableStateOf("") }
-    var mode by remember { mutableStateOf("walk") }
-    var radius by remember { mutableFloatStateOf(1500f) }
-    var expanded by remember { mutableStateOf<String?>(null) }
+    var editing by remember { mutableStateOf(false) }
+    if (editing) RealmEditor(m) { editing = false } else RealmList(m) { editing = true }
+}
 
+@Composable
+private fun RealmList(m: AppModel, onNew: () -> Unit) {
+    var expanded by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Realms: places you play in", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(name, { name = it }, label = { Text("Realm name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        ModeChips(mode) { mode = it }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Button(onClick = { m.drawing = !m.drawing; if (!m.drawing) m.draft.clear() }) { Text(if (m.drawing) "Cancel drawing" else "Draw on map", fontSize = 12.sp) }
-            if (m.drawing) {
-                OutlinedButton(onClick = { if (m.draft.isNotEmpty()) m.draft.removeAt(m.draft.lastIndex) }) { Text("Undo", fontSize = 12.sp) }
-                Button(onClick = { m.saveDraftRealm(name, mode); name = "" }) { Text("Save + scan", fontSize = 12.sp) }
-            } else {
-                Button(onClick = { m.saveCircleRealm(name, mode, radius.toDouble()); name = "" }) { Text("Circle around me", fontSize = 12.sp) }
-            }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Realms: places you play in", style = MaterialTheme.typography.titleMedium)
+            Button(onClick = onNew) { Text("+ New realm", fontSize = 12.sp) }
         }
-        if (!m.drawing) {
-            Text("Circle radius: ${radius.toInt()} m", fontSize = 12.sp)
-            Slider(radius, { radius = it }, valueRange = 300f..8000f)
-        } else {
-            Text("Tap the map to add points (${m.draft.size}); 3+ makes a realm.", fontSize = 12.sp)
-        }
-        // A snapshot copy: the map reacts to a new list, not to the same mutable list changing.
-        QuestMap(
-            emptyList(), m.realms, m.draft.toList(), m.me, null, null, null, { if (m.drawing) m.draft.add(it) },
-            Modifier.fillMaxWidth().weight(1f).heightIn(min = 200.dp),
-            home = m.home?.let { LatLng(it.lat, it.lon) },
-            onMapLongClick = { if (!m.drawing) m.setHome(it) },
-        )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = { m.setHomeHere() }) { Text("Set home here", fontSize = 12.sp) }
-            Text("Home (green) is where distances are measured from. Long-press the map to place it anywhere.", fontSize = 11.sp)
+            Text(if (m.home == null) "No home yet: distances are measured from your first realm." else "Home is set. Distances are measured from it.", fontSize = 11.sp)
         }
-        if (!m.drawing) LazyColumn(Modifier.heightIn(max = 180.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (m.realms.isEmpty()) Text("No realms yet. Tap + New realm to draw one.", fontSize = 13.sp)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(m.realms, key = { it.id }) { r ->
                 Card(Modifier.fillMaxWidth().clickable { expanded = if (expanded == r.id) null else r.id }) {
                     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -178,6 +162,63 @@ fun RealmsScreen(m: AppModel) {
                             if (on.size > 30) Text("…and ${on.size - 30} more", fontSize = 11.sp)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/** The map is the whole page; name, mode and shape controls float over it. */
+@Composable
+private fun RealmEditor(m: AppModel, onClose: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var mode by remember { mutableStateOf("walk") }
+    var polygon by remember { mutableStateOf(false) }
+    var radius by remember { mutableFloatStateOf(1500f) }
+    var center by remember { mutableStateOf<LatLng?>(null) }
+    val circleCenter = center ?: m.me // follows your GPS until it is moved
+    DisposableEffect(Unit) { onDispose { m.draft.clear() } }
+
+    Box(Modifier.fillMaxSize()) {
+        QuestMap(
+            emptyList(), m.realms, m.draft.toList(), m.me, null, null, null, { if (polygon) m.draft.add(it) },
+            Modifier.fillMaxSize(),
+            home = m.home?.let { LatLng(it.lat, it.lon) },
+            onMapLongClick = { m.setHome(it) },
+            circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() },
+            overlayTopDp = 150, overlayBottomDp = 230,
+        )
+        Card(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp)) {
+            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = onClose) { Text("← Back") }
+                    OutlinedTextField(name, { name = it }, label = { Text("Realm name") }, singleLine = true, modifier = Modifier.weight(1f))
+                }
+                ModeChips(mode) { mode = it }
+            }
+        }
+        Card(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(8.dp)) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = !polygon, onClick = { polygon = false }, label = { Text("Circle") })
+                    FilterChip(selected = polygon, onClick = { polygon = true }, label = { Text("Polygon") })
+                }
+                if (polygon) {
+                    Text("Tap the map to add corners (${m.draft.size}); 3 or more makes a realm.", fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(onClick = { if (m.draft.isNotEmpty()) m.draft.removeAt(m.draft.lastIndex) }) { Text("Undo", fontSize = 12.sp) }
+                        OutlinedButton(onClick = { m.draft.clear() }) { Text("Clear", fontSize = 12.sp) }
+                    }
+                } else {
+                    Text("Radius: ${radius.toInt()} m, centered on you.", fontSize = 12.sp)
+                    Slider(radius, { radius = it }, valueRange = 300f..8000f)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = {
+                        val ok = if (polygon) m.saveDraftRealm(name, mode) else m.saveCircleRealm(name, mode, radius.toDouble(), circleCenter)
+                        if (ok) onClose()
+                    }) { Text("Save + scan") }
+                    OutlinedButton(onClick = onClose) { Text("Cancel") }
                 }
             }
         }

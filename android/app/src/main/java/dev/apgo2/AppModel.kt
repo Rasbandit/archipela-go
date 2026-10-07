@@ -47,7 +47,6 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     val log = mutableStateListOf<String>()
     var realLoc by mutableStateOf<Location?>(null)
     var simPos by mutableStateOf<LatLng?>(null)
-    var drawing by mutableStateOf(false)
     var home by mutableStateOf<GeoPoint?>(null)
     val draft = mutableStateListOf<LatLng>()
     var selected by mutableStateOf<Long?>(null)
@@ -98,20 +97,23 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     fun homePoint(): GeoPoint? = engine.home() ?: realms.firstOrNull()?.let { r -> r.circle?.center ?: r.polygon.firstOrNull() }
 
     // ----------------------------------------------------------------- realms
-    fun saveDraftRealm(name: String, mode: String) {
-        if (draft.size < 3) { status = "Tap at least 3 points on the map"; return }
+    /** Saves the drawn polygon as a realm and starts its scan. Returns false (with a status message) when it could not be saved. */
+    fun saveDraftRealm(name: String, mode: String): Boolean {
+        if (draft.size < 3) { status = "Tap at least 3 points on the map"; return false }
         val id = UUID.randomUUID().toString()
-        runCatching { engine.saveRealm(id, name.ifBlank { "Realm ${realms.size + 1}" }, mode, null, draft.map { GeoPoint(it.latitude, it.longitude) }) }
-            .onSuccess { draft.clear(); drawing = false; refreshAll(); scan(id) }
+        return runCatching { engine.saveRealm(id, name.ifBlank { "Realm ${realms.size + 1}" }, mode, null, draft.map { GeoPoint(it.latitude, it.longitude) }) }
+            .onSuccess { draft.clear(); refreshAll(); scan(id) }
             .onFailure { status = "Could not save: ${it.message}" }
+            .isSuccess
     }
 
-    fun saveCircleRealm(name: String, mode: String, radiusM: Double) {
-        val c = me ?: run { status = "No location yet"; return }
+    fun saveCircleRealm(name: String, mode: String, radiusM: Double, center: LatLng?): Boolean {
+        val c = center ?: run { status = "No location yet"; return false }
         val id = UUID.randomUUID().toString()
-        runCatching { engine.saveRealm(id, name.ifBlank { "Around me" }, mode, CircleOut(GeoPoint(c.latitude, c.longitude), radiusM), emptyList()) }
+        return runCatching { engine.saveRealm(id, name.ifBlank { "Realm ${realms.size + 1}" }, mode, CircleOut(GeoPoint(c.latitude, c.longitude), radiusM), emptyList()) }
             .onSuccess { refreshAll(); scan(id) }
             .onFailure { status = "Could not save: ${it.message}" }
+            .isSuccess
     }
 
     fun scan(id: String) {
