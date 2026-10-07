@@ -1,6 +1,6 @@
 # Apworld + Repo Tooling Design (Sub-project 1)
 
-Date: 2026-10-07 · Status: draft for review
+Date: 2026-10-07 · Status: implemented (see "Implementation notes")
 
 ## Context
 
@@ -63,6 +63,7 @@ Product direction (decided with the owner):
   "return_home": false,
   "death_link": false,
   "reduction_percent": 8,
+  "tier_step_m": 758.6,
   "trips": [
     { "location_id": 8902400000001, "type": "reach_point",
       "distance_tier": 3, "key_needed": 1, "mode": "walk" }
@@ -72,6 +73,8 @@ Product direction (decided with the owner):
 
 - `type` is the extension hook for future challenge types. Clients must refuse seeds with an unknown
   `schema_version` and ignore (display as unsupported) trips with an unknown `type`.
+- `tier_step_m` is meters per distance tier: base trip distance is `distance_tier * tier_step_m`, effective
+  distance is that times `(1 - reduction_percent/100) ** reductions_received`.
 - Coordinates are never in `slot_data`; the client derives real-world points per trip (see the location-generation
   context doc). Distances are meters.
 - Speed bands per mode are **constants in the contract doc** (not per-seed), versioned with `schema_version`:
@@ -93,7 +96,8 @@ Product direction (decided with the owner):
 | Letter A, R, C, H, I, P, E, L, G, O | progression | macguffin goal; short = APGO, long = ARCHIPELAGO |
 
 - Creation order: goal letters, `number_of_locks` keys, traps up to `(trips - items) * trap_rate / 100`, then
-  filler from the enabled pools. Reductions are capped at `max(5, floor(0.15 * trips))`.
+  filler from the enabled pools. Reductions in the pool = `min(max(5, floor(0.15 * trips)), free slots)` (free slots = trips minus letters
+  and keys); the tier step uses this actual count so logic always holds.
 - Letter items use duplicate counts where needed (long set has two `Letter A`).
 
 ## 5. Logic and distance reductions
@@ -110,7 +114,8 @@ Product direction (decided with the owner):
 - `all_trips`: victory location requires all active trips (not distance reductions; this fixes upstream's
   copy/paste bug).
 - `macguffin_short` / `macguffin_long`: victory requires all letters of the chosen set.
-- Victory event item locked on location `Goal`.
+- Victory event item locked on location `Goal`, which sits in `Menu` with a per-goal access rule (all keys and
+  max reductions for `all_trips`, all letters for macguffin goals).
 
 ## 7. Options
 
@@ -119,7 +124,10 @@ marathon, 50k, 100k), `number_of_locks`, `trap_rate`, `enable_distance_reduction
 `enable_scouting_distance_bonuses`, `enable_collection_distance_bonuses`, `death_link`.
 New: `allowed_modes` (OptionSet; at least one required), `return_home` (Toggle), `reduction_percent` (Range 1-25,
 default 8).
-Validation: `maximum_distance > minimum_distance`; at least one mode; trips clamped as in section 2.
+Ranges: `number_of_trips` 1-1000 (default **100**, so even short-range games feel substantial),
+`minimum_distance` 100-5000 m, `maximum_distance` 1000-100000 m, `number_of_locks` 0-10 (default 3).
+Validation (`OptionError`): `maximum_distance > minimum_distance`; at least one mode; `number_of_trips` at
+least goal letters + locks (macguffin_long needs 11 + locks); locks clamped to `trips // 2`.
 
 ## 8. Repo and tooling (monorepo)
 
@@ -128,7 +136,7 @@ Layout: `apworld/` (Python), `core/` (Rust workspace, later), `android/` (Kotlin
 Delivered with this spec (root + Python):
 - `mise.toml` pinning Python (and later Rust, JDK); `justfile` with `check`, `test`, `lint`, `fmt`, `build`.
 - Python: `uv`, `ruff` (lint + format, strict ruleset), `pyright` strict, `pytest` with Archipelago `WorldTestBase`.
-- Repo-wide: `lefthook` (pre-commit: format/lint; pre-push: tests), `commitlint` (conventional commits),
+- Repo-wide: `lefthook` (pre-commit: format/lint; pre-push: tests), `committed` (conventional commits; a single binary, chosen over `commitlint` to avoid a Node toolchain),
   `gitleaks`, `typos`, `.editorconfig`, markdownlint.
 - GitHub Actions: per-path jobs (apworld first), required checks on PRs, build of the `.apworld` artifact,
   Dependabot.
@@ -148,11 +156,22 @@ Kotlin (`ktlint`, `detekt`, Android Lint, Gradle version catalogs), signed Andro
 
 ## Backlog (out of v1, each its own spec)
 
-Timed run (A to B within X minutes, difficulty-scaled), ordered-point sequences, daily step counter challenge,
+`key_mode` option (`tiered`: a separate key per tier, tier-N key unlocks only tier-N checks, so players cannot
+collect most points early), timed run (A to B within X minutes, difficulty-scaled), ordered-point sequences, daily step counter challenge,
 elevation-gain challenge, One Hard Travel goal, per-mode separate trip pools, enforced speed bands in logic.
+
+## Implementation notes
+
+- Package code uses **relative imports**: Archipelago loads worlds as `worlds.<name>` and from `.apworld` zips.
+  Tests import via `worlds.ap_go2` against a pinned Archipelago checkout in `.ap/` (`just setup-ap`).
+- `WorldTestBase.collect_all_but` also collects the pre-placed Victory event, so goal tests assert
+  reachability of the `Goal` location on a fresh `CollectionState`.
+- Verified: `just check` (76 tests incl. Archipelago default fill/reachability tests), `just build`, and a real
+  `Generate.py` run with a 100-trip YAML on Archipelago 0.6.8.
 
 ## Open items for review
 
-1. Final game-name spelling.
+1. Final game-name spelling (assumed single "p").
 2. Speed-band constants (initial guesses, tuned with the client).
-3. ID-offset collision check against published worlds at implementation time.
+3. ID-offset collision check against published worlds before first release.
+4. Local `gitleaks` pre-commit hook pending a sudo install; CI runs it regardless.

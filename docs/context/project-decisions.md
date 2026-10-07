@@ -3,7 +3,7 @@
 _Last verified: 2026-10-07_
 
 ## Status
-Living decision log. Brainstorming phase complete for sub-project 1; spec awaiting owner review. No code exists yet.
+Living decision log. Sub-project 1 (apworld + contract + Python tooling) implemented on branch `feat/apworld`; 76 tests green, real Archipelago 0.6.8 generation verified. Next: Rust core spike and spec.
 
 ## What This Is
 Our own successor to Archipela-Go! (upstream `aki665/react-native-archipelago`, branch `archipela-go`): an Archipelago multiworld game where checks are real-world places reached by walking, biking or driving. Upstream is inspiration only (maintainer ~9 months inactive; app errors out on location generation).
@@ -23,6 +23,8 @@ Our own successor to Archipela-Go! (upstream `aki665/react-native-archipelago`, 
 | Decomposition | (1) apworld + contract + repo tooling, (2) Rust core, (3) Android app, (4) per-stack tooling, (5) iOS | Each gets its own spec, plan, build |
 | First spec | Game contract + apworld | Everything else builds on the contract |
 | Tooling | Monorepo; mise, just, uv, ruff, pyright, pytest, lefthook, commitlint, gitleaks, typos, GitHub Actions, release-please, Dependabot; Rust and Kotlin tooling arrive with their sub-projects | Owner: "linting, formatting, best practice enforcement, all the things" |
+| Trip count default | 100 trips by default (configurable 1-1000) | Owner: even short trips should feel like a real contribution to the group |
+| Key locks | Keys gate whole areas; default 3 locks. Backlog: `key_mode` tiered keys (tier-N key unlocks only tier-N checks) | Owner idea: prevents grabbing most points early |
 | Life OS | Intentionally skipped for this project (owner decision) | Global work-log skill expects it; ignore here |
 
 ## Key Findings Behind the Decisions

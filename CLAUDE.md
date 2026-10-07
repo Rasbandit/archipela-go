@@ -5,9 +5,13 @@ where checks are real-world places reached by walking, biking or driving. Androi
 inspiration only; we write our own apworld and client.
 
 ## Status
-Brainstorming done for sub-project 1 (apworld + contract + repo tooling). Spec written, awaiting owner review:
-`docs/superpowers/specs/2026-10-07-apworld-design.md`. No code yet. Next: implementation plan (`writing-plans`),
-then TDD build. Branch: `docs/context-research` (never work on main).
+Sub-project 1 (apworld + contract + Python tooling) is implemented on branch `feat/apworld`: spec
+`docs/superpowers/specs/2026-10-07-apworld-design.md`, plan `docs/superpowers/plans/2026-10-07-apworld.md`,
+contract `apworld/docs/contract.md`. Next: Rust core spike and spec. Never work on main.
+
+## Commands
+`just setup` (env, pinned Archipelago in `.ap/`, hooks), `just check` (lint, types, tests, typos), `just build`
+(`dist/ap_go2.apworld`). `mise.toml` pins the tools; `committed` and `gitleaks` need installing locally.
 
 ## Planned stack (lean, not final until spiked)
 Rust core (AP protocol via `archipelago_rs`, location generation, geofence, SQLite) + Kotlin/Compose Android UI
@@ -33,6 +37,7 @@ Full table and rationale: `docs/context/project-decisions.md`.
 - Upstream code is MIT (keep notice if copying); upstream apworld has NO license: reimplement, never copy.
 - Web research: use Perplexity, Firecrawl and GitHub MCPs, not built-in WebSearch/WebFetch.
 - Life OS / work-log tagging is intentionally skipped in this project (owner decision).
+- apworld package code uses relative imports (Archipelago loads it as `worlds.ap_go2`); tests import `worlds.ap_go2`.
 - Parallel agents must not edit this file concurrently (two agents once overwrote each other's index lines).
 
 ## Context Docs
