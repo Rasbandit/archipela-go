@@ -1,5 +1,10 @@
 import pytest
-from worlds.ap_go2.reductions import expected_reductions, reductions_needed, tier_step_m
+from worlds.ap_go2.reductions import (
+    expected_reductions,
+    logic_reductions,
+    reductions_needed,
+    tier_step_m,
+)
 
 
 def test_expected_reductions_is_15_percent_with_floor_of_five() -> None:
@@ -35,3 +40,23 @@ def test_requirements_are_monotonic_and_bounded() -> None:
     assert needs == sorted(needs)
     assert needs[0] == 0
     assert max(needs) == 7
+
+
+@pytest.mark.parametrize("percent", [1, 8, 25])
+@pytest.mark.parametrize("expected", [0, 5, 15, 150])
+def test_logic_reductions_keep_first_three_tiers_free(percent: int, expected: int) -> None:
+    logic = logic_reductions(expected, percent)
+    assert 0 <= logic <= expected
+    step = tier_step_m(10_000, percent, logic)
+    for tier in (1, 2, 3):
+        needed = reductions_needed(
+            tier, max_distance_m=10_000, step_m=step, reduction_percent=percent
+        )
+        assert needed == 0
+
+
+def test_logic_reductions_cap_is_tight_and_step_stays_sane() -> None:
+    assert logic_reductions(150, 25) == 4
+    assert logic_reductions(150, 8) == 14
+    assert logic_reductions(3, 8) == 3  # never exceeds what the pool holds
+    assert tier_step_m(100_000, 25, logic_reductions(150, 25)) < 1_000_000

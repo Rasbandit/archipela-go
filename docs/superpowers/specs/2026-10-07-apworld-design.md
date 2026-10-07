@@ -107,6 +107,11 @@ Product direction (decided with the owner):
   `E` = expected reductions (the cap from section 4).
 - A trip with `d_t > max_distance` requires `ceil(log(max/d_t) / log(1-p))` reductions to be reachable in logic.
 - With reductions disabled, `R = max_distance / 10` and no trip needs any.
+- **Logic cap (found in review):** the number of reductions that gate logic is capped at
+  `floor(ln(0.3) / ln(1 - p))` (14 at 8%, 4 at 25%), so tiers 1-3 never need a reduction and sphere 0 is never
+  empty. The pool may hold more reductions than the cap; the surplus shrinks distance in the client but gates
+  nothing. `tier_step_m` uses the capped count. Without the cap, `0.15 * trips` reductions made `tier_step_m`
+  grow exponentially (1.35e8 m at 1000 trips) and fill failed above ~187 trips.
 - Speed/mode is **not** logic-gating in v1 (client-enforced only).
 
 ## 6. Goals
@@ -166,12 +171,16 @@ elevation-gain challenge, One Hard Travel goal, per-mode separate trip pools, en
   Tests import via `worlds.ap_go2` against a pinned Archipelago checkout in `.ap/` (`just setup-ap`).
 - `WorldTestBase.collect_all_but` also collects the pre-placed Victory event, so goal tests assert
   reachability of the `Goal` location on a fresh `CollectionState`.
-- Verified: `just check` (76 tests incl. Archipelago default fill/reachability tests), `just build`, and a real
+- Build uses Archipelago's own "Build APWorlds" component (adds `version` / `compatible_version`; a plain zip is
+  rejected by 0.7.0). Python is pinned `>=3.12,<3.14` (Archipelago's updater rejects 3.14).
+- Verified: `just check` (109 tests incl. Archipelago default fill/reachability tests), `just build`, and a real
   `Generate.py` run with a 100-trip YAML on Archipelago 0.6.8.
 
 ## Open items for review
 
-1. Final game-name spelling (assumed single "p").
-2. Speed-band constants (initial guesses, tuned with the client).
-3. ID-offset collision check against published worlds before first release.
-4. Local `gitleaks` pre-commit hook pending a sudo install; CI runs it regardless.
+1. Speed-band constants (initial guesses, tuned with the client).
+2. ID-offset collision check against published worlds before first release.
+3. Before first release: add a `WebWorld` and `docs/en_Archipela-Go_2_Electric_Boogaloo.md` setup page (optional in
+   0.6.8, needed by the website host), and prefer reading the ID offset against the 2^31 guidance for clients.
+
+Resolved: game name confirmed (`Archipela-Go 2: Electric Boogaloo`, single "p"); gitleaks installed and hooked.

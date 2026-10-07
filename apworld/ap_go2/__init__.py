@@ -20,7 +20,7 @@ from .item_plan import ItemPlan, plan_items
 from .items import ITEM_NAME_TO_ID, ITEM_TABLE
 from .locations import LOCATION_NAME_TO_ID
 from .options import ApGo2Options
-from .reductions import reductions_needed, tier_step_m
+from .reductions import logic_reductions, reductions_needed, tier_step_m
 from .slot_data import build_slot_data
 from .trips import Trip, effective_locks, generate_trips
 from .validation import goal_letter_counts, validate_settings
@@ -86,7 +86,7 @@ class ApGo2World(World):  # type: ignore[misc]
         self.tier_step = tier_step_m(
             opts.maximum_distance.value,
             opts.reduction_percent.value,
-            self.plan.expected_reductions,
+            logic_reductions(self.plan.expected_reductions, opts.reduction_percent.value),
         )
         self.trips = generate_trips(self.random, count=count, locks=self.locks, modes=modes)
 

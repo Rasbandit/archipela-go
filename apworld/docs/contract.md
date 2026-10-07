@@ -33,6 +33,7 @@ Rules for clients:
 - Base distance of a trip: `distance_tier * tier_step_m`.
 - Effective distance: `base * (1 - reduction_percent / 100) ** reductions_received`, where
   `reductions_received` is the count of `Progressive Distance Reduction` items received.
+- The pool may contain more reductions than gate logic (surplus); clients still apply all received reductions.
 - Pick a point at the effective distance, but never closer than `min_distance_m`.
 
 ## Keys (areas)

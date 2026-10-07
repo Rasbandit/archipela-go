@@ -122,3 +122,51 @@ class TestInvalidSettings(WorldTestBase):
 
     def test_empty_modes(self) -> None:
         self.assert_rejected({"allowed_modes": []}, "allowed_modes")
+
+
+class TestReductionsLargeWorld(Base):
+    options = {  # noqa: RUF012
+        "goal": "macguffin_short",
+        "number_of_trips": 200,
+        "enable_distance_reductions": True,
+    }
+
+    def test_early_tiers_are_reachable_from_the_start(self) -> None:
+        state = CollectionState(self.multiworld)
+        free = [t for t in self.world.trips if t.distance_tier <= 3 and t.key_needed == 0]
+        assert free
+        for trip in free:
+            assert state.can_reach_location(names.trip_name(trip.number), self.player)
+
+
+class TestReductionsThousandTrips(Base):
+    options = {  # noqa: RUF012
+        "goal": "macguffin_long",
+        "number_of_trips": 1000,
+        "number_of_locks": 10,
+        "enable_distance_reductions": True,
+    }
+
+    def test_tier_step_stays_sane(self) -> None:
+        assert self.world.tier_step < 1_000_000
+
+
+class TestReductionsHighPercent(Base):
+    options = {  # noqa: RUF012
+        "goal": "macguffin_short",
+        "number_of_trips": 100,
+        "reduction_percent": 25,
+        "enable_distance_reductions": True,
+    }
+
+
+class TestNoLocks(Base):
+    options = {"goal": "all_trips", "number_of_trips": 20, "number_of_locks": 0}  # noqa: RUF012
+
+
+class TestMaxLocks(Base):
+    options = {"goal": "all_trips", "number_of_trips": 40, "number_of_locks": 10}  # noqa: RUF012
+
+
+class TestTwoTrips(Base):
+    options = {"goal": "all_trips", "number_of_trips": 2, "number_of_locks": 3}  # noqa: RUF012
