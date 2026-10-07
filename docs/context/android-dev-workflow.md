@@ -12,6 +12,22 @@ location) -> `android-start`. Also: `just android-logs`, `just android-shot`, `s
 uiautomator, no coordinates needed). Rust-only logic is faster to iterate on desktop: `cd core && cargo test` and `cargo run --example gen_zone`.
 `APGO_ABIS="arm64-v8a x86_64"` also builds for an emulator.
 
+## Archipelago connection (Spike C, proven 2026-10-07)
+Phone joined a local server running OUR apworld, received `slot_data` (contract v1), sent location checks, got items back (server log:
+`Tester sent Take a Breather! to Tester (Trip #1)`). Loop: `just ap-host` (generates a 100-trip seed for slot `Tester`, hosts on :38281,
+sets `adb reverse` so the phone uses `localhost:38281`), then `just android-run`, tap Connect / Check next trip. `just ap-log`, `just ap-stop`.
+Archipelago uses ONE persistent WebSocket (server pushes items, prints, bounces); the Rust crate `archipelago_rs` is non-blocking: Kotlin calls `poll()`
+every 250 ms to drain already-read events. No push channel exists when the app is dead; plan a foreground service + reconnect/`Sync` item resync.
+
+Gotchas for the connection:
+- `archipelago_rs 3.0.1` does not compile for Android (no cache-dir fallback). Vendored patched copy in `core/vendor/archipelago_rs` via `[patch.crates-io]`
+  (see its `PATCHES.md`; candidate upstream PR). Pass `Cache::path(app cacheDir)` so it never needs a platform dir.
+- `Connection::new(url, name, game, options)`: the 3rd arg is the GAME name (must equal `Archipela-Go 2: Electric Boogaloo`), not the password (use `options.password`).
+- Two rustls backends get linked (ring + aws-lc-rs): install `rustls::crypto::ring::default_provider()` once or the first poll panics ("Could not automatically determine the process-level CryptoProvider").
+- Disable crate default features (`native-tls`) to avoid OpenSSL on Android; `rustls` only. Plain `ws://` works for local dev (server has no TLS).
+- Don't use `pkill -f` in scripts (matches your own shell); `ap_host.sh stop` kills the port listener instead.
+- Server prints "client does not support compressed websocket connections": harmless warning for now.
+
 ## Setup (once)
 - JDK: `sudo dnf install java-25-openjdk-devel` (Gradle needs javac; the default headless JRE has none). `JAVA_HOME=/usr/lib/jvm/java-25-openjdk` is set in the justfile.
 - Rust: official `rustup` (Fedora's rustc cannot add Android targets); `rustup target add aarch64-linux-android x86_64-linux-android`; `cargo install cargo-ndk`.

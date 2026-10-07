@@ -54,3 +54,4 @@ If you need example worlds to copy patterns from, see `docs/context/apworld-refe
 If you need info on POI data sources, map tiles or POI architecture, see `docs/context/poi-data-sources.md`, `docs/context/map-rendering-and-tiles.md`, `docs/context/poi-atlas-and-server-options.md`
 If you need Spike B results (bulk POI generation timings, rural gaps, next fixes), see `docs/context/spike-b-location-generation-results.md`
 If you need the Android build/run loop, versions and gotchas, see `docs/context/android-dev-workflow.md`
+If you need the dev Archipelago server loop (`just ap-host`) and Android-to-server gotchas, see `docs/context/android-dev-workflow.md`

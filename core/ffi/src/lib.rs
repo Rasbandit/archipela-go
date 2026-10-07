@@ -9,6 +9,9 @@ use apgo_core::zone::Zone;
 
 uniffi::setup_scaffolding!();
 
+/// Must match the apworld's game name exactly (apworld/ap_go2/constants.py).
+const GAME_NAME: &str = "Archipela-Go 2: Electric Boogaloo";
+
 #[derive(Debug, uniffi::Record)]
 pub struct GeoPoint {
     pub lat: f64,
@@ -85,4 +88,117 @@ pub fn generate_trips(
             in_band: t.in_band,
         })
         .collect())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Archipelago session (non-blocking: the host polls on a timer; the crate does the I/O)
+// ---------------------------------------------------------------------------------------------
+
+use std::sync::{Arc, Mutex};
+
+use archipelago_rs as ap;
+
+#[derive(Debug, uniffi::Record)]
+pub struct ReceivedItemOut {
+    pub index: u32,
+    pub item_id: i64,
+    pub name: String,
+    pub sender: String,
+    pub progression: bool,
+    pub trap: bool,
+}
+
+#[derive(Debug, uniffi::Enum)]
+pub enum ApEvent {
+    Connected,
+    ReceivedItems { from_index: u32 },
+    Print { text: String },
+    Updated,
+    Error { detail: String },
+    Other,
+}
+
+#[derive(uniffi::Object)]
+pub struct ApSession {
+    conn: Mutex<ap::Connection>,
+}
+
+#[uniffi::export]
+impl ApSession {
+    /// Start connecting (returns immediately). `url` like `localhost:38281` or `wss://archipelago.gg:38281`.
+    #[uniffi::constructor]
+    pub fn connect(url: String, slot: String, password: Option<String>, cache_dir: String) -> Arc<Self> {
+        // Two rustls backends are linked (ring + aws-lc-rs); pick one explicitly or rustls panics.
+        static CRYPTO: std::sync::Once = std::sync::Once::new();
+        CRYPTO.call_once(|| {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        });
+        let mut options = ap::ConnectionOptions::new()
+            .receive_items(ap::ItemHandling::OtherWorlds { own_world: true, starting_inventory: true })
+            .cache(ap::Cache::path(cache_dir))
+            .tags(vec!["Archipela-Go2"]);
+        if let Some(p) = password {
+            options = options.password(p);
+        }
+        Arc::new(Self { conn: Mutex::new(ap::Connection::new(&url, &slot, Some(GAME_NAME), options)) })
+    }
+
+    /// Drain pending network events. Call every few hundred ms.
+    pub fn poll(&self) -> Vec<ApEvent> {
+        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.update()
+            .into_iter()
+            .map(|e| match e {
+                ap::Event::Connected => ApEvent::Connected,
+                ap::Event::ReceivedItems(i) => ApEvent::ReceivedItems { from_index: i as u32 },
+                ap::Event::Print(p) => ApEvent::Print { text: p.to_string() },
+                ap::Event::Updated(_) => ApEvent::Updated,
+                ap::Event::Error(err) => ApEvent::Error { detail: err.to_string() },
+                _ => ApEvent::Other,
+            })
+            .collect()
+    }
+
+    /// `connecting`, `connected`, or `disconnected: <reason>`.
+    pub fn status(&self) -> String {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        match conn.state() {
+            ap::ConnectionState::Connecting(_) => "connecting".into(),
+            ap::ConnectionState::Connected(_) => "connected".into(),
+            ap::ConnectionState::Disconnected(err) => format!("disconnected: {err}"),
+        }
+    }
+
+    /// The slot_data the apworld sent (JSON), once connected.
+    pub fn slot_data_json(&self) -> Option<String> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.client().map(|c| c.slot_data().to_string())
+    }
+
+    pub fn received_items(&self) -> Vec<ReceivedItemOut> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(client) = conn.client() else { return vec![] };
+        client
+            .received_items()
+            .iter()
+            .map(|r| {
+                let item = r.item();
+                ReceivedItemOut {
+                    index: r.index() as u32,
+                    item_id: item.id(),
+                    name: item.name().to_string(),
+                    sender: r.sender().name().to_string(),
+                    progression: r.is_progression(),
+                    trap: r.is_trap(),
+                }
+            })
+            .collect()
+    }
+
+    /// Tell the server this location was checked.
+    pub fn send_check(&self, location_id: i64) -> Result<(), CoreError> {
+        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let client = conn.client_mut().ok_or_else(|| CoreError::Failed { detail: "not connected".into() })?;
+        client.mark_checked([location_id]).map_err(|e| CoreError::Failed { detail: e.to_string() })
+    }
 }

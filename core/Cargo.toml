@@ -23,3 +23,6 @@ rand = "0.9"
 ureq = "3"
 
 [dev-dependencies]
+
+[patch.crates-io]
+archipelago_rs = { path = "vendor/archipelago_rs" }

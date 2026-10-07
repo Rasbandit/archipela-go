@@ -66,3 +66,13 @@ android-shot name="phone":
 
 android-tap x y:
     adb shell input tap {{x}} {{y}}
+
+# --- Dev Archipelago server with OUR apworld (slot "Tester") ---
+ap-host trips="100":
+    bash scripts/ap_host.sh start {{trips}}
+
+ap-stop:
+    bash scripts/ap_host.sh stop
+
+ap-log:
+    bash scripts/ap_host.sh log 40

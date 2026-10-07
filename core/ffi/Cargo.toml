@@ -16,3 +16,6 @@ path = "src/bin/uniffi-bindgen.rs"
 [dependencies]
 apgo-core = { path = ".." }
 uniffi = { version = "0.32", features = ["cli"] }
+archipelago_rs = { version = "3", default-features = false, features = ["rustls"] }
+serde_json = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
