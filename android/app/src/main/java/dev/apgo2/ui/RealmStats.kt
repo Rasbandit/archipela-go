@@ -29,6 +29,7 @@ private fun RowScope.Stat(label: String, value: String, modifier: Modifier = Mod
 @Composable
 fun RealmStatsBox(area: Double, farthest: Double, scan: ScanFigures?, waiting: String) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (scan?.stale == true) Text("Places and streets are from the last scan of the old shape. Open Details to update them.", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Stat("area", Units.area(area))
             Stat("farthest from home", Units.distance(farthest))
@@ -48,4 +49,4 @@ fun RealmStatsBox(area: Double, farthest: Double, scan: ScanFigures?, waiting: S
 }
 
 /** The figures a scan gives (plain values, so this file does not depend on the generated bindings). */
-data class ScanFigures(val walkableM: Double, val streets: Int, val trailM: Double, val finds: Int, val parks: Int, val roughShare: Double)
+data class ScanFigures(val walkableM: Double, val streets: Int, val trailM: Double, val finds: Int, val parks: Int, val roughShare: Double, val stale: Boolean = false)

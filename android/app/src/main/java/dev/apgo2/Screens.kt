@@ -245,7 +245,11 @@ private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
     val outline = if (r.polygonActive) r.polygon.map { it.lat to it.lon } else r.circle?.let { circleRing(it.center.lat, it.center.lon, it.radiusM) }.orEmpty()
     val context = LocalContext.current
     val frame = frameFor(outline)
-    val map by produceState<android.graphics.Bitmap?>(null, frame?.key) { value = frame?.let { runCatching { mapSnapshot(context, it) }.getOrNull() } }
+    // The picture belongs to one frame: when the shape changes it is dropped at once (never shown under a different outline) and drawn again.
+    val map by produceState<android.graphics.Bitmap?>(null, frame?.key) {
+        value = null
+        value = frame?.let { runCatching { mapSnapshot(context, it) }.getOrNull() }
+    }
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -293,7 +297,11 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     // ---- history and autosave
     fun snap() = EditSnap(polygon, radius, center, m.draft.toList(), name, icon)
     val history = remember(realmId) { History(snap()) }
-    var shapeDirty by remember(realmId) { mutableStateOf(false) } // the outline changed since the finds were last fetched
+    var savedAt by remember(realmId) { mutableStateOf<Long?>(null) } // when the realm was last written to disk
+    // The outline the finds were last fetched for. The shape counts as changed only while it differs from that one, so undoing back to it is not a change.
+    fun outlineKey() = EditSnap(polygon, radius, center, m.draft.toList(), "", null)
+    var scannedKey by remember(realmId) { mutableStateOf(if (original?.scannedAtMs != null) EditSnap(original.polygonActive, original.circle?.radiusM?.toFloat() ?: 1500f, original.circle?.let { LatLng(it.center.lat, it.center.lon) }, original.polygon.map { LatLng(it.lat, it.lon) }, "", null) else null) }
+    val shapeDirty = outlineKey() != scannedKey
 
     /** Save what is on screen. Returns false when there is nothing to save yet (no location, or a polygon is not drawn). */
     fun persist(): Boolean {
@@ -304,20 +312,19 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             id = rid
             name = m.realms.firstOrNull { it.id == rid }?.name ?: name // the default "Realm N"
         }
+        savedAt = System.currentTimeMillis()
         return true
     }
 
     /** A finished edit: freeze a following circle in place, save, and record it for Undo. */
     fun commit(shapeEdit: Boolean) {
         if (center == null && !polygon) center = m.me
-        if (shapeEdit) shapeDirty = true
         if (persist()) history.push(snap())
     }
 
     fun apply(s: EditSnap) {
         polygon = s.polygon; radius = s.radius; center = s.center; name = s.name.ifBlank { name }; icon = s.icon // the first state has no name yet: keep the default
         m.draft.clear(); m.draft.addAll(s.corners)
-        shapeDirty = true
         persist()
     }
 
@@ -334,7 +341,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
         if (!deleted) {
             if (name != history.current.name) commit(false)
             val rid = id
-            if (shapeDirty && rid != null) m.scan(rid)
+            if (rid != null && outlineKey() != scannedKey) m.scan(rid)
         }
         m.draft.clear()
     }
@@ -415,7 +422,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             // Opening Details creates a new realm if need be, and fetches finds for an outline that is new or changed.
             if (id == null) commit(true)
             val rid = id
-            if (rid != null && (shapeDirty || current?.scannedAtMs == null)) { m.scan(rid); shapeDirty = false }
+            if (rid != null && (outlineKey() != scannedKey || current?.scannedAtMs == null)) { m.scan(rid); scannedKey = outlineKey() }
         } else {
             // Back to the area: after the map settles, fit the whole shape in the view.
             fit = MapFit(shapePoints(), ++fitNonce); selectedFind = null
@@ -473,9 +480,19 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                 ToolButton(ApgoIcons.Undo, "Undo", enabled = history.canUndo) { history.undo()?.let(::apply) }
                 ToolButton(ApgoIcons.Redo, "Redo", enabled = history.canRedo) { history.redo()?.let(::apply) }
             }
-            ToolPillRow { ToolButton(ApgoIcons.Close, "Done") { onClose() } }
+            // Done is a real button, not an X: nothing is lost by pressing it, and the cue beside it says so.
+            Button(onClick = onClose, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)) { IconLabel("Done", ApgoIcons.Done, 14.sp) }
         }
 
+        savedAt?.let {
+            Row(
+                Modifier.align(Alignment.TopEnd).padding(top = 72.dp, end = 16.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(ApgoIcons.Saved, contentDescription = null, tint = ApgoPalette.success, modifier = Modifier.size(14.dp))
+                Text("All changes saved", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         if (tab == AREA) {
             // Area is just the map and a box of numbers about what is chosen.
             MapOverlayCard(Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }) {
@@ -487,15 +504,14 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                     val shape = remember(polygon, radius, circleCenter, corners, m.home) {
                         m.engine.shapeStats(circleOut, corners.map { GeoPoint(it.latitude, it.longitude) }, polygon && corners.size >= 3, m.home)
                     }
-                    // What the scan found only describes the outline it was made for.
-                    val fresh = current?.scannedAtMs != null && !shapeDirty
+                    // Figures from the last scan. After the outline changes they are the old ones, marked as such until Details refreshes them.
                     var found by remember(id) { mutableStateOf<RealmStatsOut?>(null) }
-                    LaunchedEffect(id, current?.scannedAtMs, shapeDirty) {
+                    LaunchedEffect(id, current?.scannedAtMs) {
                         val rid = id
-                        found = if (rid != null && fresh) withContext(Dispatchers.IO) { m.engine.realmStats(rid) } else null
+                        found = if (rid != null && current?.scannedAtMs != null) withContext(Dispatchers.IO) { m.engine.realmStats(rid) } else null
                     }
                     val waiting = if (m.busy != null) "looking…" else "after scan"
-                    RealmStatsBox(shape.areaM2, shape.farthestM, found?.let { ScanFigures(it.walkableM, it.streets.toInt(), it.trailM, it.finds.toInt(), it.parks.toInt(), it.roughShare) }, waiting)
+                    RealmStatsBox(shape.areaM2, shape.farthestM, found?.let { ScanFigures(it.walkableM, it.streets.toInt(), it.trailM, it.finds.toInt(), it.parks.toInt(), it.roughShare, stale = shapeDirty) }, waiting)
                 }
             }
         } else {
