@@ -1,0 +1,5 @@
+{
+  "packages": {
+    "apworld": { "release-type": "simple", "package-name": "ap-go2-apworld" }
+  }
+}
