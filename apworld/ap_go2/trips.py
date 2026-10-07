@@ -4,7 +4,7 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ap_go2.constants import MAX_DISTANCE_TIER
+from .constants import MAX_DISTANCE_TIER
 
 
 @dataclass(frozen=True)

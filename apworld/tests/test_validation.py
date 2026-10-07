@@ -1,6 +1,5 @@
 import pytest
-
-from ap_go2.validation import goal_letter_counts, validate_settings
+from worlds.ap_go2.validation import goal_letter_counts, validate_settings
 
 
 def ok(**over: object) -> dict[str, object]:

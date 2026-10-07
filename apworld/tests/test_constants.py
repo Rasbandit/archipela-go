@@ -1,4 +1,4 @@
-from ap_go2 import constants
+from worlds.ap_go2 import constants
 
 
 def test_identity_constants() -> None:

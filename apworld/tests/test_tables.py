@@ -1,10 +1,9 @@
 from BaseClasses import ItemClassification
-
-from ap_go2 import names
-from ap_go2.constants import ID_OFFSET, MAX_TRIPS
-from ap_go2.items import ITEM_NAME_TO_ID, ITEM_TABLE
-from ap_go2.locations import LOCATION_NAME_TO_ID
-from ap_go2.options import ApGo2Options
+from worlds.ap_go2 import names
+from worlds.ap_go2.constants import ID_OFFSET, MAX_TRIPS
+from worlds.ap_go2.items import ITEM_NAME_TO_ID, ITEM_TABLE
+from worlds.ap_go2.locations import LOCATION_NAME_TO_ID
+from worlds.ap_go2.options import ApGo2Options
 
 
 def test_locations_cover_whole_pool() -> None:

@@ -1,7 +1,7 @@
 from BaseClasses import ItemClassification  # type: ignore[import-not-found]
 
-from ap_go2 import names
-from ap_go2.constants import ID_OFFSET
+from . import names
+from .constants import ID_OFFSET
 
 _TRAP_IDS = {name: 101 + i for i, name in enumerate(names.ALL_TRAPS)}
 _FILLER_IDS = {name: 201 + i for i, name in enumerate(names.FILLERS)}

@@ -3,9 +3,9 @@
 from collections import Counter
 from collections.abc import Sequence
 
-from ap_go2.constants import GOALS, MODES
-from ap_go2.names import letter
-from ap_go2.trips import effective_locks
+from .constants import GOALS, MODES
+from .names import letter
+from .trips import effective_locks
 
 _LETTERS = {"macguffin_short": "APGO", "macguffin_long": "ARCHIPELAGO"}
 

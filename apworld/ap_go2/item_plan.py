@@ -4,9 +4,9 @@ import random
 from collections import Counter
 from dataclasses import dataclass
 
-from ap_go2 import names
-from ap_go2.reductions import expected_reductions
-from ap_go2.validation import goal_letter_counts
+from . import names
+from .reductions import expected_reductions
+from .validation import goal_letter_counts
 
 
 @dataclass(frozen=True)

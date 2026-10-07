@@ -3,8 +3,8 @@
 from collections.abc import Sequence
 from typing import Any
 
-from ap_go2.constants import ID_OFFSET, SCHEMA_VERSION
-from ap_go2.trips import Trip
+from .constants import ID_OFFSET, SCHEMA_VERSION
+from .trips import Trip
 
 
 def build_slot_data(  # noqa: PLR0913

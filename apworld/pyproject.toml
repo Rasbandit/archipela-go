@@ -25,7 +25,7 @@ ignore = ["PLR2004", "ANN401", "S311"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "../.ap"]
+pythonpath = ["../.ap"]
 
 [tool.pyright]
 include = ["ap_go2", "tests"]

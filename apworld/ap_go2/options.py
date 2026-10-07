@@ -10,7 +10,7 @@ from Options import (  # type: ignore[import-not-found]
     Toggle,
 )
 
-from ap_go2.constants import MODES
+from .constants import MODES
 
 
 class Goal(Choice):

@@ -3,10 +3,9 @@ from pathlib import Path
 
 import jsonschema
 import pytest
-
-from ap_go2.constants import ID_OFFSET
-from ap_go2.slot_data import build_slot_data
-from ap_go2.trips import Trip
+from worlds.ap_go2.constants import ID_OFFSET
+from worlds.ap_go2.slot_data import build_slot_data
+from worlds.ap_go2.trips import Trip
 
 SCHEMA = json.loads(
     (Path(__file__).parents[1] / "docs" / "slot_data.schema.json").read_text(encoding="utf-8")

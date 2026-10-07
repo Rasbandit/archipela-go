@@ -1,9 +1,8 @@
 import random
 
 import pytest
-
-from ap_go2 import names
-from ap_go2.item_plan import ItemPlan, plan_items
+from worlds.ap_go2 import names
+from worlds.ap_go2.item_plan import ItemPlan, plan_items
 
 
 def plan(**over: object) -> ItemPlan:

@@ -1,8 +1,7 @@
 import random
 
 import pytest
-
-from ap_go2.trips import Trip, effective_locks, generate_trips
+from worlds.ap_go2.trips import Trip, effective_locks, generate_trips
 
 
 def make(count: int, locks: int, modes: tuple[str, ...] = ("walk",), seed: int = 1) -> list[Trip]:

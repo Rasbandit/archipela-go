@@ -1,6 +1,5 @@
 import pytest
-
-from ap_go2.reductions import expected_reductions, reductions_needed, tier_step_m
+from worlds.ap_go2.reductions import expected_reductions, reductions_needed, tier_step_m
 
 
 def test_expected_reductions_is_15_percent_with_floor_of_five() -> None:
