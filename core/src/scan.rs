@@ -189,7 +189,7 @@ pub fn is_rough(tags: &BTreeMap<String, String>) -> bool {
 /// Chain way geometries (same trail, same name) into longer polylines by joining shared endpoints.
 pub fn stitch(ways: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
     let mut pool: Vec<Vec<Point>> = ways.into_iter().filter(|w| w.len() >= 2).collect();
-    pool.sort_by(|a, b| b.len().cmp(&a.len()));
+    pool.sort_by_key(|w| std::cmp::Reverse(w.len()));
     let mut chains = Vec::new();
     while let Some(mut chain) = (!pool.is_empty()).then(|| pool.remove(0)) {
         loop {
@@ -240,8 +240,7 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
             }
             Geom::Line => {
                 let mut by_name: BTreeMap<String, (Vec<Vec<Point>>, bool)> = BTreeMap::new();
-                for i in 0..base {
-                    let f = &features[i];
+                for f in &features[..base] {
                     if f.geometry.len() >= 2 && k.matches(&f.tags) {
                         let e = by_name.entry(f.name.clone().unwrap_or_else(|| f.id.clone())).or_default();
                         e.0.push(f.geometry.clone());
@@ -260,7 +259,13 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
                             tags.insert("rough".to_string(), "yes".to_string());
                         }
                         idxs.push(features.len());
-                        features.push(Feature { id: format!("L:{}:{}:{}", k.id, name, n), point: centroid(&chain), name: Some(name.clone()), tags, geometry: chain });
+                        features.push(Feature {
+                            id: format!("L:{}:{}:{}", k.id, name, n),
+                            point: centroid(&chain),
+                            name: Some(name.clone()),
+                            tags,
+                            geometry: chain,
+                        });
                     }
                 }
                 if !idxs.is_empty() {
@@ -314,7 +319,11 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
                 Job::Geom => b.extend(parse_features(&body).unwrap_or_default()),
                 Job::Streets => {
                     for c in crate::fill::parse_streets(&body, &zone, 60.0).unwrap_or_default() {
-                        if c.rough { rough.push(c.point) } else { streets.push(c.point) }
+                        if c.rough {
+                            rough.push(c.point)
+                        } else {
+                            streets.push(c.point)
+                        }
                     }
                 }
             },
@@ -333,7 +342,8 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
     let rough: Vec<Point> = rough.into_iter().step_by(rstride).collect();
     let mut atlas = build_atlas(&realm.id, now_ms, merge(a, b), streets, catalog);
     atlas.streets_rough = rough;
-    atlas.warnings = if failed > 0 { vec![format!("{failed} of {total} map requests failed; the scan is partial. Rescan later for more places.")] } else { vec![] };
+    atlas.warnings =
+        if failed > 0 { vec![format!("{failed} of {total} map requests failed; the scan is partial. Rescan later for more places.")] } else { vec![] };
     Ok(atlas)
 }
 

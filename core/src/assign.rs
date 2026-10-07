@@ -125,9 +125,7 @@ fn best_point(pool: &[Point], origin: Point, mode: Mode, want_min: f64, min_dist
         .take(300)
         .map(|i| pool[i])
         .filter(|p| distance_m(origin, *p) >= min_dist && ok(*p))
-        .min_by(|a, b| {
-            (travel_min(distance_m(origin, *a), mode) - want_min).abs().total_cmp(&(travel_min(distance_m(origin, *b), mode) - want_min).abs())
-        })
+        .min_by(|a, b| (travel_min(distance_m(origin, *a), mode) - want_min).abs().total_cmp(&(travel_min(distance_m(origin, *b), mode) - want_min).abs()))
 }
 
 fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point) -> Option<(Target, f64)> {
@@ -204,7 +202,15 @@ fn free_candidate(k: &Kind, z: &ZoneCtx, pool: &[Point], p: &AssignParams, want:
     }
 }
 
-fn one(s: &SlotIn, z: &ZoneCtx, catalog: &Catalog, p: &AssignParams, rng: &mut StdRng, used_feat: &mut BTreeSet<String>, used_pts: &mut Vec<Point>) -> Assignment {
+fn one(
+    s: &SlotIn,
+    z: &ZoneCtx,
+    catalog: &Catalog,
+    p: &AssignParams,
+    rng: &mut StdRng,
+    used_feat: &mut BTreeSet<String>,
+    used_pts: &mut Vec<Point>,
+) -> Assignment {
     let want = mid(s.tier, p.minutes_per_tier);
     let kinds: Vec<&Kind> = catalog
         .kinds
@@ -230,7 +236,14 @@ fn one(s: &SlotIn, z: &ZoneCtx, catalog: &Catalog, p: &AssignParams, rng: &mut S
                     continue;
                 }
                 if let Some((target, effort)) = feature_target(k, f, z.mode, p.home) {
-                    cands.push(Cand { score: (effort - want).abs(), kind: (*k).clone(), target, effort, place: f.name.clone().unwrap_or_else(|| k.name.clone()), feature_id: Some(f.id.clone()) });
+                    cands.push(Cand {
+                        score: (effort - want).abs(),
+                        kind: (*k).clone(),
+                        target,
+                        effort,
+                        place: f.name.clone().unwrap_or_else(|| k.name.clone()),
+                        feature_id: Some(f.id.clone()),
+                    });
                 }
             }
         } else if let Some((target, effort, place)) = free_candidate(k, z, &pool, p, want, rng, used_pts) {
@@ -271,7 +284,8 @@ fn one(s: &SlotIn, z: &ZoneCtx, catalog: &Catalog, p: &AssignParams, rng: &mut S
     if let Some(a) = anchor {
         used_pts.push(a);
     }
-    let (kind_id, quest_name) = if s.boss { ("the_big_one".to_string(), format!("The Big One: {}", c.kind.name)) } else { (c.kind.id.clone(), c.kind.name.clone()) };
+    let (kind_id, quest_name) =
+        if s.boss { ("the_big_one".to_string(), format!("The Big One: {}", c.kind.name)) } else { (c.kind.id.clone(), c.kind.name.clone()) };
     Assignment {
         location_id: s.location_id,
         zone: s.zone,
@@ -338,12 +352,27 @@ mod tests {
         let mut features = Vec::new();
         if with_pois {
             for i in 0..30 {
-                features.push(feature(&format!("n{i}"), &[("amenity", "bench")], destination(home(), 37.0 * f64::from(i), 400.0 + 150.0 * f64::from(i)), vec![]));
+                features.push(feature(
+                    &format!("n{i}"),
+                    &[("amenity", "bench")],
+                    destination(home(), 37.0 * f64::from(i), 400.0 + 150.0 * f64::from(i)),
+                    vec![],
+                ));
             }
             let a = destination(home(), 0.0, 1200.0);
-            features.push(feature("w1", &[("leisure", "park"), ("name", "City Park")], a, vec![a, destination(a, 90.0, 300.0), destination(a, 135.0, 300.0), a]));
+            features.push(feature(
+                "w1",
+                &[("leisure", "park"), ("name", "City Park")],
+                a,
+                vec![a, destination(a, 90.0, 300.0), destination(a, 135.0, 300.0), a],
+            ));
             let t0 = destination(home(), 90.0, 900.0);
-            features.push(feature("L:trail_boss:Ridge:0", &[("highway", "path"), ("name", "Ridge Trail")], t0, vec![t0, destination(t0, 90.0, 800.0), destination(t0, 90.0, 1600.0)]));
+            features.push(feature(
+                "L:trail_boss:Ridge:0",
+                &[("highway", "path"), ("name", "Ridge Trail")],
+                t0,
+                vec![t0, destination(t0, 90.0, 800.0), destination(t0, 90.0, 1600.0)],
+            ));
         }
         crate::scan::build_atlas("r", 0, features, streets, cat)
     }
@@ -402,7 +431,19 @@ mod tests {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
-        let out = assign(&[slot(1, "park", 3, Mode::Walk), slot(2, "trail", 6, Mode::Walk), slot(3, "courier", 4, Mode::Walk), slot(4, "steps", 3, Mode::Walk), slot(5, "explore", 3, Mode::Walk), slot(6, "away", 3, Mode::Walk)], &z, &cat, &params(2));
+        let out = assign(
+            &[
+                slot(1, "park", 3, Mode::Walk),
+                slot(2, "trail", 6, Mode::Walk),
+                slot(3, "courier", 4, Mode::Walk),
+                slot(4, "steps", 3, Mode::Walk),
+                slot(5, "explore", 3, Mode::Walk),
+                slot(6, "away", 3, Mode::Walk),
+            ],
+            &z,
+            &cat,
+            &params(2),
+        );
         assert!(matches!(out[0].target, Target::DwellArea { .. }), "{:?}", out[0].target);
         assert!(matches!(out[1].target, Target::Line { .. }), "{:?}", out[1].target);
         assert!(matches!(out[2].target, Target::Courier { .. } | Target::RoundTrip { .. }));
@@ -464,7 +505,12 @@ mod tests {
         let r = realm(Mode::Walk);
         // one dirt trail: the tag must survive stitching into the synthetic trail feature
         let t0 = destination(home(), 90.0, 900.0);
-        let dirt = feature("w9", &[("highway", "path"), ("surface", "dirt"), ("name", "Ridge Trail")], t0, vec![t0, destination(t0, 90.0, 800.0), destination(t0, 90.0, 1600.0)]);
+        let dirt = feature(
+            "w9",
+            &[("highway", "path"), ("surface", "dirt"), ("name", "Ridge Trail")],
+            t0,
+            vec![t0, destination(t0, 90.0, 800.0), destination(t0, 90.0, 1600.0)],
+        );
         let base = atlas(&cat, false);
         let a = crate::scan::build_atlas("r", 0, vec![dirt], base.streets.clone(), &cat);
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
@@ -476,7 +522,8 @@ mod tests {
         assert!(o.fallback && matches!(o.target, Target::Point { .. }), "paved only falls back instead of sending you on dirt");
         let mut b = atlas(&cat, false);
         let o2 = Point::new(40.0, -111.0);
-        let stairs = Feature { id: "L:stairmaster:S:0".into(), point: o2, name: None, tags: Default::default(), geometry: vec![o2, destination(o2, 0.0, 200.0)] };
+        let stairs =
+            Feature { id: "L:stairmaster:S:0".into(), point: o2, name: None, tags: Default::default(), geometry: vec![o2, destination(o2, 0.0, 200.0)] };
         b.features.push(stairs);
         b.matches.insert("stairmaster".into(), vec![b.features.len() - 1]);
         let zb = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &b }];

@@ -28,10 +28,14 @@ spell:
 secrets:
     gitleaks detect --no-banner
 
-check: lint typecheck test spell
+check: lint typecheck test spell core-check
 
 build:
     bash scripts/build_apworld.sh
+
+# Rust core: format, lint and test
+core-check:
+    cd core && cargo fmt --all --check && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings && cargo test -p apgo-core -q
 
 # --- Android dev loop (phone paired over adb) ---
 export JAVA_HOME := "/usr/lib/jvm/java-25-openjdk"

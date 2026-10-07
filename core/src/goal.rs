@@ -93,7 +93,11 @@ pub fn evaluate(c: &GoalCtx) -> GoalStatus {
                 .map(|z| {
                     let all: Vec<_> = c.slot.trips.iter().filter(|q| q.zone == z.id).collect();
                     let d = all.iter().filter(|q| c.done.contains(&q.location_id)).count() as f64;
-                    if all.is_empty() { 100.0 } else { 100.0 * d / all.len() as f64 }
+                    if all.is_empty() {
+                        100.0
+                    } else {
+                        100.0 * d / all.len() as f64
+                    }
                 })
                 .fold(f64::MAX, f64::min);
             status(worst, pct, format!("Finish {pct:.0}% of every zone (weakest zone: {worst:.0}%)"))
@@ -138,7 +142,14 @@ mod tests {
     use crate::slot::{QuestSlot, ZoneSlot};
 
     fn slot(goal: &str, target: u32) -> SlotData {
-        let q = |id: i64, zone: u32, diff: &str, fam: &str| QuestSlot { location_id: id, zone, mode: Mode::Walk, difficulty: diff.into(), effort_tier: 2, family: fam.into() };
+        let q = |id: i64, zone: u32, diff: &str, fam: &str| QuestSlot {
+            location_id: id,
+            zone,
+            mode: Mode::Walk,
+            difficulty: diff.into(),
+            effort_tier: 2,
+            family: fam.into(),
+        };
         SlotData {
             schema_version: 2,
             goal: goal.into(),
@@ -150,7 +161,10 @@ mod tests {
             return_home: false,
             death_link: false,
             enabled_traps: vec![],
-            zones: vec![ZoneSlot { id: 1, mode: Mode::Walk, zone_keys_needed: 0, tool: None }, ZoneSlot { id: 2, mode: Mode::Walk, zone_keys_needed: 1, tool: None }],
+            zones: vec![
+                ZoneSlot { id: 1, mode: Mode::Walk, zone_keys_needed: 0, tool: None },
+                ZoneSlot { id: 2, mode: Mode::Walk, zone_keys_needed: 1, tool: None },
+            ],
             trips: vec![q(1, 1, "easy", "reach"), q(2, 1, "hard", "dwell"), q(3, 2, "hard", "landmark"), q(4, 2, "hard", "reach")],
             boss: Some(QuestSlot { location_id: 9, zone: 2, mode: Mode::Walk, difficulty: "hard".into(), effort_tier: 10, family: "boss".into() }),
         }
@@ -159,7 +173,21 @@ mod tests {
     fn assigns(slot: &SlotData) -> Vec<Assignment> {
         slot.all_quests()
             .iter()
-            .map(|q| Assignment { location_id: q.location_id, zone: q.zone, mode: q.mode, family: q.family.clone(), kind_id: format!("kind{}", q.location_id), quest_name: "x".into(), blurb: "".into(), place: "".into(), tier: 2, effort_min: 10.0, target: Target::Steps { n: 1 }, fallback: false, boss: q.family == "boss" })
+            .map(|q| Assignment {
+                location_id: q.location_id,
+                zone: q.zone,
+                mode: q.mode,
+                family: q.family.clone(),
+                kind_id: format!("kind{}", q.location_id),
+                quest_name: "x".into(),
+                blurb: "".into(),
+                place: "".into(),
+                tier: 2,
+                effort_min: 10.0,
+                target: Target::Steps { n: 1 },
+                fallback: false,
+                boss: q.family == "boss",
+            })
             .collect()
     }
 

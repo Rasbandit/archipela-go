@@ -7,11 +7,8 @@ use serde_json::Value;
 
 use crate::geo::Point;
 
-pub const ENDPOINTS: [&str; 3] = [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.private.coffee/api/interpreter",
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
-];
+pub const ENDPOINTS: [&str; 3] =
+    ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
 const USER_AGENT: &str = "archipela-go2-spike/0.0";
 const TILE_DEG: f64 = 0.05;
 const TILE_SLACK_M: u32 = 4_000;
@@ -83,9 +80,7 @@ pub fn cache_key(home: Point, radius_m: u32) -> String {
 
 fn score(tags: &Value) -> u32 {
     let has = |k: &str| tags.get(k).is_some();
-    1 + 2 * u32::from(has("wikidata") || has("wikipedia"))
-        + u32::from(has("historic"))
-        + u32::from(has("tourism"))
+    1 + 2 * u32::from(has("wikidata") || has("wikipedia")) + u32::from(has("historic")) + u32::from(has("tourism"))
 }
 
 /// Parse an Overpass JSON body; unnamed or geometry-less elements are skipped.
@@ -112,18 +107,9 @@ pub fn parse(body: &str) -> Result<Vec<Candidate>, Error> {
 }
 
 fn post(agent: &ureq::Agent, url: &str, query: &str) -> Result<String, String> {
-    let mut resp = agent
-        .post(url)
-        .header("User-Agent", USER_AGENT)
-        .send_form([("data", query)])
-        .map_err(|e| e.to_string())?;
+    let mut resp = agent.post(url).header("User-Agent", USER_AGENT).send_form([("data", query)]).map_err(|e| e.to_string())?;
     let status = resp.status().as_u16();
-    let body = resp
-        .body_mut()
-        .with_config()
-        .limit(100 * 1024 * 1024)
-        .read_to_string()
-        .map_err(|e| e.to_string())?;
+    let body = resp.body_mut().with_config().limit(100 * 1024 * 1024).read_to_string().map_err(|e| e.to_string())?;
     if status != 200 {
         return Err(format!("HTTP {status}"));
     }
@@ -132,7 +118,8 @@ fn post(agent: &ureq::Agent, url: &str, query: &str) -> Result<String, String> {
 
 /// Try each endpoint (two attempts each, with backoff) until one returns a valid body.
 /// Process-wide health of each public endpoint (success +1, failure -3, clamped): healthy servers are tried first.
-static HEALTH: [std::sync::atomic::AtomicI64; 3] = [std::sync::atomic::AtomicI64::new(0), std::sync::atomic::AtomicI64::new(0), std::sync::atomic::AtomicI64::new(0)];
+static HEALTH: [std::sync::atomic::AtomicI64; 3] =
+    [std::sync::atomic::AtomicI64::new(0), std::sync::atomic::AtomicI64::new(0), std::sync::atomic::AtomicI64::new(0)];
 
 fn bump(i: usize, delta: i64) {
     use std::sync::atomic::Ordering::Relaxed;
@@ -191,11 +178,8 @@ fn fnv1a(s: &str) -> u64 {
 pub fn fetch_cached_from(query: &str, cache_dir: Option<&Path>, start: usize) -> Result<String, Error> {
     let file = cache_dir.map(|d| d.join(format!("q-{:016x}.json", fnv1a(query))));
     if let Some(f) = &file {
-        let fresh = std::fs::metadata(f)
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| SystemTime::now().duration_since(t).ok())
-            .is_some_and(|age| age < CACHE_MAX_AGE);
+        let fresh =
+            std::fs::metadata(f).and_then(|m| m.modified()).ok().and_then(|t| SystemTime::now().duration_since(t).ok()).is_some_and(|age| age < CACHE_MAX_AGE);
         if fresh {
             return Ok(std::fs::read_to_string(f)?);
         }
@@ -218,11 +202,8 @@ pub fn fetch_cached(query: &str, cache_dir: Option<&Path>) -> Result<String, Err
 pub fn fetch_pois(home: Point, radius_m: u32, cache_dir: Option<&Path>) -> Result<Vec<Candidate>, Error> {
     let file = cache_dir.map(|d| d.join(format!("{}.json", cache_key(home, radius_m))));
     if let Some(f) = &file {
-        let fresh = std::fs::metadata(f)
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| SystemTime::now().duration_since(t).ok())
-            .is_some_and(|age| age < CACHE_MAX_AGE);
+        let fresh =
+            std::fs::metadata(f).and_then(|m| m.modified()).ok().and_then(|t| SystemTime::now().duration_since(t).ok()).is_some_and(|age| age < CACHE_MAX_AGE);
         if fresh {
             return parse(&std::fs::read_to_string(f)?);
         }

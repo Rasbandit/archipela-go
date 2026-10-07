@@ -52,7 +52,10 @@ impl Traps {
             }
             "Fog Of War Trap" => (Trap::Fog { until_ms: now_ms + 15 * MIN }, "Fog rolls in: the map is hidden for 15 minutes.".into()),
             "Silence Trap" => (Trap::Silence { until_ms: now_ms + 15 * MIN }, "Silence: notifications muted for 15 minutes.".into()),
-            "Leash Trap" => (Trap::Leash { center: home, radius_m: 800.0, until_ms: now_ms + 30 * MIN }, "Leashed! Checks only count within 800 m of home for 30 minutes.".into()),
+            "Leash Trap" => (
+                Trap::Leash { center: home, radius_m: 800.0, until_ms: now_ms + 30 * MIN },
+                "Leashed! Checks only count within 800 m of home for 30 minutes.".into(),
+            ),
             "Detour Trap" => {
                 let waypoint = pool_point(pool, at, 300.0, 700.0, rng);
                 (Trap::Detour { waypoint, visited: false, until_ms: now_ms + 20 * MIN }, "Detour! Visit the marked waypoint before any check counts.".into())
@@ -82,7 +85,9 @@ impl Traps {
         self.active.retain(|t| {
             let (ended, why) = match t {
                 Trap::Freeze { thaw, until_ms } => (distance_m(pos, *thaw) <= THAW_RADIUS_M || now_ms >= *until_ms, "You thawed out."),
-                Trap::Fog { until_ms } | Trap::Silence { until_ms } | Trap::Slow { until_ms } | Trap::Leash { until_ms, .. } => (now_ms >= *until_ms, "A trap wore off."),
+                Trap::Fog { until_ms } | Trap::Silence { until_ms } | Trap::Slow { until_ms } | Trap::Leash { until_ms, .. } => {
+                    (now_ms >= *until_ms, "A trap wore off.")
+                }
                 Trap::Detour { visited, until_ms, .. } => (*visited || now_ms >= *until_ms, "Detour done."),
                 Trap::Toll { need_m, moved_m, until_ms } => (*moved_m >= *need_m || now_ms >= *until_ms, "Toll paid."),
             };

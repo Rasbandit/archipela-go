@@ -166,9 +166,17 @@ fn slots_in(slot: &SlotData, only: Option<&[i64]>) -> Vec<SlotIn> {
 impl Game {
     pub fn create(n: NewGame, catalog: &Catalog) -> Result<Game, String> {
         let zones = zone_ctx(&n.slot, &n.zone_realms, n.realms)?;
-        let params = AssignParams { home: n.home, minutes_per_tier: f64::from(n.slot.minutes_per_tier), min_distance_m: f64::from(n.slot.min_distance_m), seed: n.seed, surface: n.surface, avoid_stairs: n.avoid_stairs };
+        let params = AssignParams {
+            home: n.home,
+            minutes_per_tier: f64::from(n.slot.minutes_per_tier),
+            min_distance_m: f64::from(n.slot.min_distance_m),
+            seed: n.seed,
+            surface: n.surface,
+            avoid_stairs: n.avoid_stairs,
+        };
         let assignments = assign(&slots_in(&n.slot, None), &zones, catalog, &params);
-        let pool: Vec<Point> = zones.first().map(|z| z.atlas.streets.iter().step_by((z.atlas.streets.len() / 600).max(1)).copied().collect()).unwrap_or_default();
+        let pool: Vec<Point> =
+            zones.first().map(|z| z.atlas.streets.iter().step_by((z.atlas.streets.len() / 600).max(1)).copied().collect()).unwrap_or_default();
         Ok(Game {
             id: n.id,
             name: n.name,
@@ -428,7 +436,14 @@ impl Game {
     pub fn reroll(&mut self, ids: &[i64], realms: &[(Realm, Atlas)], seed: u64, catalog: &Catalog) -> Result<usize, String> {
         let todo: Vec<i64> = ids.iter().copied().filter(|i| !self.done.contains(i)).collect();
         let zones = zone_ctx(&self.slot, &self.zone_realms, realms)?;
-        let params = AssignParams { home: self.home, minutes_per_tier: f64::from(self.slot.minutes_per_tier), min_distance_m: f64::from(self.slot.min_distance_m), seed, surface: self.surface, avoid_stairs: self.avoid_stairs };
+        let params = AssignParams {
+            home: self.home,
+            minutes_per_tier: f64::from(self.slot.minutes_per_tier),
+            min_distance_m: f64::from(self.slot.min_distance_m),
+            seed,
+            surface: self.surface,
+            avoid_stairs: self.avoid_stairs,
+        };
         let fresh = assign(&slots_in(&self.slot, Some(&todo)), &zones, catalog, &params);
         let n = fresh.len();
         for a in fresh {
@@ -540,7 +555,20 @@ mod tests {
         let realms: Vec<(Realm, Atlas)> = o.zone_modes.iter().enumerate().map(|(i, m)| realm(&format!("r{i}"), *m)).collect();
         let zr = (0..o.zone_modes.len()).map(|i| format!("r{i}")).collect();
         Game::create(
-            NewGame { id: "g1".into(), name: "Test".into(), backend, seed_name: "s".into(), slot: g.slot, zone_realms: zr, realms: &realms, home: home(), seed, solo_rewards: g.rewards, surface: SurfacePref::Any, avoid_stairs: false },
+            NewGame {
+                id: "g1".into(),
+                name: "Test".into(),
+                backend,
+                seed_name: "s".into(),
+                slot: g.slot,
+                zone_realms: zr,
+                realms: &realms,
+                home: home(),
+                seed,
+                solo_rewards: g.rewards,
+                surface: SurfacePref::Any,
+                avoid_stairs: false,
+            },
             &Catalog::builtin(),
         )
         .unwrap()
@@ -647,7 +675,23 @@ mod tests {
         let o = reach_only(&[Mode::Walk, Mode::Bike], 12, "all_trips");
         let g1 = generate(&o, 1).unwrap();
         let bad = vec![realm("r0", Mode::Walk), realm("r1", Mode::Walk)];
-        let err = Game::create(NewGame { id: "x".into(), name: "x".into(), backend: Backend::Solo, seed_name: "s".into(), slot: g1.slot, zone_realms: vec!["r0".into(), "r1".into()], realms: &bad, home: home(), seed: 1, solo_rewards: g1.rewards, surface: SurfacePref::Any, avoid_stairs: false }, &Catalog::builtin());
+        let err = Game::create(
+            NewGame {
+                id: "x".into(),
+                name: "x".into(),
+                backend: Backend::Solo,
+                seed_name: "s".into(),
+                slot: g1.slot,
+                zone_realms: vec!["r0".into(), "r1".into()],
+                realms: &bad,
+                home: home(),
+                seed: 1,
+                solo_rewards: g1.rewards,
+                surface: SurfacePref::Any,
+                avoid_stairs: false,
+            },
+            &Catalog::builtin(),
+        );
         assert!(err.err().unwrap().contains("tagged"));
 
         let mut g = game(&o, Backend::Solo, 1);
@@ -658,7 +702,10 @@ mod tests {
         let n = g.reroll(&g.assignments.iter().map(|a| a.location_id).collect::<Vec<_>>(), &realms, 99, &Catalog::builtin()).unwrap();
         assert_eq!(n, 11, "the finished quest is not rerolled");
         let done_id = q.location_id;
-        assert_eq!(format!("{:?}", g.assignments.iter().find(|a| a.location_id == done_id).unwrap().target), before[g.assignments.iter().position(|a| a.location_id == done_id).unwrap()]);
+        assert_eq!(
+            format!("{:?}", g.assignments.iter().find(|a| a.location_id == done_id).unwrap().target),
+            before[g.assignments.iter().position(|a| a.location_id == done_id).unwrap()]
+        );
     }
 
     #[test]

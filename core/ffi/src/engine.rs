@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use apgo_core::assign::Target;
 use apgo_core::assign::SurfacePref;
+use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Mode};
 use apgo_core::game::{Backend, Event, Game, NewGame, QuestState};
 use apgo_core::geo::Point;
@@ -201,11 +201,17 @@ fn describe(t: &Target) -> (&'static str, Option<Point>, Option<Point>, f64, Vec
             let km = apgo_core::geo::polyline_len_m(pts) / 1000.0;
             ("line", pts.first().copied(), None, *corridor_m, pts.clone(), format!("Cover {:.0}% of this {km:.1} km path", coverage * 100.0))
         }
-        Target::Courier { a, b, r, time_limit_min } => ("courier", Some(*a), Some(*b), *r, vec![], format!("Pick up at A, deliver to B within {time_limit_min:.0} min")),
-        Target::RoundTrip { far, r, time_limit_min } => ("roundtrip", Some(*far), None, *r, vec![], format!("Reach the far point and be back home within {time_limit_min:.0} min")),
+        Target::Courier { a, b, r, time_limit_min } => {
+            ("courier", Some(*a), Some(*b), *r, vec![], format!("Pick up at A, deliver to B within {time_limit_min:.0} min"))
+        }
+        Target::RoundTrip { far, r, time_limit_min } => {
+            ("roundtrip", Some(*far), None, *r, vec![], format!("Reach the far point and be back home within {time_limit_min:.0} min"))
+        }
         Target::Cells { n, cell_m } => ("cells", None, None, *cell_m, vec![], format!("Visit {n} new map cells")),
         Target::Steps { n } => ("steps", None, None, 0.0, vec![], format!("Take {n} steps")),
-        Target::Away { min_distance_m, minutes } => ("away", None, None, *min_distance_m, vec![], format!("Spend {minutes:.0} min at least {:.1} km from home", min_distance_m / 1000.0)),
+        Target::Away { min_distance_m, minutes } => {
+            ("away", None, None, *min_distance_m, vec![], format!("Spend {minutes:.0} min at least {:.1} km from home", min_distance_m / 1000.0))
+        }
     }
 }
 
@@ -248,7 +254,9 @@ impl Engine {
         let mut v: Vec<OfferOut> = atlas
             .offers(&self.catalog, realm.mode)
             .into_iter()
-            .filter_map(|(id, count)| self.catalog.kind(&id).map(|k| OfferOut { kind_id: id, name: k.name.clone(), family: k.family.clone(), blurb: k.blurb.clone(), count }))
+            .filter_map(|(id, count)| {
+                self.catalog.kind(&id).map(|k| OfferOut { kind_id: id, name: k.name.clone(), family: k.family.clone(), blurb: k.blurb.clone(), count })
+            })
             .collect();
         v.sort_by(|a, b| b.count.cmp(&a.count).then(a.name.cmp(&b.name)));
         v
@@ -331,7 +339,17 @@ impl Engine {
         Ok(build_yaml(&player, &to_core(o)?))
     }
 
-    pub fn start_solo(&self, game_id: String, name: String, o: SoloOptionsIn, zone_realms: Vec<String>, seed: u64, surface: String, avoid_stairs: bool) -> Result<(), CoreError> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_solo(
+        &self,
+        game_id: String,
+        name: String,
+        o: SoloOptionsIn,
+        zone_realms: Vec<String>,
+        seed: u64,
+        surface: String,
+        avoid_stairs: bool,
+    ) -> Result<(), CoreError> {
         let opts = to_core(o)?;
         if zone_realms.len() != opts.zone_modes.len() {
             return Err(err("pick one realm per zone"));
@@ -340,7 +358,20 @@ impl Engine {
         let realms = self.realm_atlases(&zone_realms)?;
         let home = self.home_for(&realms);
         let game = Game::create(
-            NewGame { id: game_id, name, backend: Backend::Solo, seed_name: format!("solo-{seed}"), slot: generated.slot, zone_realms, realms: &realms, home, seed, solo_rewards: generated.rewards, surface: SurfacePref::parse(&surface), avoid_stairs },
+            NewGame {
+                id: game_id,
+                name,
+                backend: Backend::Solo,
+                seed_name: format!("solo-{seed}"),
+                slot: generated.slot,
+                zone_realms,
+                realms: &realms,
+                home,
+                seed,
+                solo_rewards: generated.rewards,
+                surface: SurfacePref::parse(&surface),
+                avoid_stairs,
+            },
             &self.catalog,
         )
         .map_err(err)?;
@@ -349,11 +380,39 @@ impl Engine {
         Ok(())
     }
 
-    pub fn start_archipelago(&self, game_id: String, name: String, slot_json: String, seed_name: String, zone_realms: Vec<String>, seed: u64, surface: String, avoid_stairs: bool) -> Result<(), CoreError> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_archipelago(
+        &self,
+        game_id: String,
+        name: String,
+        slot_json: String,
+        seed_name: String,
+        zone_realms: Vec<String>,
+        seed: u64,
+        surface: String,
+        avoid_stairs: bool,
+    ) -> Result<(), CoreError> {
         let slot = SlotData::from_json(&slot_json).map_err(err)?;
         let realms = self.realm_atlases(&zone_realms)?;
         let home = self.home_for(&realms);
-        let game = Game::create(NewGame { id: game_id, name, backend: Backend::Archipelago, seed_name, slot, zone_realms, realms: &realms, home, seed, solo_rewards: Default::default(), surface: SurfacePref::parse(&surface), avoid_stairs }, &self.catalog).map_err(err)?;
+        let game = Game::create(
+            NewGame {
+                id: game_id,
+                name,
+                backend: Backend::Archipelago,
+                seed_name,
+                slot,
+                zone_realms,
+                realms: &realms,
+                home,
+                seed,
+                solo_rewards: Default::default(),
+                surface: SurfacePref::parse(&surface),
+                avoid_stairs,
+            },
+            &self.catalog,
+        )
+        .map_err(err)?;
         game.save(&self.dir).map_err(err)?;
         *self.game.lock().unwrap_or_else(|e| e.into_inner()) = Some(game);
         Ok(())
@@ -518,15 +577,18 @@ impl Engine {
 
     /// Reroll unfinished quests (all if `ids` is empty). Returns how many were re-placed.
     pub fn reroll(&self, ids: Vec<i64>, seed: u64) -> Result<u32, CoreError> {
-        let (realm_ids, all): (Vec<String>, Vec<i64>) = self.with_game(|g| (g.zone_realms.clone(), g.assignments.iter().map(|a| a.location_id).collect())).ok_or_else(|| err("no game open"))?;
+        let (realm_ids, all): (Vec<String>, Vec<i64>) =
+            self.with_game(|g| (g.zone_realms.clone(), g.assignments.iter().map(|a| a.location_id).collect())).ok_or_else(|| err("no game open"))?;
         let realms = self.realm_atlases(&realm_ids)?;
         let ids = if ids.is_empty() { all } else { ids };
         let dir = self.dir.clone();
         let catalog = &self.catalog;
-        self.with_game(|g| g.reroll(&ids, &realms, seed, catalog).map(|n| {
-            let _ = g.save(&dir);
-            n as u32
-        }))
+        self.with_game(|g| {
+            g.reroll(&ids, &realms, seed, catalog).map(|n| {
+                let _ = g.save(&dir);
+                n as u32
+            })
+        })
         .ok_or_else(|| err("no game open"))?
         .map_err(err)
     }

@@ -135,7 +135,13 @@ impl Tracker {
                     Some(_) if distance_m(p, *b) <= *r => self.done = true,
                     _ => {}
                 }
-                self.progress = if self.done { 1.0 } else if picked_at.is_some() { 0.5 } else { 0.0 };
+                self.progress = if self.done {
+                    1.0
+                } else if picked_at.is_some() {
+                    0.5
+                } else {
+                    0.0
+                };
             }
             (Target::RoundTrip { far, r, time_limit_min }, State::RoundTrip { start, reached_far }) => {
                 // The clock starts when you leave home and stops when you are back (or the limit runs out and you start over).
@@ -157,7 +163,15 @@ impl Tracker {
                         *reached_far = true;
                     }
                 }
-                self.progress = if self.done { 1.0 } else if *reached_far { 0.5 } else if start.is_some() { 0.1 } else { 0.0 };
+                self.progress = if self.done {
+                    1.0
+                } else if *reached_far {
+                    0.5
+                } else if start.is_some() {
+                    0.1
+                } else {
+                    0.0
+                };
             }
             (Target::Cells { n, cell_m }, State::Cells { seen }) => {
                 seen.insert(cell_id(p, *cell_m));

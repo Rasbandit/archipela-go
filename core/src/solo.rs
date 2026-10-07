@@ -14,7 +14,18 @@ use crate::slot::{QuestSlot, SlotData, ZoneSlot};
 pub const ID_OFFSET: i64 = 8_902_400_000_000;
 pub const BLOCK_SIZE: i64 = 1000;
 pub const GOALS: [&str; 12] = [
-    "macguffin_short", "macguffin_long", "all_trips", "boss", "treasure_hunt", "zone_conqueror", "well_rounded", "quest_dex", "marathon", "explorer", "streak", "boss_rush",
+    "macguffin_short",
+    "macguffin_long",
+    "all_trips",
+    "boss",
+    "treasure_hunt",
+    "zone_conqueror",
+    "well_rounded",
+    "quest_dex",
+    "marathon",
+    "explorer",
+    "streak",
+    "boss_rush",
 ];
 pub const FAMILIES: [&str; 10] = ["reach", "dwell", "landmark", "trail", "park", "water", "courier", "explore", "steps", "away"];
 const DIFFICULTIES: [&str; 3] = ["easy", "medium", "hard"];
@@ -192,7 +203,12 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
         .zone_modes
         .iter()
         .enumerate()
-        .map(|(i, m)| ZoneSlot { id: i as u32 + 1, mode: *m, zone_keys_needed: i as u32, tool: if i > 0 && *m != first { tool_for(*m).map(String::from) } else { None } })
+        .map(|(i, m)| ZoneSlot {
+            id: i as u32 + 1,
+            mode: *m,
+            zone_keys_needed: i as u32,
+            tool: if i > 0 && *m != first { tool_for(*m).map(String::from) } else { None },
+        })
         .collect();
 
     let per_zone = split(o.number_of_trips, &vec![1; zn]);
@@ -206,7 +222,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
         let counts = split(per_zone[zi], &[o.easy_share, o.medium_share, o.hard_share]);
         let mut fams: Vec<&str> = Vec::new();
         for f in FAMILIES.iter().filter(|f| quest_types.iter().any(|q| q == **f) && family_allows(f, zone.mode)) {
-            fams.extend(std::iter::repeat(*f).take(if *f == "reach" { REACH_WEIGHT } else { 1 }));
+            fams.extend(std::iter::repeat_n(*f, if *f == "reach" { REACH_WEIGHT } else { 1 }));
         }
         for (di, n) in counts.iter().enumerate() {
             for _ in 0..*n {
@@ -215,13 +231,27 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
                 let block = di as i64 * 4 + mode_index(zone.mode);
                 let c = counters.entry((di, block)).or_insert(0);
                 *c += 1;
-                trips.push(QuestSlot { location_id: ID_OFFSET + block * BLOCK_SIZE + *c, zone: zone.id, mode: zone.mode, difficulty: DIFFICULTIES[di].into(), effort_tier: tier, family: family.into() });
+                trips.push(QuestSlot {
+                    location_id: ID_OFFSET + block * BLOCK_SIZE + *c,
+                    zone: zone.id,
+                    mode: zone.mode,
+                    difficulty: DIFFICULTIES[di].into(),
+                    effort_tier: tier,
+                    family: family.into(),
+                });
             }
         }
     }
     let boss = has_boss(&o.goal).then(|| {
         let last = zones.last().expect("zones");
-        QuestSlot { location_id: ID_OFFSET + 12 * BLOCK_SIZE + 1, zone: last.id, mode: last.mode, difficulty: "hard".into(), effort_tier: 10, family: "boss".into() }
+        QuestSlot {
+            location_id: ID_OFFSET + 12 * BLOCK_SIZE + 1,
+            zone: last.id,
+            mode: last.mode,
+            difficulty: "hard".into(),
+            effort_tier: 10,
+            family: "boss".into(),
+        }
     });
 
     // ---- item pool (mirrors the apworld item plan) ----
@@ -240,7 +270,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     let mut other: Vec<String> = Vec::new();
     let add_useful = |name: &str, share_pct: u32, min: u32, free: &mut i64, other: &mut Vec<String>| {
         let want = ((f64::from(total_locs) * f64::from(share_pct) / 100.0).floor() as u32).max(min).min((*free).max(0) as u32);
-        other.extend(std::iter::repeat(name.to_string()).take(want as usize));
+        other.extend(std::iter::repeat_n(name.to_string(), want as usize));
         *free -= i64::from(want);
     };
     if o.enable_effort_reductions {

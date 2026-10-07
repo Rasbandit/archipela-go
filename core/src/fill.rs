@@ -24,21 +24,12 @@ pub fn parse_streets(body: &str, zone: &Zone, spacing_m: f64) -> Result<Vec<Cand
     for e in elements {
         let (Some(id), Some(geom)) = (e.get("id").and_then(Value::as_i64), e.get("geometry").and_then(Value::as_array)) else { continue };
         let tags = e.get("tags");
-        let tag_map: std::collections::BTreeMap<String, String> = tags
-            .and_then(Value::as_object)
-            .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
-            .unwrap_or_default();
+        let tag_map: std::collections::BTreeMap<String, String> =
+            tags.and_then(Value::as_object).map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect()).unwrap_or_default();
         let rough = crate::scan::is_rough(&tag_map);
-        let label = tags
-            .and_then(|t| t.get("name").or_else(|| t.get("highway")))
-            .and_then(Value::as_str)
-            .unwrap_or("street")
-            .to_string();
+        let label = tags.and_then(|t| t.get("name").or_else(|| t.get("highway"))).and_then(Value::as_str).unwrap_or("street").to_string();
         let named = tags.is_some_and(|t| t.get("name").is_some());
-        let pts: Vec<Point> = geom
-            .iter()
-            .filter_map(|g| Some(Point::new(g.get("lat")?.as_f64()?, g.get("lon")?.as_f64()?)))
-            .collect();
+        let pts: Vec<Point> = geom.iter().filter_map(|g| Some(Point::new(g.get("lat")?.as_f64()?, g.get("lon")?.as_f64()?))).collect();
         let mut carry = 0.0;
         let mut k = 0u32;
         for w in pts.windows(2) {

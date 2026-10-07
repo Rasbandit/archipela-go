@@ -70,7 +70,21 @@ mod tests {
     use crate::geo::destination;
 
     fn quest(id: i64, target: Target) -> Assignment {
-        Assignment { location_id: id, zone: 1, mode: Mode::Walk, family: "reach".into(), kind_id: "k".into(), quest_name: "q".into(), blurb: "".into(), place: "".into(), tier: 1, effort_min: 5.0, target, fallback: false, boss: false }
+        Assignment {
+            location_id: id,
+            zone: 1,
+            mode: Mode::Walk,
+            family: "reach".into(),
+            kind_id: "k".into(),
+            quest_name: "q".into(),
+            blurb: "".into(),
+            place: "".into(),
+            tier: 1,
+            effort_min: 5.0,
+            target,
+            fallback: false,
+            boss: false,
+        }
     }
 
     #[test]
@@ -95,7 +109,7 @@ mod tests {
         assert_eq!(reveal_radius(3), 450.0);
         let home = Point::new(40.0, -111.0);
         let q = quest(1, Target::Point { p: destination(home, 90.0, 400.0), r: 40.0 });
-        assert!(Fog::default().update(home, &[q.clone()], reveal_radius(0)).is_empty());
+        assert!(Fog::default().update(home, std::slice::from_ref(&q), reveal_radius(0)).is_empty());
         assert_eq!(Fog::default().update(home, &[q], reveal_radius(3)), vec![1]);
     }
 }

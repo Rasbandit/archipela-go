@@ -19,7 +19,8 @@ fn main() {
     let trips: u32 = a[4].parse().expect("trips");
     let seed: u64 = a.get(5).map_or(1, |s| s.parse().expect("seed"));
 
-    let cache = PathBuf::from(std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| format!("{}/.cache", std::env::var("HOME").unwrap_or_default()))).join("apgo-spike");
+    let cache =
+        PathBuf::from(std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| format!("{}/.cache", std::env::var("HOME").unwrap_or_default()))).join("apgo-spike");
     let t0 = Instant::now();
     let candidates = fetch_pois(home, max_m as u32, Some(&cache)).unwrap_or_else(|e| {
         eprintln!("fetch failed: {e}");

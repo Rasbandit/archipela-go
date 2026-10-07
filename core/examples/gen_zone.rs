@@ -23,7 +23,13 @@ fn main() {
         "circle" => (Zone::Circle { center: Point::new(num(&a[3]), num(&a[4])), radius_m: num(&a[5]) }, 6),
         "annulus" => (Zone::Annulus { center: Point::new(num(&a[3]), num(&a[4])), min_m: num(&a[5]), max_m: num(&a[6]) }, 7),
         "poly" => {
-            let pts = a[3].split(';').map(|p| { let (la, lo) = p.split_once(',').expect("lat,lon"); Point::new(num(la), num(lo)) }).collect();
+            let pts = a[3]
+                .split(';')
+                .map(|p| {
+                    let (la, lo) = p.split_once(',').expect("lat,lon");
+                    Point::new(num(la), num(lo))
+                })
+                .collect();
             (Zone::Polygon(pts), 4)
         }
         other => panic!("unknown zone {other}; {usage}"),
@@ -35,11 +41,26 @@ fn main() {
     let t0 = Instant::now();
     let mut cands: Vec<Candidate> = Vec::new();
     if matches!(mode, "streets" | "mixed") {
-        cands.extend(fetch_streets(&zone, 50.0, Some(&cache)).unwrap_or_else(|e| { eprintln!("streets: {e}"); vec![] }));
+        cands.extend(fetch_streets(&zone, 50.0, Some(&cache)).unwrap_or_else(|e| {
+            eprintln!("streets: {e}");
+            vec![]
+        }));
     }
     if matches!(mode, "pois" | "mixed") {
         let r = zone.max_extent_m() as u32;
-        cands.extend(fetch_pois(zone.home(), r, Some(&cache)).unwrap_or_else(|e| { eprintln!("pois: {e}"); vec![] }).into_iter().filter(|c| zone.contains(c.point)).map(|mut c| { c.score += 5; c }));
+        cands.extend(
+            fetch_pois(zone.home(), r, Some(&cache))
+                .unwrap_or_else(|e| {
+                    eprintln!("pois: {e}");
+                    vec![]
+                })
+                .into_iter()
+                .filter(|c| zone.contains(c.point))
+                .map(|mut c| {
+                    c.score += 5;
+                    c
+                }),
+        );
     }
     if mode == "cells" {
         cands = lattice(&zone, 150.0);
@@ -56,5 +77,14 @@ fn main() {
     }
     let in_band = out.iter().filter(|t| t.in_band).count();
     let outside = out.iter().filter(|t| !zone.contains(t.candidate.point)).count();
-    println!("--\nmode {mode}  candidates {}  trips {}/{}  in-band {}  outside-zone {}  gather {} ms  sample {} us", cands.len(), out.len(), trips, in_band, outside, gather_ms, us);
+    println!(
+        "--\nmode {mode}  candidates {}  trips {}/{}  in-band {}  outside-zone {}  gather {} ms  sample {} us",
+        cands.len(),
+        out.len(),
+        trips,
+        in_band,
+        outside,
+        gather_ms,
+        us
+    );
 }

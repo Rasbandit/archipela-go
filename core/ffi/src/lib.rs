@@ -61,17 +61,9 @@ pub enum ZoneIn {
 
 /// Fill a zone for the trips the apworld assigned (`slot_data.trips`): each gets a point in its tier band.
 #[uniffi::export]
-pub fn generate_trips_for(
-    zone: ZoneIn,
-    specs: Vec<TripSpecIn>,
-    seed: u64,
-    mode: FillMode,
-    cache_dir: String,
-) -> Result<Vec<TripOut>, CoreError> {
+pub fn generate_trips_for(zone: ZoneIn, specs: Vec<TripSpecIn>, seed: u64, mode: FillMode, cache_dir: String) -> Result<Vec<TripOut>, CoreError> {
     let (zone, step_m) = match zone {
-        ZoneIn::Circle { center, step_m } => {
-            (Zone::Circle { center: Point::new(center.lat, center.lon), radius_m: step_m * 10.0 }, step_m)
-        }
+        ZoneIn::Circle { center, step_m } => (Zone::Circle { center: Point::new(center.lat, center.lon), radius_m: step_m * 10.0 }, step_m),
         ZoneIn::Polygon { vertices } => {
             if vertices.len() < 3 {
                 return Err(CoreError::Failed { detail: "a zone needs at least 3 points".into() });
@@ -83,12 +75,9 @@ pub fn generate_trips_for(
     };
     let candidates = match mode {
         FillMode::Cells => lattice(&zone, (step_m / 3.0).clamp(30.0, 150.0)),
-        FillMode::Streets => {
-            fetch_streets(&zone, 50.0, Some(&PathBuf::from(cache_dir))).map_err(|e| CoreError::Failed { detail: e.to_string() })?
-        }
+        FillMode::Streets => fetch_streets(&zone, 50.0, Some(&PathBuf::from(cache_dir))).map_err(|e| CoreError::Failed { detail: e.to_string() })?,
     };
-    let core_specs: Vec<TripSpec> =
-        specs.iter().enumerate().map(|(i, s)| TripSpec { number: i as u32 + 1, tier: s.tier }).collect();
+    let core_specs: Vec<TripSpec> = specs.iter().enumerate().map(|(i, s)| TripSpec { number: i as u32 + 1, tier: s.tier }).collect();
     let out = sample(&candidates, zone.home(), &core_specs, step_m, 40.0, seed);
     Ok(out
         .into_iter()
@@ -122,20 +111,11 @@ pub fn core_version() -> String {
 
 /// Fill a circular zone around `center` with `trips` trips (tiers cycle 1..=10).
 #[uniffi::export]
-pub fn generate_trips(
-    center: GeoPoint,
-    radius_m: f64,
-    trips: u32,
-    seed: u64,
-    mode: FillMode,
-    cache_dir: String,
-) -> Result<Vec<TripOut>, CoreError> {
+pub fn generate_trips(center: GeoPoint, radius_m: f64, trips: u32, seed: u64, mode: FillMode, cache_dir: String) -> Result<Vec<TripOut>, CoreError> {
     let zone = Zone::Circle { center: Point::new(center.lat, center.lon), radius_m };
     let candidates = match mode {
         FillMode::Cells => lattice(&zone, 150.0),
-        FillMode::Streets => {
-            fetch_streets(&zone, 50.0, Some(&PathBuf::from(cache_dir))).map_err(|e| CoreError::Failed { detail: e.to_string() })?
-        }
+        FillMode::Streets => fetch_streets(&zone, 50.0, Some(&PathBuf::from(cache_dir))).map_err(|e| CoreError::Failed { detail: e.to_string() })?,
     };
     let specs: Vec<TripSpec> = (1..=trips).map(|n| TripSpec { number: n, tier: ((n - 1) % 10) as u8 + 1 }).collect();
     let out = sample(&candidates, zone.home(), &specs, zone.max_extent_m() / 10.0, 75.0, seed);

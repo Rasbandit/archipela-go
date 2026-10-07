@@ -24,14 +24,7 @@ pub struct Trip {
 
 /// Tier `t` targets distances in `((t-1)*step, t*step]`. Candidates are never reused and trips stay at
 /// least `min_spacing_m` apart; if a band is empty the closest remaining candidate is used.
-pub fn sample(
-    candidates: &[Candidate],
-    home: Point,
-    specs: &[TripSpec],
-    step_m: f64,
-    min_spacing_m: f64,
-    seed: u64,
-) -> Vec<Trip> {
+pub fn sample(candidates: &[Candidate], home: Point, specs: &[TripSpec], step_m: f64, min_spacing_m: f64, seed: u64) -> Vec<Trip> {
     let mut rng = StdRng::seed_from_u64(seed);
     let dists: Vec<f64> = candidates.iter().map(|c| distance_m(home, c.point)).collect();
     let mut used = vec![false; candidates.len()];
@@ -40,18 +33,12 @@ pub fn sample(
 
     for spec in specs {
         let (lo, hi) = (f64::from(spec.tier - 1) * step_m, f64::from(spec.tier) * step_m);
-        let free = |i: usize, used: &[bool], chosen: &[Point]| {
-            !used[i] && chosen.iter().all(|p| distance_m(*p, candidates[i].point) >= min_spacing_m)
-        };
-        let in_band: Vec<usize> = (0..candidates.len())
-            .filter(|&i| free(i, &used, &chosen) && dists[i] > lo && dists[i] <= hi)
-            .collect();
+        let free = |i: usize, used: &[bool], chosen: &[Point]| !used[i] && chosen.iter().all(|p| distance_m(*p, candidates[i].point) >= min_spacing_m);
+        let in_band: Vec<usize> = (0..candidates.len()).filter(|&i| free(i, &used, &chosen) && dists[i] > lo && dists[i] <= hi).collect();
 
         let (pick, band) = if in_band.is_empty() {
             let mid = (lo + hi) / 2.0;
-            let nearest = (0..candidates.len())
-                .filter(|&i| free(i, &used, &chosen))
-                .min_by(|&a, &b| (dists[a] - mid).abs().total_cmp(&(dists[b] - mid).abs()));
+            let nearest = (0..candidates.len()).filter(|&i| free(i, &used, &chosen)).min_by(|&a, &b| (dists[a] - mid).abs().total_cmp(&(dists[b] - mid).abs()));
             match nearest {
                 Some(i) => (i, false),
                 None => continue,
@@ -72,13 +59,7 @@ pub fn sample(
 
         used[pick] = true;
         chosen.push(candidates[pick].point);
-        trips.push(Trip {
-            number: spec.number,
-            tier: spec.tier,
-            candidate: candidates[pick].clone(),
-            distance_m: dists[pick],
-            in_band: band,
-        });
+        trips.push(Trip { number: spec.number, tier: spec.tier, candidate: candidates[pick].clone(), distance_m: dists[pick], in_band: band });
     }
     trips
 }
@@ -91,13 +72,7 @@ mod tests {
 
     fn cand(i: usize, north_m: f64, score: u32) -> Candidate {
         // 1 degree of latitude is ~111_195 m
-        Candidate {
-            id: format!("n{i}"),
-            point: Point::new(40.0 + north_m / 111_195.0, -111.0),
-            name: format!("Place {i}"),
-            score,
-            rough: false,
-        }
+        Candidate { id: format!("n{i}"), point: Point::new(40.0 + north_m / 111_195.0, -111.0), name: format!("Place {i}"), score, rough: false }
     }
 
     fn ring(n: usize) -> Vec<Candidate> {
@@ -167,11 +142,7 @@ mod tests {
     fn higher_score_is_preferred_overall() {
         let mut c = ring(30);
         c[14].score = 1000; // 1500 m, top of the tier-3 band
-        let hits = (0..50u64)
-            .filter(|seed| {
-                sample(&c, HOME, &specs(1, 3), 500.0, 0.0, *seed)[0].candidate.id == "n15"
-            })
-            .count();
+        let hits = (0..50u64).filter(|seed| sample(&c, HOME, &specs(1, 3), 500.0, 0.0, *seed)[0].candidate.id == "n15").count();
         assert!(hits > 25, "high score picked only {hits}/50");
     }
 }

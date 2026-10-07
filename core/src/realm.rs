@@ -73,10 +73,7 @@ impl RealmStore {
     }
 
     pub fn list(&self) -> Vec<Realm> {
-        std::fs::read_to_string(self.dir.join("realms.json"))
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        std::fs::read_to_string(self.dir.join("realms.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
 
     fn write_list(&self, realms: &[Realm]) -> Result<(), String> {
