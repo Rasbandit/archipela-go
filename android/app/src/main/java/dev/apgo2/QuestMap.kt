@@ -14,7 +14,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import android.graphics.PointF
+import android.view.MotionEvent
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 import org.json.JSONArray
 import org.json.JSONObject
@@ -94,7 +97,8 @@ private fun areaFeatures(quests: List<QuestOut>): List<JSONObject> =
     }
 
 private fun realmFeatures(realms: List<RealmOut>): List<JSONObject> = realms.mapNotNull { r ->
-    val pts = r.circle?.let { circleRing(it.center.lat, it.center.lon, it.radiusM) } ?: r.polygon.takeIf { it.size >= 3 }?.map { it.lat to it.lon }
+    val circlePts = r.circle?.let { circleRing(it.center.lat, it.center.lon, it.radiusM) }
+    val pts = if (r.polygonActive) r.polygon.takeIf { it.size >= 3 }?.map { it.lat to it.lon } else circlePts
     pts?.let {
         feature(JSONObject().put("type", "Polygon").put("coordinates", JSONArray().put(ring(it))), JSONObject().put("name", r.name))
     }
@@ -139,8 +143,12 @@ fun QuestMap(
     /** Height of overlays covering the top and bottom of the map, so framing keeps the circle clear of them. */
     overlayTopDp: Int = 0,
     overlayBottomDp: Int = 0,
+    /** Points the user can pick up and drag; [onHandleMove] gets the handle index and its new position. */
+    handles: List<LatLng> = emptyList(),
+    onHandleMove: ((Int, LatLng) -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
     val mapView = remember {
         MapLibre.getInstance(context)
         MapView(context)
@@ -150,6 +158,9 @@ fun QuestMap(
     var centered by remember { mutableStateOf(false) }
     val clickHandler by rememberUpdatedState(onMapClick)
     val longClickHandler by rememberUpdatedState(onMapLongClick)
+    val handlesNow by rememberUpdatedState(handles)
+    val moveNow by rememberUpdatedState(onHandleMove)
+    val dragging = remember { intArrayOf(-1) } // index of the handle being dragged, or -1
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, mapView) {
@@ -172,10 +183,25 @@ fun QuestMap(
         mapView.getMapAsync { m ->
             map = m
             m.addOnMapClickListener { ll -> clickHandler(ll); true }
+            // A touch that starts on a handle drags it; anything else falls through to the map (pan, zoom, tap).
+            mapView.setOnTouchListener { _, ev ->
+                val move = moveNow
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        dragging[0] = if (move == null) -1 else handlesNow.withIndex().minByOrNull { (_, h) ->
+                            m.projection.toScreenLocation(h).let { hypot((it.x - ev.x).toDouble(), (it.y - ev.y).toDouble()) }
+                        }?.takeIf { (_, h) -> m.projection.toScreenLocation(h).let { hypot((it.x - ev.x).toDouble(), (it.y - ev.y).toDouble()) } < 32 * density }?.index ?: -1
+                        dragging[0] >= 0
+                    }
+                    MotionEvent.ACTION_MOVE -> (dragging[0] >= 0).also { if (it) move?.invoke(dragging[0], m.projection.fromScreenLocation(PointF(ev.x, ev.y))) }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> (dragging[0] >= 0).also { dragging[0] = -1 }
+                    else -> dragging[0] >= 0
+                }
+            }
             m.addOnMapLongClickListener { ll -> longClickHandler?.invoke(ll) != null }
             m.setStyle(Style.Builder().fromUri(STYLE_URL)) { s ->
                 val empty = fc(emptyList())
-                listOf("realms", "areas", "lines", "quests", "draft", "marks", "home", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
+                listOf("realms", "areas", "lines", "quests", "draft", "marks", "home", "handles", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
                 s.addLayer(FillLayer("realms-fill", "realms").withProperties(fillColor("#1565c0"), fillOpacity(0.07f)))
                 s.addLayer(LineLayer("realms-line", "realms").withProperties(lineColor("#1565c0"), lineWidth(1.8f)))
                 s.addLayer(FillLayer("areas-fill", "areas").withProperties(fillColor(stateColor()), fillOpacity(0.18f)))
@@ -203,6 +229,7 @@ fun QuestMap(
                 s.addLayer(FillLayer("draft-fill", "draft").withProperties(fillColor("#ef6c00"), fillOpacity(0.15f)))
                 s.addLayer(CircleLayer("draft-pts", "draft").withFilter(Expression.eq(Expression.geometryType(), Expression.literal("Point"))).withProperties(circleRadius(5f), circleColor("#ef6c00"), circleStrokeColor("#ffffff"), circleStrokeWidth(1.5f)))
                 s.addLayer(CircleLayer("marks-layer", "marks").withProperties(circleRadius(12f), circleColor(Expression.get("color")), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
+                s.addLayer(CircleLayer("handles-layer", "handles").withProperties(circleRadius(11f), circleColor("#ffffff"), circleStrokeColor("#ef6c00"), circleStrokeWidth(3.5f)))
                 s.addLayer(CircleLayer("home-ring", "home").withProperties(circleRadius(14f), circleColor("#2e7d32"), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
                 s.addLayer(CircleLayer("home-dot", "home").withProperties(circleRadius(5f), circleColor("#ffffff")))
                 s.addLayer(CircleLayer("me-layer", "me").withProperties(circleRadius(9f), circleColor("#1565c0"), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
@@ -224,6 +251,9 @@ fun QuestMap(
         waypoint?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", "#8e24aa")) }
         style?.getSourceAs<GeoJsonSource>("marks")?.setGeoJson(fc(marks))
     }
+    LaunchedEffect(style, handles) {
+        style?.getSourceAs<GeoJsonSource>("handles")?.setGeoJson(fc(handles.map { feature(pointGeo(it.latitude, it.longitude)) }))
+    }
     LaunchedEffect(style, home) {
         style?.getSourceAs<GeoJsonSource>("home")?.setGeoJson(fc(home?.let { listOf(feature(pointGeo(it.latitude, it.longitude))) } ?: emptyList()))
     }
@@ -231,12 +261,12 @@ fun QuestMap(
         style?.getSourceAs<GeoJsonSource>("me")?.setGeoJson(fc(me?.let { listOf(feature(pointGeo(it.latitude, it.longitude))) } ?: emptyList()))
     }
     // Keep a circle being edited fully in view as its radius changes (not when it only moves).
-    val density = androidx.compose.ui.platform.LocalDensity.current.density
     LaunchedEffect(style, circle?.second) {
         val m = map ?: return@LaunchedEffect
         val (c, r) = circle ?: return@LaunchedEffect
         if (style == null) return@LaunchedEffect
         kotlinx.coroutines.delay(250)
+        if (dragging[0] >= 0) return@LaunchedEffect // never fight the finger
         val b = org.maplibre.android.geometry.LatLngBounds.Builder().includes(circleRing(c.latitude, c.longitude, r).map { LatLng(it.first, it.second) }).build()
         val pad = (24 * density).toInt()
         mapView.post { m.animateCamera(CameraUpdateFactory.newLatLngBounds(b, pad, pad + (overlayTopDp * density).toInt(), pad, pad + (overlayBottomDp * density).toInt())) }
@@ -247,7 +277,7 @@ fun QuestMap(
         val m = map ?: return@LaunchedEffect
         if (style == null || centered) return@LaunchedEffect
         val pts = quests.filter { it.state != "hidden" }.mapNotNull { q -> q.anchor?.let { LatLng(it.lat, it.lon) } } + listOfNotNull(me, home) + draft
-        val realmPts = if (pts.isEmpty()) realms.flatMap { r -> r.circle?.let { listOf(LatLng(it.center.lat, it.center.lon)) } ?: r.polygon.map { LatLng(it.lat, it.lon) } } else emptyList()
+        val realmPts = if (pts.isEmpty()) realms.flatMap { r -> if (r.polygonActive) r.polygon.map { LatLng(it.lat, it.lon) } else listOfNotNull(r.circle?.let { LatLng(it.center.lat, it.center.lon) }) } else emptyList()
         val all = (pts + realmPts).distinctBy { it.latitude to it.longitude }
         if (all.isEmpty()) return@LaunchedEffect
         kotlinx.coroutines.delay(400)

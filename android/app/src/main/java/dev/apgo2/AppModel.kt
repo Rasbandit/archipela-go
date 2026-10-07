@@ -94,18 +94,21 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
-    fun homePoint(): GeoPoint? = engine.home() ?: realms.firstOrNull()?.let { r -> r.circle?.center ?: r.polygon.firstOrNull() }
+    fun homePoint(): GeoPoint? = engine.home() ?: realms.firstOrNull()?.let { r -> if (r.polygonActive) r.polygon.firstOrNull() else r.circle?.center }
 
     // ----------------------------------------------------------------- realms
     /**
-     * Creates (id == null) or updates a realm from a circle or polygon, then rescans it when [rescan] is set.
+     * Creates (id == null) or updates a realm. Both outlines are kept; [polygonActive] picks the real one. Rescans when [rescan] is set.
      * Returns false (with a status message) when it could not be saved.
      */
-    fun saveRealm(id: String?, name: String, mode: String, circle: Pair<LatLng, Double>?, polygon: List<LatLng>, rescan: Boolean): Boolean {
-        if (circle == null && polygon.size < 3) { status = "Tap at least 3 points on the map"; return false }
+    fun saveRealm(id: String?, name: String, mode: String, circle: Pair<LatLng, Double>?, polygon: List<LatLng>, polygonActive: Boolean, rescan: Boolean): Boolean {
+        if (polygonActive && polygon.size < 3) { status = "Tap at least 3 points on the map"; return false }
+        if (!polygonActive && circle == null) { status = "No location yet"; return false }
         val rid = id ?: UUID.randomUUID().toString()
         val c = circle?.let { (p, r) -> CircleOut(GeoPoint(p.latitude, p.longitude), r) }
-        return runCatching { engine.saveRealm(rid, name.ifBlank { "Realm ${realms.size + 1}" }, mode, c, if (c == null) polygon.map { GeoPoint(it.latitude, it.longitude) } else emptyList()) }
+        return runCatching {
+            engine.saveRealm(rid, name.ifBlank { "Realm ${realms.size + 1}" }, mode, c, polygon.map { GeoPoint(it.latitude, it.longitude) }, polygonActive)
+        }
             .onSuccess { draft.clear(); refreshAll(); if (rescan) scan(rid) }
             .onFailure { status = "Could not save: ${it.message}" }
             .isSuccess

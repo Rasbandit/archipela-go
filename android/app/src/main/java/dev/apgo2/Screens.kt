@@ -177,19 +177,35 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     val original = remember(realmId) { m.realms.firstOrNull { it.id == realmId } }
     var name by remember(realmId) { mutableStateOf(original?.name ?: "") }
     var mode by remember(realmId) { mutableStateOf(original?.mode ?: "walk") }
-    var polygon by remember(realmId) { mutableStateOf(original != null && original.circle == null) }
+    var polygon by remember(realmId) { mutableStateOf(original?.polygonActive == true) }
     var radius by remember(realmId) { mutableFloatStateOf(original?.circle?.radiusM?.toFloat() ?: 1500f) }
     var center by remember(realmId) { mutableStateOf(original?.circle?.let { LatLng(it.center.lat, it.center.lon) }) }
-    remember(realmId) { m.draft.clear(); if (original?.circle == null) original?.polygon?.forEach { m.draft.add(LatLng(it.lat, it.lon)) } }
+    remember(realmId) { m.draft.clear(); original?.polygon?.forEach { m.draft.add(LatLng(it.lat, it.lon)) } }
     val circleCenter = center ?: m.me // a new circle follows your GPS until it is moved
     DisposableEffect(Unit) { onDispose { m.draft.clear() } }
 
-    // A changed outline means the places must be fetched again; a new name or mode does not.
+    // A changed outline (or a switch of which outline is real) means the places must be fetched again; a new name or mode does not.
     fun shapeChanged(): Boolean {
         val o = original ?: return true
+        if (polygon != o.polygonActive) return true
         val oc = o.circle
-        return if (polygon) oc != null || o.polygon.size != m.draft.size || o.polygon.indices.any { o.polygon[it].lat != m.draft[it].latitude || o.polygon[it].lon != m.draft[it].longitude }
+        return if (polygon) o.polygon.size != m.draft.size || o.polygon.indices.any { o.polygon[it].lat != m.draft[it].latitude || o.polygon[it].lon != m.draft[it].longitude }
         else oc == null || circleCenter == null || oc.radiusM != radius.toDouble() || oc.center.lat != circleCenter.latitude || oc.center.lon != circleCenter.longitude
+    }
+
+    // The circle has a handle at its center (moves it) and one on its east edge (resizes it); a polygon has one per corner.
+    val handles = if (polygon) m.draft.toList() else circleCenter?.let { c ->
+        listOf(c, LatLng(c.latitude, c.longitude + radius / (111_195.0 * kotlin.math.cos(Math.toRadians(c.latitude)))))
+    }.orEmpty()
+    fun moveHandle(i: Int, to: LatLng) {
+        if (polygon) { if (i in m.draft.indices) m.draft[i] = to; return }
+        val c = circleCenter ?: return
+        if (i == 0) center = to
+        else {
+            val d = floatArrayOf(0f)
+            android.location.Location.distanceBetween(c.latitude, c.longitude, to.latitude, to.longitude, d)
+            radius = d[0].coerceIn(300f, 8000f)
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -200,6 +216,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             onMapLongClick = { m.setHome(it) },
             circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() },
             overlayTopDp = 150, overlayBottomDp = 230,
+            handles = handles, onHandleMove = ::moveHandle,
         )
         Card(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp)) {
             Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -217,19 +234,19 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                     FilterChip(selected = polygon, onClick = { polygon = true }, label = { Text("Polygon") })
                 }
                 if (polygon) {
-                    Text("Tap the map to add corners (${m.draft.size}); 3 or more makes a realm.", fontSize = 12.sp)
+                    Text("Tap the map to add corners (${m.draft.size}); drag a corner to move it.", fontSize = 12.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutlinedButton(onClick = { if (m.draft.isNotEmpty()) m.draft.removeAt(m.draft.lastIndex) }) { Text("Undo", fontSize = 12.sp) }
                         OutlinedButton(onClick = { m.draft.clear() }) { Text("Clear", fontSize = 12.sp) }
                     }
                 } else {
-                    Text("Radius: ${radius.toInt()} m" + if (center == null) ", centered on you." else "", fontSize = 12.sp)
+                    Text("Radius: ${radius.toInt()} m. Drag the center to move it, the edge dot to resize.", fontSize = 12.sp)
                     Slider(radius, { radius = it }, valueRange = 300f..8000f)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = {
-                        val circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() }
-                        if (m.saveRealm(realmId, name, mode, circle, m.draft.toList(), rescan = shapeChanged())) onClose()
+                        val circle = circleCenter?.let { it to radius.toDouble() }
+                        if (m.saveRealm(realmId, name, mode, circle, m.draft.toList(), polygonActive = polygon, rescan = shapeChanged())) onClose()
                     }) { Text(if (original == null) "Save + scan" else "Save") }
                     OutlinedButton(onClick = onClose) { Text("Cancel") }
                 }
