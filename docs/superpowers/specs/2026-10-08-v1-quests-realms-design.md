@@ -14,7 +14,8 @@ Read with: `docs/context/archipelago-game-model.md`, `docs/context/progression-z
 ## 2. YAML options (apworld v2). Game name unchanged: `Archipela-Go 2: Electric Boogaloo`
 | Option | Type / default | Meaning |
 |--|--|--|
-| `goal` | Choice: `all_trips`, `macguffin_short` (default), `macguffin_long`, `boss` | boss adds one Hard "Boss Quest" in the last zone |
+| `goal` | Choice: `macguffin_short` (default), `macguffin_long`, `all_trips`, `boss`, `treasure_hunt`, `zone_conqueror`, `well_rounded`, `quest_dex`, `marathon`, `explorer`, `streak`, `boss_rush` | see section 7. `boss` and `treasure_hunt` add one Hard "Boss Quest" in the last zone; `treasure_hunt` also needs the APGO letters |
+| `goal_target` | Range 1-1000, default 0 meaning "use the goal's default" | parameter of the goal (percent, count, km, days...) |
 | `number_of_trips` | Range 1-1000, default 100 | quests across all zones (boss extra) |
 | `zone_modes` | OptionList of `walk,run,bike,drive`, 1-6 entries, default `["walk"]` | ordered zones; zone 1 is free |
 | `easy_share`, `medium_share`, `hard_share` | Range 0-100, defaults 50 / 35 / 15 | difficulty mix (normalized; at least one > 0) |
@@ -31,7 +32,7 @@ Removed from v1: `allowed_modes`, `number_of_locks`, `maximum_distance`, `enable
 ## 3. Items, locations, logic
 **Items** (separate ID namespace, offset `8_902_400_000_000`): `Progressive Zone Key` (progression, count = zones-1); tools (progression, one each, only for modes other than zone 1's mode that are used by zones >= 2): `Running Shoes` (run), `Bike` (bike), `Car` (drive); `Progressive Effort Reduction`, `Progressive Scouting Distance`, `Progressive Collection Distance` (useful, optional); letters `Letter A,R,C,H,I,P,E,L,G,O` (progression; short goal APGO, long ARCHIPELAGO); app traps `Fog Of War Trap, Shuffle Trap, Silence Trap, Freeze Trap, Leash Trap, Detour Trap, Toll Trap, Slow Trap`; honor traps (existing five); fillers `Hydrate!`, `Take a Breather!`.
 **Locations** (static pool, block per difficulty x mode): names `"{Difficulty} {Mode} Quest #{n}"` with Difficulty in Easy/Medium/Hard, Mode in Walk/Run/Bike/Drive, n = 1..1000. ID = `ID_OFFSET + block*1000 + n` where `block = difficulty_index*4 + mode_index` (difficulty order Easy, Medium, Hard; mode order Walk, Run, Bike, Drive). `Boss Quest` has ID `ID_OFFSET + 12*1000 + 1`. A seed uses the first k names of each needed block. `location_name_groups`: `Easy, Medium, Hard, Walk, Run, Bike, Drive, Boss`.
-**Regions/logic**: `Menu -> Zone 1` free. `Zone k -> Zone k+1` requires `Progressive Zone Key >= k` and, if zone k+1 needs a tool (mode differs from zone 1's), that tool. `Goal` event: `all_trips` needs the last zone's access; macguffin goals need all letters; `boss` needs access to the Boss location. Effort reductions are **not** logic.
+**Regions/logic**: `Menu -> Zone 1` free. `Zone k -> Zone k+1` requires `Progressive Zone Key >= k` and, if zone k+1 needs a tool (mode differs from zone 1's), that tool. `Goal` event: macguffin goals need all letters; `all_trips`, `boss` need access to the last zone / Boss location; `treasure_hunt` needs letters AND the Boss location; every other goal (`zone_conqueror, well_rounded, quest_dex, marathon, explorer, streak, boss_rush`) is evaluated by the client and only requires access to the last zone in logic (the client sends the goal status when its condition is met). Effort reductions are **not** logic.
 **Distribution**: trips split evenly across zones (remainder to the earliest zones). Within a zone, difficulty counts from the shares by largest remainder. Tier chosen uniformly inside the difficulty band. Quest family per slot: uniformly among enabled families compatible with the zone mode (`reach` weighted x3); if none, `reach`.
 **Family x mode compatibility** (apworld constant): reach/dwell/landmark/courier/away: all modes; explore: walk, run, bike; trail: walk, run, bike; water: walk, run, bike; park: walk, run; steps: walk, run.
 **Item pool** = letters + zone keys + tools + optional useful + traps (from free slots x `trap_rate`, among enabled traps incl. `honor` group) + filler = number of locations (trips + boss).
@@ -39,7 +40,7 @@ Removed from v1: `allowed_modes`, `number_of_locks`, `maximum_distance`, `enable
 
 ## 4. slot_data v2 (`schema_version` = 2; JSON Schema in `apworld/docs/slot_data.schema.json`)
 ```json
-{ "schema_version": 2, "goal": "boss", "minutes_per_tier": 10, "reduction_percent": 8, "min_distance_m": 150,
+{ "schema_version": 2, "goal": "boss", "goal_target": 0, "minutes_per_tier": 10, "reduction_percent": 8, "min_distance_m": 150,
   "fog_of_war": false, "return_home": false, "death_link": false,
   "enabled_traps": ["freeze","fog"],
   "zones": [ {"id":1,"mode":"walk","zone_keys_needed":0,"tool":null},
@@ -56,3 +57,22 @@ Removed from v1: `allowed_modes`, `number_of_locks`, `maximum_distance`, `enable
 **Verification trust**: only provable signals (GPS track, step counter, Activity Recognition later). Dropped: NFC, photo, touch-grass-by-sensor, weather, social.
 **Fog**: points hidden until within the reveal radius (default 150 m + Scouting items) or discovered earlier; saved.
 **Out of v1**: barometer climb quests, Health Connect, Activity Recognition mode proof, foreground service/background location, team features.
+
+## 6. Standalone (solo) mode: the app is playable without Archipelago
+The Rust core contains a **solo generator** that mirrors the apworld: from the same options it produces the same `slot_data` shape (zones, quests with difficulty/effort/family, goal) plus a local **reward table** (which item sits at which quest). Rewards come from one of two backends behind the same engine API: `Solo` (local table) or `Archipelago` (server items). The engine only sees "item received" events (zone keys, tools, letters, traps, fillers, useful items), so every feature works identically. Solo fill: place progression items (zone keys, tools, goal letters) into locations reachable under the items placed so far (beatable by construction), then traps/filler/useful at random. A solo game is saved on the phone; no network needed except the realm scan. The Game Builder offers two buttons: "Play solo" and "Export YAML for Archipelago".
+
+## 7. Win conditions (goals)
+| Goal | Win when | `goal_target` default | Notes |
+|--|--|--|--|
+| `macguffin_short` / `macguffin_long` | all letters of APGO / ARCHIPELAGO received | - | classic |
+| `all_trips` ("Completionist") | every quest done | - | |
+| `boss` ("The Big One") | the Boss Quest is done | - | |
+| `treasure_hunt` | APGO letters collected, then the Boss Quest ("the treasure") is done | - | letters reveal the treasure location |
+| `zone_conqueror` | at least N% of the quests in every zone done | 60 (%) | |
+| `well_rounded` | at least one quest of every enabled family done | - | |
+| `quest_dex` | N distinct quest kinds completed | 15 | the "gotta catch 'em all" goal |
+| `marathon` | N km of tracked distance during quests | 42 (km) | cumulative |
+| `explorer` | N map cells (150 m) revealed/visited | 300 | pairs with fog |
+| `streak` | N consecutive days with at least one quest done | 7 | |
+| `boss_rush` | N Hard quests done | 5 | |
+Archipelago logic cannot see client conditions, so for client-evaluated goals the apworld only requires access to the last zone; the client reports the goal when satisfied.
