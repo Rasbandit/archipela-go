@@ -3,12 +3,12 @@ package dev.apgo2
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import dev.apgo2.ui.ApgoChip
-import dev.apgo2.ui.MODES
+import dev.apgo2.ui.PLAY_MODES
+import dev.apgo2.ui.IconToggles
 import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.FeedbackText
 import dev.apgo2.ui.MapOverlayCard
-import dev.apgo2.ui.ModeChips
 import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
@@ -162,7 +162,9 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
                     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                             Text(r.name, style = MaterialTheme.typography.titleSmall)
-                            Text(modeLabel(r.mode), color = MaterialTheme.colorScheme.primary)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                r.modes.forEach { Icon(ApgoIcons.mode(it), contentDescription = modeLabel(it), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }
+                            }
                         }
                         val on = m.offers[r.id].orEmpty()
                         Text(if (r.scannedAtMs == null) "Not scanned yet" else "${r.places} finds · ${on.size} quest kinds on offer", fontSize = 12.sp)
@@ -193,7 +195,8 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     val original = remember(realmId) { m.realms.firstOrNull { it.id == realmId } }
     var tab by remember(realmId) { mutableStateOf(AREA) }
     var name by remember(realmId) { mutableStateOf(original?.name ?: "") }
-    var mode by remember(realmId) { mutableStateOf(original?.mode ?: "walk") }
+    // Car is not offered for realms yet: an old car realm is edited as a walking one.
+    var modes by remember(realmId) { mutableStateOf((original?.modes.orEmpty().filter { it in PLAY_MODES }).ifEmpty { listOf("walk") }) }
     var polygon by remember(realmId) { mutableStateOf(original?.polygonActive == true) }
     var radius by remember(realmId) { mutableFloatStateOf(original?.circle?.radiusM?.toFloat() ?: 1500f) }
     var center by remember(realmId) { mutableStateOf(original?.circle?.let { LatLng(it.center.lat, it.center.lon) }) }
@@ -252,7 +255,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     }
     fun save() {
         val circle = circleCenter?.let { it to radius.toDouble() }
-        if (m.saveRealm(realmId, name, mode, circle, m.draft.toList(), polygonActive = polygon, rescan = shapeChanged())) onClose()
+        if (m.saveRealm(realmId, name, modes, circle, m.draft.toList(), polygonActive = polygon, rescan = shapeChanged())) onClose()
     }
     // The primary button moves a new realm on to Details; everywhere else it saves.
     val primaryLabel = when {
@@ -343,7 +346,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                     item(key = "name") {
                         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedTextField(name, { name = it }, label = { Text("Realm name") }, singleLine = true, modifier = Modifier.weight(1f))
-                            IconChoices(MODES, mode, { mode = it }, ApgoIcons::mode, ::modeLabel)
+                            IconToggles(PLAY_MODES, modes, { modes = it }, ApgoIcons::mode, ::modeLabel)
                         }
                     }
                     item(key = "search") {
@@ -485,14 +488,15 @@ fun NewGameScreen(m: AppModel) {
     var bonus by remember { mutableStateOf(true) }
     var name by remember { mutableStateOf("My game") }
     val families = remember { mutableStateListOf(*FAMILIES.toTypedArray()) }
-    val zoneRealms = remember { mutableStateListOf<String>() }
+    // Each zone is a realm played in one of the modes it allows.
+    val zonePicks = remember { mutableStateListOf<Pair<String, String>>() }
     var url by remember { mutableStateOf("localhost:38281") }
     var slot by remember { mutableStateOf("Tester") }
     val apZoneRealms = remember { mutableStateListOf<String>() }
     val shares = listOf(Triple(70, 25, 5), Triple(50, 35, 15), Triple(20, 40, 40))
 
     fun opts(): SoloOptionsIn {
-        val modes = zoneRealms.mapNotNull { id -> m.realms.firstOrNull { it.id == id }?.mode }
+        val modes = zonePicks.map { it.second }
         val (e, md, h) = shares[preset]
         return SoloOptionsIn(
             goal = goal, goalTarget = target.toUIntOrNull() ?: 0u, numberOfTrips = trips.toInt().toUInt(), zoneModes = modes,
@@ -519,17 +523,23 @@ fun NewGameScreen(m: AppModel) {
         OutlinedTextField(name, { name = it }, label = { Text("Game name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
         Text("Zones, in order (the first is where you start; later ones are unlocked by keys and tools)", fontSize = 12.sp)
-        zoneRealms.forEachIndexed { i, id ->
+        zonePicks.forEachIndexed { i, (id, mode) ->
             val r = m.realms.firstOrNull { it.id == id }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Zone ${i + 1}: ${r?.name ?: "?"} (${if (r?.mode == "drive") "car" else r?.mode})")
-                TextButton(onClick = { zoneRealms.removeAt(i) }) { Text("Remove") }
+                Text("Zone ${i + 1}: ${r?.name ?: "?"} (${modeLabel(mode)})")
+                TextButton(onClick = { zonePicks.removeAt(i) }) { Text("Remove") }
             }
         }
-        val free = m.realms.filter { it.scannedAtMs != null && it.id !in zoneRealms }
-        if (zoneRealms.size < 6) {
-            Text(if (free.isEmpty()) "Scan a realm on the Realms tab to use it here." else "Add a zone:", fontSize = 12.sp)
-            free.forEach { r -> OutlinedButton(onClick = { zoneRealms.add(r.id) }) { Text("+ ${r.name} (${modeLabel(r.mode)})", fontSize = 12.sp) } }
+        val scanned = m.realms.filter { it.scannedAtMs != null }
+        if (zonePicks.size < 6) {
+            Text(if (scanned.isEmpty()) "Scan a realm on the Realms tab to use it here." else "Add a zone:", fontSize = 12.sp)
+            scanned.forEach { r ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    r.modes.filter { it in PLAY_MODES && (r.id to it) !in zonePicks }.forEach { mode ->
+                        OutlinedButton(onClick = { zonePicks.add(r.id to mode) }) { IconLabel("${r.name} · ${modeLabel(mode)}", ApgoIcons.mode(mode)) }
+                    }
+                }
+            }
         }
 
         Text("Win condition", fontSize = 13.sp)
@@ -567,9 +577,9 @@ fun NewGameScreen(m: AppModel) {
             }
         }
 
-        val ready = zoneRealms.isNotEmpty()
+        val ready = zonePicks.isNotEmpty()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(enabled = ready, onClick = { m.startSolo(opts(), zoneRealms.toList(), name) }) { Text("Play solo") }
+            Button(enabled = ready, onClick = { m.startSolo(opts(), zonePicks.map { it.first }, name) }) { Text("Play solo") }
             OutlinedButton(enabled = ready, onClick = { m.exportYaml(opts()) }) { Text("Export YAML") }
         }
         if (!ready) Text("Add at least one zone to continue.", fontSize = 12.sp)
@@ -585,7 +595,7 @@ fun NewGameScreen(m: AppModel) {
         if (m.apZoneModes.isNotEmpty()) {
             Text("This game needs ${m.apZoneModes.size} zone(s). Pick a matching realm for each:", fontSize = 12.sp)
             m.apZoneModes.forEachIndexed { i, mode ->
-                val options = m.realms.filter { it.scannedAtMs != null && it.mode == mode }
+                val options = m.realms.filter { it.scannedAtMs != null && mode in it.modes }
                 Text("Zone ${i + 1} (${modeLabel(mode)})", fontSize = 13.sp)
                 if (options.isEmpty()) Text("  no scanned $mode realm: create one first", fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

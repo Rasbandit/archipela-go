@@ -40,7 +40,8 @@ pub struct CircleOut {
 pub struct RealmOut {
     pub id: String,
     pub name: String,
-    pub mode: String,
+    /// The kinds of travel the realm is for ("walk", "run", "bike"): it allows the quest kinds of any of them.
+    pub modes: Vec<String>,
     /// The circle if the realm has one (active or kept in reserve).
     pub circle: Option<CircleOut>,
     /// The polygon corners (empty if none), active or kept in reserve.
@@ -285,7 +286,7 @@ impl Engine {
     fn kinds_by_place<'a>(&'a self, realm: &Realm, atlas: &Atlas) -> std::collections::BTreeMap<usize, Vec<&'a apgo_core::catalog::Kind>> {
         let mut out: std::collections::BTreeMap<usize, Vec<&apgo_core::catalog::Kind>> = std::collections::BTreeMap::new();
         for (kind_id, idxs) in &atlas.matches {
-            let Some(kind) = self.catalog.kind(kind_id).filter(|k| k.allows(realm.mode)) else { continue };
+            let Some(kind) = self.catalog.kind(kind_id).filter(|k| realm.modes.iter().any(|&m| k.allows(m))) else { continue };
             for &i in idxs {
                 out.entry(i).or_default().push(kind);
             }
@@ -311,7 +312,7 @@ impl Engine {
 
     fn offers_of(&self, realm: &Realm, atlas: &Atlas) -> Vec<OfferOut> {
         let mut v: Vec<OfferOut> = atlas
-            .offers(&self.catalog, realm.mode)
+            .offers(&self.catalog, &realm.modes)
             .into_iter()
             .filter_map(|(id, count)| {
                 self.catalog.kind(&id).map(|k| OfferOut { kind_id: id, name: k.name.clone(), family: k.family.clone(), blurb: k.blurb.clone(), count })
@@ -352,7 +353,7 @@ impl Engine {
                 RealmOut {
                     id: r.id,
                     name: r.name,
-                    mode: r.mode.name().into(),
+                    modes: r.modes.iter().map(|m| m.name().to_string()).collect(),
                     circle,
                     polygon,
                     polygon_active,
@@ -369,12 +370,13 @@ impl Engine {
         &self,
         id: String,
         name: String,
-        mode: String,
+        modes: Vec<String>,
         circle: Option<CircleOut>,
         polygon: Vec<GeoPoint>,
         polygon_active: bool,
     ) -> Result<(), CoreError> {
-        let mode = Mode::parse(&mode).ok_or_else(|| err(format!("unknown mode {mode}")))?;
+        let modes = modes.iter().map(|m| Mode::parse(m).ok_or_else(|| err(format!("unknown mode {m}")))).collect::<Result<Vec<_>, _>>()?;
+        let modes = apgo_core::realm::normalize_modes(modes);
         let circle = circle.map(|c| Shape::Circle { center: pt(&c.center), radius_m: c.radius_m });
         let polygon = (!polygon.is_empty()).then(|| Shape::Polygon { vertices: polygon.iter().map(pt).collect() });
         let (shape, spare) = match (polygon_active, circle, polygon) {
@@ -383,7 +385,7 @@ impl Engine {
             _ => return Err(err("the active outline is missing")),
         };
         let prev = self.store().get(&id);
-        self.store().save(&Realm { id, name, mode, shape, spare, scanned_at_ms: prev.and_then(|p| p.scanned_at_ms) }).map_err(err)
+        self.store().save(&Realm { id, name, modes, shape, spare, scanned_at_ms: prev.and_then(|p| p.scanned_at_ms) }).map_err(err)
     }
 
     pub fn delete_realm(&self, id: String) -> Result<(), CoreError> {

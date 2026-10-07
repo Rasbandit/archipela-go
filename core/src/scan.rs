@@ -67,11 +67,11 @@ impl Atlas {
         self.favorites = marks.favorites.clone();
     }
 
-    /// quest kind id -> number of places, only for kinds a realm of `mode` can actually offer.
-    pub fn offers(&self, catalog: &Catalog, mode: Mode) -> BTreeMap<String, u32> {
+    /// quest kind id -> number of places, only for kinds a realm allowing any of `modes` can actually offer.
+    pub fn offers(&self, catalog: &Catalog, modes: &[Mode]) -> BTreeMap<String, u32> {
         let mut out = BTreeMap::new();
         for k in &catalog.kinds {
-            if !k.allows(mode) {
+            if !modes.iter().any(|&m| k.allows(m)) {
                 continue;
             }
             let n = if k.any_of.is_empty() { 0 } else { self.matches.get(&k.id).map_or(0, |v| v.len() as u32) };
@@ -412,7 +412,6 @@ mod tests {
       {"type":"node","id":4,"tags":{"amenity":"bench"}}
     ]}"#;
 
-
     #[test]
     fn restricting_an_atlas_to_a_zone_drops_finds_and_streets_outside_it() {
         let cat = Catalog::builtin();
@@ -471,10 +470,10 @@ mod tests {
         assert_eq!(atlas.matches["gallery_walls"].len(), 1);
         assert_eq!(atlas.matches["bench_warmer"].len(), 1);
         assert_eq!(atlas.matches["touch_grass"].len(), 1);
-        let walk = atlas.offers(&cat, Mode::Walk);
+        let walk = atlas.offers(&cat, &[Mode::Walk]);
         assert_eq!(walk["touch_grass"], 1);
         assert!(walk.contains_key("street_smarts"), "geometry-free kinds are always on offer");
-        let drive = atlas.offers(&cat, Mode::Drive);
+        let drive = atlas.offers(&cat, &[Mode::Drive]);
         assert!(!drive.contains_key("touch_grass"), "park quests are walk/run only");
         assert!(!walk.contains_key("hydrant_hunter"), "kinds with no matches are not offered");
     }

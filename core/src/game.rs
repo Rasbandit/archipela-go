@@ -149,8 +149,9 @@ fn zone_ctx<'a>(slot: &SlotData, zone_realms: &[String], realms: &'a [(Realm, At
     for (i, z) in slot.zones.iter().enumerate() {
         let id = zone_realms.get(i).ok_or_else(|| format!("zone {} has no realm assigned", z.id))?;
         let (realm, atlas) = realms.iter().find(|(r, _)| &r.id == id).map(|(r, a)| (r, a)).ok_or_else(|| format!("realm {id} not found"))?;
-        if realm.mode != z.mode {
-            return Err(format!("zone {} is a {} zone but realm \"{}\" is tagged {}", z.id, z.mode.name(), realm.name, realm.mode.name()));
+        if !realm.allows(z.mode) {
+            let tags: Vec<&str> = realm.modes.iter().map(|m| m.name()).collect();
+            return Err(format!("zone {} is a {} zone but realm \"{}\" is tagged {}", z.id, z.mode.name(), realm.name, tags.join("/")));
         }
         out.push(ZoneCtx { zone: z.id, mode: z.mode, realm, atlas });
     }
@@ -541,7 +542,7 @@ mod tests {
         let r = Realm {
             id: id.into(),
             name: format!("Realm {id}"),
-            mode,
+            modes: vec![mode],
             shape: Shape::Circle { center: home(), radius_m: 6000.0 },
             spare: None,
             scanned_at_ms: None,
@@ -687,6 +688,35 @@ mod tests {
         g.on_fix(fixat(start, 0), None);
         let ev = g.on_fix(fixat(q.anchor.unwrap(), 10), None); // 1 km in 10 s = 360 km/h
         assert!(!ev.iter().any(|e| matches!(e, Event::QuestDone { .. })));
+    }
+
+    #[test]
+    fn a_realm_allowing_several_modes_can_serve_a_zone_of_any_of_them() {
+        let o = reach_only(&[Mode::Walk, Mode::Bike], 12, "all_trips");
+        let g1 = generate(&o, 1).unwrap();
+        let mut both = realm("r0", Mode::Walk);
+        both.0.modes = crate::realm::normalize_modes([Mode::Walk, Mode::Bike]);
+        let realms = vec![both];
+        let make = |zone_realms: Vec<String>| {
+            Game::create(
+                NewGame {
+                    id: "x".into(),
+                    name: "x".into(),
+                    backend: Backend::Solo,
+                    seed_name: "s".into(),
+                    slot: g1.slot.clone(),
+                    zone_realms,
+                    realms: &realms,
+                    home: home(),
+                    seed: 1,
+                    solo_rewards: g1.rewards.clone(),
+                    surface: SurfacePref::Any,
+                    avoid_stairs: false,
+                },
+                &Catalog::builtin(),
+            )
+        };
+        assert!(make(vec!["r0".into(), "r0".into()]).is_ok(), "one walk/bike realm serves both a walk zone and a bike zone");
     }
 
     #[test]

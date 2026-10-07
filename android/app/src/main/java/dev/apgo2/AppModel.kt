@@ -101,13 +101,13 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
      * Creates (id == null) or updates a realm. Both outlines are kept; [polygonActive] picks the real one. Rescans when [rescan] is set.
      * Returns false (with a status message) when it could not be saved.
      */
-    fun saveRealm(id: String?, name: String, mode: String, circle: Pair<LatLng, Double>?, polygon: List<LatLng>, polygonActive: Boolean, rescan: Boolean): Boolean {
+    fun saveRealm(id: String?, name: String, modes: List<String>, circle: Pair<LatLng, Double>?, polygon: List<LatLng>, polygonActive: Boolean, rescan: Boolean): Boolean {
         if (polygonActive && polygon.size < 3) { status = "Tap at least 3 points on the map"; return false }
         if (!polygonActive && circle == null) { status = "No location yet"; return false }
         val rid = id ?: UUID.randomUUID().toString()
         val c = circle?.let { (p, r) -> CircleOut(GeoPoint(p.latitude, p.longitude), r) }
         return runCatching {
-            engine.saveRealm(rid, name.ifBlank { "Realm ${realms.size + 1}" }, mode, c, polygon.map { GeoPoint(it.latitude, it.longitude) }, polygonActive)
+            engine.saveRealm(rid, name.ifBlank { "Realm ${realms.size + 1}" }, modes, c, polygon.map { GeoPoint(it.latitude, it.longitude) }, polygonActive)
         }
             .onSuccess { draft.clear(); refreshAll(); if (rescan) scan(rid) }
             .onFailure { status = "Could not save: ${it.message}" }

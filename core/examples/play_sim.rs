@@ -24,8 +24,14 @@ fn main() {
     let catalog = Catalog::builtin();
     let cache = std::env::temp_dir().join("apgo-playsim-cache");
 
-    let realm =
-        Realm { id: "r".into(), name: "Sim realm".into(), mode, shape: Shape::Circle { center: home, radius_m: radius }, spare: None, scanned_at_ms: None };
+    let realm = Realm {
+        id: "r".into(),
+        name: "Sim realm".into(),
+        modes: vec![mode],
+        shape: Shape::Circle { center: home, radius_m: radius },
+        spare: None,
+        scanned_at_ms: None,
+    };
     let t0 = Instant::now();
     let atlas = scan_realm(&realm, &catalog, Some(&cache), 0).expect("scan");
     println!(
@@ -35,7 +41,7 @@ fn main() {
         atlas.streets.len(),
         atlas.warnings
     );
-    let offers = atlas.offers(&catalog, mode);
+    let offers = atlas.offers(&catalog, &[mode]);
     let mut top: Vec<_> = offers.iter().filter(|(_, n)| **n > 0).collect();
     top.sort_by(|a, b| b.1.cmp(a.1));
     println!(

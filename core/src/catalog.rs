@@ -179,7 +179,6 @@ mod tests {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
     }
 
-
     #[test]
     fn verify_explains_how_to_complete_a_quest_in_plain_words() {
         assert_eq!(Verify::Reach { radius_m: 40.0 }.how(), "Get within 40 m.");

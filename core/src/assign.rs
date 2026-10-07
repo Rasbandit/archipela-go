@@ -348,7 +348,14 @@ mod tests {
     }
 
     fn realm(mode: Mode) -> Realm {
-        Realm { id: "r".into(), name: "R".into(), mode, shape: Shape::Circle { center: home(), radius_m: 9000.0 }, spare: None, scanned_at_ms: None }
+        Realm {
+            id: "r".into(),
+            name: "R".into(),
+            modes: vec![mode],
+            shape: Shape::Circle { center: home(), radius_m: 9000.0 },
+            spare: None,
+            scanned_at_ms: None,
+        }
     }
 
     fn feature(id: &str, tags: &[(&str, &str)], p: Point, geometry: Vec<Point>) -> Feature {
@@ -436,14 +443,14 @@ mod tests {
         use crate::marks::{Mark, Marks};
         let cat = Catalog::builtin();
         let (r, mut a) = (realm(Mode::Walk), atlas(&cat, true));
-        let before = a.offers(&cat, Mode::Walk).get("bench_warmer").copied().unwrap_or(0);
+        let before = a.offers(&cat, &[Mode::Walk]).get("bench_warmer").copied().unwrap_or(0);
         assert_eq!(before, 30);
         let mut marks = Marks::default();
         for i in 0..30 {
             marks.set(&format!("n{i}"), Mark::Banned);
         }
         a.apply_marks(&marks);
-        assert!(!a.offers(&cat, Mode::Walk).contains_key("bench_warmer"), "a kind with every place banned is no longer on offer");
+        assert!(!a.offers(&cat, &[Mode::Walk]).contains_key("bench_warmer"), "a kind with every place banned is no longer on offer");
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=12).map(|i| slot(i, "dwell", 2 + (i % 4) as u8, Mode::Walk)).collect();
         let out = assign(&slots, &z, &cat, &params(3));

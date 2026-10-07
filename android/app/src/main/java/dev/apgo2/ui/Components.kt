@@ -31,6 +31,9 @@ import androidx.compose.ui.unit.sp
 
 val MODES = listOf("walk", "run", "bike", "drive")
 
+/** The modes a realm or zone can be for right now. Car is not offered yet. */
+val PLAY_MODES = listOf("walk", "run", "bike")
+
 /** The game says "car" where the data says "drive". */
 fun modeLabel(mode: String) = if (mode == "drive") "car" else mode
 
@@ -60,9 +63,6 @@ fun <T> ChoiceChips(
         options.forEach { ApgoChip(label(it), it == selected, { onSelect(it) }, textSize, icon(it)) }
     }
 }
-
-@Composable
-fun ModeChips(selected: String, onSelect: (String) -> Unit) = ChoiceChips(MODES, selected, onSelect, ::modeLabel, icon = ApgoIcons::mode)
 
 /** A panel floating over a full-page map. With [fillHeight] its content may use all the height the caller gives the card (for lists). */
 @Composable
@@ -114,6 +114,28 @@ fun <T> IconChoices(options: List<T>, selected: T, onSelect: (T) -> Unit, icon: 
             FilledIconToggleButton(
                 checked = option == selected,
                 onCheckedChange = { onSelect(option) },
+                colors = IconButtonDefaults.filledIconToggleButtonColors(
+                    containerColor = Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    checkedContainerColor = MaterialTheme.colorScheme.primary,
+                    checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) { Icon(icon(option), contentDescription = description(option), modifier = Modifier.size(20.dp)) }
+        }
+    }
+}
+
+/** A row of icon-only toggles where any number can be on, but at least one stays on. */
+@Composable
+fun <T> IconToggles(options: List<T>, selected: List<T>, onChange: (List<T>) -> Unit, icon: (T) -> ImageVector, description: (T) -> String) {
+    Row {
+        options.forEach { option ->
+            FilledIconToggleButton(
+                checked = option in selected,
+                onCheckedChange = { on ->
+                    val next = if (on) selected + option else selected - option
+                    if (next.isNotEmpty()) onChange(options.filter { it in next })
+                },
                 colors = IconButtonDefaults.filledIconToggleButtonColors(
                     containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant,

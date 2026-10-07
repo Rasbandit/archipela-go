@@ -40,11 +40,52 @@ impl Shape {
     }
 }
 
+/// Sorted, unique, and never empty: a realm always allows at least walking.
+pub fn normalize_modes(modes: impl IntoIterator<Item = Mode>) -> Vec<Mode> {
+    let set: std::collections::BTreeSet<Mode> = modes.into_iter().collect();
+    if set.is_empty() {
+        vec![Mode::Walk]
+    } else {
+        set.into_iter().collect()
+    }
+}
+
+/// What is on disk: realms saved before multi-mode have a single `mode`.
+#[derive(Deserialize)]
+struct RealmRaw {
+    id: String,
+    name: String,
+    #[serde(default)]
+    modes: Vec<Mode>,
+    #[serde(default)]
+    mode: Option<Mode>,
+    shape: Shape,
+    #[serde(default)]
+    spare: Option<Shape>,
+    #[serde(default)]
+    scanned_at_ms: Option<u64>,
+}
+
+impl From<RealmRaw> for Realm {
+    fn from(r: RealmRaw) -> Realm {
+        Realm {
+            id: r.id,
+            name: r.name,
+            modes: normalize_modes(r.modes.into_iter().chain(r.mode)),
+            shape: r.shape,
+            spare: r.spare,
+            scanned_at_ms: r.scanned_at_ms,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(from = "RealmRaw")]
 pub struct Realm {
     pub id: String,
     pub name: String,
-    pub mode: Mode,
+    /// The kinds of travel this realm is for. It only decides which quest kinds it allows; a zone may use the realm for any of them.
+    pub modes: Vec<Mode>,
     /// The active shape: the one scanned and played in.
     pub shape: Shape,
     /// The other kind of shape (circle or polygon), kept so switching back and forth in the editor loses no work.
@@ -55,6 +96,10 @@ pub struct Realm {
 }
 
 impl Realm {
+    pub fn allows(&self, mode: Mode) -> bool {
+        self.modes.contains(&mode)
+    }
+
     fn each_shape(&self) -> impl Iterator<Item = &Shape> {
         std::iter::once(&self.shape).chain(self.spare.iter())
     }
@@ -187,7 +232,7 @@ mod tests {
         Realm {
             id: id.into(),
             name: "Home Turf".into(),
-            mode: Mode::Walk,
+            modes: vec![Mode::Walk],
             shape: Shape::Circle { center: Point::new(40.0, -111.0), radius_m: 1500.0 },
             spare: None,
             scanned_at_ms: None,
@@ -220,6 +265,27 @@ mod tests {
         std::fs::write(dir.join("realms.json"), old).unwrap();
         let r = RealmStore::new(&dir).get("a").unwrap();
         assert!(r.spare.is_none() && r.circle().is_some() && r.polygon().is_none());
+    }
+
+    #[test]
+    fn realms_saved_with_a_single_mode_become_a_one_item_set() {
+        let old = r#"[{"id":"a","name":"Old","mode":"bike","shape":{"kind":"circle","center":{"lat":40.0,"lon":-111.0},"radius_m":900.0}}]"#;
+        let dir = tmp("legacy-mode");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("realms.json"), old).unwrap();
+        assert_eq!(RealmStore::new(&dir).get("a").unwrap().modes, [Mode::Bike]);
+    }
+
+    #[test]
+    fn modes_are_a_sorted_unique_non_empty_set_and_gate_what_a_zone_may_use() {
+        assert_eq!(normalize_modes([Mode::Bike, Mode::Walk, Mode::Bike]), [Mode::Walk, Mode::Bike]);
+        assert_eq!(normalize_modes([]), [Mode::Walk], "a realm always allows something");
+        let mut r = realm("a");
+        r.modes = normalize_modes([Mode::Walk, Mode::Run]);
+        assert!(r.allows(Mode::Run) && !r.allows(Mode::Bike));
+        let store = RealmStore::new(tmp("modes"));
+        store.save(&r).unwrap();
+        assert_eq!(store.get("a").unwrap().modes, [Mode::Walk, Mode::Run], "multi-mode realms round-trip");
     }
 
     #[test]
