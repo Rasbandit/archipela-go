@@ -223,7 +223,7 @@ fun QuestMap(
             m.addOnMapLongClickListener { ll -> longClickHandler?.invoke(ll) != null }
             m.setStyle(Style.Builder().fromUri(STYLE_URL)) { s ->
                 val empty = fc(emptyList())
-                listOf("realms", "areas", "lines", "quests", "draft", "marks", "home", "handles", "ringlabel", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
+                listOf("realms", "areas", "lines", "quests", "draft", "marks", "home", "handles", "radius", "ringknobs", "ringlabel", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
                 s.addLayer(FillLayer("realms-fill", "realms").withProperties(fillColor("#1565c0"), fillOpacity(0.07f)))
                 s.addLayer(LineLayer("realms-line", "realms").withProperties(lineColor("#1565c0"), lineWidth(1.8f)))
                 s.addLayer(FillLayer("areas-fill", "areas").withProperties(fillColor(stateColor()), fillOpacity(0.18f)))
@@ -252,13 +252,20 @@ fun QuestMap(
                 s.addLayer(CircleLayer("draft-pts", "draft").withFilter(Expression.eq(Expression.geometryType(), Expression.literal("Point"))).withProperties(circleRadius(5f), circleColor("#ef6c00"), circleStrokeColor("#ffffff"), circleStrokeWidth(1.5f)))
                 s.addLayer(CircleLayer("marks-layer", "marks").withProperties(circleRadius(12f), circleColor(Expression.get("color")), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
                 s.addLayer(CircleLayer("handles-layer", "handles").withProperties(circleRadius(11f), circleColor("#ffffff"), circleStrokeColor("#ef6c00"), circleStrokeWidth(3.5f)))
-                // The circle's size, written on its ring: shows the value and tells the user the ring can be grabbed.
+                // The circle's radius: a line from the centre to the ring with the value above it, and grip knobs on the ring (the whole ring is draggable).
+                s.addLayer(LineLayer("radius-line", "radius").withProperties(lineColor("#bf360c"), lineWidth(2.5f)))
+                s.addLayer(
+                    CircleLayer("ringknobs-layer", "ringknobs").withProperties(
+                        circleRadius(Expression.match(Expression.get("k"), Expression.literal(6f), Expression.stop("main", Expression.literal(11f)))),
+                        circleColor("#ffffff"), circleStrokeColor("#ef6c00"), circleStrokeWidth(3f),
+                    ),
+                )
                 s.addLayer(
                     SymbolLayer("ringlabel-layer", "ringlabel").withProperties(
                         textField(Expression.get("label")), textFont(arrayOf("Noto Sans Bold")), textSize(14f),
                         textColor("#bf360c"), textHaloColor("#ffffff"), textHaloWidth(2.5f),
                         textAllowOverlap(true), textIgnorePlacement(true),
-                        textAnchor(Property.TEXT_ANCHOR_RIGHT), textOffset(arrayOf(-0.6f, 0f)),
+                        textAnchor(Property.TEXT_ANCHOR_BOTTOM), textOffset(arrayOf(0f, -0.3f)),
                     ),
                 )
                 s.addLayer(CircleLayer("home-ring", "home").withProperties(circleRadius(14f), circleColor("#2e7d32"), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
@@ -283,11 +290,20 @@ fun QuestMap(
         style?.getSourceAs<GeoJsonSource>("marks")?.setGeoJson(fc(marks))
     }
     LaunchedEffect(style, circle) {
-        val label = circle?.let { (c, r) ->
-            val text = if (r < 1000) "↔ ${r.toInt()} m" else "↔ %.1f km".format(r / 1000)
-            listOf(feature(pointGeo(c.latitude, c.longitude + r / (111_195.0 * cos(Math.toRadians(c.latitude)))), JSONObject().put("label", text)))
-        } ?: emptyList()
-        style?.getSourceAs<GeoJsonSource>("ringlabel")?.setGeoJson(fc(label))
+        val geo = circle?.let { (c, r) ->
+            val dLon = r / (111_195.0 * cos(Math.toRadians(c.latitude)))
+            val dLat = r / 111_195.0
+            val text = if (r < 1000) "${r.toInt()} m radius" else "%.1f km radius".format(r / 1000)
+            val line = JSONObject().put("type", "LineString").put("coordinates", JSONArray().put(coord(c.latitude, c.longitude)).put(coord(c.latitude, c.longitude + dLon)))
+            val knobs = listOf(
+                Triple(c.latitude, c.longitude + dLon, "main"), Triple(c.latitude + dLat, c.longitude, "minor"),
+                Triple(c.latitude - dLat, c.longitude, "minor"), Triple(c.latitude, c.longitude - dLon, "minor"),
+            ).map { (lat, lon, k) -> feature(pointGeo(lat, lon), JSONObject().put("k", k)) }
+            Triple(listOf(feature(line)), knobs, listOf(feature(pointGeo(c.latitude, c.longitude + dLon / 2), JSONObject().put("label", text))))
+        }
+        style?.getSourceAs<GeoJsonSource>("radius")?.setGeoJson(fc(geo?.first ?: emptyList()))
+        style?.getSourceAs<GeoJsonSource>("ringknobs")?.setGeoJson(fc(geo?.second ?: emptyList()))
+        style?.getSourceAs<GeoJsonSource>("ringlabel")?.setGeoJson(fc(geo?.third ?: emptyList()))
     }
     LaunchedEffect(style, handles) {
         style?.getSourceAs<GeoJsonSource>("handles")?.setGeoJson(fc(handles.map { feature(pointGeo(it.latitude, it.longitude)) }))
