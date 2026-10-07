@@ -252,12 +252,11 @@ fun QuestMap(
                 s.addLayer(CircleLayer("draft-pts", "draft").withFilter(Expression.eq(Expression.geometryType(), Expression.literal("Point"))).withProperties(circleRadius(5f), circleColor("#ef6c00"), circleStrokeColor("#ffffff"), circleStrokeWidth(1.5f)))
                 s.addLayer(CircleLayer("marks-layer", "marks").withProperties(circleRadius(12f), circleColor(Expression.get("color")), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
                 s.addLayer(CircleLayer("handles-layer", "handles").withProperties(circleRadius(11f), circleColor("#ffffff"), circleStrokeColor("#ef6c00"), circleStrokeWidth(3.5f)))
-                // The circle's radius: a line from the centre to the ring with the value above it, and grip knobs on the ring (the whole ring is draggable).
+                // The circle's radius: a line from the centre to the ring with the value above it, and a grip knob on the ring (the whole ring is draggable).
                 s.addLayer(LineLayer("radius-line", "radius").withProperties(lineColor("#bf360c"), lineWidth(2.5f)))
                 s.addLayer(
                     CircleLayer("ringknobs-layer", "ringknobs").withProperties(
-                        circleRadius(Expression.match(Expression.get("k"), Expression.literal(6f), Expression.stop("main", Expression.literal(11f)))),
-                        circleColor("#ffffff"), circleStrokeColor("#ef6c00"), circleStrokeWidth(3f),
+                        circleRadius(6f), circleColor("#ffffff"), circleStrokeColor("#ef6c00"), circleStrokeWidth(3f),
                     ),
                 )
                 s.addLayer(
@@ -292,13 +291,9 @@ fun QuestMap(
     LaunchedEffect(style, circle) {
         val geo = circle?.let { (c, r) ->
             val dLon = r / (111_195.0 * cos(Math.toRadians(c.latitude)))
-            val dLat = r / 111_195.0
-            val text = if (r < 1000) "${r.toInt()} m radius" else "%.1f km radius".format(r / 1000)
+            val text = if (r < 1000) "${r.toInt()} m" else "%.1f km".format(r / 1000)
             val line = JSONObject().put("type", "LineString").put("coordinates", JSONArray().put(coord(c.latitude, c.longitude)).put(coord(c.latitude, c.longitude + dLon)))
-            val knobs = listOf(
-                Triple(c.latitude, c.longitude + dLon, "main"), Triple(c.latitude + dLat, c.longitude, "minor"),
-                Triple(c.latitude - dLat, c.longitude, "minor"), Triple(c.latitude, c.longitude - dLon, "minor"),
-            ).map { (lat, lon, k) -> feature(pointGeo(lat, lon), JSONObject().put("k", k)) }
+            val knobs = listOf(feature(pointGeo(c.latitude, c.longitude + dLon)))
             Triple(listOf(feature(line)), knobs, listOf(feature(pointGeo(c.latitude, c.longitude + dLon / 2), JSONObject().put("label", text))))
         }
         style?.getSourceAs<GeoJsonSource>("radius")?.setGeoJson(fc(geo?.first ?: emptyList()))
