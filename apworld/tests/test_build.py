@@ -19,4 +19,4 @@ def test_build_produces_loadable_apworld() -> None:
     # Added by Archipelago's own builder; 0.7.0 refuses apworlds without them.
     assert manifest["compatible_version"] == 7
     assert "version" in manifest
-    assert manifest["world_version"] == "0.1.0"
+    assert manifest["world_version"] == "0.2.0"

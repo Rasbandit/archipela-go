@@ -1,0 +1,532 @@
+{
+  "schema_version": 2,
+  "goal": "boss",
+  "goal_target": 0,
+  "minutes_per_tier": 10,
+  "reduction_percent": 8,
+  "min_distance_m": 150,
+  "fog_of_war": false,
+  "return_home": false,
+  "death_link": false,
+  "enabled_traps": [
+    "freeze",
+    "fog",
+    "shuffle",
+    "silence",
+    "leash",
+    "detour",
+    "toll",
+    "slow",
+    "honor"
+  ],
+  "zones": [
+    {
+      "id": 1,
+      "mode": "walk",
+      "zone_keys_needed": 0,
+      "tool": null
+    },
+    {
+      "id": 2,
+      "mode": "bike",
+      "zone_keys_needed": 1,
+      "tool": "Bike"
+    },
+    {
+      "id": 3,
+      "mode": "drive",
+      "zone_keys_needed": 2,
+      "tool": "Car"
+    }
+  ],
+  "trips": [
+    {
+      "location_id": 8902400004001,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 7,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400008001,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "hard",
+      "effort_tier": 9,
+      "type": "steps"
+    },
+    {
+      "location_id": 8902400004002,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 6,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400000001,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "steps"
+    },
+    {
+      "location_id": 8902400000002,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400004003,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 6,
+      "type": "dwell"
+    },
+    {
+      "location_id": 8902400000003,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "dwell"
+    },
+    {
+      "location_id": 8902400000004,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "courier"
+    },
+    {
+      "location_id": 8902400000005,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400008002,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "hard",
+      "effort_tier": 10,
+      "type": "steps"
+    },
+    {
+      "location_id": 8902400008003,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "hard",
+      "effort_tier": 10,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400000006,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "courier"
+    },
+    {
+      "location_id": 8902400000007,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400004004,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400000008,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "trail"
+    },
+    {
+      "location_id": 8902400004005,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 6,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400000009,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "away"
+    },
+    {
+      "location_id": 8902400004006,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 6,
+      "type": "trail"
+    },
+    {
+      "location_id": 8902400000010,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "water"
+    },
+    {
+      "location_id": 8902400004007,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400002001,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "courier"
+    },
+    {
+      "location_id": 8902400002002,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400010001,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "hard",
+      "effort_tier": 10,
+      "type": "dwell"
+    },
+    {
+      "location_id": 8902400002003,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "explore"
+    },
+    {
+      "location_id": 8902400002004,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "away"
+    },
+    {
+      "location_id": 8902400002005,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400006001,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400006002,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "away"
+    },
+    {
+      "location_id": 8902400010002,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "hard",
+      "effort_tier": 8,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400006003,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "medium",
+      "effort_tier": 6,
+      "type": "trail"
+    },
+    {
+      "location_id": 8902400002006,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "trail"
+    },
+    {
+      "location_id": 8902400002007,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "water"
+    },
+    {
+      "location_id": 8902400006004,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "water"
+    },
+    {
+      "location_id": 8902400002008,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400010003,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "hard",
+      "effort_tier": 9,
+      "type": "away"
+    },
+    {
+      "location_id": 8902400006005,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400002009,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400006006,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "medium",
+      "effort_tier": 5,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400006007,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "medium",
+      "effort_tier": 6,
+      "type": "dwell"
+    },
+    {
+      "location_id": 8902400002010,
+      "zone": 2,
+      "mode": "bike",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400007001,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "medium",
+      "effort_tier": 5,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400003001,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400003002,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400003003,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400007002,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "courier"
+    },
+    {
+      "location_id": 8902400007003,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "dwell"
+    },
+    {
+      "location_id": 8902400007004,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400003004,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "dwell"
+    },
+    {
+      "location_id": 8902400003005,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400003006,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400011001,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "hard",
+      "effort_tier": 8,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400007005,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "away"
+    },
+    {
+      "location_id": 8902400011002,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "hard",
+      "effort_tier": 9,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400011003,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "hard",
+      "effort_tier": 9,
+      "type": "courier"
+    },
+    {
+      "location_id": 8902400003007,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400007006,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "medium",
+      "effort_tier": 7,
+      "type": "reach"
+    },
+    {
+      "location_id": 8902400003008,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "landmark"
+    },
+    {
+      "location_id": 8902400003009,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "courier"
+    },
+    {
+      "location_id": 8902400007007,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "medium",
+      "effort_tier": 6,
+      "type": "courier"
+    },
+    {
+      "location_id": 8902400003010,
+      "zone": 3,
+      "mode": "drive",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "reach"
+    }
+  ],
+  "boss": {
+    "location_id": 8902400012001,
+    "zone": 3,
+    "mode": "drive",
+    "difficulty": "hard",
+    "effort_tier": 10,
+    "type": "boss"
+  }
+}
