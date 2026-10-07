@@ -39,16 +39,25 @@ def screen_h() -> int:
 NAV = {"Realms", "New Game", "Play"}
 
 
-def tap(label: str, exact: bool = False) -> bool:
+def tap(label: str, exact: bool = False, nth: int = 0) -> bool:
     h = screen_h()
     limit = h - 20 if label in NAV else h - 260
     for _ in range(8):
+        seen = 0
         for n in nodes():
             hit = n["text"] == label if exact else label in n["text"]
             x1, y1, x2, y2 = n["box"]
             if hit and 0 < y1 and y2 < limit and y2 > y1:
-                adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
-                return True
+                if seen == nth:
+                    adb(
+                        "shell",
+                        "input",
+                        "tap",
+                        str((x1 + x2) // 2),
+                        str((y1 + y2) // 2),
+                    )
+                    return True
+                seen += 1
         adb(
             "shell",
             "input",
@@ -71,6 +80,21 @@ def main() -> int:
         ok = tap(sys.argv[2], exact=len(sys.argv) > 3)
         print("tapped" if ok else f"NOT FOUND: {sys.argv[2]}")
         return 0 if ok else 1
+    elif cmd == "tapn":
+        ok = tap(sys.argv[2], exact=True, nth=int(sys.argv[3]))
+        print("tapped" if ok else f"NOT FOUND: {sys.argv[2]}[{sys.argv[3]}]")
+        return 0 if ok else 1
+    elif cmd == "type":
+        # replace the text of the field currently showing `old` with `new`
+        if not tap(sys.argv[2], exact=True):
+            return 1
+        time.sleep(0.5)
+        adb("shell", "input", "keyevent", "KEYCODE_MOVE_END")
+        for _ in range(len(sys.argv[2]) + 2):
+            adb("shell", "input", "keyevent", "KEYCODE_DEL")
+        adb("shell", "input", "text", sys.argv[3])
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        print("typed")
     elif cmd == "wait":
         end = time.time() + float(sys.argv[3])
         while time.time() < end:

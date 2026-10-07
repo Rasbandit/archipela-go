@@ -193,12 +193,27 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     private fun offset(p: GeoPoint, northM: Double, eastM: Double) =
         GeoPoint(p.lat + northM / 111_195.0, p.lon + eastM / (111_195.0 * cos(Math.toRadians(p.lat))))
 
+    /** Escape any trap the way a real player would (thaw point, detour waypoint, toll distance, leash). */
+    private fun escapeTraps(home: GeoPoint, out: MutableList<EventOut>) {
+        repeat(4) {
+            val h = engine.hud(now()) ?: return
+            when {
+                h.thaw != null -> out += fix(h.thaw!!, 600_000)
+                h.waypoint != null -> out += fix(h.waypoint!!, 600_000)
+                h.blocked?.startsWith("Toll") == true -> { var p = home; repeat(8) { out += fix(p, 90_000); p = offset(p, 0.0, 160.0) } }
+                h.blocked?.startsWith("Leash") == true -> out += fix(home, 600_000)
+                else -> return
+            }
+        }
+    }
+
     /** Feed the engine the kind of fix sequence a real player would produce to complete [q]. */
     fun devComplete(q: QuestOut) {
         scope.launch(Dispatchers.Default) {
             val a = q.anchor
             val home = homePoint() ?: a ?: return@launch
             val out = mutableListOf<EventOut>()
+            escapeTraps(home, out)
             when (q.shape) {
                 "point", "area" -> a?.let { out += fix(it, 600_000); out += fix(it, 400_000) }
                 "dwell" -> a?.let { out += fix(it, 600_000); out += fix(it, 11 * 60_000L) }

@@ -138,16 +138,26 @@ impl Tracker {
                 self.progress = if self.done { 1.0 } else if picked_at.is_some() { 0.5 } else { 0.0 };
             }
             (Target::RoundTrip { far, r, time_limit_min }, State::RoundTrip { start, reached_far }) => {
-                let t0 = *start.get_or_insert(fix.t_ms);
-                if fix.t_ms - t0 > (*time_limit_min * 60_000.0) as i64 {
-                    *start = Some(fix.t_ms);
-                    *reached_far = false;
-                } else if !*reached_far && distance_m(p, *far) <= *r {
-                    *reached_far = true;
-                } else if *reached_far && distance_m(p, self.home) <= HOME_RADIUS_M {
-                    self.done = true;
+                // The clock starts when you leave home and stops when you are back (or the limit runs out and you start over).
+                let limit = (*time_limit_min * 60_000.0) as i64;
+                if distance_m(p, self.home) <= HOME_RADIUS_M {
+                    if *reached_far && start.is_some_and(|t0| fix.t_ms - t0 <= limit) {
+                        self.done = true;
+                    } else {
+                        *start = None;
+                        *reached_far = false;
+                    }
+                } else {
+                    if start.is_some_and(|t0| fix.t_ms - t0 > limit) {
+                        *start = None;
+                        *reached_far = false;
+                    }
+                    start.get_or_insert(fix.t_ms);
+                    if distance_m(p, *far) <= *r {
+                        *reached_far = true;
+                    }
                 }
-                self.progress = if self.done { 1.0 } else if *reached_far { 0.5 } else { 0.1 };
+                self.progress = if self.done { 1.0 } else if *reached_far { 0.5 } else if start.is_some() { 0.1 } else { 0.0 };
             }
             (Target::Cells { n, cell_m }, State::Cells { seen }) => {
                 seen.insert(cell_id(p, *cell_m));
@@ -276,6 +286,25 @@ mod tests {
         assert_ne!(t.update(&fix(home(), 60), None), Status::Done, "just being home is not a round trip");
         t.update(&fix(far, 600), None);
         assert_eq!(t.update(&fix(destination(home(), 0.0, 40.0), 1200), None), Status::Done);
+    }
+
+    #[test]
+    fn round_trip_recovers_after_a_timed_out_attempt_and_times_from_leaving_home() {
+        let far = destination(home(), 0.0, 1500.0);
+        let mut t = Tracker::new(Target::RoundTrip { far, r: 50.0, time_limit_min: 10.0 }, home());
+        // slow first attempt: leaves, reaches the far point, but is far too late getting back
+        t.update(&fix(destination(home(), 0.0, 300.0), 0), None);
+        t.update(&fix(far, 120), None);
+        assert_ne!(t.update(&fix(destination(home(), 0.0, 40.0), 120 + 700), None), Status::Done, "11+ minutes is over the 10 minute limit");
+        // second attempt starts fresh and succeeds; the far fix after a long idle must still count
+        t.update(&fix(far, 5000), None);
+        assert_eq!(t.update(&fix(home(), 5000 + 300), None), Status::Done);
+        // hanging around at home never starts the clock
+        let mut idle = Tracker::new(Target::RoundTrip { far, r: 50.0, time_limit_min: 10.0 }, home());
+        for i in 0..10 {
+            idle.update(&fix(home(), i * 600), None);
+        }
+        assert_eq!(idle.status(), Status::Idle);
     }
 
     #[test]
