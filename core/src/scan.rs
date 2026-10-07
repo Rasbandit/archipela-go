@@ -9,6 +9,10 @@ use serde_json::Value;
 use crate::catalog::{Catalog, Geom, Kind, Mode};
 use crate::geo::{centroid, distance_m, Point};
 use crate::overpass::{fetch_cached_from, Error};
+use std::time::{Duration, Instant};
+
+/// A scan stops after this long and keeps what it has; finished tiles are cached so a rescan continues.
+pub const SCAN_BUDGET: Duration = Duration::from_secs(150);
 use crate::realm::Realm;
 use crate::zone::Zone;
 
@@ -293,10 +297,18 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
 
     let zone = realm.shape.to_zone();
     let tiles = tiles(&zone);
-    let jobs: Vec<(Job, String)> = tiles
-        .iter()
-        .flat_map(|t| [(Job::Poi, poi_query_in(t, catalog)), (Job::Geom, geom_query_in(t, catalog)), (Job::Streets, crate::fill::streets_query_in(t))])
-        .collect();
+    // Places first, then streets (the generic quests), then trail/park geometry: the most valuable data lands before the budget runs out.
+    let mut jobs: Vec<(Job, String)> = Vec::new();
+    for t in &tiles {
+        jobs.push((Job::Poi, poi_query_in(t, catalog)));
+    }
+    for t in &tiles {
+        jobs.push((Job::Streets, crate::fill::streets_query_in(t)));
+    }
+    for t in &tiles {
+        jobs.push((Job::Geom, geom_query_in(t, catalog)));
+    }
+    let deadline = Instant::now() + SCAN_BUDGET;
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<(Job, Result<String, Error>)>> = Mutex::new(Vec::new());
     std::thread::scope(|s| {
@@ -304,7 +316,7 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
             s.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::SeqCst);
                 let Some((job, q)) = jobs.get(i) else { break };
-                let r = fetch_cached_from(q, cache_dir, i);
+                let r = fetch_cached_from(q, cache_dir, i, Some(deadline));
                 results.lock().unwrap_or_else(|e| e.into_inner()).push((*job, r));
             });
         }
@@ -342,8 +354,11 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
     let rough: Vec<Point> = rough.into_iter().step_by(rstride).collect();
     let mut atlas = build_atlas(&realm.id, now_ms, merge(a, b), streets, catalog);
     atlas.streets_rough = rough;
-    atlas.warnings =
-        if failed > 0 { vec![format!("{failed} of {total} map requests failed; the scan is partial. Rescan later for more places.")] } else { vec![] };
+    atlas.warnings = if failed > 0 {
+        vec![format!("{failed} of {total} map requests did not finish in time; the scan is partial. Tap Rescan to continue (finished parts are cached).")]
+    } else {
+        vec![]
+    };
     Ok(atlas)
 }
 

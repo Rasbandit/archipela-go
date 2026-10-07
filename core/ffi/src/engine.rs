@@ -44,6 +44,8 @@ pub struct RealmOut {
     pub polygon: Vec<GeoPoint>,
     pub scanned_at_ms: Option<u64>,
     pub places: u32,
+    /// Set when a scan stopped early (slow public map servers); Rescan continues from the cache.
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, uniffi::Record)]
@@ -287,8 +289,10 @@ impl Engine {
                     Shape::Circle { center, radius_m } => (Some(CircleOut { center: gp(*center), radius_m: *radius_m }), vec![]),
                     Shape::Polygon { vertices } => (None, vertices.iter().map(|p| gp(*p)).collect()),
                 };
-                let places = store.load_atlas(&r.id).map_or(0, |a| a.features.len() as u32);
-                RealmOut { id: r.id, name: r.name, mode: r.mode.name().into(), circle, polygon, scanned_at_ms: r.scanned_at_ms, places }
+                let atlas = store.load_atlas(&r.id);
+                let places = atlas.as_ref().map_or(0, |a| a.features.len() as u32);
+                let warning = atlas.and_then(|a| a.warnings.first().cloned());
+                RealmOut { id: r.id, name: r.name, mode: r.mode.name().into(), circle, polygon, scanned_at_ms: r.scanned_at_ms, places, warning }
             })
             .collect()
     }

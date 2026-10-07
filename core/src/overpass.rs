@@ -135,20 +135,36 @@ pub fn order_endpoints(health: &[i64], start: usize) -> Vec<usize> {
     idx
 }
 
-/// Try the endpoints best-first (45 s first round, a longer second round), updating their health.
+/// Try the endpoints best-first (50 s first round, a longer second round), updating their health.
 pub fn fetch(endpoints: &[&str], query: &str) -> Result<String, Error> {
-    fetch_from(endpoints, query, 0)
+    fetch_from(endpoints, query, 0, None)
 }
 
-fn fetch_from(endpoints: &[&str], query: &str, start: usize) -> Result<String, Error> {
+/// Like `fetch`, but gives up once `deadline` has passed (so a scan can return partial results instead of hanging).
+pub fn fetch_from(endpoints: &[&str], query: &str, start: usize, deadline: Option<std::time::Instant>) -> Result<String, Error> {
     use std::sync::atomic::Ordering::Relaxed;
     let mut failures = Vec::new();
-    for (round, secs) in [(0u64, 30u64), (1, 70)] {
-        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(secs))).http_status_as_error(false).build().into();
+    for (round, secs) in [(0u64, 50u64), (1, 70)] {
         let health: Vec<i64> = (0..endpoints.len()).map(|i| ENDPOINTS.iter().position(|e| *e == endpoints[i]).map_or(0, |k| HEALTH[k].load(Relaxed))).collect();
         for i in order_endpoints(&health, start) {
             let url = endpoints[i];
             let slot = ENDPOINTS.iter().position(|e| *e == url);
+            // second round: only retry servers that are not known to be failing
+            if round == 1 && slot.is_some_and(|k| HEALTH[k].load(Relaxed) < -3) {
+                continue;
+            }
+            let budget = match deadline {
+                Some(d) => {
+                    let left = d.saturating_duration_since(std::time::Instant::now());
+                    if left < Duration::from_secs(3) {
+                        failures.push("time budget used up".to_string());
+                        return Err(Error::AllEndpointsFailed(failures));
+                    }
+                    left.min(Duration::from_secs(secs))
+                }
+                None => Duration::from_secs(secs),
+            };
+            let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(budget)).http_status_as_error(false).build().into();
             match post(&agent, url, query) {
                 Ok(body) => {
                     if let Some(k) = slot {
@@ -164,6 +180,9 @@ fn fetch_from(endpoints: &[&str], query: &str, start: usize) -> Result<String, E
                 }
             }
         }
+        if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            break;
+        }
         std::thread::sleep(Duration::from_secs(2 + round * 3));
     }
     Err(Error::AllEndpointsFailed(failures))
@@ -175,7 +194,7 @@ fn fnv1a(s: &str) -> u64 {
 
 /// Fetch any query with an on-disk cache keyed by the query text (30-day freshness).
 /// `start` rotates which endpoint is tried first so parallel jobs spread across servers.
-pub fn fetch_cached_from(query: &str, cache_dir: Option<&Path>, start: usize) -> Result<String, Error> {
+pub fn fetch_cached_from(query: &str, cache_dir: Option<&Path>, start: usize, deadline: Option<std::time::Instant>) -> Result<String, Error> {
     let file = cache_dir.map(|d| d.join(format!("q-{:016x}.json", fnv1a(query))));
     if let Some(f) = &file {
         let fresh =
@@ -184,7 +203,7 @@ pub fn fetch_cached_from(query: &str, cache_dir: Option<&Path>, start: usize) ->
             return Ok(std::fs::read_to_string(f)?);
         }
     }
-    let body = fetch_from(&ENDPOINTS, query, start)?;
+    let body = fetch_from(&ENDPOINTS, query, start, deadline)?;
     if let Some(f) = &file {
         if let Some(dir) = f.parent() {
             std::fs::create_dir_all(dir)?;
@@ -195,7 +214,7 @@ pub fn fetch_cached_from(query: &str, cache_dir: Option<&Path>, start: usize) ->
 }
 
 pub fn fetch_cached(query: &str, cache_dir: Option<&Path>) -> Result<String, Error> {
-    fetch_cached_from(query, cache_dir, 0)
+    fetch_cached_from(query, cache_dir, 0, None)
 }
 
 /// Candidates around `home`, fetched once per ~5 km tile and cached on disk for 30 days.
@@ -257,6 +276,14 @@ mod tests {
         assert!(q.contains("around:5000,45.5,-122.6"));
         assert!(q.contains("[out:json]"));
         assert!(q.contains("out center"));
+    }
+
+    #[test]
+    fn a_passed_deadline_fails_fast_without_network_or_sleeping() {
+        let t0 = std::time::Instant::now();
+        let r = fetch_from(&["http://127.0.0.1:9/x"], "q", 0, Some(std::time::Instant::now()));
+        assert!(matches!(r, Err(Error::AllEndpointsFailed(_))));
+        assert!(t0.elapsed() < Duration::from_secs(2));
     }
 
     #[test]

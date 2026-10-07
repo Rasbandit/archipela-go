@@ -19,7 +19,8 @@ for _ in 1 2 3; do adb emu geo fix "$lon" "$lat" >/dev/null 2>&1; sleep 2; done
 
 echo "1/4 creating a realm and scanning (public map servers; can take a few minutes)"
 ui tap "Circle around me" >/dev/null
-ui wait "Scan done" 600 >/dev/null || { echo "FAIL: scan did not finish"; exit 1; }
+ui wait "Scan " 360 >/dev/null || { echo "FAIL: scan did not finish"; exit 1; }
+ui texts | grep -q "Scan failed" && { echo "FAIL: scan failed (network?)"; exit 1; }
 echo "2/4 starting a solo game"
 ui tap "New Game" exact >/dev/null; sleep 1
 ui tap "+ Around me (walk)" >/dev/null; sleep 1

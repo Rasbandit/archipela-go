@@ -159,6 +159,7 @@ fun RealmsScreen(m: AppModel) {
                         }
                         val on = m.offers[r.id].orEmpty()
                         Text(if (r.scannedAtMs == null) "Not scanned yet" else "${r.places} places · ${on.size} quest kinds on offer", fontSize = 12.sp)
+                        r.warning?.let { Text("⚠ $it", fontSize = 11.sp, color = Color(0xFFE65100)) }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedButton(onClick = { m.scan(r.id) }) { Text(if (r.scannedAtMs == null) "Scan" else "Rescan", fontSize = 12.sp) }
                             OutlinedButton(onClick = { m.deleteRealm(r.id) }) { Text("Delete", fontSize = 12.sp) }
