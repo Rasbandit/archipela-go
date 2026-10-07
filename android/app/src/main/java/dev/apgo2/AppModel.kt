@@ -162,7 +162,10 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             is EventOut.ZoneUnlocked -> say("Zone ${e.zone} unlocked!")
             is EventOut.Trap -> say(e.message)
             is EventOut.Discovered -> {}
-            is EventOut.GoalAchieved -> { say("GOAL ACHIEVED: ${e.label}"); status = "You won! ${e.label}" }
+            is EventOut.GoalAchieved -> {
+                say("GOAL ACHIEVED: ${e.label}"); status = "You won! ${e.label}"
+                if (hud?.backend == "archipelago") runCatching { session?.sendGoal() }.onFailure { say("could not report goal: ${it.message}") }
+            }
             is EventOut.Info -> say(e.text)
             is EventOut.SendCheck -> runCatching { session?.sendCheck(e.locationId) }.onFailure { say("check failed: ${it.message}") }
             is EventOut.ShuffleRequested -> runCatching { engine.reroll(emptyList(), Random.nextLong().toULong() shr 1) }

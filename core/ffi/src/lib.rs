@@ -266,6 +266,13 @@ impl ApSession {
         client.checked_locations().map(|l| l.id()).collect()
     }
 
+    /// Tell the server this slot has reached its goal (shows as complete for the whole multiworld).
+    pub fn send_goal(&self) -> Result<(), CoreError> {
+        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let client = conn.client_mut().ok_or_else(|| CoreError::Failed { detail: "not connected".into() })?;
+        client.set_status(ap::ClientStatus::Goal).map_err(|e| CoreError::Failed { detail: e.to_string() })
+    }
+
     /// Tell the server this location was checked.
     pub fn send_check(&self, location_id: i64) -> Result<(), CoreError> {
         let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
