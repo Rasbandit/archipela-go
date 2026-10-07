@@ -13,6 +13,9 @@ use crate::overpass::{fetch_cached_from, Error};
 use std::time::{Duration, Instant};
 
 /// A scan stops after this long and keeps what it has; finished tiles are cached so a rescan continues.
+/// Street points are generated this far apart along each street.
+pub const STREET_SPACING_M: f64 = 60.0;
+
 pub const SCAN_BUDGET: Duration = Duration::from_secs(240);
 use crate::realm::Realm;
 use crate::zone::Zone;
@@ -41,6 +44,9 @@ pub struct Atlas {
     pub matches: BTreeMap<String, Vec<usize>>,
     #[serde(default)]
     pub warnings: Vec<String>,
+    /// Every this-many street points were kept (the rest dropped to keep the atlas small); 0 or 1 means all.
+    #[serde(default)]
+    pub street_stride: u32,
     /// The player's favorite places, set by [`Atlas::apply_marks`] when a game is prepared; never saved with the scan.
     #[serde(skip)]
     pub favorites: BTreeSet<String>,
@@ -56,6 +62,21 @@ impl Atlas {
         self.matches.retain(|_, v| !v.is_empty());
         self.streets.retain(|&p| zone.contains(p));
         self.streets_rough.retain(|&p| zone.contains(p));
+    }
+
+    /// Walkable street length inside the atlas, in metres: the street points are spaced [`STREET_SPACING_M`] apart.
+    pub fn walkable_m(&self) -> f64 {
+        (self.streets.len() + self.streets_rough.len()) as f64 * f64::from(self.street_stride.max(1)) * STREET_SPACING_M
+    }
+
+    /// The share of walkable street that is rough going (unpaved, unknown-surface paths, stairs), 0..1.
+    pub fn rough_share(&self) -> f64 {
+        let all = self.streets.len() + self.streets_rough.len();
+        if all == 0 {
+            0.0
+        } else {
+            self.streets_rough.len() as f64 / all as f64
+        }
     }
 
     /// Prepare the atlas for play with the player's marks: banned places drop out of every kind's matches, favorites are remembered.
@@ -342,6 +363,7 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
         streets_rough: vec![],
         matches,
         warnings: vec![],
+        street_stride: 1,
         favorites: BTreeSet::new(),
     }
 }
@@ -469,6 +491,8 @@ pub fn scan_with(
     let results = run_jobs(&jobs, fetch, pacing, deadline, progress);
 
     let (mut a, mut b, mut streets, mut rough) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    // A street that crosses a tile edge comes back from every tile it touches: each street point is kept once.
+    let mut seen_street_points = std::collections::HashSet::new();
     let (mut failed, total) = (0usize, jobs.len());
     let mut last_err = None;
     for ((job, _), r) in jobs.iter().zip(results) {
@@ -477,7 +501,10 @@ pub fn scan_with(
                 Job::Poi => a.extend(parse_features(&body).unwrap_or_default()),
                 Job::Geom => b.extend(parse_features(&body).unwrap_or_default()),
                 Job::Streets => {
-                    for c in crate::fill::parse_streets(&body, &zone, 60.0).unwrap_or_default() {
+                    for c in crate::fill::parse_streets(&body, &zone, STREET_SPACING_M).unwrap_or_default() {
+                        if !seen_street_points.insert(c.id.clone()) {
+                            continue;
+                        }
                         if c.rough {
                             rough.push(c.point)
                         } else {
@@ -496,12 +523,13 @@ pub fn scan_with(
     if failed == total {
         return Err(last_err.unwrap_or(Error::Parse("nothing could be fetched".into())));
     }
-    let stride = (streets.len() / 12_000).max(1);
+    // Keep the atlas small: thin the street points, but remember by how much so lengths can still be worked out.
+    let stride = ((streets.len() + rough.len()) / 16_000).max(1);
     let streets = streets.into_iter().step_by(stride).collect();
-    let rstride = (rough.len() / 4_000).max(1);
-    let rough: Vec<Point> = rough.into_iter().step_by(rstride).collect();
+    let rough: Vec<Point> = rough.into_iter().step_by(stride).collect();
     let mut atlas = build_atlas(&realm.id, now_ms, retain_in_zone(merge(a, b), &zone), streets, catalog);
     atlas.streets_rough = rough;
+    atlas.street_stride = stride as u32;
     atlas.warnings = if failed > 0 { vec![format!("{failed} of {total} map requests are still pending")] } else { vec![] };
     Ok(atlas)
 }
@@ -574,6 +602,27 @@ mod tests {
             scan_with(&small_realm(Point::new(40.0, -111.0), 600.0), &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {}).unwrap();
         assert!(!a.warnings.is_empty());
         assert!(a.matches.contains_key("bench_warmer"), "what did arrive is kept");
+    }
+
+    #[test]
+    fn a_street_crossing_two_tiles_is_counted_once_and_the_atlas_remembers_its_total_length() {
+        let cat = Catalog::builtin();
+        // one way, 1.2 km long, that every tile it touches returns in full
+        let o = Point::new(40.0095, -111.0);
+        let way = |a: Point, b: Point| {
+            format!(
+                r#"{{"type":"way","id":77,"tags":{{"highway":"residential"}},"geometry":[{{"lat":{},"lon":{}}},{{"lat":{},"lon":{}}}]}}"#,
+                a.lat, a.lon, b.lat, b.lon
+            )
+        };
+        let body = format!(r#"{{"elements":[{}]}}"#, way(o, crate::geo::destination(o, 0.0, 1200.0))); // crosses the 40.01 tile edge
+        let fetch = |q: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
+            Ok(if q.contains("\"highway\"~") && q.contains("out geom qt") { body.clone() } else { r#"{"elements":[]}"#.to_string() })
+        };
+        let a = scan_with(&small_realm(Point::new(40.0105, -111.0), 2000.0), &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {})
+            .unwrap();
+        let metres = a.walkable_m();
+        assert!((1100.0..1300.0).contains(&metres), "one 1.2 km street, not two copies of it: {metres}");
     }
 
     #[test]

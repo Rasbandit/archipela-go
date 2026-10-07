@@ -9,6 +9,13 @@ use crate::marks::Marks;
 use crate::scan::Atlas;
 use crate::zone::Zone;
 
+/// Metres east/north of the first vertex, on a flat map: enough for shapes a few kilometres across.
+fn flatten(vertices: &[Point]) -> Vec<(f64, f64)> {
+    let o = vertices[0];
+    let k = o.lat.to_radians().cos();
+    vertices.iter().map(|v| ((v.lon - o.lon) * 111_195.0 * k, (v.lat - o.lat) * 111_195.0)).collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Shape {
@@ -28,6 +35,37 @@ impl Shape {
         match self {
             Shape::Circle { center, .. } => *center,
             Shape::Polygon { vertices } => centroid(vertices),
+        }
+    }
+
+    /// Area in square metres. A polygon is measured on a flat map centred on itself (accurate for realm-sized shapes).
+    pub fn area_m2(&self) -> f64 {
+        match self {
+            Shape::Circle { radius_m, .. } => std::f64::consts::PI * radius_m * radius_m,
+            Shape::Polygon { vertices } if vertices.len() >= 3 => {
+                let flat = flatten(vertices);
+                (0..flat.len()).map(|i| flat[i].0 * flat[(i + 1) % flat.len()].1 - flat[(i + 1) % flat.len()].0 * flat[i].1).sum::<f64>().abs() / 2.0
+            }
+            Shape::Polygon { .. } => 0.0,
+        }
+    }
+
+    /// Length of the outline in metres.
+    pub fn perimeter_m(&self) -> f64 {
+        match self {
+            Shape::Circle { radius_m, .. } => 2.0 * std::f64::consts::PI * radius_m,
+            Shape::Polygon { vertices } if vertices.len() >= 3 => {
+                (0..vertices.len()).map(|i| crate::geo::distance_m(vertices[i], vertices[(i + 1) % vertices.len()])).sum()
+            }
+            Shape::Polygon { .. } => 0.0,
+        }
+    }
+
+    /// The farthest any part of the shape is from `from`, in a straight line.
+    pub fn farthest_m(&self, from: Point) -> f64 {
+        match self {
+            Shape::Circle { center, radius_m } => crate::geo::distance_m(from, *center) + radius_m,
+            Shape::Polygon { vertices } => vertices.iter().map(|v| crate::geo::distance_m(from, *v)).fold(0.0, f64::max),
         }
     }
 
@@ -234,6 +272,36 @@ mod tests {
         let store = RealmStore::new(&dir);
         assert_eq!((store.get("a").unwrap().name, store.get("b").unwrap().name), ("Old".to_string(), "Newer".to_string()));
         assert_eq!(store.get("a").unwrap().icon, None);
+    }
+
+    #[test]
+    fn a_circle_has_the_area_perimeter_and_reach_of_a_circle() {
+        let center = Point::new(40.0, -111.0);
+        let c = Shape::Circle { center, radius_m: 1000.0 };
+        assert!((c.area_m2() - std::f64::consts::PI * 1_000_000.0).abs() < 1.0);
+        assert!((c.perimeter_m() - 2.0 * std::f64::consts::PI * 1000.0).abs() < 1.0);
+        let home = crate::geo::destination(center, 90.0, 400.0);
+        assert!((c.farthest_m(home) - 1400.0).abs() < 2.0, "the far side of the circle is distance + radius from home");
+        assert!((c.farthest_m(center) - 1000.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_polygon_has_its_own_area_perimeter_and_farthest_corner() {
+        let o = Point::new(40.0, -111.0);
+        let (e, ne, n) = (crate::geo::destination(o, 90.0, 1000.0), Point::new(0.0, 0.0), crate::geo::destination(o, 0.0, 1000.0));
+        let _ = ne;
+        let square = Shape::Polygon { vertices: vec![o, e, Point::new(n.lat, e.lon), n] };
+        let area = square.area_m2();
+        assert!((area - 1_000_000.0).abs() < 15_000.0, "about 1 km2, got {area}");
+        assert!((square.perimeter_m() - 4000.0).abs() < 40.0);
+        let far = square.farthest_m(o);
+        assert!((far - 1414.0).abs() < 25.0, "the opposite corner is about 1.41 km away, got {far}");
+    }
+
+    #[test]
+    fn nothing_is_measured_for_a_shape_that_is_not_one_yet() {
+        let two = Shape::Polygon { vertices: vec![Point::new(0.0, 0.0), Point::new(0.0, 0.01)] };
+        assert_eq!((two.area_m2(), two.perimeter_m()), (0.0, 0.0));
     }
 
     #[test]

@@ -93,6 +93,29 @@ pub struct FindOut {
     pub mark: String,
 }
 
+/// Measurements of a shape that need no scan: they can follow a drag live.
+#[derive(Debug, uniffi::Record)]
+pub struct ShapeStatsOut {
+    pub area_m2: f64,
+    pub perimeter_m: f64,
+    /// How far the farthest part of the shape is from home in a straight line.
+    pub farthest_m: f64,
+}
+
+/// What the scan found in a realm.
+#[derive(Debug, uniffi::Record)]
+pub struct RealmStatsOut {
+    /// Total length of walkable streets and paths.
+    pub walkable_m: f64,
+    /// Share of that which is rough going (unpaved, unknown surface, stairs), 0 to 1.
+    pub rough_share: f64,
+    /// Total length of the trails (named paths and the like) that can serve quests.
+    pub trail_m: f64,
+    pub parks: u32,
+    pub finds: u32,
+    pub quest_types: u32,
+}
+
 #[derive(Debug, uniffi::Record)]
 pub struct ScanPlanOut {
     pub tiles: u32,
@@ -403,6 +426,42 @@ impl Engine {
 
     pub fn delete_realm(&self, id: String) -> Result<(), CoreError> {
         self.store().delete(&id).map_err(err)
+    }
+
+    /// Measurements of a shape as drawn (no scan needed). `home` is where distances are measured from; the shape's own centre if none is set.
+    pub fn shape_stats(&self, circle: Option<CircleOut>, polygon: Vec<GeoPoint>, polygon_active: bool, home: Option<GeoPoint>) -> ShapeStatsOut {
+        let shape = match (polygon_active, circle) {
+            (false, Some(c)) => Shape::Circle { center: pt(&c.center), radius_m: c.radius_m },
+            _ => Shape::Polygon { vertices: polygon.iter().map(pt).collect() },
+        };
+        let from = home.map(|h| pt(&h)).unwrap_or_else(|| shape.center());
+        ShapeStatsOut { area_m2: shape.area_m2(), perimeter_m: shape.perimeter_m(), farthest_m: shape.farthest_m(from) }
+    }
+
+    /// What the scan found in the realm (inside its current shape), or none if it has not been scanned.
+    pub fn realm_stats(&self, id: String) -> Option<RealmStatsOut> {
+        let store = self.store();
+        let realm = store.get(&id)?;
+        let mut atlas = self.zoned_atlas(&realm)?;
+        atlas.apply_marks(&store.marks(&id));
+        let places = self.kinds_by_place(&atlas);
+        let (mut trail_m, mut parks) = (0.0, 0u32);
+        for (&i, kinds) in &places {
+            if kinds.iter().any(|k| k.family == "trail") {
+                trail_m += apgo_core::geo::polyline_len_m(&atlas.features[i].geometry);
+            }
+            if kinds.iter().any(|k| k.family == "park") {
+                parks += 1;
+            }
+        }
+        Some(RealmStatsOut {
+            walkable_m: atlas.walkable_m(),
+            rough_share: atlas.rough_share(),
+            trail_m,
+            parks,
+            finds: places.len() as u32,
+            quest_types: self.offers_of(&atlas).len() as u32,
+        })
     }
 
     /// What scanning a realm would cost right now: tiles and requests, and how many are not in the cache yet (those are the ones that go to the network).
