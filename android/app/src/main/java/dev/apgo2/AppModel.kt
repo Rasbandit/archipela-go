@@ -48,6 +48,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     var realLoc by mutableStateOf<Location?>(null)
     var simPos by mutableStateOf<LatLng?>(null)
     var drawing by mutableStateOf(false)
+    var home by mutableStateOf<GeoPoint?>(null)
     val draft = mutableStateListOf<LatLng>()
     var selected by mutableStateOf<Long?>(null)
     var yamlText by mutableStateOf<String?>(null)
@@ -78,6 +79,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
 
     fun refreshAll() {
         realms = engine.realms()
+        home = engine.home()
         games = engine.games()
         realms.forEach { offers[it.id] = engine.realmOffers(it.id) }
         refreshPlay()
@@ -130,8 +132,13 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
 
     fun setHomeHere() {
         val c = me ?: run { status = "No location yet"; return }
-        runCatching { engine.setHome(GeoPoint(c.latitude, c.longitude)) }
-        status = "Home set to this spot"
+        setHome(c)
+    }
+
+    fun setHome(p: LatLng) {
+        runCatching { engine.setHome(GeoPoint(p.latitude, p.longitude)) }
+            .onSuccess { home = engine.home(); status = "Home set" }
+            .onFailure { status = "Could not set home: ${it.message}" }
     }
 
     // ------------------------------------------------------------------- games

@@ -2,6 +2,7 @@ package dev.apgo2
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import org.maplibre.android.geometry.LatLng
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -144,12 +146,18 @@ fun RealmsScreen(m: AppModel) {
         } else {
             Text("Tap the map to add points (${m.draft.size}); 3+ makes a realm.", fontSize = 12.sp)
         }
-        QuestMap(emptyList(), m.realms, m.draft, m.me, null, null, null, { if (m.drawing) m.draft.add(it) }, Modifier.fillMaxWidth().height(if (m.drawing) 360.dp else 200.dp))
+        // A snapshot copy: the map reacts to a new list, not to the same mutable list changing.
+        QuestMap(
+            emptyList(), m.realms, m.draft.toList(), m.me, null, null, null, { if (m.drawing) m.draft.add(it) },
+            Modifier.fillMaxWidth().weight(1f).heightIn(min = 200.dp),
+            home = m.home?.let { LatLng(it.lat, it.lon) },
+            onMapLongClick = { if (!m.drawing) m.setHome(it) },
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = { m.setHomeHere() }) { Text("Set home here", fontSize = 12.sp) }
-            Text("Home is where distances are measured from.", fontSize = 11.sp)
+            Text("Home (green) is where distances are measured from. Long-press the map to place it anywhere.", fontSize = 11.sp)
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (!m.drawing) LazyColumn(Modifier.heightIn(max = 180.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(m.realms, key = { it.id }) { r ->
                 Card(Modifier.fillMaxWidth().clickable { expanded = if (expanded == r.id) null else r.id }) {
                     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -347,6 +355,7 @@ fun PlayScreen(m: AppModel) {
                 }?.let { m.selected = it.locationId }
             },
             Modifier.fillMaxWidth().height(260.dp),
+            home = m.home?.let { LatLng(it.lat, it.lon) },
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(onClick = { m.devTeleportNext() }) { Text("DEV: do next", fontSize = 11.sp) }

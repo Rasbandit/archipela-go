@@ -127,6 +127,8 @@ fun QuestMap(
     selected: Long?,
     onMapClick: (LatLng) -> Unit,
     modifier: Modifier = Modifier,
+    home: LatLng? = null,
+    onMapLongClick: ((LatLng) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val mapView = remember {
@@ -137,6 +139,7 @@ fun QuestMap(
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var centered by remember { mutableStateOf(false) }
     val clickHandler by rememberUpdatedState(onMapClick)
+    val longClickHandler by rememberUpdatedState(onMapLongClick)
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, mapView) {
@@ -159,9 +162,10 @@ fun QuestMap(
         mapView.getMapAsync { m ->
             map = m
             m.addOnMapClickListener { ll -> clickHandler(ll); true }
+            m.addOnMapLongClickListener { ll -> longClickHandler?.invoke(ll) != null }
             m.setStyle(Style.Builder().fromUri(STYLE_URL)) { s ->
                 val empty = fc(emptyList())
-                listOf("realms", "areas", "lines", "quests", "draft", "marks", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
+                listOf("realms", "areas", "lines", "quests", "draft", "marks", "home", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
                 s.addLayer(FillLayer("realms-fill", "realms").withProperties(fillColor("#1565c0"), fillOpacity(0.07f)))
                 s.addLayer(LineLayer("realms-line", "realms").withProperties(lineColor("#1565c0"), lineWidth(1.8f)))
                 s.addLayer(FillLayer("areas-fill", "areas").withProperties(fillColor(stateColor()), fillOpacity(0.18f)))
@@ -189,6 +193,8 @@ fun QuestMap(
                 s.addLayer(FillLayer("draft-fill", "draft").withProperties(fillColor("#ef6c00"), fillOpacity(0.15f)))
                 s.addLayer(CircleLayer("draft-pts", "draft").withProperties(circleRadius(5f), circleColor("#ef6c00"), circleStrokeColor("#ffffff"), circleStrokeWidth(1.5f)))
                 s.addLayer(CircleLayer("marks-layer", "marks").withProperties(circleRadius(12f), circleColor(Expression.get("color")), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
+                s.addLayer(CircleLayer("home-ring", "home").withProperties(circleRadius(14f), circleColor("#2e7d32"), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
+                s.addLayer(CircleLayer("home-dot", "home").withProperties(circleRadius(5f), circleColor("#ffffff")))
                 s.addLayer(CircleLayer("me-layer", "me").withProperties(circleRadius(9f), circleColor("#1565c0"), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
                 style = s
             }
@@ -208,6 +214,9 @@ fun QuestMap(
         waypoint?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", "#8e24aa")) }
         style?.getSourceAs<GeoJsonSource>("marks")?.setGeoJson(fc(marks))
     }
+    LaunchedEffect(style, home) {
+        style?.getSourceAs<GeoJsonSource>("home")?.setGeoJson(fc(home?.let { listOf(feature(pointGeo(it.latitude, it.longitude))) } ?: emptyList()))
+    }
     LaunchedEffect(style, me) {
         style?.getSourceAs<GeoJsonSource>("me")?.setGeoJson(fc(me?.let { listOf(feature(pointGeo(it.latitude, it.longitude))) } ?: emptyList()))
     }
@@ -215,7 +224,7 @@ fun QuestMap(
     LaunchedEffect(style, me, quests.isNotEmpty(), realms.size) {
         val m = map ?: return@LaunchedEffect
         if (style == null || centered) return@LaunchedEffect
-        val pts = quests.filter { it.state != "hidden" }.mapNotNull { q -> q.anchor?.let { LatLng(it.lat, it.lon) } } + listOfNotNull(me)
+        val pts = quests.filter { it.state != "hidden" }.mapNotNull { q -> q.anchor?.let { LatLng(it.lat, it.lon) } } + listOfNotNull(me, home)
         val realmPts = if (pts.isEmpty()) realms.flatMap { r -> r.circle?.let { listOf(LatLng(it.center.lat, it.center.lon)) } ?: r.polygon.map { LatLng(it.lat, it.lon) } } else emptyList()
         val all = pts + realmPts
         if (all.isEmpty()) return@LaunchedEffect
