@@ -5,6 +5,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -23,10 +24,16 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
+import org.maplibre.android.style.layers.PropertyFactory.fillColor
+import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
+import org.maplibre.android.style.layers.PropertyFactory.lineColor
+import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.sources.GeoJsonSource
 
 /** A generated real-world point for one apworld trip. `state`: open | locked | done. */
@@ -67,8 +74,40 @@ private fun mePoint(me: LatLng?): String {
     return JSONObject().put("type", "FeatureCollection").put("features", features).toString()
 }
 
+private fun zoneGeoJson(zone: List<LatLng>): String {
+    val ring = JSONArray()
+    zone.forEach { ring.put(JSONArray().put(it.longitude).put(it.latitude)) }
+    val features = JSONArray()
+    if (zone.size >= 3) {
+        ring.put(JSONArray().put(zone[0].longitude).put(zone[0].latitude))
+        features.put(
+            JSONObject().put("type", "Feature").put("properties", JSONObject())
+                .put("geometry", JSONObject().put("type", "Polygon").put("coordinates", JSONArray().put(ring))),
+        )
+    } else if (zone.size == 2) {
+        features.put(
+            JSONObject().put("type", "Feature").put("properties", JSONObject())
+                .put("geometry", JSONObject().put("type", "LineString").put("coordinates", ring)),
+        )
+    }
+    zone.forEach {
+        features.put(
+            JSONObject().put("type", "Feature").put("properties", JSONObject())
+                .put("geometry", JSONObject().put("type", "Point").put("coordinates", JSONArray().put(it.longitude).put(it.latitude))),
+        )
+    }
+    return JSONObject().put("type", "FeatureCollection").put("features", features).toString()
+}
+
 @Composable
-fun TripMap(trips: List<GameTrip>, me: LatLng?, modifier: Modifier = Modifier) {
+fun TripMap(
+    trips: List<GameTrip>,
+    me: LatLng?,
+    zone: List<LatLng>,
+    onMapClick: (LatLng) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val clickHandler by rememberUpdatedState(onMapClick)
     val context = LocalContext.current
     val mapView = remember {
         MapLibre.getInstance(context)
@@ -98,7 +137,17 @@ fun TripMap(trips: List<GameTrip>, me: LatLng?, modifier: Modifier = Modifier) {
     LaunchedEffect(mapView) {
         mapView.getMapAsync { m ->
             map = m
+            m.addOnMapClickListener { latLng ->
+                clickHandler(latLng)
+                true
+            }
             m.setStyle(Style.Builder().fromUri(STYLE_URL)) { s ->
+                s.addSource(GeoJsonSource("zone", zoneGeoJson(emptyList())))
+                s.addLayer(FillLayer("zone-fill", "zone").withProperties(fillColor("#1565c0"), fillOpacity(0.15f)))
+                s.addLayer(LineLayer("zone-line", "zone").withProperties(lineColor("#1565c0"), lineWidth(2.5f)))
+                s.addLayer(
+                    CircleLayer("zone-points", "zone").withProperties(circleRadius(5f), circleColor("#1565c0"), circleStrokeColor("#ffffff"), circleStrokeWidth(1.5f)),
+                )
                 s.addSource(GeoJsonSource("trips", tripsGeoJson(emptyList())))
                 s.addLayer(
                     CircleLayer("trips-circles", "trips").withProperties(
@@ -131,6 +180,9 @@ fun TripMap(trips: List<GameTrip>, me: LatLng?, modifier: Modifier = Modifier) {
 
     LaunchedEffect(style, trips) {
         style?.getSourceAs<GeoJsonSource>("trips")?.setGeoJson(tripsGeoJson(trips))
+    }
+    LaunchedEffect(style, zone) {
+        style?.getSourceAs<GeoJsonSource>("zone")?.setGeoJson(zoneGeoJson(zone))
     }
     LaunchedEffect(style, me) {
         style?.getSourceAs<GeoJsonSource>("me")?.setGeoJson(mePoint(me))

@@ -34,6 +34,11 @@ Flow: Connect -> `slot_data.trips` (location_id, distance_tier, key_needed) -> `
 -> live location (`requestLocationUpdates`, 1 s) -> geofence 40 m sends `LocationChecks` for OPEN trips -> items arrive -> `Progressive Key` count unlocks trips with
 `key_needed <= keys`. Measured on the Pixel: 100 trips placed in 1.08 s (cells), 77 locked at start; after 20 checks a key arrived and locked fell 77 -> 52.
 Dev testing without walking: "DEV: teleport to next" injects a simulated position (real code path from position to check); "Use real GPS" restores. Header shows SIMULATED/real.
+Play zone (Spike E): "Draw zone" then tap the map to add polygon points (Undo / Clear zone); Fill uses the polygon if 3+ points, else a circle around you.
+FFI `generate_trips_for(ZoneIn::Polygon{vertices}|Circle{center, step_m}, specs, seed, mode, cache)`; polygon tiers are tenths of the polygon's extent from its centroid
+(`slot_data.tier_step_m` only applies to circle mode). Streets mode sends the polygon to Overpass as a `poly:` filter. Verified on the Pixel by adb-tapping four corners:
+100 trips placed in 480 ms, 96 in band, all inside. Observed: trips crowd toward the centroid (one per tier per band, bands grow with radius): add blue-noise/area-weighted spread.
+Gotcha: pass `zonePts.toList()` (a copy) to the map composable; the same mutable list object never retriggers `LaunchedEffect`.
 Known gaps: geofence/lock logic is in Kotlin (move to the Rust core with tests before iOS); trips are not persisted (regenerate each launch, seed 1 is deterministic for cells);
 checked state is local only (should come from `Client::checked_locations` on reconnect); no foreground service or background location; no reroll/ban; foreground-only.
 

@@ -49,27 +49,45 @@ pub struct TripSpecIn {
     pub tier: u8,
 }
 
-/// Fill a circular zone for the trips the apworld assigned (`slot_data.trips`): each gets a point in its tier band.
-/// `step_m` is the effective meters per tier (`tier_step_m * (1-p)^reductions`).
+#[derive(Debug, uniffi::Enum)]
+pub enum ZoneIn {
+    /// Circle around `center`; `step_m` is the effective meters per tier (radius = 10 steps).
+    Circle { center: GeoPoint, step_m: f64 },
+    /// Any drawn polygon (3+ vertices); tiers are tenths of the polygon's extent from its center.
+    Polygon { vertices: Vec<GeoPoint> },
+}
+
+/// Fill a zone for the trips the apworld assigned (`slot_data.trips`): each gets a point in its tier band.
 #[uniffi::export]
 pub fn generate_trips_for(
-    center: GeoPoint,
-    step_m: f64,
+    zone: ZoneIn,
     specs: Vec<TripSpecIn>,
     seed: u64,
     mode: FillMode,
     cache_dir: String,
 ) -> Result<Vec<TripOut>, CoreError> {
-    let zone = Zone::Circle { center: Point::new(center.lat, center.lon), radius_m: step_m * 10.0 };
+    let (zone, step_m) = match zone {
+        ZoneIn::Circle { center, step_m } => {
+            (Zone::Circle { center: Point::new(center.lat, center.lon), radius_m: step_m * 10.0 }, step_m)
+        }
+        ZoneIn::Polygon { vertices } => {
+            if vertices.len() < 3 {
+                return Err(CoreError::Failed { detail: "a zone needs at least 3 points".into() });
+            }
+            let z = Zone::Polygon(vertices.iter().map(|v| Point::new(v.lat, v.lon)).collect());
+            let step = z.max_extent_m() / 10.0;
+            (z, step)
+        }
+    };
     let candidates = match mode {
-        FillMode::Cells => lattice(&zone, 150.0),
+        FillMode::Cells => lattice(&zone, (step_m / 3.0).clamp(30.0, 150.0)),
         FillMode::Streets => {
             fetch_streets(&zone, 50.0, Some(&PathBuf::from(cache_dir))).map_err(|e| CoreError::Failed { detail: e.to_string() })?
         }
     };
     let core_specs: Vec<TripSpec> =
         specs.iter().enumerate().map(|(i, s)| TripSpec { number: i as u32 + 1, tier: s.tier }).collect();
-    let out = sample(&candidates, zone.home(), &core_specs, step_m, 75.0, seed);
+    let out = sample(&candidates, zone.home(), &core_specs, step_m, 40.0, seed);
     Ok(out
         .into_iter()
         .map(|t| TripOut {
