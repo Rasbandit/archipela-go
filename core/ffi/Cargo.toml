@@ -1,0 +1,18 @@
+[package]
+name = "apgo-ffi"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+description = "UniFFI bindings (Kotlin now, Swift later) over apgo-core"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "apgo_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+apgo-core = { path = ".." }
+uniffi = { version = "0.32", features = ["cli"] }

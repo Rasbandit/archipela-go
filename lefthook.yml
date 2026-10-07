@@ -8,7 +8,7 @@ pre-commit:
       glob: "*.py"
       run: uv run --project apworld ruff check {staged_files}
     typos:
-      run: typos {staged_files}
+      run: typos --force-exclude {staged_files}
     gitleaks:
       run: gitleaks protect --staged --no-banner
 pre-push:

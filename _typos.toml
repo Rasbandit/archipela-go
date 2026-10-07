@@ -1,3 +1,6 @@
+[files]
+extend-exclude = ["*.jar", "*.png", "*.so", "Cargo.lock"]
+
 [default.extend-words]
 Rin = "Rin"
 certifi = "certifi"

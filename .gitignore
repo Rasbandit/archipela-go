@@ -8,3 +8,11 @@ __pycache__/
 .ruff_cache/
 .pyright/
 *.apworld
+core/target/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/jniLibs/
+android/local.properties
+*.iml
+android/app/src/main/kotlin/uniffi/
