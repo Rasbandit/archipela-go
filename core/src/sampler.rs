@@ -96,6 +96,7 @@ mod tests {
             point: Point::new(40.0 + north_m / 111_195.0, -111.0),
             name: format!("Place {i}"),
             score,
+            rough: false,
         }
     }
 

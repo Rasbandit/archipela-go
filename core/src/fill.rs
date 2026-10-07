@@ -24,6 +24,11 @@ pub fn parse_streets(body: &str, zone: &Zone, spacing_m: f64) -> Result<Vec<Cand
     for e in elements {
         let (Some(id), Some(geom)) = (e.get("id").and_then(Value::as_i64), e.get("geometry").and_then(Value::as_array)) else { continue };
         let tags = e.get("tags");
+        let tag_map: std::collections::BTreeMap<String, String> = tags
+            .and_then(Value::as_object)
+            .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+            .unwrap_or_default();
+        let rough = crate::scan::is_rough(&tag_map);
         let label = tags
             .and_then(|t| t.get("name").or_else(|| t.get("highway")))
             .and_then(Value::as_str)
@@ -43,7 +48,7 @@ pub fn parse_streets(body: &str, zone: &Zone, spacing_m: f64) -> Result<Vec<Cand
                 let t = if seg > 0.0 { at / seg } else { 0.0 };
                 let p = Point::new(w[0].lat + (w[1].lat - w[0].lat) * t, w[0].lon + (w[1].lon - w[0].lon) * t);
                 if zone.contains(p) {
-                    out.push(Candidate { id: format!("w{id}.{k}"), point: p, name: label.clone(), score: u32::from(named) });
+                    out.push(Candidate { id: format!("w{id}.{k}"), point: p, name: label.clone(), score: u32::from(named), rough });
                 }
                 k += 1;
                 at += spacing_m;
@@ -73,7 +78,7 @@ pub fn lattice(zone: &Zone, spacing_m: f64) -> Vec<Candidate> {
         while lon <= ne.lon {
             let p = Point::new(lat, lon);
             if zone.contains(p) {
-                out.push(Candidate { id: format!("c{r}_{c}"), point: p, name: format!("Cell {r},{c}"), score: 0 });
+                out.push(Candidate { id: format!("c{r}_{c}"), point: p, name: format!("Cell {r},{c}"), score: 0, rough: false });
             }
             lon += dlon;
             c += 1;

@@ -36,7 +36,7 @@ fn main() {
     let opts = SoloOptions { zone_modes: vec![mode], number_of_trips: trips, goal: goal.clone(), ..SoloOptions::default() };
     let sg = generate(&opts, 42).expect("generate");
     let realms = vec![(realm, atlas)];
-    let mut g = Game::create(NewGame { id: "sim".into(), name: "sim".into(), backend: Backend::Solo, seed_name: "sim".into(), slot: sg.slot, zone_realms: vec!["r".into()], realms: &realms, home, seed: 42, solo_rewards: sg.rewards }, &catalog).expect("game");
+    let mut g = Game::create(NewGame { id: "sim".into(), name: "sim".into(), backend: Backend::Solo, seed_name: "sim".into(), slot: sg.slot, zone_realms: vec!["r".into()], realms: &realms, home, seed: 42, solo_rewards: sg.rewards, surface: apgo_core::assign::SurfacePref::Any, avoid_stairs: false }, &catalog).expect("game");
 
     let mut by_kind: BTreeMap<String, u32> = BTreeMap::new();
     let (mut fallbacks, mut effort_err) = (0, 0.0);

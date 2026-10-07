@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use apgo_core::assign::Target;
+use apgo_core::assign::SurfacePref;
 use apgo_core::catalog::{Catalog, Mode};
 use apgo_core::game::{Backend, Event, Game, NewGame, QuestState};
 use apgo_core::geo::Point;
@@ -330,7 +331,7 @@ impl Engine {
         Ok(build_yaml(&player, &to_core(o)?))
     }
 
-    pub fn start_solo(&self, game_id: String, name: String, o: SoloOptionsIn, zone_realms: Vec<String>, seed: u64) -> Result<(), CoreError> {
+    pub fn start_solo(&self, game_id: String, name: String, o: SoloOptionsIn, zone_realms: Vec<String>, seed: u64, surface: String, avoid_stairs: bool) -> Result<(), CoreError> {
         let opts = to_core(o)?;
         if zone_realms.len() != opts.zone_modes.len() {
             return Err(err("pick one realm per zone"));
@@ -339,7 +340,7 @@ impl Engine {
         let realms = self.realm_atlases(&zone_realms)?;
         let home = self.home_for(&realms);
         let game = Game::create(
-            NewGame { id: game_id, name, backend: Backend::Solo, seed_name: format!("solo-{seed}"), slot: generated.slot, zone_realms, realms: &realms, home, seed, solo_rewards: generated.rewards },
+            NewGame { id: game_id, name, backend: Backend::Solo, seed_name: format!("solo-{seed}"), slot: generated.slot, zone_realms, realms: &realms, home, seed, solo_rewards: generated.rewards, surface: SurfacePref::parse(&surface), avoid_stairs },
             &self.catalog,
         )
         .map_err(err)?;
@@ -348,11 +349,11 @@ impl Engine {
         Ok(())
     }
 
-    pub fn start_archipelago(&self, game_id: String, name: String, slot_json: String, seed_name: String, zone_realms: Vec<String>, seed: u64) -> Result<(), CoreError> {
+    pub fn start_archipelago(&self, game_id: String, name: String, slot_json: String, seed_name: String, zone_realms: Vec<String>, seed: u64, surface: String, avoid_stairs: bool) -> Result<(), CoreError> {
         let slot = SlotData::from_json(&slot_json).map_err(err)?;
         let realms = self.realm_atlases(&zone_realms)?;
         let home = self.home_for(&realms);
-        let game = Game::create(NewGame { id: game_id, name, backend: Backend::Archipelago, seed_name, slot, zone_realms, realms: &realms, home, seed, solo_rewards: Default::default() }, &self.catalog).map_err(err)?;
+        let game = Game::create(NewGame { id: game_id, name, backend: Backend::Archipelago, seed_name, slot, zone_realms, realms: &realms, home, seed, solo_rewards: Default::default(), surface: SurfacePref::parse(&surface), avoid_stairs }, &self.catalog).map_err(err)?;
         game.save(&self.dir).map_err(err)?;
         *self.game.lock().unwrap_or_else(|e| e.into_inner()) = Some(game);
         Ok(())

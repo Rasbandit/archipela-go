@@ -252,9 +252,17 @@ fun NewGameScreen(m: AppModel) {
         }
         Text("Minutes per difficulty tier: ${mpt.toInt()}", fontSize = 13.sp)
         Slider(mpt, { mpt = it }, valueRange = 5f..30f)
-        Row(verticalAlignment = Alignment.CenterVertically) { Switch(fog, { fog = it }); Text("  Fog of war (discover quests)", fontSize = 13.sp) }
-        Row(verticalAlignment = Alignment.CenterVertically) { Switch(trapsOn, { trapsOn = it }); Text("  Traps (Freeze, Leash, Detour…)", fontSize = 13.sp) }
-        Row(verticalAlignment = Alignment.CenterVertically) { Switch(bonus, { bonus = it }); Text("  Bonus items (scouting, reductions)", fontSize = 13.sp) }
+        Row(verticalAlignment = Alignment.CenterVertically) { Switch(fog, { fog = it }); Text("  Fog of war (discover quests)", Modifier.clickable { fog = !fog }, fontSize = 13.sp) }
+        Row(verticalAlignment = Alignment.CenterVertically) { Switch(trapsOn, { trapsOn = it }); Text("  Traps (Freeze, Leash, Detour…)", Modifier.clickable { trapsOn = !trapsOn }, fontSize = 13.sp) }
+        Row(verticalAlignment = Alignment.CenterVertically) { Switch(bonus, { bonus = it }); Text("  Bonus items (scouting, reductions)", Modifier.clickable { bonus = !bonus }, fontSize = 13.sp) }
+        Text("Terrain", fontSize = 13.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("any" to "Any", "prefer_paved" to "Prefer paved", "paved_only" to "Paved only").forEach { (id, label) ->
+                FilterChip(selected = m.surfacePref == id, onClick = { m.surfacePref = id }, label = { Text(label, fontSize = 12.sp) })
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) { Switch(m.avoidStairs, { m.avoidStairs = it }); Text("  Avoid stairs", Modifier.clickable { m.avoidStairs = !m.avoidStairs }, fontSize = 13.sp) }
+        Text("Only some map data is tagged with surfaces, so \"paved\" is best effort.", fontSize = 11.sp)
         Text("Quest types", fontSize = 13.sp)
         FAMILIES.chunked(4).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

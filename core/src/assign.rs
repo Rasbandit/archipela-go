@@ -62,11 +62,32 @@ pub struct ZoneCtx<'a> {
     pub atlas: &'a Atlas,
 }
 
+/// How much rough going (unpaved paths, unknown-surface trails, stairs) the player accepts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SurfacePref {
+    #[default]
+    Any,
+    PreferPaved,
+    PavedOnly,
+}
+
+impl SurfacePref {
+    pub fn parse(s: &str) -> SurfacePref {
+        match s {
+            "prefer_paved" => SurfacePref::PreferPaved,
+            "paved_only" => SurfacePref::PavedOnly,
+            _ => SurfacePref::Any,
+        }
+    }
+}
+
 pub struct AssignParams {
     pub home: Point,
     pub minutes_per_tier: f64,
     pub min_distance_m: f64,
     pub seed: u64,
+    pub surface: SurfacePref,
+    pub avoid_stairs: bool,
 }
 
 struct Cand {
@@ -80,9 +101,17 @@ struct Cand {
 
 const SPACING_M: f64 = 40.0;
 
-fn street_pool(z: &ZoneCtx) -> Vec<Point> {
-    if z.atlas.streets.len() >= 20 {
-        z.atlas.streets.clone()
+fn street_pool(z: &ZoneCtx, pref: SurfacePref) -> Vec<Point> {
+    let (paved, rough) = (&z.atlas.streets, &z.atlas.streets_rough);
+    let all = || paved.iter().chain(rough.iter()).copied().collect::<Vec<_>>();
+    let pool = match pref {
+        SurfacePref::Any => all(),
+        SurfacePref::PreferPaved if paved.len() >= 50 => paved.clone(),
+        SurfacePref::PreferPaved => all(),
+        SurfacePref::PavedOnly => paved.clone(),
+    };
+    if pool.len() >= 20 {
+        pool
     } else {
         lattice(&z.realm.shape.to_zone(), 150.0).into_iter().map(|c| c.point).collect()
     }
@@ -177,8 +206,12 @@ fn free_candidate(k: &Kind, z: &ZoneCtx, pool: &[Point], p: &AssignParams, want:
 
 fn one(s: &SlotIn, z: &ZoneCtx, catalog: &Catalog, p: &AssignParams, rng: &mut StdRng, used_feat: &mut BTreeSet<String>, used_pts: &mut Vec<Point>) -> Assignment {
     let want = mid(s.tier, p.minutes_per_tier);
-    let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| k.allows(z.mode) && k.family != "boss" && (s.boss || k.family == s.family)).collect();
-    let pool = street_pool(z);
+    let kinds: Vec<&Kind> = catalog
+        .kinds
+        .iter()
+        .filter(|k| k.allows(z.mode) && k.family != "boss" && (s.boss || k.family == s.family) && !(p.avoid_stairs && k.id == "stairmaster"))
+        .collect();
+    let pool = street_pool(z, p.surface);
     let mut cands: Vec<Cand> = Vec::new();
     for k in &kinds {
         if k.geom != Geom::None {
@@ -188,6 +221,9 @@ fn one(s: &SlotIn, z: &ZoneCtx, catalog: &Catalog, p: &AssignParams, rng: &mut S
             for fi in idx.into_iter().take(300) {
                 let f = &z.atlas.features[fi];
                 if used_feat.contains(&f.id) || distance_m(p.home, f.point) < p.min_distance_m {
+                    continue;
+                }
+                if p.surface == SurfacePref::PavedOnly && k.geom == Geom::Line && crate::scan::is_rough(&f.tags) {
                     continue;
                 }
                 if used_pts.iter().any(|u| distance_m(*u, f.point) < SPACING_M) {
@@ -313,7 +349,7 @@ mod tests {
     }
 
     fn params(seed: u64) -> AssignParams {
-        AssignParams { home: home(), minutes_per_tier: 10.0, min_distance_m: 150.0, seed }
+        AssignParams { home: home(), minutes_per_tier: 10.0, min_distance_m: 150.0, seed, surface: SurfacePref::Any, avoid_stairs: false }
     }
 
     fn slot(i: i64, fam: &str, tier: u8, mode: Mode) -> SlotIn {
@@ -395,6 +431,58 @@ mod tests {
         // A 9 km realm cannot offer 95 minutes of driving; the boss must still be the biggest thing available.
         let biggest_other = out[..out.len() - 1].iter().map(|o| o.effort_min).fold(0.0, f64::max);
         assert!(boss.effort_min >= biggest_other, "boss {} vs others {}", boss.effort_min, biggest_other);
+    }
+
+    #[test]
+    fn surface_preference_controls_which_street_points_are_used() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        // paved points far east, rough points far west: easy to tell apart
+        let mut a = atlas(&cat, false);
+        let all = std::mem::take(&mut a.streets);
+        a.streets = all.iter().copied().filter(|p| p.lon >= home().lon).collect();
+        a.streets_rough = all.iter().copied().filter(|p| p.lon < home().lon).collect();
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let slots: Vec<SlotIn> = (1..=14).map(|i| slot(i, "reach", 2 + (i % 5) as u8, Mode::Walk)).collect();
+        let lon_of = |o: &Assignment| if let Target::Point { p, .. } = &o.target { p.lon } else { f64::NAN };
+        let mut p = params(2);
+        p.surface = SurfacePref::PavedOnly;
+        let paved_only = assign(&slots, &z, &cat, &p);
+        assert!(paved_only.iter().all(|o| lon_of(o) >= home().lon), "paved only must never pick a rough point");
+        p.surface = SurfacePref::PreferPaved;
+        assert!(assign(&slots, &z, &cat, &p).iter().all(|o| lon_of(o) >= home().lon), "plenty of paved points exist");
+        p.surface = SurfacePref::Any;
+        let any = assign(&slots, &z, &cat, &p);
+        assert!(any.iter().any(|o| lon_of(o) < home().lon), "any surface uses both pools");
+        assert_eq!(SurfacePref::parse("paved_only"), SurfacePref::PavedOnly);
+        assert_eq!(SurfacePref::parse("whatever"), SurfacePref::Any);
+    }
+
+    #[test]
+    fn paved_only_skips_rough_trails_and_avoid_stairs_drops_the_stair_quest() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        // one dirt trail: the tag must survive stitching into the synthetic trail feature
+        let t0 = destination(home(), 90.0, 900.0);
+        let dirt = feature("w9", &[("highway", "path"), ("surface", "dirt"), ("name", "Ridge Trail")], t0, vec![t0, destination(t0, 90.0, 800.0), destination(t0, 90.0, 1600.0)]);
+        let base = atlas(&cat, false);
+        let a = crate::scan::build_atlas("r", 0, vec![dirt], base.streets.clone(), &cat);
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let slots = vec![slot(1, "trail", 6, Mode::Walk)];
+        let mut p = params(1);
+        assert!(matches!(assign(&slots, &z, &cat, &p)[0].target, Target::Line { .. }), "a dirt trail is fine when any surface is accepted");
+        p.surface = SurfacePref::PavedOnly;
+        let o = &assign(&slots, &z, &cat, &p)[0];
+        assert!(o.fallback && matches!(o.target, Target::Point { .. }), "paved only falls back instead of sending you on dirt");
+        let mut b = atlas(&cat, false);
+        let o2 = Point::new(40.0, -111.0);
+        let stairs = Feature { id: "L:stairmaster:S:0".into(), point: o2, name: None, tags: Default::default(), geometry: vec![o2, destination(o2, 0.0, 200.0)] };
+        b.features.push(stairs);
+        b.matches.insert("stairmaster".into(), vec![b.features.len() - 1]);
+        let zb = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &b }];
+        let mut p2 = params(1);
+        p2.avoid_stairs = true;
+        assert_ne!(assign(&[slot(1, "trail", 3, Mode::Walk)], &zb, &cat, &p2)[0].kind_id, "stairmaster");
     }
 
     #[test]

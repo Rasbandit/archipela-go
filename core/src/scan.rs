@@ -29,6 +29,9 @@ pub struct Atlas {
     pub scanned_at_ms: u64,
     pub features: Vec<Feature>,
     pub streets: Vec<Point>,
+    /// Street/path points that are rough going (unpaved, unknown-surface trails, stairs).
+    #[serde(default)]
+    pub streets_rough: Vec<Point>,
     /// quest kind id -> indexes into `features`.
     pub matches: BTreeMap<String, Vec<usize>>,
     #[serde(default)]
@@ -166,6 +169,23 @@ fn merge(a: Vec<Feature>, b: Vec<Feature>) -> Vec<Feature> {
 
 const JOIN_M: f64 = 8.0;
 
+const UNPAVED: [&str; 12] = ["dirt", "ground", "unpaved", "grass", "sand", "gravel", "mud", "earth", "fine_gravel", "pebblestone", "woodchips", "compacted"];
+
+/// Is this way rough going: stairs, an unpaved surface, or an unmarked trail/track (surface unknown)?
+pub fn is_rough(tags: &BTreeMap<String, String>) -> bool {
+    if tags.get("rough").is_some_and(|v| v == "yes") {
+        return true; // set on stitched trails when any of their ways is rough
+    }
+    let highway = tags.get("highway").map(String::as_str);
+    if highway == Some("steps") {
+        return true;
+    }
+    match tags.get("surface") {
+        Some(sf) => sf.split(';').any(|v| UNPAVED.contains(&v.trim())),
+        None => matches!(highway, Some("path" | "track" | "bridleway")),
+    }
+}
+
 /// Chain way geometries (same trail, same name) into longer polylines by joining shared endpoints.
 pub fn stitch(ways: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
     let mut pool: Vec<Vec<Point>> = ways.into_iter().filter(|w| w.len() >= 2).collect();
@@ -219,21 +239,26 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
                 }
             }
             Geom::Line => {
-                let mut by_name: BTreeMap<String, Vec<Vec<Point>>> = BTreeMap::new();
+                let mut by_name: BTreeMap<String, (Vec<Vec<Point>>, bool)> = BTreeMap::new();
                 for i in 0..base {
                     let f = &features[i];
                     if f.geometry.len() >= 2 && k.matches(&f.tags) {
-                        by_name.entry(f.name.clone().unwrap_or_else(|| f.id.clone())).or_default().push(f.geometry.clone());
+                        let e = by_name.entry(f.name.clone().unwrap_or_else(|| f.id.clone())).or_default();
+                        e.0.push(f.geometry.clone());
+                        e.1 |= is_rough(&f.tags);
                     }
                 }
                 let mut idxs = Vec::new();
-                for (name, ways) in by_name {
+                for (name, (ways, rough_any)) in by_name {
                     for (n, chain) in stitch(ways).into_iter().enumerate() {
                         if k.closed && !is_closed(&chain) {
                             continue;
                         }
                         let mut tags = BTreeMap::new();
                         tags.insert("name".to_string(), name.clone());
+                        if rough_any {
+                            tags.insert("rough".to_string(), "yes".to_string());
+                        }
                         idxs.push(features.len());
                         features.push(Feature { id: format!("L:{}:{}:{}", k.id, name, n), point: centroid(&chain), name: Some(name.clone()), tags, geometry: chain });
                     }
@@ -245,7 +270,7 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
             Geom::None => {}
         }
     }
-    Atlas { realm_id: realm_id.to_string(), scanned_at_ms: now_ms, features, streets, matches, warnings: vec![] }
+    Atlas { realm_id: realm_id.to_string(), scanned_at_ms: now_ms, features, streets, streets_rough: vec![], matches, warnings: vec![] }
 }
 
 #[derive(Clone, Copy)]
@@ -279,7 +304,7 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
             });
         }
     });
-    let (mut a, mut b, mut streets) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut a, mut b, mut streets, mut rough) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let (mut failed, total) = (0usize, jobs.len());
     let mut last_err = None;
     for (job, r) in results.into_inner().unwrap_or_else(|e| e.into_inner()) {
@@ -287,7 +312,11 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
             Ok(body) => match job {
                 Job::Poi => a.extend(parse_features(&body).unwrap_or_default()),
                 Job::Geom => b.extend(parse_features(&body).unwrap_or_default()),
-                Job::Streets => streets.extend(crate::fill::parse_streets(&body, &zone, 60.0).unwrap_or_default().into_iter().map(|c| c.point)),
+                Job::Streets => {
+                    for c in crate::fill::parse_streets(&body, &zone, 60.0).unwrap_or_default() {
+                        if c.rough { rough.push(c.point) } else { streets.push(c.point) }
+                    }
+                }
             },
             Err(e) => {
                 failed += 1;
@@ -300,7 +329,10 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
     }
     let stride = (streets.len() / 12_000).max(1);
     let streets = streets.into_iter().step_by(stride).collect();
+    let rstride = (rough.len() / 4_000).max(1);
+    let rough: Vec<Point> = rough.into_iter().step_by(rstride).collect();
     let mut atlas = build_atlas(&realm.id, now_ms, merge(a, b), streets, catalog);
+    atlas.streets_rough = rough;
     atlas.warnings = if failed > 0 { vec![format!("{failed} of {total} map requests failed; the scan is partial. Rescan later for more places.")] } else { vec![] };
     Ok(atlas)
 }
@@ -380,6 +412,18 @@ mod tests {
         assert_eq!(atlas.matches["trail_boss"].len(), 1);
         assert_eq!(atlas.matches["full_circle"].len(), 1, "stitched ring is closed");
         assert!(is_closed(&atlas.features[atlas.matches["full_circle"][0]].geometry));
+    }
+
+    #[test]
+    fn rough_going_is_detected_from_surface_and_highway() {
+        let t = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> { pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect() };
+        assert!(is_rough(&t(&[("highway", "steps")])));
+        assert!(is_rough(&t(&[("highway", "footway"), ("surface", "dirt")])));
+        assert!(is_rough(&t(&[("highway", "path")])), "an unmarked path is treated as rough");
+        assert!(!is_rough(&t(&[("highway", "path"), ("surface", "asphalt")])));
+        assert!(!is_rough(&t(&[("highway", "footway")])), "a bare footway is usually a sidewalk");
+        assert!(!is_rough(&t(&[("highway", "residential"), ("surface", "concrete")])));
+        assert!(is_rough(&t(&[("highway", "track"), ("surface", "paved;gravel")])));
     }
 
     #[test]

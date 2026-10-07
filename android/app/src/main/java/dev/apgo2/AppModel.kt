@@ -51,6 +51,9 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     val draft = mutableStateListOf<LatLng>()
     var selected by mutableStateOf<Long?>(null)
     var yamlText by mutableStateOf<String?>(null)
+    /** any | prefer_paved | paved_only */
+    var surfacePref by mutableStateOf("any")
+    var avoidStairs by mutableStateOf(false)
 
     // Archipelago
     var session by mutableStateOf<ApSession?>(null)
@@ -134,7 +137,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         scope.launch {
             busy = "Building your game..."
             val seed = Random.nextLong().toULong() shr 1
-            val r = withContext(Dispatchers.IO) { runCatching { engine.startSolo(UUID.randomUUID().toString(), name, opts, zoneRealms, seed) } }
+            val r = withContext(Dispatchers.IO) { runCatching { engine.startSolo(UUID.randomUUID().toString(), name, opts, zoneRealms, seed, surfacePref, avoidStairs) } }
             busy = null
             r.onSuccess { simClockMs = 0; log.clear(); refreshAll(); tab = 2; status = "Game started!" }
                 .onFailure { status = "Could not start: ${it.message}" }
@@ -250,7 +253,8 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     private fun limitMs(q: QuestOut): Long = (Regex("within (\\d+) min").find(q.detail)?.groupValues?.get(1)?.toLongOrNull() ?: 20L) * 60_000L
 
     fun devTeleportNext() {
-        val next = quests.firstOrNull { it.state == "open" || it.state == "progress" }
+        // Fog: undiscovered quests are not "open", but a walker heading for one discovers it on arrival.
+        val next = quests.firstOrNull { it.state == "open" || it.state == "progress" } ?: quests.firstOrNull { it.state == "hidden" }
         if (next == null) { status = "No open quests (zones may be locked or all done)"; return }
         status = "Simulating: ${next.name}"
         devComplete(next)
@@ -295,7 +299,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         val json = apSlotJson ?: run { status = "Connect first"; return }
         scope.launch {
             val seed = Random.nextLong().toULong() shr 1
-            val r = withContext(Dispatchers.IO) { runCatching { engine.startArchipelago(UUID.randomUUID().toString(), name, json, "archipelago", zoneRealms, seed) } }
+            val r = withContext(Dispatchers.IO) { runCatching { engine.startArchipelago(UUID.randomUUID().toString(), name, json, "archipelago", zoneRealms, seed, surfacePref, avoidStairs) } }
             r.onSuccess { simClockMs = 0; apSyncedChecked = false; refreshAll(); tab = 2; status = "Archipelago game started" }
                 .onFailure { status = "Could not start: ${it.message}" }
         }
