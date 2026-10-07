@@ -49,6 +49,15 @@ Archipelago logic is regions + access rules, which maps directly onto geozones.
 | Stamina | daily step budget limits how many checks per day | step counter |
 | Day streak gate | unlock needs N active days | daily totals |
 
+## Difficulty-Based Progression (owner idea: weigh progression on easy / medium / hard)
+**Effort model.** Every quest has an estimated *effort in active minutes*, computed client-side from its type and the player's mode: reach point = distance / mode speed (walk ~4.5 km/h, bike ~15, drive ~35, with a detour factor); dwell = travel + minutes; trail = length / 3 km/h + 1 min per 10 m of climb; step milestone = steps / 100 per minute. Effort tier = effort / `minutes_per_tier` (YAML, default 10 min). This replaces pure distance tiers and makes quests comparable across modes and types (a 30-minute drive and a 30-minute walk are the same tier). Bands: **Easy** tiers 1-3, **Medium** 4-7, **Hard** 8-10.
+**Archipelago already supports weighting.** Verified in the source (0.6.8): every world gets `exclude_locations` ("Prevent these locations from having an important item") and `priority_locations`, and a world can define `location_name_groups` that players reference by name in YAML. So:
+- Encode difficulty (and mode) in static location blocks, e.g. `Easy Walk Quest #n`, `Hard Bike Quest #n` (the apworld uses the first k of each block per seed). Then groups `Easy`, `Medium`, `Hard`, `Walk`, `Bike`, `Drive` work in YAML, hints are readable, and no custom option is needed. This changes the compact `Trip #n` pool of schema v1 (schema v2).
+- Player choice via standard options: `exclude_locations: [Hard]` = hard quests are pure optional challenges (only junk there); `priority_locations: [Hard]` = boss-style, important items live in hard quests. Default fill = mixed.
+- YAML knobs: `easy_share / medium_share / hard_share` (default 50/35/15), `minutes_per_tier`.
+- Logic stays gated by zones, tool items and keys; difficulty decides which slots may hold progression. Goal can require a Hard "boss" quest. Guarantee sphere 0 has enough Easy slots.
+- Client duty: realize each slot at its effort tier (like distance tiers today) and flag when it cannot.
+
 ## Freeze Trap (and friends)
 **Freeze:** while frozen, no other checks count until you reach a **thaw point** X.
 - Thaw point chosen on receipt: within tier-1 distance of the player (a landmark or just a point), never on roads/private land, and always reachable.

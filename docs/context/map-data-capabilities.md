@@ -59,6 +59,13 @@ Park visits and park-perimeter loops, "visit 3 different parks", playground/art 
 | historic / attraction | 3 / 3 | monument 3; maze 2, carousel 1 | landmarks |
 Elsewhere OSM also has (verify per region): lighthouses, castles, ruins, memorials, caves, hot springs, glaciers, via ferrata, marinas, golf courses, mountain huts, windmills.
 
+## Cities (same census, 2026-10-07)
+| Area | Features | Kinds | What dominates | Standouts for quests |
+|--|--|--|--|--|
+| Portland OR downtown, 600 m | 3,500 | 241 | amenity 1,874 (bicycle parking 756, waste baskets 243, benches 185, restaurants 94), shops 290, transit 139+129 | artwork 56, memorials 30, hydrants 247, trees 209, hotels 27, museums 4, light rail/tram/bus stops, bus routes 66, columns 16, flagpoles 12 |
+| Amsterdam centre, 400 m | 1,815 | 236 | amenity 522, shops 411, trees 215 | canals 42, bridges 18, towers 27, attractions 27, museums 9, viewpoints 4, tram/subway stops, hotels 28 |
+Takeaways: downtowns are rich in POIs and transit but have almost no parks/trails; "visit N of category X" (art, memorials, hydrants, bike racks, bridges, towers, stops, museums) works anywhere dense. Public Overpass was flaky on these queries (one server timed out 3 times, another returned 504): reinforces the static atlas + endpoint fallback plan.
+
 ## New Quest Types From The Census
 | Quest | Data | Proof |
 |--|--|--|
