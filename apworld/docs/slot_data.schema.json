@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Archipela-Go 2 slot_data v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "goal",
+    "min_distance_m",
+    "max_distance_m",
+    "allowed_modes",
+    "return_home",
+    "death_link",
+    "reduction_percent",
+    "tier_step_m",
+    "trips"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "goal": { "enum": ["all_trips", "macguffin_short", "macguffin_long"] },
+    "min_distance_m": { "type": "integer", "minimum": 100 },
+    "max_distance_m": { "type": "integer", "minimum": 1000 },
+    "allowed_modes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["walk", "bike", "drive"] }
+    },
+    "return_home": { "type": "boolean" },
+    "death_link": { "type": "boolean" },
+    "reduction_percent": { "type": "integer", "minimum": 1, "maximum": 25 },
+    "tier_step_m": { "type": "number", "exclusiveMinimum": 0 },
+    "trips": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["location_id", "type", "distance_tier", "key_needed", "mode"],
+        "properties": {
+          "location_id": { "type": "integer" },
+          "type": { "type": "string" },
+          "distance_tier": { "type": "integer", "minimum": 1, "maximum": 10 },
+          "key_needed": { "type": "integer", "minimum": 0, "maximum": 10 },
+          "mode": { "enum": ["walk", "bike", "drive"] }
+        }
+      }
+    }
+  }
+}
