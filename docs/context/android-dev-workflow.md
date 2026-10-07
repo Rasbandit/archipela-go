@@ -42,6 +42,11 @@ Gotcha: pass `zonePts.toList()` (a copy) to the map composable; the same mutable
 Known gaps: geofence/lock logic is in Kotlin (move to the Rust core with tests before iOS); trips are not persisted (regenerate each launch, seed 1 is deterministic for cells);
 checked state is local only (should come from `Client::checked_locations` on reconnect); no foreground service or background location; no reroll/ban; foreground-only.
 
+## Update 2026-10-08: emulator workflow and the v1 app
+The app was rewritten (Realms / New Game / Play). See `docs/context/v1-architecture-and-status.md` for architecture, verified results and gaps.
+Repeatable testing without a phone: `scripts/emu.sh create|start|stop`, `just emu-run`, `just e2e` (fresh data -> real scan -> solo game -> autoplay win),
+`scripts/android_ui.py` (tap/type/wait by visible text, honors `ANDROID_SERIAL`), `scripts/e2e_autoplay.sh`. The phone locks overnight: UI tests need the emulator.
+
 ## Setup (once)
 - JDK: `sudo dnf install java-25-openjdk-devel` (Gradle needs javac; the default headless JRE has none). `JAVA_HOME=/usr/lib/jvm/java-25-openjdk` is set in the justfile.
 - Rust: official `rustup` (Fedora's rustc cannot add Android targets); `rustup target add aarch64-linux-android x86_64-linux-android`; `cargo install cargo-ndk`.

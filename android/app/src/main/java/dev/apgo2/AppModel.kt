@@ -51,6 +51,8 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     val draft = mutableStateListOf<LatLng>()
     var selected by mutableStateOf<Long?>(null)
     var yamlText by mutableStateOf<String?>(null)
+    /** Cumulative steps since boot from the phone's step counter (null when unavailable or not permitted). */
+    var stepsTotal by mutableStateOf<Long?>(null)
     /** any | prefer_paved | paved_only */
     var surfacePref by mutableStateOf("any")
     var avoidStairs by mutableStateOf(false)
@@ -177,7 +179,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
 
     fun onFix(loc: Location) {
         if (!engine.hasGame() || simPos != null) return
-        handle(engine.onFix(loc.latitude, loc.longitude, now(), loc.accuracy.toDouble(), null))
+        handle(engine.onFix(loc.latitude, loc.longitude, now(), loc.accuracy.toDouble(), stepsTotal))
         refreshPlay()
     }
 

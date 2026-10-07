@@ -4,6 +4,10 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.location.LocationListener
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
@@ -45,6 +49,20 @@ class MainActivity : ComponentActivity() {
                     var permitted by remember { mutableStateOf(false) }
                     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permitted = it }
                     LaunchedEffect(Unit) { ask.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
+                    var stepsOk by remember { mutableStateOf(false) }
+                    val askSteps = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { stepsOk = it }
+                    LaunchedEffect(permitted) { if (permitted) askSteps.launch(Manifest.permission.ACTIVITY_RECOGNITION) }
+                    DisposableEffect(stepsOk) {
+                        if (!stepsOk) return@DisposableEffect onDispose {}
+                        val sm = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+                        val sensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+                        val l = object : SensorEventListener {
+                            override fun onSensorChanged(e: SensorEvent) { model.stepsTotal = e.values[0].toLong() }
+                            override fun onAccuracyChanged(s: Sensor?, a: Int) {}
+                        }
+                        if (sensor != null) sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+                        onDispose { sm.unregisterListener(l) }
+                    }
 
                     DisposableEffect(permitted) {
                         if (!permitted) return@DisposableEffect onDispose {}

@@ -76,3 +76,21 @@ ap-stop:
 
 ap-log:
     bash scripts/ap_host.sh log 40
+
+# --- Emulator (no phone needed): GPS via `adb emu geo fix`, headless ---
+emu-start:
+    bash scripts/emu.sh start
+
+emu-stop:
+    bash scripts/emu.sh stop
+
+# Rebuild for phone + emulator ABIs and install on the emulator.
+emu-run:
+    APGO_ABIS="arm64-v8a x86_64" bash scripts/android_core.sh debug
+    cd android && ./gradlew assembleDebug --console=plain -q
+    ANDROID_SERIAL=emulator-5554 adb install -r {{apk}}
+    ANDROID_SERIAL=emulator-5554 adb shell pm grant {{app}} android.permission.ACCESS_FINE_LOCATION
+
+# Full regression on the emulator: realm -> real scan -> solo game -> autoplay to the win.
+e2e:
+    bash scripts/e2e_emulator.sh

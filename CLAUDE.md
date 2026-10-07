@@ -5,15 +5,16 @@ where checks are real-world places reached by walking, biking or driving. Androi
 inspiration only; we write our own apworld and client.
 
 ## Status
-Sub-project 1 (apworld + contract + Python tooling) is implemented on branch `feat/apworld`: spec
-`docs/superpowers/specs/2026-10-07-apworld-design.md`, plan `docs/superpowers/plans/2026-10-07-apworld.md`,
-contract `apworld/docs/contract.md`. Next: Rust core spike and spec. Never work on main.
+v1 built (2026-10-08): apworld v2 (179 tests), Rust core (78 tests), Android app (Realms / New Game / Play), standalone solo mode, 12 goals, fog, traps,
+surface preference, Archipelago play. Verified on an emulator end to end (solo and against a local Archipelago server). Read
+`docs/context/v1-architecture-and-status.md` first: it lists what is verified and what is NOT (foreground service, real outdoor GPS, mode proof).
+Specs: `docs/superpowers/specs/2026-10-08-v1-quests-realms-design.md` (v1), `2026-10-07-apworld-design.md` (v1 apworld, superseded). Never work on main.
 
 ## Commands
-`just setup` (env, pinned Archipelago in `.ap/`, hooks), `just check` (lint, types, tests, typos), `just build`
-(`dist/ap_go2.apworld`). `mise.toml` pins the tools; `committed` and `gitleaks` need installing locally.
+`just check` (apworld lint/types/tests), `cd core && cargo test`, `just android-run` (phone), `just emu-start && just emu-run && just e2e` (emulator),
+`just ap-host` (dev Archipelago server), `just build` (apworld artifact). `mise.toml` pins tools; `committed` and `gitleaks` need installing locally.
 
-## Planned stack (lean, not final until spiked)
+## Stack (decided and built)
 Rust core (AP protocol via `archipelago_rs`, location generation, geofence, SQLite) + Kotlin/Compose Android UI
 via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monorepo: `apworld/`, `core/`, `android/`,
 `docs/`. Run an Android build + connect spike for Rust before committing to the stack.
@@ -59,3 +60,5 @@ If you need how our game maps onto Archipelago (YAML, apworld, fill, phone) or t
 If you need quest-type ideas, phone sensor/health API permissions and the quest table, see `docs/context/quest-types-and-phone-apis.md`
 If you need progression design (zones as regions, Bike/Car tools, trail quests, Freeze trap, OSM trail data findings), see `docs/context/progression-zones-and-tools.md`
 If you need measured OpenStreetMap tag coverage (surface/lit/parks/trails), the surface-filter design and Fog of War design, see `docs/context/map-data-capabilities.md`
+If you need the v1 architecture, verified results, known gaps and how to run the emulator/e2e, see `docs/context/v1-architecture-and-status.md`
+If you need the full list of quest kinds (names, map filters, proof, modes), see `docs/context/quest-catalog.md` (generated)
