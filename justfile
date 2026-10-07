@@ -2,9 +2,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 default: check
 
-setup:
-    uv sync --project apworld
+setup: setup-ap
     lefthook install
+
+setup-ap:
+    bash scripts/setup_ap.sh
 
 lint:
     uv run --project apworld ruff check apworld
