@@ -495,7 +495,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                         found = if (rid != null && fresh) withContext(Dispatchers.IO) { m.engine.realmStats(rid) } else null
                     }
                     val waiting = if (m.busy != null) "looking…" else "after scan"
-                    RealmStatsBox(shape.areaM2, shape.farthestM, found?.let { ScanFigures(it.walkableM, it.streets.toInt(), it.trailM, it.finds.toInt()) }, waiting)
+                    RealmStatsBox(shape.areaM2, shape.farthestM, found?.let { ScanFigures(it.walkableM, it.streets.toInt(), it.trailM, it.finds.toInt(), it.parks.toInt(), it.roughShare) }, waiting)
                 }
             }
         } else {

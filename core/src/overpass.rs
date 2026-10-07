@@ -312,4 +312,19 @@ mod tests {
         assert_eq!(a, b);
         assert_ne!(a, c);
     }
+
+    #[test]
+    fn a_fresh_cached_query_is_served_from_disk_without_any_network() {
+        let dir = std::env::temp_dir().join(format!("apgo-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let q = "[out:json];node(1,2,3,4);out;";
+        assert!(!is_cached(q, &dir));
+        std::fs::write(query_cache_file(&dir, q), r#"{"elements":[]}"#).unwrap();
+        assert!(is_cached(q, &dir));
+        // an already expired deadline would fail any real request at once, so success proves the answer came from disk
+        let past = std::time::Instant::now() - std::time::Duration::from_secs(5);
+        assert_eq!(fetch_cached_from(q, Some(&dir), 0, Some(past)).unwrap(), r#"{"elements":[]}"#);
+        assert!(!is_cached("[out:json];node(9,9,9,9);out;", &dir), "a different query is a different cache entry");
+    }
 }
