@@ -47,6 +47,17 @@ pub struct Atlas {
 }
 
 impl Atlas {
+    /// Keep only what lies inside `zone`. Scans fetch whole map tiles and the map servers are not exact, and a realm can be resized after its
+    /// scan, so every use of an atlas validates locations against the realm's current zone, not the one it was scanned for.
+    pub fn restrict_to(&mut self, zone: &Zone) {
+        for idxs in self.matches.values_mut() {
+            idxs.retain(|&i| zone.contains(self.features[i].point));
+        }
+        self.matches.retain(|_, v| !v.is_empty());
+        self.streets.retain(|&p| zone.contains(p));
+        self.streets_rough.retain(|&p| zone.contains(p));
+    }
+
     /// Prepare the atlas for play with the player's marks: banned places drop out of every kind's matches, favorites are remembered.
     pub fn apply_marks(&mut self, marks: &Marks) {
         for idxs in self.matches.values_mut() {
@@ -400,6 +411,28 @@ mod tests {
       {"type":"way","id":3,"center":{"lat":40.002,"lon":-111.0},"tags":{"leisure":"park","name":"City Park"}},
       {"type":"node","id":4,"tags":{"amenity":"bench"}}
     ]}"#;
+
+
+    #[test]
+    fn restricting_an_atlas_to_a_zone_drops_finds_and_streets_outside_it() {
+        let cat = Catalog::builtin();
+        let center = Point::new(40.0, -111.0);
+        let zone = Zone::Circle { center, radius_m: 500.0 };
+        let (inside, outside) = (destination(center, 0.0, 200.0), destination(center, 90.0, 900.0));
+        let bench = |id: &str, p: Point| Feature {
+            id: id.into(),
+            point: p,
+            name: None,
+            tags: [("amenity".to_string(), "bench".to_string())].into_iter().collect(),
+            geometry: vec![],
+        };
+        let mut a = build_atlas("r", 0, vec![bench("n1", inside), bench("n2", outside)], vec![inside, outside], &cat);
+        a.streets_rough = vec![outside];
+        assert_eq!(a.matches["bench_warmer"].len(), 2);
+        a.restrict_to(&zone);
+        assert_eq!(a.matches["bench_warmer"], vec![0], "only the bench inside the zone is kept");
+        assert_eq!((a.streets, a.streets_rough), (vec![inside], vec![]));
+    }
 
     #[test]
     fn features_outside_the_zone_are_dropped_but_trails_touching_it_stay() {

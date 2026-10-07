@@ -53,6 +53,17 @@ pub struct RealmOut {
     pub warning: Option<String>,
 }
 
+/// A quest kind a find can serve, with what it means and how it is completed.
+#[derive(Debug, uniffi::Record)]
+pub struct KindOut {
+    pub id: String,
+    pub name: String,
+    pub family: String,
+    pub blurb: String,
+    /// What the player has to do ("Get within 40 m.").
+    pub how: String,
+}
+
 /// One find: a scanned spot a realm can use for quests, with the player's mark on it.
 #[derive(Debug, uniffi::Record)]
 pub struct FindOut {
@@ -60,8 +71,10 @@ pub struct FindOut {
     /// The find's own name, or the name of its first quest kind when it has none ("Bench Warmer").
     pub name: String,
     pub named: bool,
-    /// Names of the quest kinds this find can serve.
-    pub kinds: Vec<String>,
+    /// The quest kinds this find can serve.
+    pub kinds: Vec<KindOut>,
+    /// The `key=value` map tags that made it match, for the curious ("leisure=pitch").
+    pub tags: Vec<String>,
     /// The first quest kind's id and family, for choosing an icon.
     pub kind_id: String,
     pub family: String,
@@ -261,12 +274,31 @@ impl Engine {
         self.game.lock().unwrap_or_else(|e| e.into_inner()).as_mut().map(f)
     }
 
+    /// The realm's scanned atlas, restricted to the realm's current zone (see `Atlas::restrict_to`).
+    fn zoned_atlas(&self, realm: &Realm) -> Option<Atlas> {
+        let mut a = self.store().load_atlas(&realm.id)?;
+        a.restrict_to(&realm.shape.to_zone());
+        Some(a)
+    }
+
+    /// Finds of a (zoned) atlas: place index -> the quest kinds it can serve for this realm's mode.
+    fn kinds_by_place<'a>(&'a self, realm: &Realm, atlas: &Atlas) -> std::collections::BTreeMap<usize, Vec<&'a apgo_core::catalog::Kind>> {
+        let mut out: std::collections::BTreeMap<usize, Vec<&apgo_core::catalog::Kind>> = std::collections::BTreeMap::new();
+        for (kind_id, idxs) in &atlas.matches {
+            let Some(kind) = self.catalog.kind(kind_id).filter(|k| k.allows(realm.mode)) else { continue };
+            for &i in idxs {
+                out.entry(i).or_default().push(kind);
+            }
+        }
+        out
+    }
+
     fn realm_atlases(&self, ids: &[String]) -> Result<Vec<(Realm, Atlas)>, CoreError> {
         let store = self.store();
         ids.iter()
             .map(|id| {
                 let r = store.get(id).ok_or_else(|| err(format!("realm {id} not found")))?;
-                let mut a = store.load_atlas(id).ok_or_else(|| err(format!("realm \"{}\" has not been scanned yet", r.name)))?;
+                let mut a = self.zoned_atlas(&r).ok_or_else(|| err(format!("realm \"{}\" has not been scanned yet", r.name)))?;
                 a.apply_marks(&store.marks(id)); // banned places are left out, favorites are preferred
                 Ok((r, a))
             })
@@ -314,7 +346,8 @@ impl Engine {
                 let polygon: Vec<GeoPoint> = r.polygon().unwrap_or_default().iter().map(|p| gp(*p)).collect();
                 let polygon_active = r.polygon_active();
                 let atlas = store.load_atlas(&r.id);
-                let places = atlas.as_ref().map_or(0, |a| a.features.len() as u32);
+                // Count finds (zoned, usable by this realm's mode), the same number the Details list shows.
+                let places = self.zoned_atlas(&r).map_or(0, |a| self.kinds_by_place(&r, &a).len() as u32);
                 let warning = atlas.and_then(|a| a.warnings.first().cloned());
                 RealmOut {
                     id: r.id,
@@ -365,43 +398,46 @@ impl Engine {
         store.save_atlas(&atlas).map_err(err)?;
         realm.scanned_at_ms = Some(now_ms);
         store.save(&realm).map_err(err)?;
-        Ok(self.offers_of(&realm, &atlas))
+        let mut zoned = atlas;
+        zoned.restrict_to(&realm.shape.to_zone());
+        zoned.apply_marks(&store.marks(&id));
+        Ok(self.offers_of(&realm, &zoned))
     }
 
     pub fn realm_offers(&self, id: String) -> Vec<OfferOut> {
         let store = self.store();
-        match (store.get(&id), store.load_atlas(&id)) {
-            (Some(r), Some(mut a)) => {
+        match store.get(&id).and_then(|r| self.zoned_atlas(&r).map(|a| (r, a))) {
+            Some((r, mut a)) => {
                 a.apply_marks(&store.marks(&id));
                 self.offers_of(&r, &a)
             }
-            _ => vec![],
+            None => vec![],
         }
     }
 
     /// Every find in a realm (a scanned spot that can serve a quest), with the player's mark on it, nearest first.
     pub fn realm_finds(&self, id: String) -> Vec<FindOut> {
         let store = self.store();
-        let (Some(realm), Some(atlas)) = (store.get(&id), store.load_atlas(&id)) else { return vec![] };
+        let Some((realm, atlas)) = store.get(&id).and_then(|r| self.zoned_atlas(&r).map(|a| (r, a))) else { return vec![] };
         let marks = store.marks(&id);
         let home = store.home().unwrap_or_else(|| realm.shape.center());
-        let mut kinds_of: std::collections::BTreeMap<usize, Vec<(String, String, String)>> = std::collections::BTreeMap::new();
-        for (kind_id, idxs) in &atlas.matches {
-            let Some(kind) = self.catalog.kind(kind_id).filter(|k| k.allows(realm.mode)) else { continue };
-            for &i in idxs {
-                kinds_of.entry(i).or_default().push((kind.id.clone(), kind.name.clone(), kind.family.clone()));
-            }
-        }
+        let kinds_of = self.kinds_by_place(&realm, &atlas);
         let mut out: Vec<FindOut> = kinds_of
             .into_iter()
             .map(|(i, kinds)| {
                 let f = &atlas.features[i];
                 FindOut {
                     id: f.id.clone(),
-                    name: f.name.clone().unwrap_or_else(|| kinds[0].1.clone()),
+                    name: f.name.clone().unwrap_or_else(|| kinds[0].name.clone()),
                     named: f.name.is_some(),
-                    kind_id: kinds[0].0.clone(),
-                    family: kinds[0].2.clone(),
+                    kind_id: kinds[0].id.clone(),
+                    family: kinds[0].family.clone(),
+                    tags: {
+                        let mut t: Vec<String> = kinds.iter().flat_map(|k| k.evidence(&f.tags)).collect();
+                        t.sort();
+                        t.dedup();
+                        t
+                    },
                     at: gp(f.point),
                     distance_m: distance_m(home, f.point),
                     mark: match marks.get(&f.id) {
@@ -410,7 +446,10 @@ impl Engine {
                         Mark::Banned => "banned",
                     }
                     .into(),
-                    kinds: kinds.into_iter().map(|(_, name, _)| name).collect(),
+                    kinds: kinds
+                        .into_iter()
+                        .map(|k| KindOut { id: k.id.clone(), name: k.name.clone(), family: k.family.clone(), blurb: k.blurb.clone(), how: k.verify.how() })
+                        .collect(),
                 }
             })
             .collect();
