@@ -39,3 +39,6 @@ Source paths are relative to https://github.com/ArchipelagoMW/Archipelago (world
 ## References
 - https://github.com/ArchipelagoMW/Archipelago/tree/main/worlds/apquest
 - `docs/context/apworld-development-guide.md`, `docs/context/apworld-pitfalls.md`, `docs/context/archipela-go-upstream-architecture.md`
+
+## Zelda reference worlds
+Already on disk and git-ignored: `.ap/worlds/{tloz,alttp,oot,tww}` (clone of Archipelago 0.6.8). Read `tloz` (smallest) first. See `docs/context/archipelago-game-model.md`.

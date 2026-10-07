@@ -55,3 +55,5 @@ If you need info on POI data sources, map tiles or POI architecture, see `docs/c
 If you need Spike B results (bulk POI generation timings, rural gaps, next fixes), see `docs/context/spike-b-location-generation-results.md`
 If you need the Android build/run loop, versions and gotchas, see `docs/context/android-dev-workflow.md`
 If you need the dev Archipelago server loop (`just ap-host`) and Android-to-server gotchas, see `docs/context/android-dev-workflow.md`
+If you need how our game maps onto Archipelago (YAML, apworld, fill, phone) or the Zelda reference worlds, see `docs/context/archipelago-game-model.md`
+If you need quest-type ideas, phone sensor/health API permissions and the quest table, see `docs/context/quest-types-and-phone-apis.md`
