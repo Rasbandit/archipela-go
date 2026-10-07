@@ -24,11 +24,11 @@ import androidx.compose.ui.unit.LayoutDirection
  * MapLibre symbols are bitmaps, so the Lucide icons the UI uses are drawn into bitmaps here. Lucide icons are stroked paths on a 24x24 grid.
  */
 
-private fun DrawScope.strokeIcon(group: VectorGroup, color: Color) {
+private fun DrawScope.strokeIcon(group: VectorGroup, color: Color, width: Float = 2f) {
     group.forEach { node ->
         when (node) {
-            is VectorPath -> drawPath(node.pathData.toPath(), color, style = Stroke(width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-            is VectorGroup -> strokeIcon(node, color)
+            is VectorPath -> drawPath(node.pathData.toPath(), color, style = Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            is VectorGroup -> strokeIcon(node, color, width)
         }
     }
 }
@@ -39,11 +39,11 @@ private fun render(sizePx: Int, draw: DrawScope.() -> Unit): Bitmap {
     return image.asAndroidBitmap()
 }
 
-private fun DrawScope.icon(icon: ImageVector, at: Float, sizePx: Float, color: Color) {
+private fun DrawScope.icon(icon: ImageVector, at: Float, sizePx: Float, color: Color, width: Float = 2f) {
     withTransform({
         translate(left = at, top = at)
         scale(sizePx / icon.viewportWidth, sizePx / icon.viewportHeight, pivot = Offset.Zero)
-    }) { strokeIcon(icon.root, color) }
+    }) { strokeIcon(icon.root, color, width) }
 }
 
 /** A round badge with the icon inside: the pin for a find on the map. */
@@ -57,3 +57,11 @@ fun renderPin(icon: ImageVector, sizePx: Int, fill: Color, glyph: Color = Color.
 
 /** Just the icon, for drawing a glyph on top of another marker. */
 fun renderGlyph(icon: ImageVector, sizePx: Int, color: Color = Color.White): Bitmap = render(sizePx) { icon(icon, 0f, sizePx.toFloat(), color) }
+
+/** The icon itself, bold and with a light outline so it reads on any map: a marker that is the shape (a house) rather than a badge around it. */
+fun renderMarker(icon: ImageVector, sizePx: Int, color: Color, outline: Color = Color.White): Bitmap = render(sizePx) {
+    val s = sizePx.toFloat()
+    val inset = s * 0.1f
+    icon(icon, inset, s - 2 * inset, outline, width = 4.6f)
+    icon(icon, inset, s - 2 * inset, color, width = 2.4f)
+}

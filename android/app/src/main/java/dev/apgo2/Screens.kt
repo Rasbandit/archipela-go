@@ -301,7 +301,7 @@ private fun HomePicker(m: AppModel, onClose: () -> Unit) {
             emptyList(), m.shownRealms, emptyList(), m.me, null, null, null, { place(it) },
             Modifier.fillMaxSize(),
             home = pin,
-            handles = listOfNotNull(pin), onHandleMove = { _, to -> pin = to }, onHandleRelease = { pin?.let { place(it) } },
+            handles = listOfNotNull(pin), handlesVisible = false, onHandleMove = { _, to -> pin = to }, onHandleRelease = { pin?.let { place(it) } },
             focus = focus, fit = framing,
             overlayTopDp = 16, overlayBottomDp = 150,
         )
@@ -317,15 +317,15 @@ private fun HomePicker(m: AppModel, onClose: () -> Unit) {
                 Text("Home saved", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        ToolPill(Modifier.align(Alignment.TopStart).padding(top = 12.dp, start = 12.dp)) {
-            ToolButton(ApgoIcons.Me, "Use my location", enabled = m.me != null) { m.me?.let { place(it); focus = MapFocus(it, ++nonce) } }
-        }
         MapOverlayCard(Modifier.align(Alignment.BottomCenter)) {
             Text("Home", style = MaterialTheme.typography.titleSmall)
             Text(
                 if (pin == null) "Tap the map to put your home there." else "Drag the pin or tap the map to move it. Distances in your games are measured from here.",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Button(onClick = { m.me?.let { place(it); focus = MapFocus(it, ++nonce) } }, enabled = m.me != null, modifier = Modifier.fillMaxWidth()) {
+                IconLabel(if (m.me == null) "Waiting for your location…" else "Use my location", ApgoIcons.Me, 14.sp)
+            }
         }
     }
 }

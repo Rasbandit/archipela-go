@@ -64,6 +64,7 @@ import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.circleRing
 import dev.apgo2.ui.renderGlyph
+import dev.apgo2.ui.renderMarker
 import dev.apgo2.ui.renderPin
 import dev.apgo2.ui.hex
 import uniffi.apgo_ffi.QuestOut
@@ -180,6 +181,8 @@ fun QuestMap(
     /** Points the user can pick up and drag; [onHandleMove] gets the handle index and its new position. */
     handles: List<LatLng> = emptyList(),
     onHandleMove: ((Int, LatLng) -> Unit)? = null,
+    /** False hides the handles' own drawing (the thing being dragged draws itself) while they can still be grabbed. */
+    handlesVisible: Boolean = true,
     /** Called when a handle drag ends (the finger lifts). */
     onHandleRelease: (() -> Unit)? = null,
     /** Finds drawn as icon pins; tapping one calls [onFindClick] with its id. */
@@ -334,10 +337,10 @@ fun QuestMap(
                     ),
                 )
                 // You and home are badges: a person on blue, a house on green.
-                s.addImage("badge-me", renderPin(ApgoIcons.Me, 84, fill = ApgoPalette.me))
-                s.addImage("badge-home", renderPin(ApgoIcons.Home, 84, fill = ApgoPalette.home))
-                s.addLayer(SymbolLayer("home-layer", "home").withProperties(iconImage("badge-home"), iconSize(0.6f), iconAllowOverlap(true), iconIgnorePlacement(true)))
-                s.addLayer(SymbolLayer("me-layer", "me").withProperties(iconImage("badge-me"), iconSize(0.55f), iconAllowOverlap(true), iconIgnorePlacement(true)))
+                s.addImage("badge-me", renderPin(ApgoIcons.Me, 120, fill = ApgoPalette.me))
+                s.addImage("marker-home", renderMarker(ApgoIcons.Home, 168, ApgoPalette.home))
+                s.addLayer(SymbolLayer("home-layer", "home").withProperties(iconImage("marker-home"), iconSize(0.8f), iconAllowOverlap(true), iconIgnorePlacement(true)))
+                s.addLayer(SymbolLayer("me-layer", "me").withProperties(iconImage("badge-me"), iconSize(0.75f), iconAllowOverlap(true), iconIgnorePlacement(true)))
                 style = s
             }
         }
@@ -439,8 +442,8 @@ fun QuestMap(
         style?.getSourceAs<GeoJsonSource>("ringknobs")?.setGeoJson(fc(geo?.second ?: emptyList()))
         style?.getSourceAs<GeoJsonSource>("ringlabel")?.setGeoJson(fc(geo?.third ?: emptyList()))
     }
-    LaunchedEffect(style, handles) {
-        style?.getSourceAs<GeoJsonSource>("handles")?.setGeoJson(fc(handles.map { feature(pointGeo(it.latitude, it.longitude)) }))
+    LaunchedEffect(style, handles, handlesVisible) {
+        style?.getSourceAs<GeoJsonSource>("handles")?.setGeoJson(fc(if (handlesVisible) handles.map { feature(pointGeo(it.latitude, it.longitude)) } else emptyList()))
         map?.triggerRepaint()
     }
     LaunchedEffect(style, home) {
