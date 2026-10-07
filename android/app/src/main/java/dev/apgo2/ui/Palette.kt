@@ -45,6 +45,10 @@ object ApgoPalette {
     val waypoint = Color(0xFF8E24AA)
     val onMap = Color.White // halos, outlines and knob fills
 
+    // Marks on places
+    val favorite = Color(0xFFF9A825)
+    val banned = Color(0xFFC62828)
+
     // Feedback text
     val warning = Color(0xFFE65100)
     val danger = Color(0xFFC62828)

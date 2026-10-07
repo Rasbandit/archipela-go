@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -69,4 +71,12 @@ fun FeedbackText(text: String, tone: Tone, size: TextUnit = 12.sp, modifier: Mod
         Tone.Muted -> ApgoPalette.muted
     }
     Text(text, modifier, color = color, fontSize = size)
+}
+
+/** A glyph button that is lit in [tint] when [active] and dim otherwise (favorite star, ban sign). */
+@Composable
+fun MarkToggle(glyph: String, active: Boolean, tint: Color, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Text(glyph, fontSize = 20.sp, color = if (active) tint else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f))
+    }
 }

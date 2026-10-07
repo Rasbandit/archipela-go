@@ -11,6 +11,14 @@ import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.compose.foundation.layout.Arrangement
+import uniffi.apgo_ffi.PlaceOut
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import dev.apgo2.ui.MarkToggle
+import dev.apgo2.ui.ChoiceChips
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.draw.alpha
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -162,10 +170,14 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
     }
 }
 
-/** The map is the whole page; name, mode and shape controls float over it. [realmId] null creates a realm, otherwise edits it. */
+/**
+ * The realm editor: two tabs over one draft. Area is the geofence on a full-page map; Details is the name, mode and the places the scan found.
+ * [realmId] null creates a realm (Area, then Details), otherwise edits it.
+ */
 @Composable
 private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     val original = remember(realmId) { m.realms.firstOrNull { it.id == realmId } }
+    var tab by remember(realmId) { mutableStateOf(AREA) }
     var name by remember(realmId) { mutableStateOf(original?.name ?: "") }
     var mode by remember(realmId) { mutableStateOf(original?.mode ?: "walk") }
     var polygon by remember(realmId) { mutableStateOf(original?.polygonActive == true) }
@@ -183,67 +195,134 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
         return if (polygon) o.polygon.size != m.draft.size || o.polygon.indices.any { o.polygon[it].lat != m.draft[it].latitude || o.polygon[it].lon != m.draft[it].longitude }
         else oc == null || circleCenter == null || oc.radiusM != radius.toDouble() || oc.center.lat != circleCenter.latitude || oc.center.lon != circleCenter.longitude
     }
+    fun save() {
+        val circle = circleCenter?.let { it to radius.toDouble() }
+        if (m.saveRealm(realmId, name, mode, circle, m.draft.toList(), polygonActive = polygon, rescan = shapeChanged())) onClose()
+    }
+    // The first button moves a new realm on to Details; everywhere else it saves.
+    val primaryLabel = when {
+        original != null -> "Save"
+        tab == AREA -> "Next"
+        else -> "Save + scan"
+    }
+    val onPrimary = { if (original == null && tab == AREA) tab = DETAILS else save() }
 
-    // A circle has a handle at its center (moves it); its whole ring is an invisible handle (resizes it). A polygon has one per corner.
-    val handles = if (polygon) m.draft.toList() else listOfNotNull(circleCenter)
-    fun moveHandle(i: Int, to: LatLng) {
-        if (polygon) { if (i in m.draft.indices) m.draft[i] = to; return }
-        val c = circleCenter ?: return
-        if (i == 0) center = to
-        else {
-            val d = floatArrayOf(0f)
-            android.location.Location.distanceBetween(c.latitude, c.longitude, to.latitude, to.longitude, d)
-            radius = d[0].coerceIn(300f, 8000f)
+    @Composable
+    fun Header() {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = onClose) { Text("Cancel") }
+            ChoiceChips(listOf(AREA, DETAILS), tab, { tab = it }, { if (it == AREA) "Area" else "Details" })
+            Button(onClick = onPrimary) { Text(primaryLabel) }
         }
     }
 
-    var renaming by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxSize()) {
-        QuestMap(
-            emptyList(), emptyList(), if (polygon) m.draft.toList() else emptyList(), m.me, null, null, null, { if (polygon) m.draft.add(it) },
-            Modifier.fillMaxSize(),
-            home = m.home?.let { LatLng(it.lat, it.lon) },
-            onMapLongClick = { m.setHome(it) },
-            circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() },
-            overlayTopDp = 16, overlayBottomDp = 175,
-            handles = handles, onHandleMove = ::moveHandle,
-        )
-        MapOverlayCard(Modifier.align(Alignment.BottomCenter)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onClose) { Text("Cancel") }
-                TextButton(onClick = { renaming = true }, modifier = Modifier.weight(1f)) {
-                    Text("${name.ifBlank { "Unnamed realm" }}  ✎", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                }
-                Button(onClick = {
-                    val circle = circleCenter?.let { it to radius.toDouble() }
-                    if (m.saveRealm(realmId, name, mode, circle, m.draft.toList(), polygonActive = polygon, rescan = shapeChanged())) onClose()
-                }) { Text(if (original == null) "Save + scan" else "Save") }
+    if (tab == AREA) {
+        // A circle has a handle at its center (moves it); its whole ring is an invisible handle (resizes it). A polygon has one per corner.
+        val handles = if (polygon) m.draft.toList() else listOfNotNull(circleCenter)
+        fun moveHandle(i: Int, to: LatLng) {
+            if (polygon) { if (i in m.draft.indices) m.draft[i] = to; return }
+            val c = circleCenter ?: return
+            if (i == 0) center = to
+            else {
+                val d = floatArrayOf(0f)
+                android.location.Location.distanceBetween(c.latitude, c.longitude, to.latitude, to.longitude, d)
+                radius = d[0].coerceIn(300f, 8000f)
             }
-            ModeChips(mode) { mode = it }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ApgoChip("Circle", !polygon, { polygon = false })
-                ApgoChip("Polygon", polygon, { polygon = true })
-                if (polygon) {
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { if (m.draft.isNotEmpty()) m.draft.removeAt(m.draft.lastIndex) }) { Text("Undo") }
-                    TextButton(onClick = { m.draft.clear() }) { Text("Clear") }
-                }
-            }
-            Text(
-                if (polygon) "Tap to add corners (${m.draft.size}), drag a corner to move it." else "Drag the ring to resize, the center to move.",
-                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        }
+        Box(Modifier.fillMaxSize()) {
+            QuestMap(
+                emptyList(), emptyList(), if (polygon) m.draft.toList() else emptyList(), m.me, null, null, null, { if (polygon) m.draft.add(it) },
+                Modifier.fillMaxSize(),
+                home = m.home?.let { LatLng(it.lat, it.lon) },
+                onMapLongClick = { m.setHome(it) },
+                circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() },
+                overlayTopDp = 16, overlayBottomDp = 150,
+                handles = handles, onHandleMove = ::moveHandle,
             )
+            MapOverlayCard(Modifier.align(Alignment.BottomCenter)) {
+                Header()
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ApgoChip("Circle", !polygon, { polygon = false })
+                    ApgoChip("Polygon", polygon, { polygon = true })
+                    if (polygon) {
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { if (m.draft.isNotEmpty()) m.draft.removeAt(m.draft.lastIndex) }) { Text("Undo") }
+                        TextButton(onClick = { m.draft.clear() }) { Text("Clear") }
+                    }
+                }
+                Text(
+                    if (polygon) "Tap to add corners (${m.draft.size}), drag a corner to move it." else "Drag the ring to resize, the center to move.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
-    }
-    if (renaming) {
-        AlertDialog(
-            onDismissRequest = { renaming = false },
-            title = { Text("Realm name") },
-            text = { OutlinedTextField(name, { name = it }, singleLine = true, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = { TextButton(onClick = { renaming = false }) { Text("Done") } },
-        )
+    } else {
+        Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Header()
+            OutlinedTextField(name, { name = it }, label = { Text("Realm name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            ModeChips(mode) { mode = it }
+            if (original?.scannedAtMs != null && realmId != null) PlacesList(m, realmId)
+            else Text("The places found on the map show up here after the first scan.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
+
+private const val AREA = 0
+private const val DETAILS = 1
+
+/** Everything the scan found that can serve a quest. Favorites are preferred when quests are made; banned places are never used. */
+@Composable
+private fun PlacesList(m: AppModel, realmId: String) {
+    val places = remember(realmId) { mutableStateListOf<PlaceOut>() }
+    var loaded by remember(realmId) { mutableStateOf(false) }
+    LaunchedEffect(realmId) {
+        val all = withContext(Dispatchers.IO) { m.engine.realmPlaces(realmId) }
+        places.clear(); places.addAll(all); loaded = true
+    }
+    var query by remember(realmId) { mutableStateOf("") }
+    var filter by remember(realmId) { mutableStateOf(ALL) }
+    val shown = places.filter { p ->
+        (filter == ALL || p.mark == filter) && (query.isBlank() || p.name.contains(query, true) || p.kinds.any { it.contains(query, true) })
+    }
+    fun mark(p: PlaceOut, to: String) {
+        val next = if (p.mark == to) "none" else to // tapping a lit toggle clears it
+        if (m.setPlaceMark(realmId, p.id, next)) places[places.indexOfFirst { it.id == p.id }] = p.copy(mark = next)
+    }
+
+    Text(
+        if (loaded) "${places.size} places · ${places.count { it.mark == FAVORITE }} favorites · ${places.count { it.mark == BANNED }} banned" else "Loading places…",
+        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    OutlinedTextField(query, { query = it }, label = { Text("Search places or quest types") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    ChoiceChips(listOf(ALL, FAVORITE, BANNED), filter, { filter = it }, { when (it) { ALL -> "All"; FAVORITE -> "★ Favorites"; else -> "⛔ Banned" } })
+    LazyColumn(Modifier.fillMaxWidth()) {
+        items(shown, key = { it.id }) { p ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).alpha(if (p.mark == BANNED) 0.5f else 1f)) {
+                    Text(
+                        p.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium,
+                        textDecoration = if (p.mark == BANNED) TextDecoration.LineThrough else null,
+                    )
+                    Text(
+                        // An unnamed place is titled by its first quest kind, so the subtitle must not repeat it.
+                        (if (p.named) p.kinds else listOf("unnamed") + p.kinds.drop(1)).joinToString(", ") + " · ${distanceLabel(p.distanceM)}",
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                MarkToggle("★", p.mark == FAVORITE, ApgoPalette.favorite) { mark(p, FAVORITE) }
+                MarkToggle("⛔", p.mark == BANNED, ApgoPalette.banned) { mark(p, BANNED) }
+            }
+            HorizontalDivider()
+        }
+    }
+}
+
+private const val ALL = "all"
+private const val FAVORITE = "favorite"
+private const val BANNED = "banned"
+
+private fun distanceLabel(m: Double) = if (m < 1000) "${m.toInt()} m" else "%.1f km".format(m / 1000)
 
 // ---------------------------------------------------------------- new game
 @Composable
