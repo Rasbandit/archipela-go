@@ -35,6 +35,11 @@ object ApgoIcons {
     val Rescan = Lucide.RefreshCw
     val Undo = Lucide.Undo2
     val Close = Lucide.X
+    val Me = Lucide.User
+    val Home = Lucide.House
+    val Circle = Lucide.Circle
+    val Polygon = Lucide.Pentagon
+    val More = Lucide.EllipsisVertical
     val All = Lucide.List
     val ClearAll = Lucide.Eraser
 

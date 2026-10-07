@@ -330,9 +330,11 @@ fun QuestMap(
                         textAnchor(Property.TEXT_ANCHOR_BOTTOM), textOffset(arrayOf(0f, -0.3f)),
                     ),
                 )
-                s.addLayer(CircleLayer("home-ring", "home").withProperties(circleRadius(14f), circleColor(ApgoPalette.home.hex()), circleStrokeColor(ApgoPalette.onMap.hex()), circleStrokeWidth(3f)))
-                s.addLayer(CircleLayer("home-dot", "home").withProperties(circleRadius(5f), circleColor(ApgoPalette.onMap.hex())))
-                s.addLayer(CircleLayer("me-layer", "me").withProperties(circleRadius(9f), circleColor(ApgoPalette.me.hex()), circleStrokeColor(ApgoPalette.onMap.hex()), circleStrokeWidth(3f)))
+                // You and home are badges: a person on blue, a house on green.
+                s.addImage("badge-me", renderPin(ApgoIcons.Me, 84, fill = ApgoPalette.me))
+                s.addImage("badge-home", renderPin(ApgoIcons.Home, 84, fill = ApgoPalette.home))
+                s.addLayer(SymbolLayer("home-layer", "home").withProperties(iconImage("badge-home"), iconSize(0.6f), iconAllowOverlap(true), iconIgnorePlacement(true)))
+                s.addLayer(SymbolLayer("me-layer", "me").withProperties(iconImage("badge-me"), iconSize(0.55f), iconAllowOverlap(true), iconIgnorePlacement(true)))
                 style = s
             }
         }

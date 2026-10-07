@@ -11,7 +11,20 @@ import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.draw.clip
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import dev.apgo2.ui.ToolButton
+import androidx.compose.foundation.shape.RoundedCornerShape
 import uniffi.apgo_ffi.RealmOut
 import dev.apgo2.ui.circleRing
 import dev.apgo2.ui.RealmPreview
@@ -107,11 +120,14 @@ private val TRAPS = listOf("freeze", "fog", "shuffle", "silence", "leash", "deto
 
 @Composable
 fun AppRoot(m: AppModel) {
+    // Back steps out one level: realm editor -> realm list, other tabs -> Realms; on the realm list it leaves the app as usual.
+    BackHandler(enabled = m.tab != 0 || m.editing != null) { if (m.editing != null) m.editing = null else m.tab = 0 }
     Scaffold(
         bottomBar = {
             NavigationBar {
                 listOf("Realms", "New Game", "Play").forEachIndexed { i, t ->
-                    NavigationBarItem(selected = m.tab == i, onClick = { m.tab = i }, icon = { Icon(listOf(ApgoIcons.Realms, ApgoIcons.NewGame, ApgoIcons.Play)[i], contentDescription = t) }, label = { Text(t) })
+                    NavigationBarItem(selected = m.tab == i, onClick = { m.tab = i; if (i == 0) m.editing = null }, // tapping Realms again leaves the editor
+                         icon = { Icon(listOf(ApgoIcons.Realms, ApgoIcons.NewGame, ApgoIcons.Play)[i], contentDescription = t) }, label = { Text(t) })
                 }
             }
         },
@@ -144,26 +160,49 @@ fun AppRoot(m: AppModel) {
 /** Two views: the list of realms, and a full-page map editor for a new one. */
 @Composable
 fun RealmsScreen(m: AppModel) {
-    // null = the list; "" = a new realm; otherwise the id of the realm being edited.
-    var editing by remember { mutableStateOf<String?>(null) }
-    editing?.let { id -> RealmEditor(m, id.ifEmpty { null }) { editing = null } } ?: RealmList(m, onNew = { editing = "" }, onEdit = { editing = it })
+    m.editing?.let { id -> RealmEditor(m, id.ifEmpty { null }) { m.editing = null } } ?: RealmList(m, onNew = { m.editing = "" }, onEdit = { m.editing = it })
 }
 
 @Composable
 private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Realms: where you play", style = MaterialTheme.typography.titleMedium)
-            Button(onClick = onNew) { IconLabel("New realm", ApgoIcons.Add) }
+    val snackbar = remember { SnackbarHostState() }
+    // Show an Undo bar for each delete; when it goes away without Undo (or the screen is left) the realm is really deleted.
+    LaunchedEffect(m.undo) {
+        val u = m.undo ?: return@LaunchedEffect
+        var undone = false
+        try {
+            undone = snackbar.showSnackbar("Deleted ${u.name}", actionLabel = "Undo", duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed
+        } finally {
+            if (undone) m.undoDelete(u.id) else m.commitDelete(u.id)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = { m.setHomeHere() }) { Text("Set home here", fontSize = 12.sp) }
-            Text(if (m.home == null) "No home yet: distances are measured from your first realm." else "Home is set. Distances are measured from it.", fontSize = 11.sp)
+    }
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Realms: where you play", style = MaterialTheme.typography.titleMedium)
+                Button(onClick = onNew) { IconLabel("New realm", ApgoIcons.Add) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = { m.setHomeHere() }) { Text("Set home here", fontSize = 12.sp) }
+                Text(if (m.home == null) "No home yet: distances are measured from your first realm." else "Home is set. Distances are measured from it.", fontSize = 11.sp)
+            }
+            if (m.shownRealms.isEmpty()) Text("No realms yet. Tap New realm to draw one.", fontSize = 13.sp)
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(m.shownRealms, key = { it.id }) { r ->
+                    val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { if (it == SwipeToDismissBoxValue.EndToStart) m.deleteWithUndo(r.id); false })
+                    SwipeToDismissBox(
+                        state = dismiss,
+                        enableDismissFromStartToEnd = false,
+                        backgroundContent = {
+                            Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(ApgoPalette.danger).padding(end = 20.dp), contentAlignment = Alignment.CenterEnd) {
+                                Icon(ApgoIcons.Delete, contentDescription = "Delete", tint = Color.White)
+                            }
+                        },
+                    ) { RealmCard(m, r) { onEdit(r.id) } }
+                }
+            }
         }
-        if (m.realms.isEmpty()) Text("No realms yet. Tap New realm to draw one.", fontSize = 13.sp)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(m.realms, key = { it.id }) { r -> RealmCard(m, r) { onEdit(r.id) } }
-        }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 }
 
@@ -207,7 +246,6 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     var name by remember(realmId) { mutableStateOf(original?.name ?: "") }
     var icon by remember(realmId) { mutableStateOf(original?.icon) }
     var pickingIcon by remember { mutableStateOf(false) }
-    var confirmingDelete by remember { mutableStateOf(false) }
     var polygon by remember(realmId) { mutableStateOf(original?.polygonActive == true) }
     var radius by remember(realmId) { mutableFloatStateOf(original?.circle?.radiusM?.toFloat() ?: 1500f) }
     var center by remember(realmId) { mutableStateOf(original?.circle?.let { LatLng(it.center.lat, it.center.lon) }) }
@@ -328,12 +366,28 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             anchor = visible.firstOrNull { it.id == selectedFind }?.let { LatLng(it.at.lat, it.at.lon) },
             onAnchor = { anchor = it },
         )
-        RealmEditorDialogs(
-            pickingIcon, icon, { icon = it }, { pickingIcon = false },
-            confirmingDelete, name.ifBlank { original?.name ?: "this realm" }, { m.deleteRealm(realmId!!); onClose() }, { confirmingDelete = false },
-        )
+        RealmEditorDialogs(pickingIcon, icon, { icon = it }, { pickingIcon = false })
         visible.firstOrNull { it.id == selectedFind }?.let { f ->
             anchor?.let { at -> FindBubble(f, at, onSize = { bubblePx = it.height }, onMark = { mark(f, it) }, onClose = { selectedFind = null }) }
+        }
+        // A way out that is always visible, whichever tab is open.
+        IconButton(
+            onClick = onClose,
+            modifier = Modifier.align(Alignment.TopStart).padding(top = 8.dp, start = 8.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), CircleShape),
+        ) { Icon(ApgoIcons.Close, contentDescription = "Close without saving") }
+        if (tab == AREA) {
+            // Drawing tools float on the map, like in a map editor: shape first, then (for a polygon) undo and clear.
+            Column(
+                Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), RoundedCornerShape(24.dp)).padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                ToolButton(ApgoIcons.Circle, "Circle", selected = !polygon) { polygon = false }
+                ToolButton(ApgoIcons.Polygon, "Polygon", selected = polygon) { polygon = true }
+                if (polygon) {
+                    ToolButton(ApgoIcons.Undo, "Undo last corner", enabled = m.draft.isNotEmpty()) { m.draft.removeAt(m.draft.lastIndex) }
+                    ToolButton(ApgoIcons.ClearAll, "Clear corners", enabled = m.draft.isNotEmpty()) { m.draft.clear() }
+                }
+            }
         }
         MapOverlayCard(
             Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }.then(if (tab == DETAILS) Modifier.fillMaxHeight(0.5f) else Modifier),
@@ -343,18 +397,10 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                 ChoiceChips(listOf(AREA, DETAILS), tab, ::goTab, { if (it == AREA) "Area" else "Details" })
             }
             if (tab == AREA) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ApgoChip("Circle", !polygon, { polygon = false })
-                    ApgoChip("Polygon", polygon, { polygon = true })
-                    Text(
-                        if (polygon) "Tap to add corners (${m.draft.size}), drag to move them." else "Drag the ring to resize, the center to move.",
-                        Modifier.weight(1f), fontSize = 11.sp, lineHeight = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (polygon) {
-                        IconButton(onClick = { if (m.draft.isNotEmpty()) m.draft.removeAt(m.draft.lastIndex) }) { Icon(ApgoIcons.Undo, contentDescription = "Undo last corner") }
-                        IconButton(onClick = { m.draft.clear() }) { Icon(ApgoIcons.ClearAll, contentDescription = "Clear corners") }
-                    }
-                }
+                Text(
+                    if (polygon) "Tap the map to add corners (${m.draft.size}). Drag a corner to move it." else "Drag the ring to resize it, the center to move it.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp),
+                )
             } else {
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState) {
                     // A compact header so the finds get most of the half-height panel: name + mode, search + filters, then the count.
@@ -414,18 +460,29 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onClose) { Text("Cancel") }
-                if (original != null) IconButton(onClick = { confirmingDelete = true }) { Icon(ApgoIcons.Delete, contentDescription = "Delete realm", tint = ApgoPalette.danger) }
+                if (original != null) {
+                    var menu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(ApgoIcons.More, contentDescription = "More") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Delete realm", color = ApgoPalette.danger) },
+                                leadingIcon = { Icon(ApgoIcons.Delete, contentDescription = null, tint = ApgoPalette.danger) },
+                                onClick = { menu = false; m.deleteWithUndo(original.id); onClose() },
+                            )
+                        }
+                    }
+                }
                 Button(onClick = { if (original == null && tab == AREA) goTab(DETAILS) else save() }) { Text(primaryLabel) }
             }
         }
     }
 }
 
-/** The dialogs of the realm editor: pick an icon, confirm a delete. */
+/** The dialogs of the realm editor: pick an icon. */
 @Composable
 private fun RealmEditorDialogs(
     picking: Boolean, current: String?, onPick: (String) -> Unit, onDismissPicker: () -> Unit,
-    confirmingDelete: Boolean, realmName: String, onDelete: () -> Unit, onDismissDelete: () -> Unit,
 ) {
     if (picking) {
         AlertDialog(
@@ -444,15 +501,6 @@ private fun RealmEditorDialogs(
                 }
             },
             confirmButton = { TextButton(onClick = onDismissPicker) { Text("Done") } },
-        )
-    }
-    if (confirmingDelete) {
-        AlertDialog(
-            onDismissRequest = onDismissDelete,
-            title = { Text("Delete $realmName?") },
-            text = { Text("This removes the realm with its finds and your favorites and bans. Games already started keep their quests.") },
-            confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = ApgoPalette.danger) } },
-            dismissButton = { TextButton(onClick = onDismissDelete) { Text("Cancel") } },
         )
     }
 }
@@ -577,13 +625,13 @@ fun NewGameScreen(m: AppModel) {
 
         Text("Zones, in order (the first is where you start; later ones are unlocked by keys and tools)", fontSize = 12.sp)
         zonePicks.forEachIndexed { i, (id, mode) ->
-            val r = m.realms.firstOrNull { it.id == id }
+            val r = m.shownRealms.firstOrNull { it.id == id }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Zone ${i + 1}: ${r?.name ?: "?"} (${modeLabel(mode)})")
                 TextButton(onClick = { zonePicks.removeAt(i) }) { Text("Remove") }
             }
         }
-        val scanned = m.realms.filter { it.scannedAtMs != null }
+        val scanned = m.shownRealms.filter { it.scannedAtMs != null }
         if (zonePicks.size < 6) {
             Text(if (scanned.isEmpty()) "Scan a realm on the Realms tab to use it here." else "Add a zone:", fontSize = 12.sp)
             scanned.forEach { r ->
@@ -649,7 +697,7 @@ fun NewGameScreen(m: AppModel) {
         if (m.apZoneModes.isNotEmpty()) {
             Text("This game needs ${m.apZoneModes.size} zone(s). Pick a matching realm for each:", fontSize = 12.sp)
             m.apZoneModes.forEachIndexed { i, mode ->
-                val options = m.realms.filter { it.scannedAtMs != null }
+                val options = m.shownRealms.filter { it.scannedAtMs != null }
                 Text("Zone ${i + 1} (${modeLabel(mode)})", fontSize = 13.sp)
                 if (options.isEmpty()) Text("  no scanned $mode realm: create one first", fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -36,6 +36,8 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     val engine = Engine(ctx.filesDir.absolutePath)
 
     var tab by mutableIntStateOf(0) // 0 Realms, 1 New Game, 2 Play
+    /** The realm editor: null shows the realm list, "" a new realm, otherwise the id of the realm being edited. */
+    var editing by mutableStateOf<String?>(null)
     var realms by mutableStateOf<List<RealmOut>>(emptyList())
     val offers = mutableStateMapOf<String, List<OfferOut>>()
     var busy by mutableStateOf<String?>(null)
@@ -132,8 +134,33 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             .onFailure { status = "Could not save: ${it.message}" }
             .isSuccess
 
-    fun deleteRealm(id: String) {
+    /** A realm that was just deleted and can still be brought back. */
+    data class UndoDelete(val id: String, val name: String)
+
+    var undo by mutableStateOf<UndoDelete?>(null)
+    private val hidden = mutableStateListOf<String>()
+
+    /** The realms to show: those waiting out their undo window are hidden but not yet deleted. */
+    val shownRealms: List<RealmOut> get() = realms.filter { it.id !in hidden }
+
+    /** Hide a realm and offer Undo; it is really deleted when [commitDelete] runs (after the undo bar goes away). */
+    fun deleteWithUndo(id: String) {
+        val r = realms.firstOrNull { it.id == id } ?: return
+        undo?.let { commitDelete(it.id) } // a new delete settles the previous one
+        hidden.add(id)
+        undo = UndoDelete(id, r.name)
+    }
+
+    fun undoDelete(id: String) {
+        hidden.remove(id)
+        if (undo?.id == id) undo = null
+    }
+
+    fun commitDelete(id: String) {
+        if (id !in hidden) return
         runCatching { engine.deleteRealm(id) }
+        hidden.remove(id)
+        if (undo?.id == id) undo = null
         refreshAll()
     }
 

@@ -124,3 +124,19 @@ fun <T> IconChoices(options: List<T>, selected: T, onSelect: (T) -> Unit, icon: 
         }
     }
 }
+
+/** A round icon button for a tool strip floating over the map; the selected tool is filled. */
+@Composable
+fun ToolButton(icon: ImageVector, description: String, selected: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    FilledIconToggleButton(
+        checked = selected,
+        onCheckedChange = { onClick() },
+        enabled = enabled,
+        colors = IconButtonDefaults.filledIconToggleButtonColors(
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            checkedContainerColor = MaterialTheme.colorScheme.primary,
+            checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
+    ) { Icon(icon, contentDescription = description, modifier = Modifier.size(22.dp)) }
+}
