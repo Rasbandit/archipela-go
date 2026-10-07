@@ -13,6 +13,9 @@ import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import dev.apgo2.ui.PreviewFrame
+import dev.apgo2.ui.HOME_PREVIEW_ZOOM
+import dev.apgo2.ui.HomePreview
 import uniffi.apgo_ffi.RealmStatsOut
 import dev.apgo2.ui.RealmStatsBox
 import dev.apgo2.ui.ScanFigures
@@ -206,13 +209,10 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
     }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Realms: where you play", style = MaterialTheme.typography.titleMedium)
+            HomeCard(m) { m.pickingHome = true }
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Realms", style = MaterialTheme.typography.titleMedium)
                 Button(onClick = onNew) { IconLabel("New realm", ApgoIcons.Add) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { m.pickingHome = true }) { IconLabel(if (m.home == null) "Set home" else "Move home", ApgoIcons.Home) }
-                Text(if (m.home == null) "No home yet: distances are measured from your first realm." else "Distances are measured from your home.", fontSize = 11.sp)
             }
             if (m.shownRealms.isEmpty()) Text("No realms yet. Tap New realm to draw one.", fontSize = 13.sp)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -231,6 +231,39 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
             }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+/**
+ * Where distances are measured from. It looks different from a realm on purpose (a green outline and a house), so it is never mistaken for one:
+ * a small map of the spot, and a way to move it.
+ */
+@Composable
+private fun HomeCard(m: AppModel, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val home = m.home?.let { LatLng(it.lat, it.lon) }
+    val map by produceState<android.graphics.Bitmap?>(null, home) {
+        value = null
+        value = home?.let { runCatching { mapSnapshot(context, PreviewFrame(it, HOME_PREVIEW_ZOOM)) }.getOrNull() }
+    }
+    Card(
+        Modifier.fillMaxWidth().clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, ApgoPalette.home),
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(ApgoIcons.Home, contentDescription = null, tint = ApgoPalette.home, modifier = Modifier.size(26.dp))
+                    Text("Home", style = MaterialTheme.typography.titleMedium)
+                }
+                Text(
+                    if (home == null) "Not set yet. Tap to choose where distances are measured from." else "Distances are measured from here. Tap to move it.",
+                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (home != null) HomePreview(map, Modifier.size(PREVIEW_DP.dp))
+        }
     }
 }
 

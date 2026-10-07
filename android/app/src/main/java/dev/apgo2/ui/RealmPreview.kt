@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -132,3 +133,22 @@ fun RealmPreview(outline: List<Pair<Double, Double>>, dots: List<PreviewDot>, ma
         drawRoundRect(frameColor, cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()), style = Stroke(width = 4.dp.toPx()))
     }
 }
+
+/** A preview of the home spot: the map around it with the house marker, and nothing else (no outline, no you). */
+@Composable
+fun HomePreview(map: Bitmap?, modifier: Modifier = Modifier) {
+    val frameColor = MaterialTheme.colorScheme.outline
+    val house = remember { renderMarker(ApgoIcons.Home, 120, ApgoPalette.home) }
+    Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+        map?.let { drawImage(it.asImageBitmap(), dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt())) }
+        val side = (size.minDimension * 0.46f).toInt()
+        drawImage(
+            house.asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(((size.width - side) / 2).toInt(), ((size.height - side) / 2).toInt()),
+            dstSize = androidx.compose.ui.unit.IntSize(side, side),
+        )
+        drawRoundRect(frameColor, cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()), style = Stroke(width = 4.dp.toPx()))
+    }
+}
+
+/** The zoom a home preview is drawn at: a few blocks around the spot. */
+const val HOME_PREVIEW_ZOOM = 15.2
