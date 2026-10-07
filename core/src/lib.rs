@@ -9,5 +9,8 @@ pub mod overpass;
 pub mod realm;
 pub mod sampler;
 pub mod slot;
+pub mod solo;
+pub mod verify;
+pub mod yaml;
 pub mod scan;
 pub mod zone;
