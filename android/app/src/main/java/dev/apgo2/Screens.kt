@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import dev.apgo2.ui.ApgoChip
 import dev.apgo2.ui.PLAY_MODES
-import dev.apgo2.ui.IconToggles
 import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.FeedbackText
@@ -13,6 +12,14 @@ import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.compose.foundation.layout.Arrangement
+import uniffi.apgo_ffi.RealmOut
+import dev.apgo2.ui.circleRing
+import dev.apgo2.ui.RealmPreview
+import dev.apgo2.ui.PreviewDot
+import androidx.compose.runtime.produceState
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.ui.layout.layout
 import androidx.compose.material3.CardDefaults
 import androidx.compose.ui.platform.LocalDensity
@@ -144,7 +151,6 @@ fun RealmsScreen(m: AppModel) {
 
 @Composable
 private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) {
-    var expanded by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Realms: where you play", style = MaterialTheme.typography.titleMedium)
@@ -154,34 +160,38 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
             OutlinedButton(onClick = { m.setHomeHere() }) { Text("Set home here", fontSize = 12.sp) }
             Text(if (m.home == null) "No home yet: distances are measured from your first realm." else "Home is set. Distances are measured from it.", fontSize = 11.sp)
         }
-        if (m.realms.isEmpty()) Text("No realms yet. Tap + New realm to draw one.", fontSize = 13.sp)
-        else Text("Tap a realm to see it on the map and edit it.", fontSize = 11.sp)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(m.realms, key = { it.id }) { r ->
-                Card(Modifier.fillMaxWidth().clickable { onEdit(r.id) }) {
-                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                            Text(r.name, style = MaterialTheme.typography.titleSmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                r.modes.forEach { Icon(ApgoIcons.mode(it), contentDescription = modeLabel(it), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }
-                            }
-                        }
-                        val on = m.offers[r.id].orEmpty()
-                        Text(if (r.scannedAtMs == null) "Not scanned yet" else "${r.places} finds · ${on.size} quest kinds on offer", fontSize = 12.sp)
-                        r.warning?.let { FeedbackText(it, Tone.Warning, 11.sp) }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            OutlinedButton(onClick = { m.scan(r.id) }) { IconLabel(if (r.scannedAtMs == null) "Scan" else "Rescan", ApgoIcons.Rescan) }
-                            OutlinedButton(onClick = { m.deleteRealm(r.id) }) { IconLabel("Delete", ApgoIcons.Delete) }
-                            TextButton(onClick = { expanded = if (expanded == r.id) null else r.id }) { Text(if (expanded == r.id) "Hide quests" else "Quests", fontSize = 12.sp) }
-                        }
-                        if (expanded == r.id) {
-                            HorizontalDivider()
-                            on.take(30).forEach { Text("${it.name}${if (it.count > 0u) "  ×${it.count}" else ""}  (${it.family})", fontSize = 12.sp) }
-                            if (on.size > 30) Text("…and ${on.size - 30} more", fontSize = 11.sp)
-                        }
-                    }
+        if (m.realms.isEmpty()) Text("No realms yet. Tap New realm to draw one.", fontSize = 13.sp)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(m.realms, key = { it.id }) { r -> RealmCard(m, r) { onEdit(r.id) } }
+        }
+    }
+}
+
+/** A realm at a glance: its icon and name, how many finds and quest types it offers, and a small preview of the region. */
+@Composable
+private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
+    val types = m.offers[r.id].orEmpty().size
+    val dots by produceState(emptyList<PreviewDot>(), r.id, r.scannedAtMs, types) {
+        value = if (r.scannedAtMs == null) emptyList() else withContext(Dispatchers.IO) {
+            m.engine.realmDots(r.id, 250u).map { PreviewDot(it.at.lat, it.at.lon, ApgoPalette.kind(it.kindId, it.family)) }
+        }
+    }
+    val outline = if (r.polygonActive) r.polygon.map { it.lat to it.lon } else r.circle?.let { circleRing(it.center.lat, it.center.lon, it.radiusM) }.orEmpty()
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(ApgoIcons.realm(r.icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
+                    Text(r.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (r.scannedAtMs == null) {
+                    Text("Not scanned yet", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text("${r.places} finds", style = MaterialTheme.typography.bodyLarge)
+                    Text("$types quest types", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            RealmPreview(outline, dots, Modifier.size(104.dp))
         }
     }
 }
@@ -195,8 +205,9 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     val original = remember(realmId) { m.realms.firstOrNull { it.id == realmId } }
     var tab by remember(realmId) { mutableStateOf(AREA) }
     var name by remember(realmId) { mutableStateOf(original?.name ?: "") }
-    // Car is not offered for realms yet: an old car realm is edited as a walking one.
-    var modes by remember(realmId) { mutableStateOf((original?.modes.orEmpty().filter { it in PLAY_MODES }).ifEmpty { listOf("walk") }) }
+    var icon by remember(realmId) { mutableStateOf(original?.icon) }
+    var pickingIcon by remember { mutableStateOf(false) }
+    var confirmingDelete by remember { mutableStateOf(false) }
     var polygon by remember(realmId) { mutableStateOf(original?.polygonActive == true) }
     var radius by remember(realmId) { mutableFloatStateOf(original?.circle?.radiusM?.toFloat() ?: 1500f) }
     var center by remember(realmId) { mutableStateOf(original?.circle?.let { LatLng(it.center.lat, it.center.lon) }) }
@@ -255,7 +266,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     }
     fun save() {
         val circle = circleCenter?.let { it to radius.toDouble() }
-        if (m.saveRealm(realmId, name, modes, circle, m.draft.toList(), polygonActive = polygon, rescan = shapeChanged())) onClose()
+        if (m.saveRealm(realmId, name, icon, circle, m.draft.toList(), polygonActive = polygon, rescan = shapeChanged())) onClose()
     }
     // The primary button moves a new realm on to Details; everywhere else it saves.
     val primaryLabel = when {
@@ -317,6 +328,10 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             anchor = visible.firstOrNull { it.id == selectedFind }?.let { LatLng(it.at.lat, it.at.lon) },
             onAnchor = { anchor = it },
         )
+        RealmEditorDialogs(
+            pickingIcon, icon, { icon = it }, { pickingIcon = false },
+            confirmingDelete, name.ifBlank { original?.name ?: "this realm" }, { m.deleteRealm(realmId!!); onClose() }, { confirmingDelete = false },
+        )
         visible.firstOrNull { it.id == selectedFind }?.let { f ->
             anchor?.let { at -> FindBubble(f, at, onSize = { bubblePx = it.height }, onMark = { mark(f, it) }, onClose = { selectedFind = null }) }
         }
@@ -345,8 +360,8 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                     // A compact header so the finds get most of the half-height panel: name + mode, search + filters, then the count.
                     item(key = "name") {
                         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            IconButton(onClick = { pickingIcon = true }) { Icon(ApgoIcons.realm(icon), contentDescription = "Choose an icon", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp)) }
                             OutlinedTextField(name, { name = it }, label = { Text("Realm name") }, singleLine = true, modifier = Modifier.weight(1f))
-                            IconToggles(PLAY_MODES, modes, { modes = it }, ApgoIcons::mode, ::modeLabel)
                         }
                     }
                     item(key = "search") {
@@ -368,6 +383,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                             },
                             Modifier.padding(vertical = 4.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (original != null && original.scannedAtMs == null) TextButton(onClick = { m.scan(original.id) }) { IconLabel("Scan now", ApgoIcons.Rescan) }
                     }
                     items(shown, key = { it.id }) { f ->
                         Row(
@@ -398,9 +414,46 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onClose) { Text("Cancel") }
+                if (original != null) IconButton(onClick = { confirmingDelete = true }) { Icon(ApgoIcons.Delete, contentDescription = "Delete realm", tint = ApgoPalette.danger) }
                 Button(onClick = { if (original == null && tab == AREA) goTab(DETAILS) else save() }) { Text(primaryLabel) }
             }
         }
+    }
+}
+
+/** The dialogs of the realm editor: pick an icon, confirm a delete. */
+@Composable
+private fun RealmEditorDialogs(
+    picking: Boolean, current: String?, onPick: (String) -> Unit, onDismissPicker: () -> Unit,
+    confirmingDelete: Boolean, realmName: String, onDelete: () -> Unit, onDismissDelete: () -> Unit,
+) {
+    if (picking) {
+        AlertDialog(
+            onDismissRequest = onDismissPicker,
+            title = { Text("Choose an icon") },
+            text = {
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ApgoIcons.realmChoices.forEach { (key, vector) ->
+                        val chosen = key == (current ?: "pin")
+                        IconButton(
+                            onClick = { onPick(key) },
+                            colors = IconButtonDefaults.iconButtonColors(containerColor = if (chosen) MaterialTheme.colorScheme.primary else Color.Transparent, contentColor = if (chosen) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface),
+                        ) { Icon(vector, contentDescription = key) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = onDismissPicker) { Text("Done") } },
+        )
+    }
+    if (confirmingDelete) {
+        AlertDialog(
+            onDismissRequest = onDismissDelete,
+            title = { Text("Delete $realmName?") },
+            text = { Text("This removes the realm with its finds and your favorites and bans. Games already started keep their quests.") },
+            confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = ApgoPalette.danger) } },
+            dismissButton = { TextButton(onClick = onDismissDelete) { Text("Cancel") } },
+        )
     }
 }
 
@@ -488,7 +541,7 @@ fun NewGameScreen(m: AppModel) {
     var bonus by remember { mutableStateOf(true) }
     var name by remember { mutableStateOf("My game") }
     val families = remember { mutableStateListOf(*FAMILIES.toTypedArray()) }
-    // Each zone is a realm played in one of the modes it allows.
+    // Each zone is a realm played in one way of travelling: how you move is a choice of the game, not of the realm.
     val zonePicks = remember { mutableStateListOf<Pair<String, String>>() }
     var url by remember { mutableStateOf("localhost:38281") }
     var slot by remember { mutableStateOf("Tester") }
@@ -534,8 +587,9 @@ fun NewGameScreen(m: AppModel) {
         if (zonePicks.size < 6) {
             Text(if (scanned.isEmpty()) "Scan a realm on the Realms tab to use it here." else "Add a zone:", fontSize = 12.sp)
             scanned.forEach { r ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    r.modes.filter { it in PLAY_MODES && (r.id to it) !in zonePicks }.forEach { mode ->
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    PLAY_MODES.filter { (r.id to it) !in zonePicks }.forEach { mode ->
                         OutlinedButton(onClick = { zonePicks.add(r.id to mode) }) { IconLabel("${r.name} · ${modeLabel(mode)}", ApgoIcons.mode(mode)) }
                     }
                 }
@@ -595,7 +649,7 @@ fun NewGameScreen(m: AppModel) {
         if (m.apZoneModes.isNotEmpty()) {
             Text("This game needs ${m.apZoneModes.size} zone(s). Pick a matching realm for each:", fontSize = 12.sp)
             m.apZoneModes.forEachIndexed { i, mode ->
-                val options = m.realms.filter { it.scannedAtMs != null && mode in it.modes }
+                val options = m.realms.filter { it.scannedAtMs != null }
                 Text("Zone ${i + 1} (${modeLabel(mode)})", fontSize = 13.sp)
                 if (options.isEmpty()) Text("  no scanned $mode realm: create one first", fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

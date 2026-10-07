@@ -1,6 +1,12 @@
 package dev.apgo2.ui
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.unit.dp
 import com.composables.icons.lucide.*
 
 /**
@@ -19,7 +25,7 @@ object ApgoIcons {
 
     // Travel modes
     val Walk = Lucide.Footprints
-    val Run = Lucide.Zap
+    val Run: ImageVector get() = runner
     val Bike = Lucide.Bike
     val Car = Lucide.Car
 
@@ -36,6 +42,41 @@ object ApgoIcons {
     val Warning = Lucide.TriangleAlert
     val Unlocked = Lucide.Check
     val Locked = Lucide.Lock
+
+    /** A runner, drawn to match Lucide (round 2 px strokes on a 24 px grid), because Lucide has no running figure. */
+    private val runner: ImageVector by lazy {
+        ImageVector.Builder("Runner", 24.dp, 24.dp, 24f, 24f).path(
+            fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round,
+        ) {
+            // head
+            moveTo(14.4f, 4.5f); arcToRelative(1.6f, 1.6f, 0f, true, true, 3.2f, 0f); arcToRelative(1.6f, 1.6f, 0f, true, true, -3.2f, 0f)
+            // back, from the neck to the hip
+            moveTo(15f, 8f); lineTo(12.4f, 13.2f)
+            // front arm and back arm
+            moveTo(14.8f, 8.6f); lineTo(18.2f, 10.4f); lineTo(20f, 8.8f)
+            moveTo(14.4f, 8.8f); lineTo(11f, 10f); lineTo(9f, 8.4f)
+            // front leg (knee forward, foot down) and back leg (kicked behind)
+            moveTo(12.4f, 13.2f); lineTo(15.6f, 15.6f); lineTo(15f, 20f)
+            moveTo(12.4f, 13.2f); lineTo(9f, 16.4f); lineTo(5.4f, 16.8f)
+        }.build()
+    }
+
+    // Icons a realm can be given. The key is what is saved with the realm, so keys are never renamed.
+    private val realmIcons: Map<String, ImageVector> = linkedMapOf(
+        "pin" to Lucide.MapPin, "home" to Lucide.House, "trees" to Lucide.Trees, "mountain" to Lucide.Mountain, "building" to Lucide.Building2,
+        "coffee" to Lucide.Coffee, "waves" to Lucide.Waves, "tent" to Lucide.Tent, "landmark" to Lucide.Landmark, "bike" to Lucide.Bike,
+        "school" to Lucide.GraduationCap, "dumbbell" to Lucide.Dumbbell, "sun" to Lucide.Sun, "heart" to Lucide.Heart, "star" to Lucide.Star,
+        "flag" to Lucide.Flag, "compass" to Lucide.Compass, "anchor" to Lucide.Anchor, "train" to Lucide.TrainFront, "flower" to Lucide.Flower2,
+        "castle" to Lucide.Castle, "palm" to Lucide.TreePalm, "store" to Lucide.Store, "briefcase" to Lucide.Briefcase, "book" to Lucide.BookOpen,
+        "dog" to Lucide.Dog, "paw" to Lucide.PawPrint, "sailboat" to Lucide.Sailboat, "rocket" to Lucide.Rocket, "gamepad" to Lucide.Gamepad2,
+        "music" to Lucide.Music, "camera" to Lucide.Camera,
+    )
+
+    /** The icons to choose from, as (key, icon). */
+    val realmChoices: List<Pair<String, ImageVector>> get() = realmIcons.entries.map { it.key to it.value }
+
+    /** A realm's icon, a map pin until one is picked. */
+    fun realm(key: String?): ImageVector = realmIcons[key] ?: Lucide.MapPin
 
     // Quest families: the fallback icon for any find or quest of that family
     private val families: Map<String, ImageVector> = mapOf(

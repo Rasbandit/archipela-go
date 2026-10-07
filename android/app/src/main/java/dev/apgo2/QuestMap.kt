@@ -62,6 +62,7 @@ import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.sources.GeoJsonSource
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.circleRing
 import dev.apgo2.ui.renderGlyph
 import dev.apgo2.ui.renderPin
 import dev.apgo2.ui.hex
@@ -97,14 +98,6 @@ private fun ring(points: List<Pair<Double, Double>>): JSONArray {
     points.firstOrNull()?.let { r.put(coord(it.first, it.second)) }
     return r
 }
-
-private fun circleRing(lat: Double, lon: Double, radiusM: Double): List<Pair<Double, Double>> =
-    (0 until 48).map { i ->
-        val a = Math.toRadians(i * 7.5)
-        val dLat = radiusM * cos(a) / 111_195.0
-        val dLon = radiusM * sin(a) / (111_195.0 * cos(Math.toRadians(lat)))
-        (lat + dLat) to (lon + dLon)
-    }
 
 private fun glyphName(q: QuestOut) = "glyph|${q.kindId}|${q.family}"
 

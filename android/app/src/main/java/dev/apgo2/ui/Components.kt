@@ -124,25 +124,3 @@ fun <T> IconChoices(options: List<T>, selected: T, onSelect: (T) -> Unit, icon: 
         }
     }
 }
-
-/** A row of icon-only toggles where any number can be on, but at least one stays on. */
-@Composable
-fun <T> IconToggles(options: List<T>, selected: List<T>, onChange: (List<T>) -> Unit, icon: (T) -> ImageVector, description: (T) -> String) {
-    Row {
-        options.forEach { option ->
-            FilledIconToggleButton(
-                checked = option in selected,
-                onCheckedChange = { on ->
-                    val next = if (on) selected + option else selected - option
-                    if (next.isNotEmpty()) onChange(options.filter { it in next })
-                },
-                colors = IconButtonDefaults.filledIconToggleButtonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    checkedContainerColor = MaterialTheme.colorScheme.primary,
-                    checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) { Icon(icon(option), contentDescription = description(option), modifier = Modifier.size(20.dp)) }
-        }
-    }
-}
