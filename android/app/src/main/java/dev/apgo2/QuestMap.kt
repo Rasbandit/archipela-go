@@ -53,6 +53,8 @@ import org.maplibre.android.style.layers.PropertyFactory.textIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.textSize
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.sources.GeoJsonSource
+import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.hex
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
 
@@ -132,10 +134,10 @@ private fun draftFeatures(draft: List<LatLng>, circle: Pair<LatLng, Double>?): L
 
 private fun stateColor() = Expression.match(
     Expression.get("state"),
-    Expression.literal("#d32f2f"),
-    Expression.stop("locked", Expression.literal("#9e9e9e")),
-    Expression.stop("done", Expression.literal("#2e7d32")),
-    Expression.stop("progress", Expression.literal("#f9a825")),
+    Expression.literal(ApgoPalette.questTodo.hex()),
+    Expression.stop("locked", Expression.literal(ApgoPalette.questLocked.hex())),
+    Expression.stop("done", Expression.literal(ApgoPalette.questDone.hex())),
+    Expression.stop("progress", Expression.literal(ApgoPalette.questProgress.hex())),
 )
 
 @Composable
@@ -224,13 +226,13 @@ fun QuestMap(
             m.setStyle(Style.Builder().fromUri(STYLE_URL)) { s ->
                 val empty = fc(emptyList())
                 listOf("realms", "areas", "lines", "quests", "draft", "marks", "home", "handles", "radius", "ringknobs", "ringlabel", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
-                s.addLayer(FillLayer("realms-fill", "realms").withProperties(fillColor("#1565c0"), fillOpacity(0.07f)))
-                s.addLayer(LineLayer("realms-line", "realms").withProperties(lineColor("#1565c0"), lineWidth(1.8f)))
+                s.addLayer(FillLayer("realms-fill", "realms").withProperties(fillColor(ApgoPalette.realm.hex()), fillOpacity(0.07f)))
+                s.addLayer(LineLayer("realms-line", "realms").withProperties(lineColor(ApgoPalette.realm.hex()), lineWidth(1.8f)))
                 s.addLayer(FillLayer("areas-fill", "areas").withProperties(fillColor(stateColor()), fillOpacity(0.18f)))
                 s.addLayer(LineLayer("lines-layer", "lines").withProperties(lineColor(stateColor()), lineWidth(4f)))
                 s.addLayer(
                     CircleLayer("quests-sel", "quests").withFilter(Expression.eq(Expression.get("sel"), Expression.literal(true))).withProperties(
-                        circleRadius(19f), circleColor("#ffffff"), circleStrokeColor("#1565c0"), circleStrokeWidth(3f),
+                        circleRadius(19f), circleColor(ApgoPalette.onMap.hex()), circleStrokeColor(ApgoPalette.realm.hex()), circleStrokeWidth(3f),
                     ),
                 )
                 s.addLayer(
@@ -244,32 +246,32 @@ fun QuestMap(
                                 Expression.stop("boss", Expression.literal(16f)),
                             ),
                         ),
-                        circleColor(stateColor()), circleStrokeColor("#ffffff"), circleStrokeWidth(1.5f),
+                        circleColor(stateColor()), circleStrokeColor(ApgoPalette.onMap.hex()), circleStrokeWidth(1.5f),
                     ),
                 )
-                s.addLayer(LineLayer("draft-line", "draft").withProperties(lineColor("#ef6c00"), lineWidth(3f)))
-                s.addLayer(FillLayer("draft-fill", "draft").withProperties(fillColor("#ef6c00"), fillOpacity(0.15f)))
-                s.addLayer(CircleLayer("draft-pts", "draft").withFilter(Expression.eq(Expression.geometryType(), Expression.literal("Point"))).withProperties(circleRadius(5f), circleColor("#ef6c00"), circleStrokeColor("#ffffff"), circleStrokeWidth(1.5f)))
-                s.addLayer(CircleLayer("marks-layer", "marks").withProperties(circleRadius(12f), circleColor(Expression.get("color")), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
-                s.addLayer(CircleLayer("handles-layer", "handles").withProperties(circleRadius(11f), circleColor("#ffffff"), circleStrokeColor("#ef6c00"), circleStrokeWidth(3.5f)))
+                s.addLayer(LineLayer("draft-line", "draft").withProperties(lineColor(ApgoPalette.draft.hex()), lineWidth(3f)))
+                s.addLayer(FillLayer("draft-fill", "draft").withProperties(fillColor(ApgoPalette.draft.hex()), fillOpacity(0.15f)))
+                s.addLayer(CircleLayer("draft-pts", "draft").withFilter(Expression.eq(Expression.geometryType(), Expression.literal("Point"))).withProperties(circleRadius(5f), circleColor(ApgoPalette.draft.hex()), circleStrokeColor(ApgoPalette.onMap.hex()), circleStrokeWidth(1.5f)))
+                s.addLayer(CircleLayer("marks-layer", "marks").withProperties(circleRadius(12f), circleColor(Expression.get("color")), circleStrokeColor(ApgoPalette.onMap.hex()), circleStrokeWidth(3f)))
+                s.addLayer(CircleLayer("handles-layer", "handles").withProperties(circleRadius(11f), circleColor(ApgoPalette.onMap.hex()), circleStrokeColor(ApgoPalette.draft.hex()), circleStrokeWidth(3.5f)))
                 // The circle's radius: a line from the centre to the ring with the value above it, and a grip knob on the ring (the whole ring is draggable).
-                s.addLayer(LineLayer("radius-line", "radius").withProperties(lineColor("#bf360c"), lineWidth(2.5f)))
+                s.addLayer(LineLayer("radius-line", "radius").withProperties(lineColor(ApgoPalette.draftStrong.hex()), lineWidth(2.5f)))
                 s.addLayer(
                     CircleLayer("ringknobs-layer", "ringknobs").withProperties(
-                        circleRadius(6f), circleColor("#ffffff"), circleStrokeColor("#ef6c00"), circleStrokeWidth(3f),
+                        circleRadius(6f), circleColor(ApgoPalette.onMap.hex()), circleStrokeColor(ApgoPalette.draft.hex()), circleStrokeWidth(3f),
                     ),
                 )
                 s.addLayer(
                     SymbolLayer("ringlabel-layer", "ringlabel").withProperties(
                         textField(Expression.get("label")), textFont(arrayOf("Noto Sans Bold")), textSize(14f),
-                        textColor("#bf360c"), textHaloColor("#ffffff"), textHaloWidth(2.5f),
+                        textColor(ApgoPalette.draftStrong.hex()), textHaloColor(ApgoPalette.onMap.hex()), textHaloWidth(2.5f),
                         textAllowOverlap(true), textIgnorePlacement(true),
                         textAnchor(Property.TEXT_ANCHOR_BOTTOM), textOffset(arrayOf(0f, -0.3f)),
                     ),
                 )
-                s.addLayer(CircleLayer("home-ring", "home").withProperties(circleRadius(14f), circleColor("#2e7d32"), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
-                s.addLayer(CircleLayer("home-dot", "home").withProperties(circleRadius(5f), circleColor("#ffffff")))
-                s.addLayer(CircleLayer("me-layer", "me").withProperties(circleRadius(9f), circleColor("#1565c0"), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
+                s.addLayer(CircleLayer("home-ring", "home").withProperties(circleRadius(14f), circleColor(ApgoPalette.home.hex()), circleStrokeColor(ApgoPalette.onMap.hex()), circleStrokeWidth(3f)))
+                s.addLayer(CircleLayer("home-dot", "home").withProperties(circleRadius(5f), circleColor(ApgoPalette.onMap.hex())))
+                s.addLayer(CircleLayer("me-layer", "me").withProperties(circleRadius(9f), circleColor(ApgoPalette.me.hex()), circleStrokeColor(ApgoPalette.onMap.hex()), circleStrokeWidth(3f)))
                 style = s
             }
         }
@@ -284,8 +286,8 @@ fun QuestMap(
     LaunchedEffect(style, draft, circle) { style?.getSourceAs<GeoJsonSource>("draft")?.setGeoJson(fc(draftFeatures(draft, circle))) }
     LaunchedEffect(style, thaw, waypoint) {
         val marks = mutableListOf<JSONObject>()
-        thaw?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", "#00acc1")) }
-        waypoint?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", "#8e24aa")) }
+        thaw?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", ApgoPalette.thaw.hex())) }
+        waypoint?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", ApgoPalette.waypoint.hex())) }
         style?.getSourceAs<GeoJsonSource>("marks")?.setGeoJson(fc(marks))
     }
     LaunchedEffect(style, circle) {

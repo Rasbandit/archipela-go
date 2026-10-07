@@ -2,11 +2,19 @@ package dev.apgo2
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import dev.apgo2.ui.ApgoChip
+import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.FeedbackText
+import dev.apgo2.ui.MapOverlayCard
+import dev.apgo2.ui.ModeChips
+import dev.apgo2.ui.Tone
+import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,7 +29,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -44,15 +51,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.SoloOptionsIn
 
-private val MODES = listOf("walk", "run", "bike", "drive")
 private val FAMILIES = listOf("reach", "dwell", "landmark", "trail", "park", "water", "courier", "explore", "steps", "away")
 private val GOALS = listOf(
     Triple("macguffin_short", "Letter Hunt", "Collect the letters A-P-G-O"),
@@ -69,21 +75,6 @@ private val GOALS = listOf(
     Triple("boss_rush", "Boss Rush", "Finish 5 hard quests"),
 )
 private val TRAPS = listOf("freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor")
-
-private fun stateColor(s: String) = when (s) {
-    "done" -> Color(0xFF2E7D32)
-    "progress" -> Color(0xFFF9A825)
-    "locked" -> Color(0xFF9E9E9E)
-    "hidden" -> Color(0xFFBDBDBD)
-    else -> Color(0xFFD32F2F)
-}
-
-@Composable
-fun ModeChips(selected: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        MODES.forEach { m -> FilterChip(selected = selected == m, onClick = { onSelect(m) }, label = { Text(if (m == "drive") "car" else m, fontSize = 12.sp) }) }
-    }
-}
 
 @Composable
 fun AppRoot(m: AppModel) {
@@ -149,11 +140,11 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
                     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                             Text(r.name, style = MaterialTheme.typography.titleSmall)
-                            Text(if (r.mode == "drive") "car" else r.mode, color = MaterialTheme.colorScheme.primary)
+                            Text(modeLabel(r.mode), color = MaterialTheme.colorScheme.primary)
                         }
                         val on = m.offers[r.id].orEmpty()
                         Text(if (r.scannedAtMs == null) "Not scanned yet" else "${r.places} places · ${on.size} quest kinds on offer", fontSize = 12.sp)
-                        r.warning?.let { Text("⚠ $it", fontSize = 11.sp, color = Color(0xFFE65100)) }
+                        r.warning?.let { FeedbackText("⚠ $it", Tone.Warning, 11.sp) }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedButton(onClick = { m.scan(r.id) }) { Text(if (r.scannedAtMs == null) "Scan" else "Rescan", fontSize = 12.sp) }
                             OutlinedButton(onClick = { m.deleteRealm(r.id) }) { Text("Delete", fontSize = 12.sp) }
@@ -206,6 +197,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
         }
     }
 
+    var renaming by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize()) {
         QuestMap(
             emptyList(), emptyList(), if (polygon) m.draft.toList() else emptyList(), m.me, null, null, null, { if (polygon) m.draft.add(it) },
@@ -213,42 +205,43 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             home = m.home?.let { LatLng(it.lat, it.lon) },
             onMapLongClick = { m.setHome(it) },
             circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() },
-            overlayTopDp = 150, overlayBottomDp = 175,
+            overlayTopDp = 16, overlayBottomDp = 175,
             handles = handles, onHandleMove = ::moveHandle,
         )
-        Card(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp)) {
-            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TextButton(onClick = onClose) { Text("← Back") }
-                    OutlinedTextField(name, { name = it }, label = { Text("Realm name") }, singleLine = true, modifier = Modifier.weight(1f))
+        MapOverlayCard(Modifier.align(Alignment.BottomCenter)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onClose) { Text("Cancel") }
+                TextButton(onClick = { renaming = true }, modifier = Modifier.weight(1f)) {
+                    Text("${name.ifBlank { "Unnamed realm" }}  ✎", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                 }
-                ModeChips(mode) { mode = it }
+                Button(onClick = {
+                    val circle = circleCenter?.let { it to radius.toDouble() }
+                    if (m.saveRealm(realmId, name, mode, circle, m.draft.toList(), polygonActive = polygon, rescan = shapeChanged())) onClose()
+                }) { Text(if (original == null) "Save + scan" else "Save") }
             }
-        }
-        Card(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(8.dp)) {
-            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(selected = !polygon, onClick = { polygon = false }, label = { Text("Circle") })
-                    FilterChip(selected = polygon, onClick = { polygon = true }, label = { Text("Polygon") })
-                }
+            ModeChips(mode) { mode = it }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ApgoChip("Circle", !polygon, { polygon = false })
+                ApgoChip("Polygon", polygon, { polygon = true })
                 if (polygon) {
-                    Text("Tap the map to add corners (${m.draft.size}); drag a corner to move it.", fontSize = 12.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedButton(onClick = { if (m.draft.isNotEmpty()) m.draft.removeAt(m.draft.lastIndex) }) { Text("Undo", fontSize = 12.sp) }
-                        OutlinedButton(onClick = { m.draft.clear() }) { Text("Clear", fontSize = 12.sp) }
-                    }
-                } else {
-                    Text("Drag the ring to resize, the center to move.", fontSize = 12.sp)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(onClick = {
-                        val circle = circleCenter?.let { it to radius.toDouble() }
-                        if (m.saveRealm(realmId, name, mode, circle, m.draft.toList(), polygonActive = polygon, rescan = shapeChanged())) onClose()
-                    }) { Text(if (original == null) "Save + scan" else "Save") }
-                    OutlinedButton(onClick = onClose) { Text("Cancel") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { if (m.draft.isNotEmpty()) m.draft.removeAt(m.draft.lastIndex) }) { Text("Undo") }
+                    TextButton(onClick = { m.draft.clear() }) { Text("Clear") }
                 }
             }
+            Text(
+                if (polygon) "Tap to add corners (${m.draft.size}), drag a corner to move it." else "Drag the ring to resize, the center to move.",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+    }
+    if (renaming) {
+        AlertDialog(
+            onDismissRequest = { renaming = false },
+            title = { Text("Realm name") },
+            text = { OutlinedTextField(name, { name = it }, singleLine = true, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = { TextButton(onClick = { renaming = false }) { Text("Done") } },
+        )
     }
 }
 
@@ -309,13 +302,13 @@ fun NewGameScreen(m: AppModel) {
         val free = m.realms.filter { it.scannedAtMs != null && it.id !in zoneRealms }
         if (zoneRealms.size < 6) {
             Text(if (free.isEmpty()) "Scan a realm on the Realms tab to use it here." else "Add a zone:", fontSize = 12.sp)
-            free.forEach { r -> OutlinedButton(onClick = { zoneRealms.add(r.id) }) { Text("+ ${r.name} (${if (r.mode == "drive") "car" else r.mode})", fontSize = 12.sp) } }
+            free.forEach { r -> OutlinedButton(onClick = { zoneRealms.add(r.id) }) { Text("+ ${r.name} (${modeLabel(r.mode)})", fontSize = 12.sp) } }
         }
 
         Text("Win condition", fontSize = 13.sp)
         GOALS.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { (id, title, _) -> FilterChip(selected = goal == id, onClick = { goal = id }, label = { Text(title, fontSize = 12.sp) }) }
+                row.forEach { (id, title, _) -> ApgoChip(title, goal == id, { goal = id }) }
             }
         }
         Text(GOALS.first { it.first == goal }.third, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
@@ -325,7 +318,7 @@ fun NewGameScreen(m: AppModel) {
         Slider(trips, { trips = it }, valueRange = 10f..300f)
         Text("Difficulty mix", fontSize = 13.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Relaxed", "Balanced", "Challenging").forEachIndexed { i, t -> FilterChip(selected = preset == i, onClick = { preset = i }, label = { Text(t, fontSize = 12.sp) }) }
+            listOf("Relaxed", "Balanced", "Challenging").forEachIndexed { i, t -> ApgoChip(t, preset == i, { preset = i }) }
         }
         Text("Minutes per difficulty tier: ${mpt.toInt()}", fontSize = 13.sp)
         Slider(mpt, { mpt = it }, valueRange = 5f..30f)
@@ -335,7 +328,7 @@ fun NewGameScreen(m: AppModel) {
         Text("Terrain", fontSize = 13.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("any" to "Any", "prefer_paved" to "Prefer paved", "paved_only" to "Paved only").forEach { (id, label) ->
-                FilterChip(selected = m.surfacePref == id, onClick = { m.surfacePref = id }, label = { Text(label, fontSize = 12.sp) })
+                ApgoChip(label, m.surfacePref == id, { m.surfacePref = id })
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) { Switch(m.avoidStairs, { m.avoidStairs = it }); Text("  Avoid stairs", Modifier.clickable { m.avoidStairs = !m.avoidStairs }, fontSize = 13.sp) }
@@ -343,7 +336,7 @@ fun NewGameScreen(m: AppModel) {
         Text("Quest types", fontSize = 13.sp)
         FAMILIES.chunked(4).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                row.forEach { f -> FilterChip(selected = f in families, onClick = { if (f in families) families.remove(f) else families.add(f) }, label = { Text(f, fontSize = 11.sp) }) }
+                row.forEach { f -> ApgoChip(f, f in families, { if (f in families) families.remove(f) else families.add(f) }, textSize = 11.sp) }
             }
         }
 
@@ -366,14 +359,14 @@ fun NewGameScreen(m: AppModel) {
             Text("This game needs ${m.apZoneModes.size} zone(s). Pick a matching realm for each:", fontSize = 12.sp)
             m.apZoneModes.forEachIndexed { i, mode ->
                 val options = m.realms.filter { it.scannedAtMs != null && it.mode == mode }
-                Text("Zone ${i + 1} (${if (mode == "drive") "car" else mode})", fontSize = 13.sp)
+                Text("Zone ${i + 1} (${modeLabel(mode)})", fontSize = 13.sp)
                 if (options.isEmpty()) Text("  no scanned $mode realm: create one first", fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     options.forEach { r ->
-                        FilterChip(selected = apZoneRealms.getOrNull(i) == r.id, onClick = {
+                        ApgoChip(r.name, apZoneRealms.getOrNull(i) == r.id, {
                             while (apZoneRealms.size <= i) apZoneRealms.add("")
                             apZoneRealms[i] = r.id
-                        }, label = { Text(r.name, fontSize = 12.sp) })
+                        })
                     }
                 }
             }
@@ -407,12 +400,12 @@ fun PlayScreen(m: AppModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             m.zones.forEach { z ->
                 Text(
-                    "Z${z.id} ${if (z.mode == "drive") "car" else z.mode} ${if (z.unlocked) "✓" else "🔒${if (z.keysNeeded > 0u) " ${z.keysNeeded}key" else ""}${z.tool?.let { "+$it" } ?: ""}"}",
-                    fontSize = 11.sp, color = if (z.unlocked) Color(0xFF2E7D32) else Color(0xFF757575),
+                    "Z${z.id} ${modeLabel(z.mode)} ${if (z.unlocked) "✓" else "🔒${if (z.keysNeeded > 0u) " ${z.keysNeeded}key" else ""}${z.tool?.let { "+$it" } ?: ""}"}",
+                    fontSize = 11.sp, color = if (z.unlocked) ApgoPalette.success else ApgoPalette.muted,
                 )
             }
         }
-        (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let { Text("⚠ " + it.joinToString("  ·  "), fontSize = 12.sp, color = Color(0xFFC62828)) }
+        (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let { FeedbackText("⚠ " + it.joinToString("  ·  "), Tone.Danger) }
         QuestMap(
             m.quests, m.realms, emptyList(), m.me,
             hud.thaw?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) }, hud.waypoint?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) },
@@ -437,7 +430,7 @@ fun PlayScreen(m: AppModel) {
                     Text("${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min · ${q.mode}${if (q.fallback) " · fallback" else ""}", fontSize = 11.sp)
                     Text(q.detail, fontSize = 12.sp)
                     Text(q.blurb, fontSize = 11.sp)
-                    q.reward?.let { Text("Reward: $it", fontSize = 12.sp, color = Color(0xFF2E7D32)) }
+                    q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutlinedButton(onClick = { m.devComplete(q) }) { Text("DEV: complete", fontSize = 11.sp) }
                         if (q.state != "done") OutlinedButton(onClick = { runCatching { m.engine.reroll(listOf(q.locationId), (kotlin.random.Random.nextLong() ushr 1).toULong()) }; m.refreshPlay() }) { Text("Reroll", fontSize = 11.sp) }
@@ -449,7 +442,7 @@ fun PlayScreen(m: AppModel) {
         LazyColumn(Modifier.weight(1f)) {
             items(m.quests.sortedBy { order.indexOf(it.state) }, key = { it.locationId }) { q ->
                 Row(Modifier.fillMaxWidth().clickable { m.selected = q.locationId }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.size(10.dp).background(stateColor(q.state), CircleShape))
+                    Box(Modifier.size(10.dp).background(ApgoPalette.quest(q.state), CircleShape))
                     Column(Modifier.weight(1f)) {
                         Text(if (q.state == "hidden") "??? (undiscovered)" else q.name, fontSize = 13.sp)
                         if (q.state != "hidden") Text("${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min${if (q.state == "progress") " · ${(q.progress * 100).toInt()}%" else ""}", fontSize = 10.sp)
