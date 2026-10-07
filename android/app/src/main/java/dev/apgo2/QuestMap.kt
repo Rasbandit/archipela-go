@@ -32,6 +32,7 @@ import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
@@ -39,6 +40,17 @@ import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.layers.PropertyFactory.fillColor
 import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory.textAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.textAnchor
+import org.maplibre.android.style.layers.PropertyFactory.textOffset
+import org.maplibre.android.style.layers.PropertyFactory.textColor
+import org.maplibre.android.style.layers.PropertyFactory.textField
+import org.maplibre.android.style.layers.PropertyFactory.textFont
+import org.maplibre.android.style.layers.PropertyFactory.textHaloColor
+import org.maplibre.android.style.layers.PropertyFactory.textHaloWidth
+import org.maplibre.android.style.layers.PropertyFactory.textIgnorePlacement
+import org.maplibre.android.style.layers.PropertyFactory.textSize
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.sources.GeoJsonSource
 import uniffi.apgo_ffi.QuestOut
@@ -211,7 +223,7 @@ fun QuestMap(
             m.addOnMapLongClickListener { ll -> longClickHandler?.invoke(ll) != null }
             m.setStyle(Style.Builder().fromUri(STYLE_URL)) { s ->
                 val empty = fc(emptyList())
-                listOf("realms", "areas", "lines", "quests", "draft", "marks", "home", "handles", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
+                listOf("realms", "areas", "lines", "quests", "draft", "marks", "home", "handles", "ringlabel", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
                 s.addLayer(FillLayer("realms-fill", "realms").withProperties(fillColor("#1565c0"), fillOpacity(0.07f)))
                 s.addLayer(LineLayer("realms-line", "realms").withProperties(lineColor("#1565c0"), lineWidth(1.8f)))
                 s.addLayer(FillLayer("areas-fill", "areas").withProperties(fillColor(stateColor()), fillOpacity(0.18f)))
@@ -240,6 +252,15 @@ fun QuestMap(
                 s.addLayer(CircleLayer("draft-pts", "draft").withFilter(Expression.eq(Expression.geometryType(), Expression.literal("Point"))).withProperties(circleRadius(5f), circleColor("#ef6c00"), circleStrokeColor("#ffffff"), circleStrokeWidth(1.5f)))
                 s.addLayer(CircleLayer("marks-layer", "marks").withProperties(circleRadius(12f), circleColor(Expression.get("color")), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
                 s.addLayer(CircleLayer("handles-layer", "handles").withProperties(circleRadius(11f), circleColor("#ffffff"), circleStrokeColor("#ef6c00"), circleStrokeWidth(3.5f)))
+                // The circle's size, written on its ring: shows the value and tells the user the ring can be grabbed.
+                s.addLayer(
+                    SymbolLayer("ringlabel-layer", "ringlabel").withProperties(
+                        textField(Expression.get("label")), textFont(arrayOf("Noto Sans Bold")), textSize(14f),
+                        textColor("#bf360c"), textHaloColor("#ffffff"), textHaloWidth(2.5f),
+                        textAllowOverlap(true), textIgnorePlacement(true),
+                        textAnchor(Property.TEXT_ANCHOR_RIGHT), textOffset(arrayOf(-0.6f, 0f)),
+                    ),
+                )
                 s.addLayer(CircleLayer("home-ring", "home").withProperties(circleRadius(14f), circleColor("#2e7d32"), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
                 s.addLayer(CircleLayer("home-dot", "home").withProperties(circleRadius(5f), circleColor("#ffffff")))
                 s.addLayer(CircleLayer("me-layer", "me").withProperties(circleRadius(9f), circleColor("#1565c0"), circleStrokeColor("#ffffff"), circleStrokeWidth(3f)))
@@ -260,6 +281,13 @@ fun QuestMap(
         thaw?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", "#00acc1")) }
         waypoint?.let { marks += feature(pointGeo(it.latitude, it.longitude), JSONObject().put("color", "#8e24aa")) }
         style?.getSourceAs<GeoJsonSource>("marks")?.setGeoJson(fc(marks))
+    }
+    LaunchedEffect(style, circle) {
+        val label = circle?.let { (c, r) ->
+            val text = if (r < 1000) "↔ ${r.toInt()} m" else "↔ %.1f km".format(r / 1000)
+            listOf(feature(pointGeo(c.latitude, c.longitude + r / (111_195.0 * cos(Math.toRadians(c.latitude)))), JSONObject().put("label", text)))
+        } ?: emptyList()
+        style?.getSourceAs<GeoJsonSource>("ringlabel")?.setGeoJson(fc(label))
     }
     LaunchedEffect(style, handles) {
         style?.getSourceAs<GeoJsonSource>("handles")?.setGeoJson(fc(handles.map { feature(pointGeo(it.latitude, it.longitude)) }))

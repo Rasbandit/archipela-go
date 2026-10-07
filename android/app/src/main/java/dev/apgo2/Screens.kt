@@ -213,7 +213,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             home = m.home?.let { LatLng(it.lat, it.lon) },
             onMapLongClick = { m.setHome(it) },
             circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() },
-            overlayTopDp = 150, overlayBottomDp = 230,
+            overlayTopDp = 150, overlayBottomDp = 175,
             handles = handles, onHandleMove = ::moveHandle,
         )
         Card(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp)) {
@@ -238,8 +238,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                         OutlinedButton(onClick = { m.draft.clear() }) { Text("Clear", fontSize = 12.sp) }
                     }
                 } else {
-                    Text("Radius: ${radius.toInt()} m. Drag the center to move it, or the ring to resize.", fontSize = 12.sp)
-                    Slider(radius, { radius = it }, valueRange = 300f..8000f)
+                    Text("Drag the ring to resize, the center to move.", fontSize = 12.sp)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = {
