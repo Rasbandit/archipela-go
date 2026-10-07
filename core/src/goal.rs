@@ -23,6 +23,38 @@ pub struct GoalCtx<'a> {
     pub streak_days: u32,
 }
 
+/// How a goal is written in an Archipelago YAML's `goal_selection` (the apworld's GOAL_NAMES).
+pub fn goal_yaml_name(id: &str) -> &'static str {
+    match id {
+        "macguffin_short" => "Letter Hunt",
+        "macguffin_long" => "Letter Hunt XL",
+        "all_trips" => "Completionist",
+        "boss" => "The Big One",
+        "treasure_hunt" => "Treasure Hunt",
+        "zone_conqueror" => "Zone Conqueror",
+        "well_rounded" => "Well Rounded",
+        "quest_dex" => "Quest-dex",
+        "marathon" => "Marathon",
+        "explorer" => "Explorer",
+        "streak" => "Daily Habit",
+        "boss_rush" => "Boss Rush",
+        _ => "",
+    }
+}
+
+/// The YAML option that holds a counting goal's number, and that number's default.
+pub fn goal_target_option(id: &str) -> Option<(&'static str, u32)> {
+    Some(match id {
+        "zone_conqueror" => ("goal_zone_conqueror_percent", 60),
+        "quest_dex" => ("goal_quest_dex_kinds", 15),
+        "marathon" => ("goal_marathon_kilometers", 42),
+        "explorer" => ("goal_explorer_cells", 300),
+        "streak" => ("goal_streak_days", 7),
+        "boss_rush" => ("goal_boss_rush_hard_quests", 5),
+        _ => return None,
+    })
+}
+
 fn status(have: f64, need: f64, label: String) -> GoalStatus {
     let progress = if need <= 0.0 { 1.0 } else { (have / need).clamp(0.0, 1.0) as f32 };
     GoalStatus { progress, achieved: have >= need, label }

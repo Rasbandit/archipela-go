@@ -23,6 +23,10 @@ pub struct QuestSlot {
     pub family: String,
 }
 
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
 /// One win condition and its parameter (0 means the goal's own default).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GoalSpec {
@@ -68,13 +72,13 @@ pub fn check_goal_specs(goals: &[GoalSpec], mode: GoalMode, need: u32) -> Result
 pub struct SlotData {
     pub schema_version: u32,
     /// Schema 2 has one goal. Schema 3 has `goals` (and these two still hold the first one).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub goal: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub goal_target: u32,
     #[serde(default)]
     pub goals: Vec<GoalSpec>,
-    #[serde(default)]
+    #[serde(default, rename = "goal_requirement")]
     pub goal_mode: GoalMode,
     #[serde(default)]
     pub goal_need: u32,
@@ -139,7 +143,9 @@ mod tests {
     #[test]
     fn real_apworld_sample_parses() {
         let d = SlotData::from_json(SAMPLE).unwrap();
-        assert_eq!(d.schema_version, 2);
+        assert_eq!(d.schema_version, 3);
+        assert_eq!(d.goal_list(), vec![GoalSpec { id: "boss".into(), target: 0 }]);
+        assert_eq!((d.goal_mode, d.goal_need), (GoalMode::Any, 1));
         assert_eq!(d.zones.len(), 3);
         assert_eq!(d.zones[1].tool.as_deref(), Some("Bike"));
         assert_eq!(d.trips.len(), 60);
@@ -149,9 +155,18 @@ mod tests {
     }
 
     #[test]
+    fn schema_2_single_goal_data_is_still_understood() {
+        let v2 = SAMPLE
+            .replace("\"schema_version\": 3", "\"schema_version\": 2")
+            .replace("\"goals\": [", "\"goal\": \"boss\", \"goal_target\": 0, \"was_goals\": [");
+        let d = SlotData::from_json(&v2).unwrap();
+        assert_eq!(d.goal_list(), vec![GoalSpec { id: "boss".into(), target: 0 }]);
+    }
+
+    #[test]
     fn unknown_schema_and_garbage_are_refused() {
         assert!(SlotData::from_json("{}").is_err());
-        let bumped = SAMPLE.replace("\"schema_version\": 2", "\"schema_version\": 99");
+        let bumped = SAMPLE.replace("\"schema_version\": 3", "\"schema_version\": 99");
         assert!(SlotData::from_json(&bumped).unwrap_err().contains("unsupported"));
     }
 }

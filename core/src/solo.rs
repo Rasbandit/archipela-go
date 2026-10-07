@@ -355,8 +355,8 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
 
     let slot = SlotData {
         schema_version: CURRENT_SCHEMA,
-        goal: o.goal_list()[0].id.clone(),
-        goal_target: o.goal_list()[0].target,
+        goal: String::new(), // schema 3 carries goals only
+        goal_target: 0,
         goals: o.goal_list(),
         goal_mode: o.goal_mode,
         goal_need: o.goal_need,
@@ -418,7 +418,7 @@ mod tests {
         assert_eq!(letters, "ARCHIPELAGO".len(), "the long word needs all its letters");
         assert_eq!(g.slot.goals.len(), 2);
         assert_eq!(g.slot.goal_mode, GoalMode::All);
-        assert_eq!(g.slot.goal, "macguffin_long", "the first goal also fills the single-goal field older readers use");
+        assert_eq!(g.slot.goals[0].id, "macguffin_long");
     }
 
     #[test]
