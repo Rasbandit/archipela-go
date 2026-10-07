@@ -441,9 +441,11 @@ fun QuestMap(
     }
     LaunchedEffect(style, handles) {
         style?.getSourceAs<GeoJsonSource>("handles")?.setGeoJson(fc(handles.map { feature(pointGeo(it.latitude, it.longitude)) }))
+        map?.triggerRepaint()
     }
     LaunchedEffect(style, home) {
         style?.getSourceAs<GeoJsonSource>("home")?.setGeoJson(fc(home?.let { listOf(feature(pointGeo(it.latitude, it.longitude))) } ?: emptyList()))
+        map?.triggerRepaint() // a data change alone does not always redraw when the camera is still
     }
     LaunchedEffect(style, me) {
         style?.getSourceAs<GeoJsonSource>("me")?.setGeoJson(fc(me?.let { listOf(feature(pointGeo(it.latitude, it.longitude))) } ?: emptyList()))

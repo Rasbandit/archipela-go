@@ -38,6 +38,8 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     var tab by mutableIntStateOf(0) // 0 Realms, 1 New Game, 2 Play
     /** The realm editor: null shows the realm list, "" a new realm, otherwise the id of the realm being edited. */
     var editing by mutableStateOf<String?>(null)
+    /** The home picker (a full-screen map with a draggable pin) is open. */
+    var pickingHome by mutableStateOf(false)
     var realms by mutableStateOf<List<RealmOut>>(emptyList())
     val offers = mutableStateMapOf<String, List<OfferOut>>()
     var busy by mutableStateOf<String?>(null)
@@ -226,9 +228,10 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         setHome(c)
     }
 
-    fun setHome(p: LatLng) {
+    /** Saves home. [announce] shows "Home set" in the global status line; screens that show their own confirmation pass false. */
+    fun setHome(p: LatLng, announce: Boolean = true) {
         runCatching { engine.setHome(GeoPoint(p.latitude, p.longitude)) }
-            .onSuccess { home = engine.home(); status = "Home set" }
+            .onSuccess { home = engine.home(); if (announce) status = "Home set" }
             .onFailure { status = "Could not set home: ${it.message}" }
     }
 

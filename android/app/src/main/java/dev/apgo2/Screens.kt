@@ -139,7 +139,7 @@ fun AppRoot(m: AppModel) {
         bottomBar = {
             NavigationBar {
                 listOf("Realms", "New Game", "Play").forEachIndexed { i, t ->
-                    NavigationBarItem(selected = m.tab == i, onClick = { m.tab = i; if (i == 0) m.editing = null }, // tapping Realms again leaves the editor
+                    NavigationBarItem(selected = m.tab == i, onClick = { m.tab = i; if (i == 0) { m.editing = null; m.pickingHome = false } }, // tapping Realms again leaves the editor
                          icon = { Icon(listOf(ApgoIcons.Realms, ApgoIcons.NewGame, ApgoIcons.Play)[i], contentDescription = t) }, label = { Text(t) })
                 }
             }
@@ -185,6 +185,7 @@ fun AppRoot(m: AppModel) {
 /** Two views: the list of realms, and a full-page map editor for a new one. */
 @Composable
 fun RealmsScreen(m: AppModel) {
+    if (m.pickingHome) { HomePicker(m) { m.pickingHome = false }; return }
     m.editing?.let { id -> RealmEditor(m, id.ifEmpty { null }) { m.editing = null } } ?: RealmList(m, onNew = { m.editing = "" }, onEdit = { m.editing = it })
 }
 
@@ -210,8 +211,8 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
                 Button(onClick = onNew) { IconLabel("New realm", ApgoIcons.Add) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { m.setHomeHere() }) { Text("Set home here", fontSize = 12.sp) }
-                Text(if (m.home == null) "No home yet: distances are measured from your first realm." else "Home is set. Distances are measured from it.", fontSize = 11.sp)
+                OutlinedButton(onClick = { m.pickingHome = true }) { IconLabel(if (m.home == null) "Set home" else "Move home", ApgoIcons.Home) }
+                Text(if (m.home == null) "No home yet: distances are measured from your first realm." else "Distances are measured from your home.", fontSize = 11.sp)
             }
             if (m.shownRealms.isEmpty()) Text("No realms yet. Tap New realm to draw one.", fontSize = 13.sp)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -265,6 +266,66 @@ private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
                 }
             }
             RealmPreview(outline, dots, map, Modifier.size(PREVIEW_DP.dp))
+        }
+    }
+}
+
+/**
+ * Choose home on a map. The pin can be dragged, the map tapped to put it there, or "My location" pressed. Each placement is saved at once, so
+ * Done only closes.
+ */
+@Composable
+private fun HomePicker(m: AppModel, onClose: () -> Unit) {
+    val start = remember { m.home?.let { LatLng(it.lat, it.lon) } ?: m.me ?: m.shownRealms.firstOrNull()?.let { r -> r.circle?.let { LatLng(it.center.lat, it.center.lon) } ?: r.polygon.firstOrNull()?.let { LatLng(it.lat, it.lon) } } }
+    var pin by remember { mutableStateOf(start) }
+    var saved by remember { mutableStateOf(m.home != null) }
+    var focus by remember { mutableStateOf<MapFocus?>(null) }
+    var nonce by remember { mutableIntStateOf(0) }
+    // Open showing your realms and the pin together, so the pin can be judged against the places you play.
+    val framing = remember {
+        val pts = m.shownRealms.flatMap { r ->
+            if (r.polygonActive) r.polygon.map { LatLng(it.lat, it.lon) }
+            else r.circle?.let { c ->
+                val dLat = c.radiusM / 111_195.0
+                val dLon = dLat / kotlin.math.cos(Math.toRadians(c.center.lat))
+                listOf(LatLng(c.center.lat + dLat, c.center.lon), LatLng(c.center.lat - dLat, c.center.lon), LatLng(c.center.lat, c.center.lon + dLon), LatLng(c.center.lat, c.center.lon - dLon))
+            }.orEmpty()
+        } + listOfNotNull(start)
+        if (pts.size >= 2) MapFit(pts, 1) else null
+    }
+    fun place(to: LatLng) { pin = to; m.setHome(to, announce = false); saved = true }
+    BackHandler { onClose() }
+
+    Box(Modifier.fillMaxSize()) {
+        QuestMap(
+            emptyList(), m.shownRealms, emptyList(), m.me, null, null, null, { place(it) },
+            Modifier.fillMaxSize(),
+            home = pin,
+            handles = listOfNotNull(pin), onHandleMove = { _, to -> pin = to }, onHandleRelease = { pin?.let { place(it) } },
+            focus = focus, fit = framing,
+            overlayTopDp = 16, overlayBottomDp = 150,
+        )
+        Row(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onClose, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)) { IconLabel("Done", ApgoIcons.Done, 14.sp) }
+        }
+        if (saved) {
+            Row(
+                Modifier.align(Alignment.TopEnd).padding(top = 72.dp, end = 16.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(ApgoIcons.Saved, contentDescription = null, tint = ApgoPalette.success, modifier = Modifier.size(14.dp))
+                Text("Home saved", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        ToolPill(Modifier.align(Alignment.TopStart).padding(top = 12.dp, start = 12.dp)) {
+            ToolButton(ApgoIcons.Me, "Use my location", enabled = m.me != null) { m.me?.let { place(it); focus = MapFocus(it, ++nonce) } }
+        }
+        MapOverlayCard(Modifier.align(Alignment.BottomCenter)) {
+            Text("Home", style = MaterialTheme.typography.titleSmall)
+            Text(
+                if (pin == null) "Tap the map to put your home there." else "Drag the pin or tap the map to move it. Distances in your games are measured from here.",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
