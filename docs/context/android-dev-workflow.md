@@ -28,6 +28,15 @@ Gotchas for the connection:
 - Don't use `pkill -f` in scripts (matches your own shell); `ap_host.sh stop` kills the port listener instead.
 - Server prints "client does not support compressed websocket connections": harmless warning for now.
 
+## Map + game loop (Spike D, proven 2026-10-07)
+MapLibre Native 13.6.1 + OpenFreeMap `liberty` style in Compose (`TripMap.kt`, GeoJSON sources, circle layers: red open, grey locked, green done, blue me).
+Flow: Connect -> `slot_data.trips` (location_id, distance_tier, key_needed) -> `generate_trips_for` (FFI) places a point per trip in its tier band around you
+-> live location (`requestLocationUpdates`, 1 s) -> geofence 40 m sends `LocationChecks` for OPEN trips -> items arrive -> `Progressive Key` count unlocks trips with
+`key_needed <= keys`. Measured on the Pixel: 100 trips placed in 1.08 s (cells), 77 locked at start; after 20 checks a key arrived and locked fell 77 -> 52.
+Dev testing without walking: "DEV: teleport to next" injects a simulated position (real code path from position to check); "Use real GPS" restores. Header shows SIMULATED/real.
+Known gaps: geofence/lock logic is in Kotlin (move to the Rust core with tests before iOS); trips are not persisted (regenerate each launch, seed 1 is deterministic for cells);
+checked state is local only (should come from `Client::checked_locations` on reconnect); no foreground service or background location; no reroll/ban; foreground-only.
+
 ## Setup (once)
 - JDK: `sudo dnf install java-25-openjdk-devel` (Gradle needs javac; the default headless JRE has none). `JAVA_HOME=/usr/lib/jvm/java-25-openjdk` is set in the justfile.
 - Rust: official `rustup` (Fedora's rustc cannot add Android targets); `rustup target add aarch64-linux-android x86_64-linux-android`; `cargo install cargo-ndk`.

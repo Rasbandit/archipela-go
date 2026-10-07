@@ -29,6 +29,7 @@ pub enum FillMode {
 #[derive(Debug, uniffi::Record)]
 pub struct TripOut {
     pub number: u32,
+    pub location_id: i64,
     pub tier: u8,
     pub lat: f64,
     pub lon: f64,
@@ -40,6 +41,48 @@ pub struct TripOut {
 #[derive(Debug, uniffi::Error)]
 pub enum CoreError {
     Failed { detail: String },
+}
+
+#[derive(Debug, uniffi::Record)]
+pub struct TripSpecIn {
+    pub location_id: i64,
+    pub tier: u8,
+}
+
+/// Fill a circular zone for the trips the apworld assigned (`slot_data.trips`): each gets a point in its tier band.
+/// `step_m` is the effective meters per tier (`tier_step_m * (1-p)^reductions`).
+#[uniffi::export]
+pub fn generate_trips_for(
+    center: GeoPoint,
+    step_m: f64,
+    specs: Vec<TripSpecIn>,
+    seed: u64,
+    mode: FillMode,
+    cache_dir: String,
+) -> Result<Vec<TripOut>, CoreError> {
+    let zone = Zone::Circle { center: Point::new(center.lat, center.lon), radius_m: step_m * 10.0 };
+    let candidates = match mode {
+        FillMode::Cells => lattice(&zone, 150.0),
+        FillMode::Streets => {
+            fetch_streets(&zone, 50.0, Some(&PathBuf::from(cache_dir))).map_err(|e| CoreError::Failed { detail: e.to_string() })?
+        }
+    };
+    let core_specs: Vec<TripSpec> =
+        specs.iter().enumerate().map(|(i, s)| TripSpec { number: i as u32 + 1, tier: s.tier }).collect();
+    let out = sample(&candidates, zone.home(), &core_specs, step_m, 75.0, seed);
+    Ok(out
+        .into_iter()
+        .map(|t| TripOut {
+            number: t.number,
+            location_id: specs[(t.number - 1) as usize].location_id,
+            tier: t.tier,
+            lat: t.candidate.point.lat,
+            lon: t.candidate.point.lon,
+            name: t.candidate.name,
+            distance_m: t.distance_m,
+            in_band: t.in_band,
+        })
+        .collect())
 }
 
 impl std::fmt::Display for CoreError {
@@ -80,6 +123,7 @@ pub fn generate_trips(
         .into_iter()
         .map(|t| TripOut {
             number: t.number,
+            location_id: 0,
             tier: t.tier,
             lat: t.candidate.point.lat,
             lon: t.candidate.point.lon,

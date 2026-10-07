@@ -29,4 +29,5 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.runtime.compose)
     implementation("${libs.jna.get()}@aar")
+    implementation(libs.maplibre)
 }
