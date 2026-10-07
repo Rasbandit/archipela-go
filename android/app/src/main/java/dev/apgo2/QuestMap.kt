@@ -210,10 +210,24 @@ fun QuestMap(
     }
     LaunchedEffect(style, me) {
         style?.getSourceAs<GeoJsonSource>("me")?.setGeoJson(fc(me?.let { listOf(feature(pointGeo(it.latitude, it.longitude))) } ?: emptyList()))
-        if (me != null && !centered) {
-            map?.animateCamera(CameraUpdateFactory.newLatLngZoom(me, 13.0))
-            centered = true
+    }
+    // Frame the action once: all visible quests plus you, or just you. Done after layout so the camera move is not dropped.
+    LaunchedEffect(style, me, quests.isNotEmpty(), realms.size) {
+        val m = map ?: return@LaunchedEffect
+        if (style == null || centered) return@LaunchedEffect
+        val pts = quests.filter { it.state != "hidden" }.mapNotNull { q -> q.anchor?.let { LatLng(it.lat, it.lon) } } + listOfNotNull(me)
+        val realmPts = if (pts.isEmpty()) realms.flatMap { r -> r.circle?.let { listOf(LatLng(it.center.lat, it.center.lon)) } ?: r.polygon.map { LatLng(it.lat, it.lon) } } else emptyList()
+        val all = pts + realmPts
+        if (all.isEmpty()) return@LaunchedEffect
+        kotlinx.coroutines.delay(400)
+        mapView.post {
+            if (all.size == 1) m.moveCamera(CameraUpdateFactory.newLatLngZoom(all[0], 14.0))
+            else {
+                val b = org.maplibre.android.geometry.LatLngBounds.Builder().includes(all).build()
+                m.moveCamera(CameraUpdateFactory.newLatLngBounds(b, 60))
+            }
         }
+        centered = true
     }
 
     AndroidView(factory = { mapView }, modifier = modifier)

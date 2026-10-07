@@ -26,14 +26,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
-    @SuppressLint("MissingPermission")
-    private fun bestProvider(lm: LocationManager): String? {
-        val providers = buildList {
+    private fun providers(lm: LocationManager): List<String> {
+        val all = buildList {
             if (Build.VERSION.SDK_INT >= 31) add(LocationManager.FUSED_PROVIDER)
             add(LocationManager.GPS_PROVIDER)
             add(LocationManager.NETWORK_PROVIDER)
         }
-        return providers.firstOrNull { lm.isProviderEnabled(it) }
+        return all.filter { lm.isProviderEnabled(it) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,9 +49,9 @@ class MainActivity : ComponentActivity() {
                     DisposableEffect(permitted) {
                         if (!permitted) return@DisposableEffect onDispose {}
                         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                        val provider = bestProvider(lm)
                         val listener = LocationListener { loc -> model.realLoc = loc; model.onFix(loc) }
-                        if (provider != null) {
+                        // Listen on every enabled provider: whichever has a fix wins (emulators only feed GPS).
+                        providers(lm).forEach { provider ->
                             @SuppressLint("MissingPermission")
                             lm.requestLocationUpdates(provider, 1000L, 0f, listener)
                             @SuppressLint("MissingPermission")

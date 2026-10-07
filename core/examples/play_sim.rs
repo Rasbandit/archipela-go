@@ -84,6 +84,9 @@ fn main() {
     let views = g.quest_views();
     let done = views.iter().filter(|v| v.state == QuestState::Done).count();
     println!("autoplay: {} quests done ({} events) in {:.1}s; goal {}: {:?}", done, done_events, t0.elapsed().as_secs_f64(), goal, won);
+    for v in views.iter().filter(|v| matches!(v.state, QuestState::Open | QuestState::InProgress)).take(2) {
+        println!("STUCK: {} state={:?} progress={} target={:?}", v.name, v.state, v.progress, v.target);
+    }
     let stuck: Vec<_> = views.iter().filter(|v| matches!(v.state, QuestState::Open | QuestState::InProgress)).map(|v| format!("{} ({:?})", v.name, std::mem::discriminant(&v.target))).take(5).collect();
     if !stuck.is_empty() {
         println!("not completed: {}", stuck.join("; "));

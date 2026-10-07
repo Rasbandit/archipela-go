@@ -202,24 +202,34 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             when (q.shape) {
                 "point", "area" -> a?.let { out += fix(it, 600_000); out += fix(it, 400_000) }
                 "dwell" -> a?.let { out += fix(it, 600_000); out += fix(it, 11 * 60_000L) }
-                "courier" -> { q.anchor?.let { out += fix(it, 600_000) }; q.anchorB?.let { out += fix(it, 4 * 60_000L) } }
-                "roundtrip" -> { a?.let { out += fix(it, 600_000) }; out += fix(home, 20 * 60_000L) }
+                "courier" -> { q.anchor?.let { out += fix(it, 600_000) }; q.anchorB?.let { out += fix(it, limitMs(q) / 2) } }
+                "roundtrip" -> { a?.let { out += fix(it, 600_000) }; out += fix(home, limitMs(q) / 2) }
                 "line" -> {
                     out += fix(q.path.first(), 600_000)
                     for (i in 0 until q.path.size - 1) {
                         val p0 = q.path[i]; val p1 = q.path[i + 1]
                         val d = kotlin.math.hypot((p1.lat - p0.lat) * 111_195.0, (p1.lon - p0.lon) * 111_195.0 * cos(Math.toRadians(p0.lat)))
-                        val n = (d / 20.0).toInt().coerceAtLeast(1)
+                        val n = kotlin.math.ceil(d / 10.0).toInt().coerceAtLeast(1)
                         for (k in 1..n) out += fix(GeoPoint(p0.lat + (p1.lat - p0.lat) * k / n, p0.lon + (p1.lon - p0.lon) * k / n), 15_000)
                     }
                 }
-                "cells" -> { var p = home; repeat(70) { out += fix(p, 20_000); p = offset(p, 0.0, 170.0) } }
+                "cells" -> { var p = home; repeat(70) { out += fix(p, 90_000); p = offset(p, 0.0, 160.0) } } // ~6 km/h, like a walk
                 "steps" -> repeat(30) { out += fix(home, 60_000, steps = true) }
-                "away" -> { val far = offset(home, 2500.0, 0.0); out += fix(far, 600_000); repeat(60) { out += fix(far, 8 * 60_000L) } }
+                "away" -> {
+                    val km = Regex("at least ([0-9.]+) km").find(q.detail)?.groupValues?.get(1)?.toDoubleOrNull() ?: 2.0
+                    val mins = Regex("Spend (\\d+) min").find(q.detail)?.groupValues?.get(1)?.toIntOrNull() ?: 60
+                    val far = offset(home, km * 1000 + 600, 0.0)
+                    out += fix(far, 600_000)
+                    repeat(mins / 4 + 3) { out += fix(far, 4 * 60_000L) } // the game only counts gaps up to 5 minutes
+                }
             }
+            android.util.Log.i("apgo", "sim ${q.name} shape=${q.shape} path=${q.path.size} state=${q.state} -> ${out.size} events ${out.take(4)}")
             withContext(Dispatchers.Main) { handle(out); refreshPlay() }
         }
     }
+
+    /** The quest's own time limit ("within N min") in ms, so the simulator obeys it like a real player must. */
+    private fun limitMs(q: QuestOut): Long = (Regex("within (\\d+) min").find(q.detail)?.groupValues?.get(1)?.toLongOrNull() ?: 20L) * 60_000L
 
     fun devTeleportNext() {
         val next = quests.firstOrNull { it.state == "open" || it.state == "progress" }
