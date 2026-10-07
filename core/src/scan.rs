@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::catalog::{Catalog, Geom, Kind, Mode};
 use crate::geo::{centroid, distance_m, Point};
+use crate::marks::Marks;
 use crate::overpass::{fetch_cached_from, Error};
 use std::time::{Duration, Instant};
 
@@ -40,9 +41,21 @@ pub struct Atlas {
     pub matches: BTreeMap<String, Vec<usize>>,
     #[serde(default)]
     pub warnings: Vec<String>,
+    /// The player's favorite places, set by [`Atlas::apply_marks`] when a game is prepared; never saved with the scan.
+    #[serde(skip)]
+    pub favorites: BTreeSet<String>,
 }
 
 impl Atlas {
+    /// Prepare the atlas for play with the player's marks: banned places drop out of every kind's matches, favorites are remembered.
+    pub fn apply_marks(&mut self, marks: &Marks) {
+        for idxs in self.matches.values_mut() {
+            idxs.retain(|&i| !marks.is_banned(&self.features[i].id));
+        }
+        self.matches.retain(|_, v| !v.is_empty());
+        self.favorites = marks.favorites.clone();
+    }
+
     /// quest kind id -> number of places, only for kinds a realm of `mode` can actually offer.
     pub fn offers(&self, catalog: &Catalog, mode: Mode) -> BTreeMap<String, u32> {
         let mut out = BTreeMap::new();
@@ -279,7 +292,16 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
             Geom::None => {}
         }
     }
-    Atlas { realm_id: realm_id.to_string(), scanned_at_ms: now_ms, features, streets, streets_rough: vec![], matches, warnings: vec![] }
+    Atlas {
+        realm_id: realm_id.to_string(),
+        scanned_at_ms: now_ms,
+        features,
+        streets,
+        streets_rough: vec![],
+        matches,
+        warnings: vec![],
+        favorites: BTreeSet::new(),
+    }
 }
 
 /// Tiles are bounding boxes, so fetched features spill outside circles and polygons: keep only what touches the zone.

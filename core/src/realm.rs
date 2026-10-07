@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::Mode;
 use crate::geo::{centroid, Point};
+use crate::marks::Marks;
 use crate::scan::Atlas;
 use crate::zone::Zone;
 
@@ -102,6 +103,21 @@ impl RealmStore {
         self.dir.join("atlas").join(format!("{safe}.json"))
     }
 
+    fn marks_path(&self, id: &str) -> PathBuf {
+        let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+        self.dir.join("marks").join(format!("{safe}.json"))
+    }
+
+    pub fn marks(&self, id: &str) -> Marks {
+        std::fs::read_to_string(self.marks_path(id)).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    }
+
+    pub fn save_marks(&self, id: &str, marks: &Marks) -> Result<(), String> {
+        let path = self.marks_path(id);
+        std::fs::create_dir_all(path.parent().unwrap_or(&self.dir)).map_err(io)?;
+        std::fs::write(path, serde_json::to_string(marks).map_err(|e| e.to_string())?).map_err(io)
+    }
+
     pub fn list(&self) -> Vec<Realm> {
         std::fs::read_to_string(self.dir.join("realms.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
@@ -129,6 +145,7 @@ impl RealmStore {
         let all: Vec<Realm> = self.list().into_iter().filter(|r| r.id != id).collect();
         self.write_list(&all)?;
         let _ = std::fs::remove_file(self.atlas_path(id));
+        let _ = std::fs::remove_file(self.marks_path(id));
         Ok(())
     }
 
@@ -203,6 +220,23 @@ mod tests {
         std::fs::write(dir.join("realms.json"), old).unwrap();
         let r = RealmStore::new(&dir).get("a").unwrap();
         assert!(r.spare.is_none() && r.circle().is_some() && r.polygon().is_none());
+    }
+
+    #[test]
+    fn marks_persist_per_realm_survive_a_new_atlas_and_go_with_the_realm() {
+        use crate::marks::Mark;
+        let store = RealmStore::new(tmp("marks"));
+        store.save(&realm("a")).unwrap();
+        assert_eq!(store.marks("a"), crate::marks::Marks::default());
+        let mut m = store.marks("a");
+        m.set("n1", Mark::Favorite);
+        m.set("n2", Mark::Banned);
+        store.save_marks("a", &m).unwrap();
+        let back = store.marks("a");
+        assert_eq!((back.get("n1"), back.get("n2"), back.get("n3")), (Mark::Favorite, Mark::Banned, Mark::None));
+        assert_eq!(store.marks("b"), crate::marks::Marks::default(), "another realm is untouched");
+        store.delete("a").unwrap();
+        assert_eq!(store.marks("a"), crate::marks::Marks::default(), "deleting a realm deletes its marks");
     }
 
     #[test]

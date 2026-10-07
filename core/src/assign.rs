@@ -97,9 +97,12 @@ struct Cand {
     effort: f64,
     place: String,
     feature_id: Option<String>,
+    favorite: bool,
 }
 
 const SPACING_M: f64 = 40.0;
+/// How many effort-minutes of misfit a favorite place can make up for.
+const FAVORITE_BONUS_MIN: f64 = 6.0;
 
 fn street_pool(z: &ZoneCtx, pref: SurfacePref) -> Vec<Point> {
     let (paved, rough) = (&z.atlas.streets, &z.atlas.streets_rough);
@@ -237,18 +240,28 @@ fn one(
                 }
                 if let Some((target, effort)) = feature_target(k, f, z.mode, p.home) {
                     cands.push(Cand {
-                        score: (effort - want).abs(),
+                        // A favorite counts as a better fit than it is, so it is picked when it is anywhere near the right effort.
+                        score: (effort - want).abs() - if z.atlas.favorites.contains(&f.id) { FAVORITE_BONUS_MIN } else { 0.0 },
                         kind: (*k).clone(),
                         target,
                         effort,
                         place: f.name.clone().unwrap_or_else(|| k.name.clone()),
                         feature_id: Some(f.id.clone()),
+                        favorite: z.atlas.favorites.contains(&f.id),
                     });
                 }
             }
         } else if let Some((target, effort, place)) = free_candidate(k, z, &pool, p, want, rng, used_pts) {
             // Generic quests are the backup: prefer real places when the realm has them.
-            cands.push(Cand { score: (effort - want).abs() + if s.boss { 6.0 } else { 3.0 }, kind: (*k).clone(), target, effort, place, feature_id: None });
+            cands.push(Cand {
+                score: (effort - want).abs() + if s.boss { 6.0 } else { 3.0 },
+                kind: (*k).clone(),
+                target,
+                effort,
+                place,
+                feature_id: None,
+                favorite: false,
+            });
         }
     }
     let mut fallback = false;
@@ -256,19 +269,20 @@ fn one(
         fallback = true;
         if let Some(k) = catalog.kind("street_smarts") {
             if let Some((target, effort, place)) = free_candidate(k, z, &pool, p, want, rng, used_pts) {
-                cands.push(Cand { score: 0.0, kind: k.clone(), target, effort, place, feature_id: None });
+                cands.push(Cand { score: 0.0, kind: k.clone(), target, effort, place, feature_id: None, favorite: false });
             }
         }
     }
     cands.sort_by(|a, b| a.score.total_cmp(&b.score));
     let top = cands.len().min(4);
     // The boss always takes the best fit (the biggest thing on offer); other quests vary among the top few.
-    let pick = if top == 0 { None } else { Some(cands.swap_remove(if s.boss { 0 } else { rng.random_range(0..top) })) };
+    let best_is_favorite = cands.first().is_some_and(|c| c.favorite);
+    let pick = if top == 0 { None } else { Some(cands.swap_remove(if s.boss || best_is_favorite { 0 } else { rng.random_range(0..top) })) };
     let c = pick.unwrap_or_else(|| {
         // Absolutely nothing (e.g. an empty pool): a point at home keeps the slot playable.
         let k = catalog.kind("street_smarts").expect("street_smarts exists").clone();
         fallback = true;
-        Cand { score: 0.0, kind: k, target: Target::Point { p: p.home, r: 40.0 }, effort: want, place: "Home".into(), feature_id: None }
+        Cand { score: 0.0, kind: k, target: Target::Point { p: p.home, r: 40.0 }, effort: want, place: "Home".into(), feature_id: None, favorite: false }
     });
     if let Some(id) = &c.feature_id {
         used_feat.insert(id.clone());
@@ -415,6 +429,44 @@ mod tests {
         dedup.sort();
         dedup.dedup();
         assert_eq!(places.len(), dedup.len());
+    }
+
+    #[test]
+    fn banned_places_are_never_used_and_stop_being_offered() {
+        use crate::marks::{Mark, Marks};
+        let cat = Catalog::builtin();
+        let (r, mut a) = (realm(Mode::Walk), atlas(&cat, true));
+        let before = a.offers(&cat, Mode::Walk).get("bench_warmer").copied().unwrap_or(0);
+        assert_eq!(before, 30);
+        let mut marks = Marks::default();
+        for i in 0..30 {
+            marks.set(&format!("n{i}"), Mark::Banned);
+        }
+        a.apply_marks(&marks);
+        assert!(!a.offers(&cat, Mode::Walk).contains_key("bench_warmer"), "a kind with every place banned is no longer on offer");
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let slots: Vec<SlotIn> = (1..=12).map(|i| slot(i, "dwell", 2 + (i % 4) as u8, Mode::Walk)).collect();
+        let out = assign(&slots, &z, &cat, &params(3));
+        assert!(out.iter().all(|o| o.kind_id != "bench_warmer"));
+    }
+
+    #[test]
+    fn a_favorite_wins_over_an_equally_good_place_every_time() {
+        use crate::marks::{Mark, Marks};
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        let bench = |id: &str, bearing: f64| feature(id, &[("amenity", "bench")], destination(home(), bearing, 1500.0), vec![]);
+        let streets: Vec<Point> = atlas(&cat, false).streets;
+        let mut a = crate::scan::build_atlas("r", 0, vec![bench("n1", 0.0), bench("n2", 180.0)], streets, &cat);
+        let mut marks = Marks::default();
+        marks.set("n2", Mark::Favorite);
+        a.apply_marks(&marks);
+        for seed in 1..=20 {
+            let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+            let out = assign(&[slot(1, "dwell", 3, Mode::Walk)], &z, &cat, &params(seed));
+            let Target::Dwell { p, .. } = &out[0].target else { panic!("expected a bench dwell, got {:?}", out[0].target) };
+            assert!(distance_m(*p, destination(home(), 180.0, 1500.0)) < 5.0, "seed {seed} did not pick the favorite");
+        }
     }
 
     #[test]

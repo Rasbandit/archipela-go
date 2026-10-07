@@ -8,6 +8,7 @@ pub mod fog;
 pub mod game;
 pub mod geo;
 pub mod goal;
+pub mod marks;
 pub mod overpass;
 pub mod realm;
 pub mod sampler;
