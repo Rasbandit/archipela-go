@@ -1,5 +1,6 @@
 package dev.apgo2.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
@@ -139,4 +140,24 @@ fun ToolButton(icon: ImageVector, description: String, selected: Boolean = false
             checkedContentColor = MaterialTheme.colorScheme.onPrimary,
         ),
     ) { Icon(icon, contentDescription = description, modifier = Modifier.size(22.dp)) }
+}
+
+/** A rounded group of tools floating over the map. Tools in one pill belong together (for example Circle and Polygon: one or the other). */
+@Composable
+fun ToolPill(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), androidx.compose.foundation.shape.RoundedCornerShape(24.dp)).padding(4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        content = content,
+    )
+}
+
+/** Like [ToolPill], laid out in a row. */
+@Composable
+fun ToolPillRow(modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    Row(
+        modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), androidx.compose.foundation.shape.RoundedCornerShape(24.dp)).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        content = content,
+    )
 }

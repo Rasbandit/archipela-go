@@ -34,6 +34,8 @@ object ApgoIcons {
     val Delete = Lucide.Trash2
     val Rescan = Lucide.RefreshCw
     val Undo = Lucide.Undo2
+    val Redo = Lucide.Redo2
+    val Finds = Lucide.ListChecks
     val Close = Lucide.X
     val Me = Lucide.User
     val Home = Lucide.House

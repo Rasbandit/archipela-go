@@ -99,21 +99,28 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     fun homePoint(): GeoPoint? = engine.home() ?: realms.firstOrNull()?.let { r -> if (r.polygonActive) r.polygon.firstOrNull() else r.circle?.center }
 
     // ----------------------------------------------------------------- realms
+    /** "Realm N" with the lowest N not already used by a realm. */
+    fun defaultRealmName(): String {
+        val taken = realms.map { it.name }.toSet()
+        return generateSequence(1) { it + 1 }.map { "Realm $it" }.first { it !in taken }
+    }
+
     /**
-     * Creates (id == null) or updates a realm. Both outlines are kept; [polygonActive] picks the real one. Rescans when [rescan] is set.
-     * Returns false (with a status message) when it could not be saved.
+     * Creates (id == null) or updates a realm and returns its id, or null (with a status message) when it could not be saved. Both outlines are kept;
+     * [polygonActive] picks the real one. A blank name becomes "Realm N". Nothing is scanned here: that is the caller's decision.
      */
-    fun saveRealm(id: String?, name: String, icon: String?, circle: Pair<LatLng, Double>?, polygon: List<LatLng>, polygonActive: Boolean, rescan: Boolean): Boolean {
-        if (polygonActive && polygon.size < 3) { status = "Tap at least 3 points on the map"; return false }
-        if (!polygonActive && circle == null) { status = "No location yet"; return false }
+    fun saveRealm(id: String?, name: String, icon: String?, circle: Pair<LatLng, Double>?, polygon: List<LatLng>, polygonActive: Boolean): String? {
+        if (polygonActive && polygon.size < 3) return null
+        if (!polygonActive && circle == null) return null
         val rid = id ?: UUID.randomUUID().toString()
         val c = circle?.let { (p, r) -> CircleOut(GeoPoint(p.latitude, p.longitude), r) }
         return runCatching {
-            engine.saveRealm(rid, name.ifBlank { "Realm ${realms.size + 1}" }, icon, c, polygon.map { GeoPoint(it.latitude, it.longitude) }, polygonActive)
+            engine.saveRealm(rid, name.ifBlank { defaultRealmName() }, icon, c, polygon.map { GeoPoint(it.latitude, it.longitude) }, polygonActive)
         }
-            .onSuccess { draft.clear(); refreshAll(); if (rescan) scan(rid) }
+            .onSuccess { realms = engine.realms() }
             .onFailure { status = "Could not save: ${it.message}" }
-            .isSuccess
+            .map { rid }
+            .getOrNull()
     }
 
     fun scan(id: String) {

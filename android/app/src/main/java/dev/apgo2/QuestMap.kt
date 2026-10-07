@@ -180,6 +180,8 @@ fun QuestMap(
     /** Points the user can pick up and drag; [onHandleMove] gets the handle index and its new position. */
     handles: List<LatLng> = emptyList(),
     onHandleMove: ((Int, LatLng) -> Unit)? = null,
+    /** Called when a handle drag ends (the finger lifts). */
+    onHandleRelease: (() -> Unit)? = null,
     /** Finds drawn as icon pins; tapping one calls [onFindClick] with its id. */
     finds: List<MapFind> = emptyList(),
     onFindClick: ((String) -> Unit)? = null,
@@ -215,6 +217,7 @@ fun QuestMap(
     fun fitTo(bounds: org.maplibre.android.geometry.LatLngBounds, pad: Int) =
         CameraUpdateFactory.newLatLngBounds(bounds, pad, pad + (overlayTopNow * density).toInt(), pad, pad + (overlayBottomNow * density).toInt())
     val moveNow by rememberUpdatedState(onHandleMove)
+    val releaseNow by rememberUpdatedState(onHandleRelease)
     val circleNow by rememberUpdatedState(circle)
     val dragging = remember { intArrayOf(-1) } // index of the handle being dragged, or -1
 
@@ -263,7 +266,7 @@ fun QuestMap(
                         dragging[0] >= 0
                     }
                     MotionEvent.ACTION_MOVE -> (dragging[0] >= 0).also { if (it) move?.invoke(dragging[0], m.projection.fromScreenLocation(PointF(ev.x, ev.y))) }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> (dragging[0] >= 0).also { dragging[0] = -1 }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> (dragging[0] >= 0).also { wasDragging -> dragging[0] = -1; if (wasDragging) releaseNow?.invoke() }
                     else -> dragging[0] >= 0
                 }
             }

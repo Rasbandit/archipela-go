@@ -22,6 +22,14 @@ widgets or write colours themselves.
 A **find** is a scanned spot a realm can use for a quest (a bench, a park, a trail start, a fountain). The UI says "finds"; core code says
 feature/place. FFI: `FindOut`, `realm_finds`, `set_find_mark`. A **mark** is a favorite or a ban on a find (per realm).
 
+## Realm editor (no Save, no Cancel)
+Edits save as they finish (a drag ends, a corner is tapped, a name pauses for 600 ms, an icon is picked). A new realm is created by its first
+edit and named `Realm N` (lowest unused N). One `History<EditSnap>` (`ui/History.kt`) holds shape, name and icon, so Undo/Redo cover them all.
+Left toolbar = modes: a Circle/Polygon pill (one or the other = editing the area) and a Details pill. Right = Undo, Redo, Done (X). Area has no
+panel, only a hint; Details has the half-height panel. Finds are fetched when Details opens (or the editor closes) after the outline changed.
+Read editor state inside click handlers, not from vals captured at composition (they can be stale by the time the lambda runs).
+Android reads a swipe that starts on a screen edge as Back: do not start drag gestures there (tests too).
+
 ## Icons
 Lucide (https://lucide.dev, ISC) via `com.composables:icons-lucide-android` in `libs.versions.toml`. No emoji or glyph characters in UI text:
 add the icon to `ApgoIcons` (named by meaning, e.g. `Favorite`, not `Star`) and use it through `Icon`, `ApgoChip(icon=)`, `IconLabel` or

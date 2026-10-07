@@ -13,6 +13,10 @@ import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.runtime.rememberUpdatedState
+import dev.apgo2.ui.ToolPillRow
+import dev.apgo2.ui.ToolPill
+import dev.apgo2.ui.History
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -120,8 +124,8 @@ private val TRAPS = listOf("freeze", "fog", "shuffle", "silence", "leash", "deto
 
 @Composable
 fun AppRoot(m: AppModel) {
-    // Back steps out one level: realm editor -> realm list, other tabs -> Realms; on the realm list it leaves the app as usual.
-    BackHandler(enabled = m.tab != 0 || m.editing != null) { if (m.editing != null) m.editing = null else m.tab = 0 }
+    // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves the app as usual.
+    BackHandler(enabled = m.tab != 0) { m.tab = 0 }
     Scaffold(
         bottomBar = {
             NavigationBar {
@@ -237,26 +241,83 @@ private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
     }
 }
 
+/** Everything the editor can change, so a step of Undo/Redo can restore it whole. */
+private data class EditSnap(val polygon: Boolean, val radius: Float, val center: LatLng?, val corners: List<LatLng>, val name: String, val icon: String?)
+
 /**
- * The realm editor. The map is always on screen. The panel over it has two tabs: Area (a compact panel for the geofence) and Details
- * (half the screen: name, mode and the finds the scan found, which are also pins on the map). [realmId] null creates a realm (Area, then Details).
+ * The realm editor. The map is the whole screen. A toolbar on the left switches between editing the area (Circle or Polygon, one or the other)
+ * and Details (name, icon and the finds the scan found); Undo, Redo and a close button sit on the right. Every finished edit is saved at once,
+ * so there is no Save or Cancel: Undo goes back. A new realm is created by its first edit and named "Realm N". [realmId] null starts a new realm.
  */
 @Composable
 private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     val original = remember(realmId) { m.realms.firstOrNull { it.id == realmId } }
+    var id by remember(realmId) { mutableStateOf(realmId) } // set when a new realm is first saved
+    val current = m.realms.firstOrNull { it.id == id }
     var tab by remember(realmId) { mutableStateOf(AREA) }
     var name by remember(realmId) { mutableStateOf(original?.name ?: "") }
     var icon by remember(realmId) { mutableStateOf(original?.icon) }
     var pickingIcon by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<RealmOut?>(null) }
+    var deleted by remember { mutableStateOf(false) }
     var polygon by remember(realmId) { mutableStateOf(original?.polygonActive == true) }
     var radius by remember(realmId) { mutableFloatStateOf(original?.circle?.radiusM?.toFloat() ?: 1500f) }
     var center by remember(realmId) { mutableStateOf(original?.circle?.let { LatLng(it.center.lat, it.center.lon) }) }
     remember(realmId) { m.draft.clear(); original?.polygon?.forEach { m.draft.add(LatLng(it.lat, it.lon)) } }
-    val circleCenter = center ?: m.me // a new circle follows your GPS until it is moved
-    DisposableEffect(Unit) { onDispose { m.draft.clear() } }
+    val circleCenter = center ?: m.me // a new circle follows your GPS until it is edited
 
-    // Finds: what the scan found. Pins on the map, rows in Details.
+    // ---- history and autosave
+    fun snap() = EditSnap(polygon, radius, center, m.draft.toList(), name, icon)
+    val history = remember(realmId) { History(snap()) }
+    var shapeDirty by remember(realmId) { mutableStateOf(false) } // the outline changed since the finds were last fetched
+
+    /** Save what is on screen. Returns false when there is nothing to save yet (no location, or a polygon is not drawn). */
+    fun persist(): Boolean {
+        if (deleted) return false
+        val c = center ?: m.me // read now: the value captured when the screen was last drawn may be older than this edit
+        val rid = m.saveRealm(id, name, icon, c?.let { it to radius.toDouble() }, m.draft.toList(), polygonActive = polygon && m.draft.size >= 3) ?: return false
+        if (id == null) {
+            id = rid
+            name = m.realms.firstOrNull { it.id == rid }?.name ?: name // the default "Realm N"
+        }
+        return true
+    }
+
+    /** A finished edit: freeze a following circle in place, save, and record it for Undo. */
+    fun commit(shapeEdit: Boolean) {
+        if (center == null && !polygon) center = m.me
+        if (shapeEdit) shapeDirty = true
+        if (persist()) history.push(snap())
+    }
+
+    fun apply(s: EditSnap) {
+        polygon = s.polygon; radius = s.radius; center = s.center; name = s.name.ifBlank { name }; icon = s.icon // the first state has no name yet: keep the default
+        m.draft.clear(); m.draft.addAll(s.corners)
+        shapeDirty = true
+        persist()
+    }
+
+    // Typing a name is saved once you pause.
+    LaunchedEffect(name) {
+        if (name == history.current.name && id != null) return@LaunchedEffect
+        if (name.isBlank() && id == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(600)
+        commit(false)
+    }
+
+    // However the editor is left (X, Back, another tab): keep a pending name, and fetch finds for an outline that changed.
+    val leave by rememberUpdatedState {
+        if (!deleted) {
+            if (name != history.current.name) commit(false)
+            val rid = id
+            if (shapeDirty && rid != null) m.scan(rid)
+        }
+        m.draft.clear()
+    }
+    DisposableEffect(Unit) { onDispose { leave() } }
+    BackHandler { onClose() }
+
+    // ---- finds: what the scan found. Pins on the map, rows in Details.
     val finds = remember(realmId) { mutableStateListOf<FindOut>() }
     var findsVersion by remember(realmId) { mutableIntStateOf(0) }
     var selectedFind by remember(realmId) { mutableStateOf<String?>(null) }
@@ -265,9 +326,10 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     var anchor by remember(realmId) { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
     var query by remember(realmId) { mutableStateOf("") }
     var filter by remember(realmId) { mutableStateOf(ALL) }
-    LaunchedEffect(realmId, original?.scannedAtMs) {
-        if (realmId != null && original?.scannedAtMs != null) {
-            val all = withContext(Dispatchers.IO) { m.engine.realmFinds(realmId) }
+    LaunchedEffect(id, current?.scannedAtMs) {
+        val rid = id
+        if (rid != null && current?.scannedAtMs != null) {
+            val all = withContext(Dispatchers.IO) { m.engine.realmFinds(rid) }
             finds.clear(); finds.addAll(all); findsVersion++
         }
     }
@@ -282,7 +344,8 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     }
     fun mark(f: FindOut, to: String) {
         val next = if (f.mark == to) "none" else to // tapping a lit toggle clears it
-        if (realmId != null && m.setFindMark(realmId, f.id, next)) { finds[finds.indexOfFirst { it.id == f.id }] = f.copy(mark = next); findsVersion++ }
+        val rid = id ?: return
+        if (m.setFindMark(rid, f.id, next)) { finds[finds.indexOfFirst { it.id == f.id }] = f.copy(mark = next); findsVersion++ }
     }
     // Selecting a find brings it into view together with its callout. The callout's real height is measured once it is shown.
     val screenDensity = LocalDensity.current.density
@@ -295,25 +358,6 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     LaunchedEffect(bubblePx) {
         val f = finds.firstOrNull { it.id == selectedFind } ?: return@LaunchedEffect
         if (bubblePx > 0) focus = MapFocus(LatLng(f.at.lat, f.at.lon), ++focusNonce, roomAbove())
-    }
-
-    // A changed outline (or a switch of which outline is real) means the finds must be fetched again; a new name or mode does not.
-    fun shapeChanged(): Boolean {
-        val o = original ?: return true
-        if (polygon != o.polygonActive) return true
-        val oc = o.circle
-        return if (polygon) o.polygon.size != m.draft.size || o.polygon.indices.any { o.polygon[it].lat != m.draft[it].latitude || o.polygon[it].lon != m.draft[it].longitude }
-        else oc == null || circleCenter == null || oc.radiusM != radius.toDouble() || oc.center.lat != circleCenter.latitude || oc.center.lon != circleCenter.longitude
-    }
-    fun save() {
-        val circle = circleCenter?.let { it to radius.toDouble() }
-        if (m.saveRealm(realmId, name, icon, circle, m.draft.toList(), polygonActive = polygon, rescan = shapeChanged())) onClose()
-    }
-    // The primary button moves a new realm on to Details; everywhere else it saves.
-    val primaryLabel = when {
-        original != null -> "Save"
-        tab == AREA -> "Next"
-        else -> "Save + scan"
     }
 
     // A circle has a handle at its center (moves it); its whole ring is an invisible handle (resizes it). A polygon has one per corner.
@@ -329,7 +373,7 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
         }
     }
 
-    // The map keeps clear of the panel by padding itself with the panel's real height.
+    // The map keeps clear of whatever panel is showing by padding itself with its real height.
     var panelPx by remember { mutableIntStateOf(0) }
     val panelDp = (panelPx / LocalDensity.current.density).toInt()
     var fit by remember(realmId) { mutableStateOf<MapFit?>(null) }
@@ -342,72 +386,84 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
         return listOf(LatLng(c.latitude + dLat, c.longitude), LatLng(c.latitude - dLat, c.longitude), LatLng(c.latitude, c.longitude + dLon), LatLng(c.latitude, c.longitude - dLon))
     }
     fun goTab(to: Int) {
-        // Back to Area: after the map settles, fit the whole shape in the smaller view.
-        if (tab == DETAILS && to == AREA) { fit = MapFit(shapePoints(), ++fitNonce); selectedFind = null }
+        if (to == tab) return
+        if (to == DETAILS) {
+            // Opening Details creates a new realm if need be, and fetches finds for an outline that is new or changed.
+            if (id == null) commit(true)
+            val rid = id
+            if (rid != null && (shapeDirty || current?.scannedAtMs == null)) { m.scan(rid); shapeDirty = false }
+        } else {
+            // Back to the area: after the map settles, fit the whole shape in the view.
+            fit = MapFit(shapePoints(), ++fitNonce); selectedFind = null
+        }
         tab = to
     }
     val listState = rememberLazyListState()
     LaunchedEffect(selectedFind) {
-        val id = selectedFind ?: return@LaunchedEffect
-        val at = shown.indexOfFirst { it.id == id }
-        if (at >= 0 && listState.layoutInfo.visibleItemsInfo.none { it.key == id }) listState.animateScrollToItem(at + HEADER_ITEMS)
+        val fid = selectedFind ?: return@LaunchedEffect
+        val at = shown.indexOfFirst { it.id == fid }
+        if (at >= 0 && listState.layoutInfo.visibleItemsInfo.none { it.key == fid }) listState.animateScrollToItem(at + HEADER_ITEMS)
     }
 
     Box(Modifier.fillMaxSize()) {
         QuestMap(
-            emptyList(), emptyList(), if (polygon) m.draft.toList() else emptyList(), m.me, null, null, null, { if (polygon && tab == AREA) m.draft.add(it) },
+            emptyList(), emptyList(), if (polygon) m.draft.toList() else emptyList(), m.me, null, null, null,
+            { if (polygon && tab == AREA) { m.draft.add(it); commit(true) } },
             Modifier.fillMaxSize(),
             home = m.home?.let { LatLng(it.lat, it.lon) },
             onMapLongClick = { m.setHome(it) },
             circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() },
             overlayTopDp = 16, overlayBottomDp = panelDp,
-            handles = handles, onHandleMove = if (tab == AREA) ::moveHandle else null, editable = tab == AREA,
+            handles = handles, onHandleMove = if (tab == AREA) ::moveHandle else null, onHandleRelease = { commit(true) }, editable = tab == AREA,
             finds = mapFinds,
-            onFindClick = if (tab == DETAILS) { id -> visible.firstOrNull { it.id == id }?.let(::show) } else null,
+            onFindClick = if (tab == DETAILS) { fid -> visible.firstOrNull { it.id == fid }?.let(::show) } else null,
             focus = focus,
             fit = fit,
             anchor = visible.firstOrNull { it.id == selectedFind }?.let { LatLng(it.at.lat, it.at.lon) },
             onAnchor = { anchor = it },
         )
-        RealmEditorDialogs(pickingIcon, icon, { icon = it }, { pickingIcon = false })
-        ConfirmDelete(confirmDelete, onConfirm = { r -> confirmDelete = null; m.deleteWithUndo(r.id); onClose() }, onDismiss = { confirmDelete = null })
+        RealmEditorDialogs(pickingIcon, icon, { icon = it; commit(false) }, { pickingIcon = false })
+        ConfirmDelete(confirmDelete, onConfirm = { r -> confirmDelete = null; deleted = true; m.deleteWithUndo(r.id); onClose() }, onDismiss = { confirmDelete = null })
         visible.firstOrNull { it.id == selectedFind }?.let { f ->
             anchor?.let { at -> FindBubble(f, at, onSize = { bubblePx = it.height }, onMark = { mark(f, it) }, onClose = { selectedFind = null }) }
         }
-        // A way out that is always visible, whichever tab is open.
-        IconButton(
-            onClick = onClose,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), CircleShape),
-        ) { Icon(ApgoIcons.Close, contentDescription = "Close without saving") }
-        if (tab == AREA) {
-            // Drawing tools float on the map, like in a map editor: shape first, then (for a polygon) undo and clear.
-            Column(
-                Modifier.align(Alignment.TopStart).padding(top = 12.dp, start = 12.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), RoundedCornerShape(24.dp)).padding(4.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                ToolButton(ApgoIcons.Circle, "Circle", selected = !polygon) { polygon = false }
-                ToolButton(ApgoIcons.Polygon, "Polygon", selected = polygon) { polygon = true }
-                if (polygon) {
-                    ToolButton(ApgoIcons.Undo, "Undo last corner", enabled = m.draft.isNotEmpty()) { m.draft.removeAt(m.draft.lastIndex) }
-                    ToolButton(ApgoIcons.ClearAll, "Clear corners", enabled = m.draft.isNotEmpty()) { m.draft.clear() }
+
+        // Left: the three modes. Circle and Polygon share a pill (one or the other); Details is its own.
+        Column(Modifier.align(Alignment.TopStart).padding(top = 12.dp, start = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ToolPill {
+                ToolButton(ApgoIcons.Circle, "Circle", selected = tab == AREA && !polygon) {
+                    val changed = polygon
+                    polygon = false; goTab(AREA); if (changed) commit(true)
                 }
+                ToolButton(ApgoIcons.Polygon, "Polygon", selected = tab == AREA && polygon) {
+                    val changed = !polygon
+                    polygon = true; goTab(AREA); if (changed) commit(true)
+                }
+                if (tab == AREA && polygon) ToolButton(ApgoIcons.ClearAll, "Clear corners", enabled = m.draft.isNotEmpty()) { m.draft.clear(); commit(true) }
             }
+            ToolPill { ToolButton(ApgoIcons.Finds, "Details", selected = tab == DETAILS) { goTab(DETAILS) } }
         }
-        MapOverlayCard(
-            Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }.then(if (tab == DETAILS) Modifier.fillMaxHeight(0.5f) else Modifier),
-            fillHeight = tab == DETAILS,
-        ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                ChoiceChips(listOf(AREA, DETAILS), tab, ::goTab, { if (it == AREA) "Area" else "Details" })
+        // Right: history and the way out.
+        Row(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ToolPillRow {
+                ToolButton(ApgoIcons.Undo, "Undo", enabled = history.canUndo) { history.undo()?.let(::apply) }
+                ToolButton(ApgoIcons.Redo, "Redo", enabled = history.canRedo) { history.redo()?.let(::apply) }
             }
-            if (tab == AREA) {
+            ToolPillRow { ToolButton(ApgoIcons.Close, "Done") { onClose() } }
+        }
+
+        if (tab == AREA) {
+            // Area is just the map: a hint, nothing else.
+            MapOverlayCard(Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }) {
                 Text(
                     if (polygon) "Tap the map to add corners (${m.draft.size}). Drag a corner to move it." else "Drag the ring to resize it, the center to move it.",
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp),
                 )
-            } else {
+            }
+        } else {
+            MapOverlayCard(Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }.fillMaxHeight(0.5f), fillHeight = true) {
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState) {
-                    // A compact header so the finds get most of the half-height panel: name + mode, search + filters, then the count.
+                    // A compact header so the finds get most of the half-height panel: icon + name, search + filters, then the count.
                     item(key = "name") {
                         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             IconButton(onClick = { pickingIcon = true }) { Icon(ApgoIcons.realm(icon), contentDescription = "Choose an icon", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp)) }
@@ -427,16 +483,18 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                     item(key = "count") {
                         Text(
                             when {
-                                original?.scannedAtMs == null -> "Finds show up here after the first scan."
+                                m.busy != null -> "Looking for finds…"
+                                current?.scannedAtMs == null -> "No finds yet."
                                 findsVersion == 0 -> "Loading finds…"
                                 else -> "${shown.size} of ${visible.size} finds · ${visible.count { it.mark == FAVORITE }} favorites · ${visible.count { it.mark == BANNED }} banned"
                             },
                             Modifier.padding(vertical = 4.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (original != null && original.scannedAtMs == null) TextButton(onClick = { m.scan(original.id) }) { IconLabel("Scan now", ApgoIcons.Rescan) }
-                        if (original != null) TextButton(onClick = { confirmDelete = original }) {
-                            Icon(ApgoIcons.Delete, contentDescription = null, tint = ApgoPalette.danger, modifier = Modifier.size(16.dp))
-                            Text("  Delete realm", fontSize = 12.sp, color = ApgoPalette.danger)
+                        current?.let { r ->
+                            TextButton(onClick = { confirmDelete = r }) {
+                                Icon(ApgoIcons.Delete, contentDescription = null, tint = ApgoPalette.danger, modifier = Modifier.size(16.dp))
+                                Text("  Delete realm", fontSize = 12.sp, color = ApgoPalette.danger)
+                            }
                         }
                     }
                     items(shown, key = { it.id }) { f ->
@@ -465,10 +523,6 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                         HorizontalDivider()
                     }
                 }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onClose) { Text("Cancel") }
-                Button(onClick = { if (original == null && tab == AREA) goTab(DETAILS) else save() }) { Text(primaryLabel) }
             }
         }
     }
