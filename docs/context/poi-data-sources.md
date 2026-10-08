@@ -3,17 +3,21 @@
 _Last verified: 2026-10-07_
 
 ## Status
+
 Research complete. Facts below came from Perplexity summaries; items tagged **[P]** were confirmed against a primary page this session (Overture 2026-09-23 release notes, Overpass "Commons" doc, OSM tile policy, OpenFreeMap ToS). Everything else is secondary and should be re-checked before it is relied on. **[U]** = unverified.
 
 ## What This Is
+
 Where genuine real-world POIs (landmarks, parks, murals, statues, historic markers, cafes, viewpoints) can come from for free, and what each license/limit means for an app that stores and redistributes POIs.
 
 ## Background: how Pokemon GO did it
+
 POIs were seeded from Ingress portals (player-submitted), now come from Niantic Wayfarer (player nominations, reviewed against criteria: permanent, physical, publicly accessible, safe). OSM/Google only fed the base map and terrain, not Stops. Lesson: the genuineness filter was human review plus clear criteria. We can approximate it with data-agreement scoring (see bottom) and later community votes.
 
 ## Comparison
+
 | Source | License | Access | Limits | Freshness | Quality / fit | Caveats |
-|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- |
 | OSM via Overpass (public) | ODbL | HTTP query | ~10k req/day, ~1 GB/day guideline, slots, 429/504 [P]. Doc explicitly lists "app relying on public instances as backend" as problematic [P] | Minutes | Best for landmarks, art, viewpoints, trailheads, memorials | Not usable as a per-player backend. OK for CI/offline builds |
 | OSM planet / Geofabrik | ODbL | PBF files; planet ~88 GB, `osmium tags-filter` | Geofabrik: per-region, no bulk mirroring; use planet for global | Planet weekly, Geofabrik daily | Same data, no rate limits | POI extract is a derivative database: must attribute and offer ODbL share-alike for that DB |
 | Nominatim (public) | ODbL | HTTP | 1 req/s, UA required, no bulk, apps discouraged | Live | Reverse geocode only | Don't use for POI discovery |
@@ -36,6 +40,7 @@ POIs were seeded from Ingress portals (player-submitted), now come from Niantic 
 | Foursquare Places API | Proprietary | REST | From 2026-06-01: 500 free Pro calls/mo (older pages say 10k) | Live | OK | Use the open dataset instead |
 
 ## Recommended source stack (for a pre-built atlas)
+
 1. OSM extract (tags: tourism=attraction|viewpoint|artwork|museum|gallery, historic=*, leisure=park|nature_reserve, natural=peak|waterfall|spring, amenity=library|fountain, highway=trailhead, man_made=lighthouse|tower).
 2. Wikidata (P625 + sitelinks) for notability signal, images, descriptions.
 3. Overture Places (confidence >= ~0.8 + chosen taxonomy) for cafes/shops/venues, plus Overture `base` land for parks if needed.
@@ -43,8 +48,9 @@ POIs were seeded from Ingress portals (player-submitted), now come from Niantic 
 5. Runtime enrichment (optional, on tap only): Wikipedia GeoSearch extract.
 
 ## Scoring "genuineness" (build-time, per POI)
+
 | Signal | Weight idea |
-|---|---|
+| --- | --- |
 | OSM `wikidata`/`wikipedia` tag, or Wikidata item within ~50 m with matching name | +3 |
 | Present in 2+ independent sources (OSM + Overture/Wikidata/NPS) within ~50 m and fuzzy-name match | +2 |
 | Overture `confidence` >= 0.9 / >= 0.7 | +2 / +1 |
@@ -52,28 +58,33 @@ POIs were seeded from Ingress portals (player-submitted), now come from Niantic 
 | Has `image`/`wikimedia_commons`/`website`/`opening_hours` | +1 |
 | OSM object last edited within ~2 years (`timestamp`), `check_date` | +1 |
 | Penalties: no name, `disused:*`/`abandoned:*`/`lifecycle` prefixes, Overture `operating_status` closed, private access, schools/kindergartens, residential | -3 to exclude |
+
 Output a 0-10 score plus `kind`, so the client can filter by difficulty/tier. Treat OSM `timestamp` as noisy (a typo fix refreshes it).
 
 ## Licensing implications
+
 - OSM-derived POI file = ODbL derivative database. Publish it openly (we are doing that anyway on a CDN) and attribute "© OpenStreetMap contributors".
 - Overture rows carry source-specific notices (Meta/Microsoft CDLA, Foursquare Apache). Keep `sources` provenance in the atlas and an ATTRIBUTION file.
 - Mixing OSM and Overture rows in one database makes the combined DB ODbL-governed; keep a `source` column so layers can be separated.
 - Wikidata CC0 is free; Wikipedia text/Commons images need per-item attribution, so store only IDs/titles and fetch live.
 
 ## Failed Approaches / Dead Ends
+
 - One Overpass request per candidate (upstream): hits the 429/slot limit, and "asking for elements one by one" is named as abuse.
 - Rotating Overpass mirrors to multiply quota: Commons doc says the two backends rate-limit independently but discourages this; third-party mirrors have their own undisclosed policies.
 - Commercial POI APIs: storage/caching and display-with-their-map clauses conflict with a pre-built offline atlas.
 
 ## Gotchas
+
 - Overture `categories` no longer exists as of v2.0.0 (2026-09-23); old tutorials break.
 - Overture Places is dense in commercial POIs, thin in murals/statues/viewpoints; OSM and Wikidata cover those.
 - Foursquare OS Places is already inside Overture Places.
 - "HMDB" web results mostly describe a different (human metabolome) database; the marker site is hmdb.org.
 
 ## References
-- Overture release notes: https://docs.overturemaps.org/blog/2026/09/23/release-notes/
-- Overpass commons: https://dev.overpass-api.de/overpass-doc/en/preface/commons.html
-- OSM tile policy: https://operations.osmfoundation.org/policies/tiles/
-- Google Maps service terms: https://cloud.google.com/maps-platform/terms/maps-service-terms
+
+- Overture release notes: <https://docs.overturemaps.org/blog/2026/09/23/release-notes/>
+- Overpass commons: <https://dev.overpass-api.de/overpass-doc/en/preface/commons.html>
+- OSM tile policy: <https://operations.osmfoundation.org/policies/tiles/>
+- Google Maps service terms: <https://cloud.google.com/maps-platform/terms/maps-service-terms>
 - Related: `docs/context/archipela-go-location-generation.md`, `docs/context/archipela-go-upstream-architecture.md`

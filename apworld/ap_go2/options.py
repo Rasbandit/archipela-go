@@ -1,3 +1,5 @@
+"""Player-facing options of the world, plus their web-UI grouping."""
+
 from dataclasses import dataclass
 
 from Options import (  # type: ignore[import-not-found]
@@ -270,6 +272,8 @@ class ReturnHome(Toggle):
 
 @dataclass
 class ApGo2Options(PerGameCommonOptions):
+    """All options of this game, resolved per player by Archipelago."""
+
     goal_selection: GoalSelection
     goal_requirement: GoalRequirement
     goals_required: GoalsRequired

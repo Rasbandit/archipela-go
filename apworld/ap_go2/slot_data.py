@@ -10,6 +10,7 @@ from .zones import Zone
 
 
 def quest_entry(quest: Quest) -> dict[str, Any]:
+    """Client-facing view of one quest; keys follow the slot_data schema."""
     return {
         "location_id": location_id(quest),
         "zone": quest.zone,
@@ -35,6 +36,7 @@ def build_slot_data(  # noqa: PLR0913
     zones: Sequence[Zone],
     quests: QuestPlan,
 ) -> dict[str, Any]:
+    """Assemble slot_data (schema `SCHEMA_VERSION`) from resolved settings and the quest plan."""
     return {
         "schema_version": SCHEMA_VERSION,
         "goals": [{"id": gid, "target": target} for gid, target in goals],

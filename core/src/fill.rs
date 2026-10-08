@@ -3,20 +3,28 @@
 use serde_json::Value;
 
 use crate::geo::{distance_m, Point};
+use crate::num::round_i64;
 use crate::overpass::{fetch_cached, Candidate, Error};
 use crate::zone::Zone;
 
 const WALKABLE: &str = "^(residential|living_street|pedestrian|footway|path|cycleway|track|service|unclassified|tertiary|secondary|steps|bridleway)$";
 
+/// Overpass query for walkable streets matching an area `filter`.
+#[must_use]
 pub fn streets_query_in(filter: &str) -> String {
     format!("[out:json][timeout:40];\nway({filter})[\"highway\"~\"{WALKABLE}\"][\"access\"!~\"^(private|no)$\"];\nout geom qt;")
 }
 
+/// Overpass query for walkable streets in `zone`.
+#[must_use]
 pub fn streets_query(zone: &Zone) -> String {
     streets_query_in(&zone.overpass_filter())
 }
 
 /// Points every `spacing_m` along each street/path polyline, kept only inside the zone.
+///
+/// # Errors
+/// Returns [`Error::Parse`] if the body is not JSON or has no `elements`.
 pub fn parse_streets(body: &str, zone: &Zone, spacing_m: f64) -> Result<Vec<Candidate>, Error> {
     let v: Value = serde_json::from_str(body).map_err(|e| Error::Parse(e.to_string()))?;
     let elements = v.get("elements").and_then(Value::as_array).ok_or_else(|| Error::Parse("no elements".into()))?;
@@ -51,12 +59,16 @@ pub fn parse_streets(body: &str, zone: &Zone, spacing_m: f64) -> Result<Vec<Cand
 }
 
 /// Streets and paths in the zone (one bulk request, cached).
+///
+/// # Errors
+/// Returns an error if the request or the cache fails, or the response cannot be parsed.
 pub fn fetch_streets(zone: &Zone, spacing_m: f64, cache_dir: Option<&std::path::Path>) -> Result<Vec<Candidate>, Error> {
     let body = fetch_cached(&streets_query(zone), cache_dir)?;
     parse_streets(&body, zone, spacing_m)
 }
 
 /// Offline hex-ish lattice of points covering the zone: works with no map data at all.
+#[must_use]
 pub fn lattice(zone: &Zone, spacing_m: f64) -> Vec<Candidate> {
     let (sw, ne) = zone.bbox();
     let dlat = spacing_m * 0.866 / 111_195.0;
@@ -82,17 +94,23 @@ pub fn lattice(zone: &Zone, spacing_m: f64) -> Vec<Candidate> {
 
 /// One piece of a walkable street: a unique key (so a street returned by two tiles is counted once), its length in metres and whether it is rough going.
 pub struct StreetSegment {
+    /// Quantised start and end coordinates of the segment, used to drop duplicates.
     pub key: (i64, i64, i64, i64),
+    /// Length of the segment in metres.
     pub len_m: f64,
+    /// True when the way is tagged with a rough surface.
     pub rough: bool,
 }
 
 /// The real length of the walkable streets in a response, inside `zone`. Sidewalks and crossings are left out: they run alongside streets that are
 /// counted already, and would double the total. A segment counts when its middle is inside the zone.
+///
+/// # Errors
+/// Returns [`Error::Parse`] if the body is not JSON or has no `elements`.
 pub fn street_segments(body: &str, zone: &Zone) -> Result<Vec<StreetSegment>, Error> {
     let v: Value = serde_json::from_str(body).map_err(|e| Error::Parse(e.to_string()))?;
     let elements = v.get("elements").and_then(Value::as_array).ok_or_else(|| Error::Parse("no elements".into()))?;
-    let q = |x: f64| (x * 1e6).round() as i64;
+    let q = |x: f64| round_i64(x * 1e6);
     let mut out = Vec::new();
     for e in elements {
         let Some(geom) = e.get("geometry").and_then(Value::as_array) else { continue };
@@ -107,7 +125,7 @@ pub fn street_segments(body: &str, zone: &Zone) -> Result<Vec<StreetSegment>, Er
         let rough = crate::scan::is_rough(&tag_map);
         let pts: Vec<Point> = geom.iter().filter_map(|g| Some(Point::new(g.get("lat")?.as_f64()?, g.get("lon")?.as_f64()?))).collect();
         for w in pts.windows(2) {
-            let mid = Point::new((w[0].lat + w[1].lat) / 2.0, (w[0].lon + w[1].lon) / 2.0);
+            let mid = Point::new(f64::midpoint(w[0].lat, w[1].lat), f64::midpoint(w[0].lon, w[1].lon));
             if !zone.contains(mid) {
                 continue;
             }

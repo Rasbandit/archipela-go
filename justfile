@@ -11,16 +11,20 @@ setup-ap:
 lint:
     uv run --project apworld ruff check apworld
     uv run --project apworld ruff format --check apworld
+    uv run --project apworld ruff check --config scripts/ruff.toml scripts/*.py
+    uv run --project apworld ruff format --config scripts/ruff.toml --check scripts/*.py
 
 fmt:
     uv run --project apworld ruff format apworld
     uv run --project apworld ruff check --fix apworld
+    uv run --project apworld ruff format --config scripts/ruff.toml scripts/*.py
+    uv run --project apworld ruff check --config scripts/ruff.toml --fix scripts/*.py
 
 typecheck:
     uv run --project apworld pyright --project apworld
 
 test:
-    uv run --project apworld pytest apworld
+    uv run --project apworld pytest apworld --cov --cov-config=apworld/pyproject.toml --cov-report=term-missing:skip-covered -q
 
 spell:
     typos
@@ -28,18 +32,36 @@ spell:
 secrets:
     gitleaks detect --no-banner
 
-check: lint typecheck test spell core-check
+[private]
+ap-present:
+    @test -d .ap || { echo "Archipelago checkout missing: run 'just setup-ap'"; exit 1; }
+
+# apworld: lint, types, tests
+check-py: ap-present lint typecheck test
+
+# Repo-wide hygiene: spelling, secrets, workflows, shell, docs, dispatcher tests
+check-hygiene: spell secrets
+    actionlint
+    shellcheck scripts/*.sh scripts/tests/*.sh
+    markdownlint-cli2 "**/*.md" "#**/node_modules" "#.ap" "#core/vendor" "#core/target"
+    bash scripts/tests/prepush_test.sh
+
+check: check-hygiene check-py check-rust check-android
 
 build:
     bash scripts/build_apworld.sh
 
-# Rust core: format, lint and test
-core-check:
-    cd core && cargo fmt --all --check && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings && cargo test -p apgo-core -q
+# Rust core: format, lint, docs, supply chain, tests with line-coverage floor
+check-rust:
+    cd core && cargo fmt --all --check
+    cd core && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings
+    cd core && RUSTDOCFLAGS="-D warnings" cargo doc -p apgo-core -p apgo-ffi --no-deps -q
+    cd core && cargo deny check
+    cd core && cargo llvm-cov -p apgo-core -p apgo-ffi --fail-under-lines 80
 
 # --- Android dev loop (phone paired over adb) ---
-export JAVA_HOME := "/usr/lib/jvm/java-25-openjdk"
-export ANDROID_HOME := env("HOME") + "/Android/Sdk"
+export JAVA_HOME := env("JAVA_HOME", "/usr/lib/jvm/java-25-openjdk")
+export ANDROID_HOME := env("ANDROID_HOME", env("HOME") + "/Android/Sdk")
 export PATH := env("HOME") + "/.cargo/bin:" + env("PATH")
 apk := "android/app/build/outputs/apk/debug/app-debug.apk"
 app := "dev.apgo2.app"
@@ -47,6 +69,11 @@ app := "dev.apgo2.app"
 # Rust core for Android + Kotlin bindings (profile: debug|release)
 android-core profile="debug":
     bash scripts/android_core.sh {{profile}}
+
+# Android: bindings (host build), format, static analysis, lint, unit tests
+check-android:
+    bash scripts/android_bindings.sh
+    cd android && ./gradlew :app:spotlessCheck :app:detekt :app:lintDebug :app:testDebugUnitTest :app:koverVerifyDebug --console=plain -q
 
 android-build:
     cd android && ./gradlew assembleDebug --console=plain -q

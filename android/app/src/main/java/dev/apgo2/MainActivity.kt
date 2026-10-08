@@ -1,89 +1,123 @@
 package dev.apgo2
 
-import android.Manifest
-import android.annotation.SuppressLint
-import android.content.Context
-import android.location.LocationListener
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import android.location.LocationManager
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import dev.apgo2.ui.ApgoTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.apgo2.ui.ApgoTheme
 import kotlinx.coroutines.delay
 
-class MainActivity : ComponentActivity() {
-    private fun providers(lm: LocationManager): List<String> {
-        val all = buildList {
-            if (Build.VERSION.SDK_INT >= 31) add(LocationManager.FUSED_PROVIDER)
-            add(LocationManager.GPS_PROVIDER)
-            add(LocationManager.NETWORK_PROVIDER)
-        }
-        return all.filter { lm.isProviderEnabled(it) }
-    }
+private const val AP_POLL_MS = 300L
 
+/** The single activity: hosts the Compose UI and handles the location and notification permission prompts. */
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Transparent system bars, with dark or light icons chosen from the system theme (the app theme follows the same setting, so they agree).
+        // Transparent system bars, with dark or light icons chosen from the system theme (the app theme follows the same setting,
+        // so they agree).
         enableEdgeToEdge()
+        // The model lives in the Application: sensors and the game keep going if this activity is recreated or destroyed.
+        val model = (application as ApgoApp).model
         setContent {
             ApgoTheme {
                 // No manual status-bar padding: Scaffold insets its own content, and this surface paints behind the bars.
-                Surface(Modifier.fillMaxSize()) {
-                    val scope = rememberCoroutineScope()
-                    val model = remember { AppModel(applicationContext, scope).also { it.refreshAll() } }
-                    var permitted by remember { mutableStateOf(false) }
-                    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permitted = it }
-                    LaunchedEffect(Unit) { ask.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
-                    var stepsOk by remember { mutableStateOf(false) }
-                    val askSteps = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { stepsOk = it }
-                    LaunchedEffect(permitted) { if (permitted) askSteps.launch(Manifest.permission.ACTIVITY_RECOGNITION) }
-                    DisposableEffect(stepsOk) {
-                        if (!stepsOk) return@DisposableEffect onDispose {}
-                        val sm = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-                        val sensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-                        val l = object : SensorEventListener {
-                            override fun onSensorChanged(e: SensorEvent) { model.stepsTotal = e.values[0].toLong() }
-                            override fun onAccuracyChanged(s: Sensor?, a: Int) {}
-                        }
-                        if (sensor != null) sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-                        onDispose { sm.unregisterListener(l) }
+                Surface(Modifier.fillMaxSize()) { MainContent(model) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MainContent(model: AppModel) {
+    val perms = rememberPermissionState()
+    val visible = rememberScreenVisible(model, perms)
+    RequestPermissions(perms)
+    BackgroundLocationPrompt(perms)
+    TrackingEffects(model, perms, visible)
+    AppRoot(model)
+}
+
+// Whether the app is on screen. Also tells the model when it leaves and returns, and re-reads the permissions that are granted on a
+// system settings page.
+@Composable
+private fun rememberScreenVisible(
+    model: AppModel,
+    perms: PermissionState,
+): Boolean {
+    val owner = LocalLifecycleOwner.current
+    var visible by remember { mutableStateOf(true) }
+    DisposableEffect(owner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_START -> {
+                        visible = true
+                        perms.refresh()
+                        model.onForeground()
                     }
 
-                    DisposableEffect(permitted) {
-                        if (!permitted) return@DisposableEffect onDispose {}
-                        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                        val listener = LocationListener { loc -> model.realLoc = loc; model.onFix(loc) }
-                        // Listen on every enabled provider: whichever has a fix wins (emulators only feed GPS).
-                        providers(lm).forEach { provider ->
-                            @SuppressLint("MissingPermission")
-                            lm.requestLocationUpdates(provider, 1000L, 0f, listener)
-                            @SuppressLint("MissingPermission")
-                            lm.getLastKnownLocation(provider)?.let { model.realLoc = it }
-                        }
-                        onDispose { lm.removeUpdates(listener) }
+                    Lifecycle.Event.ON_STOP -> {
+                        visible = false
+                        model.onBackground()
                     }
-                    LaunchedEffect(model.session) { while (model.session != null) { model.apTick(); delay(300) } }
-                    AppRoot(model)
+
+                    else -> {}
                 }
             }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    return visible
+}
+
+// Starts and stops what runs while the game is played: step counter, location, Wi-Fi/Bluetooth monitor, the tracking service and
+// the Archipelago connection.
+@Composable
+private fun TrackingEffects(
+    model: AppModel,
+    perms: PermissionState,
+    visible: Boolean,
+) {
+    val context = LocalContext.current
+    LaunchedEffect(perms.steps) { if (perms.steps) model.sensors.startSteps() }
+    // The presence decision picks the rate: precise in a zone, coarse outside, off at home or in the car. Stopped
+    // (no game) keeps the map marker while the app is on screen.
+    LaunchedEffect(perms.location, model.hud != null, visible, model.presence.decision) {
+        model.presence.appVisible = visible
+        model.presence.locationPermitted = perms.location
+        if (perms.location) model.presence.applyLocation() else model.sensors.stopLocation()
+    }
+    // Wi-Fi names need location permission; Bluetooth devices need BLUETOOTH_CONNECT (re-read on every start, restarting the
+    // monitor when it appears). The model owns the monitor for the whole process; this only tells it when it may start or the
+    // Bluetooth grant changed.
+    LaunchedEffect(perms.location, perms.bluetooth) { if (perms.location) model.presence.ensureMonitor(perms.bluetooth) }
+    // A game that is open is tracked in the foreground service, so fixes keep coming with the screen off.
+    val playing = model.hud != null
+    LaunchedEffect(perms.location, playing) {
+        if (perms.location && playing) {
+            runCatching { TrackingService.start(context.applicationContext) }
+        } else {
+            TrackingService.stop(context.applicationContext)
+        }
+    }
+    LaunchedEffect(model.ap.session) {
+        while (model.ap.session != null) {
+            model.ap.tick()
+            delay(AP_POLL_MS)
         }
     }
 }

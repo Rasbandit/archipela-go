@@ -3,27 +3,33 @@
 _Last verified: 2026-10-07_
 
 ## Status
+
 Working. Stable protocol = 0.6.x (latest release 0.6.8, published 2026-10-04). 0.7.0 is NOT released (open GitHub milestone, no date; known 0.7.0 change: all worlds need an `archipelago.json` manifest). Treat 0.7.0 protocol as unknown.
 
 ## What This Is
+
 Archipelago clients talk to the multiworld server over a WebSocket carrying JSON. Our app is a "custom client": it sends location checks (real-world map points) and receives items.
 
 ## Environment
+
 - Source of truth: `docs/network protocol.md` in github.com/ArchipelagoMW/Archipelago (read at commit 9b64e83, 0.6.8 era).
-  https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/network%20protocol.md
+  <https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/network%20protocol.md>
 - Server: `MultiServer.py` (Python). archipelago.gg hosted rooms require TLS (wss://); self-hosted may be plain ws://.
 
 ## Connection
+
 - WebSocket to `wss://archipelago.gg:<port>` (port is per-room and can change; client must allow editing it).
 - Each frame = JSON **list** of command objects, each with a `"cmd"` key. Per-message compression should be supported (uncompressed is deprecated).
 - Handshake: connect -> server `RoomInfo` -> (optional) `GetDataPackage` -> `DataPackage` -> client `Connect` -> `Connected` | `ConnectionRefused` -> server `ReceivedItems` -> `PrintJSON` join notice. After a refusal the socket stays open; send a new `Connect`.
 - Version objects need `"class":"Version"`: `{"major":0,"minor":6,"build":8,"class":"Version"}`.
 
 ## Auth
+
 - No token. Slot `name` (+ optional room `password`) in `Connect`; `uuid` is a client-generated id.
 - Refusal `errors`: `InvalidSlot`, `InvalidGame`, `IncompatibleVersion`, `InvalidPassword`, `InvalidItemsHandling`.
 
 ## Key Commands / Patterns
+
 Server -> client: `RoomInfo`, `ConnectionRefused`, `Connected`, `ReceivedItems`, `LocationInfo`, `RoomUpdate`, `PrintJSON`, `DataPackage`, `Bounced`, `InvalidPacket`, `Retrieved`, `SetReply`.
 Client -> server: `Connect`, `ConnectUpdate`, `Sync`, `LocationChecks`, `LocationScouts`, `CreateHints`, `UpdateHint`, `StatusUpdate`, `Say`, `GetDataPackage`, `Bounce`, `Get`, `Set`, `SetNotify`.
 
@@ -32,6 +38,7 @@ Client -> server: `Connect`, `ConnectUpdate`, `Sync`, `LocationChecks`, `Locatio
   "version":{"major":0,"minor":6,"build":8,"class":"Version"},
   "items_handling":7,"tags":["AP"],"slot_data":true}]
 ```
+
 - `Connected`: `team`, `slot`, `players[NetworkPlayer]`, `missing_locations`, `checked_locations`, `slot_data`, `slot_info{slot->NetworkSlot}`, `hint_points`.
 - `RoomInfo`: `version`, `generator_version`, `tags`, `password`, `permissions{release,collect,remaining}`, `hint_cost` (% of locations), `location_check_points`, `games`, `datapackage_checksums`, `seed_name`, `time`.
 - `LocationChecks {locations:[int]}`: duplicates are harmless; re-send on connect for anything done while offline.
@@ -53,9 +60,11 @@ Client -> server: `Connect`, `ConnectUpdate`, `Sync`, `LocationChecks`, `Locatio
 - Team numbers start 0, slots start 1; slot 0 = server.
 
 ## Failed Approaches / Dead Ends
+
 - None tried yet (research only, no code). Do not assume 0.7.0 behaviors.
 
 ## Gotchas
+
 - Clients must: handle ws and wss, reconnect on drop, allow port change, send goal `StatusUpdate`, send missed checks on connect, handle items from slot 0 / any count / any order.
 - Version in `Connect` must be `class:"Version"` shaped or the server cannot compare.
 - Receiving an unrecognised packet field/type: ignore, do not crash (docs say types may be added).
@@ -64,6 +73,7 @@ Client -> server: `Connect`, `ConnectUpdate`, `Sync`, `LocationChecks`, `Locatio
 - `received json depth limited to 16` since 0.6.8 release notes (#6378): keep outgoing JSON shallow.
 
 ## References
-- Protocol doc URL above; 0.6.8 release: https://github.com/ArchipelagoMW/Archipelago/releases/tag/0.6.8
-- 0.7.0 milestone tracking issue (per search, unverified): https://github.com/ArchipelagoMW/Archipelago/issues/6006
+
+- Protocol doc URL above; 0.6.8 release: <https://github.com/ArchipelagoMW/Archipelago/releases/tag/0.6.8>
+- 0.7.0 milestone tracking issue (per search, unverified): <https://github.com/ArchipelagoMW/Archipelago/issues/6006>
 - Related: `docs/context/archipelago-concepts.md`, `docs/context/archipelago-client-libraries.md`

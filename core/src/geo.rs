@@ -2,17 +2,23 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::num::{ceil_usize, count_f64};
+
 const EARTH_RADIUS_M: f64 = 6_371_000.0;
 
+/// A WGS84 coordinate in degrees.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point {
+    /// Latitude in degrees, north positive.
     pub lat: f64,
+    /// Longitude in degrees, east positive.
     pub lon: f64,
 }
 
 impl Point {
     /// The smaller of two points by (lat, lon): a canonical choice that does not depend on a line's direction.
-    pub fn min_by_coords(self, other: Point) -> Point {
+    #[must_use]
+    pub fn min_by_coords(self, other: Self) -> Self {
         if (self.lat, self.lon) <= (other.lat, other.lon) {
             self
         } else {
@@ -20,12 +26,15 @@ impl Point {
         }
     }
 
+    /// A point at `lat`, `lon` degrees.
+    #[must_use]
     pub const fn new(lat: f64, lon: f64) -> Self {
         Self { lat, lon }
     }
 }
 
 /// Haversine distance in meters.
+#[must_use]
 pub fn distance_m(a: Point, b: Point) -> f64 {
     let (lat1, lat2) = (a.lat.to_radians(), b.lat.to_radians());
     let dlat = lat2 - lat1;
@@ -35,6 +44,7 @@ pub fn distance_m(a: Point, b: Point) -> f64 {
 }
 
 /// Initial bearing from `a` to `b` in degrees (0 = north, clockwise).
+#[must_use]
 pub fn bearing_deg(a: Point, b: Point) -> f64 {
     let (p1, p2) = (a.lat.to_radians(), b.lat.to_radians());
     let dl = (b.lon - a.lon).to_radians();
@@ -44,18 +54,20 @@ pub fn bearing_deg(a: Point, b: Point) -> f64 {
 }
 
 /// Total length of a polyline in meters.
+#[must_use]
 pub fn polyline_len_m(pts: &[Point]) -> f64 {
     pts.windows(2).map(|w| distance_m(w[0], w[1])).sum()
 }
 
 /// Points along a polyline roughly every `step_m` meters (always includes both ends).
+#[must_use]
 pub fn densify(pts: &[Point], step_m: f64) -> Vec<Point> {
     let mut out = Vec::new();
     for w in pts.windows(2) {
         let seg = distance_m(w[0], w[1]);
-        let n = (seg / step_m).ceil().max(1.0) as usize;
+        let n = ceil_usize(seg / step_m).max(1);
         for i in 0..n {
-            let t = i as f64 / n as f64;
+            let t = count_f64(i) / count_f64(n);
             out.push(Point::new(w[0].lat + (w[1].lat - w[0].lat) * t, w[0].lon + (w[1].lon - w[0].lon) * t));
         }
     }
@@ -66,12 +78,30 @@ pub fn densify(pts: &[Point], step_m: f64) -> Vec<Point> {
 }
 
 /// Average of the points (good enough as a polygon "center" at city scale).
+#[must_use]
 pub fn centroid(pts: &[Point]) -> Point {
-    let n = pts.len().max(1) as f64;
+    let n = count_f64(pts.len().max(1));
     Point::new(pts.iter().map(|p| p.lat).sum::<f64>() / n, pts.iter().map(|p| p.lon).sum::<f64>() / n)
 }
 
+/// Shortest distance from `p` to the segment `a`-`b`, in metres (flat approximation around `p`, fine at city scale).
+#[must_use]
+#[allow(clippy::many_single_char_names)] // standard planar-geometry notation (p, a, b, k, t)
+pub fn distance_to_segment_m(p: Point, a: Point, b: Point) -> f64 {
+    let k = 111_195.0;
+    let cos_lat = p.lat.to_radians().cos();
+    let xy = |q: Point| ((q.lon - p.lon) * k * cos_lat, (q.lat - p.lat) * k);
+    let ((ax, ay), (bx, by)) = (xy(a), xy(b));
+    let (dx, dy) = (bx - ax, by - ay);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 == 0.0 { 0.0 } else { (-(ax * dx + ay * dy) / len2).clamp(0.0, 1.0) };
+    let (cx, cy) = (ax + t * dx, ay + t * dy);
+    (cx * cx + cy * cy).sqrt()
+}
+
 /// Ray-casting point-in-polygon on lat/lon (planar; fine at city scale).
+#[must_use]
+#[allow(clippy::many_single_char_names)] // standard ray-casting notation (p, v, i, j, a, b)
 pub fn point_in_polygon(p: Point, v: &[Point]) -> bool {
     let mut inside = false;
     let mut j = v.len().wrapping_sub(1);
@@ -86,6 +116,8 @@ pub fn point_in_polygon(p: Point, v: &[Point]) -> bool {
 }
 
 /// A point guaranteed to be inside `poly` (falls back to the first vertex nudged inward for degenerate shapes).
+#[must_use]
+#[allow(clippy::many_single_char_names)] // short loop and geometry names (c, n, i, j, a, b)
 pub fn point_inside(poly: &[Point]) -> Point {
     let c = centroid(poly);
     if poly.len() < 3 || point_in_polygon(c, poly) {
@@ -97,7 +129,7 @@ pub fn point_inside(poly: &[Point]) -> Point {
         let step = step.max(1);
         for i in 0..n {
             let (a, b) = (poly[i], poly[(i + step) % n]);
-            let m = Point::new((a.lat + b.lat) / 2.0, (a.lon + b.lon) / 2.0);
+            let m = Point::new(f64::midpoint(a.lat, b.lat), f64::midpoint(a.lon, b.lon));
             if point_in_polygon(m, poly) {
                 return m;
             }
@@ -114,6 +146,7 @@ pub fn point_inside(poly: &[Point]) -> Point {
 }
 
 /// Point reached by moving `dist_m` from `from` along `bearing_deg`.
+#[must_use]
 pub fn destination(from: Point, bearing_deg: f64, dist_m: f64) -> Point {
     let d = dist_m / EARTH_RADIUS_M;
     let (b, lat1, lon1) = (bearing_deg.to_radians(), from.lat.to_radians(), from.lon.to_radians());

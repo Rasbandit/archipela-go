@@ -14,10 +14,12 @@ def _block(difficulty: str, mode: str) -> int:
 
 
 def quest_location_id(difficulty: str, mode: str, number: int) -> int:
+    """Location id of the `number`-th quest (1-based) in a (difficulty, mode) block."""
     return ID_OFFSET + _block(difficulty, mode) * BLOCK_SIZE + number
 
 
 def location_id(quest: Quest) -> int:
+    """Location id of a generated quest; the boss has its own fixed block."""
     if quest.name == names.BOSS_LOCATION:
         return LOCATION_NAME_TO_ID[names.BOSS_LOCATION]
     return quest_location_id(quest.difficulty, quest.mode, quest.number)

@@ -31,7 +31,10 @@ import kotlinx.coroutines.launch
 /** A small ⓘ that explains [topic]. Use it beside a control or heading; use [LabelWithHelp] when there is a label to press and hold. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HelpTip(topic: HelpTopic, modifier: Modifier = Modifier) {
+internal fun HelpTip(
+    topic: HelpTopic,
+    modifier: Modifier = Modifier,
+) {
     val state = rememberTooltipState(isPersistent = true)
     val scope = rememberCoroutineScope()
     TooltipBox(
@@ -41,7 +44,12 @@ fun HelpTip(topic: HelpTopic, modifier: Modifier = Modifier) {
         modifier = modifier,
     ) {
         IconButton(onClick = { scope.launch { state.show() } }, modifier = Modifier.size(28.dp)) {
-            Icon(ApgoIcons.Help, contentDescription = "About ${topic.title}", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Icon(
+                ApgoIcons.Help,
+                contentDescription = "About ${topic.title}",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }
@@ -49,7 +57,12 @@ fun HelpTip(topic: HelpTopic, modifier: Modifier = Modifier) {
 /** A label with its ⓘ. Pressing and holding the label (or tapping the ⓘ) opens the explanation. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LabelWithHelp(text: String, topic: HelpTopic, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyMedium) {
+internal fun LabelWithHelp(
+    text: String,
+    topic: HelpTopic,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
+) {
     val state = rememberTooltipState(isPersistent = true)
     val scope = rememberCoroutineScope()
     TooltipBox(
@@ -61,7 +74,12 @@ fun LabelWithHelp(text: String, topic: HelpTopic, modifier: Modifier = Modifier,
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(text, style = style)
             IconButton(onClick = { scope.launch { state.show() } }, modifier = Modifier.size(28.dp)) {
-                Icon(ApgoIcons.Help, contentDescription = "About ${topic.title}", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                Icon(
+                    ApgoIcons.Help,
+                    contentDescription = "About ${topic.title}",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
     }

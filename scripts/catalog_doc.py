@@ -12,9 +12,9 @@ cat = json.loads((root / "core/data/quest_catalog.json").read_text(encoding="utf
 def filt(kind: dict) -> str:
     if not kind["any_of"]:
         return "(no map data needed)"
-    groups = []
-    for group in kind["any_of"]:
-        groups.append(" + ".join(f"{c['key']}={'/'.join(c['values'])}" for c in group))
+    groups = [
+        " + ".join(f"{c['key']}={'/'.join(c['values'])}" for c in group) for group in kind["any_of"]
+    ]
     out = " OR ".join(groups)
     if kind.get("none_of"):
         out += (
@@ -22,7 +22,7 @@ def filt(kind: dict) -> str:
             + ", ".join(f"{c['key']}={'/'.join(c['values'])}" for c in kind["none_of"])
             + ")"
         )
-    return out.replace("|", "\\|")
+    return out.replace("|", "\\|").replace("*", "\\*")
 
 
 def verify(kind: dict) -> str:
@@ -47,7 +47,7 @@ for fam in cat["families"]:
         f"## {fam} ({len(ks)})",
         "",
         "| Quest | What | Map data (OSM) | Proof | Modes |",
-        "|--|--|--|--|--|",
+        "| -- | -- | -- | -- | -- |",
     ]
     for k in ks:
         flag = " (named)" if k.get("require_name") else ""

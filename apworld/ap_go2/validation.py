@@ -61,6 +61,11 @@ def letters_needed_by_logic(goals: Sequence[str], requirement: str) -> dict[str,
 
 
 def check_requirement(goals: Sequence[str], requirement: str, need: int) -> None:
+    """Check the goal requirement mode and its count against the selected goals.
+
+    Raises:
+        ValueError: If the mode is unknown or `need` is out of range for `at_least`.
+    """
     if requirement not in REQUIREMENTS:
         msg = f"unknown goal requirement {requirement!r}; valid: {', '.join(REQUIREMENTS)}"
         raise ValueError(msg)
@@ -74,6 +79,11 @@ def check_requirement(goals: Sequence[str], requirement: str, need: int) -> None
 
 
 def normalize_zone_modes(values: Iterable[object]) -> list[str]:
+    """Lower-case and trim zone modes, checking count and validity.
+
+    Raises:
+        ValueError: If there are too few or too many zones, or an unknown mode.
+    """
     modes = [str(v).strip().lower() for v in values]
     if not 1 <= len(modes) <= MAX_ZONES:
         msg = f"zone_modes needs 1 to {MAX_ZONES} entries, got {len(modes)}"

@@ -2,6 +2,28 @@
 members = [".", "ffi"]
 resolver = "2"
 
+[workspace.lints.rust]
+unsafe_code = "deny"          # uniffi macros need a local allow in apgo-ffi; apgo-core forbids in lib.rs
+missing_docs = "deny"
+unused_qualifications = "deny"
+rust_2018_idioms = { level = "deny", priority = -1 }
+
+[workspace.lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+# nursery, cherry-picked
+use_self = "deny"
+redundant_clone = "deny"
+significant_drop_tightening = "deny"
+derive_partial_eq_without_eq = "deny"
+# restriction, cherry-picked
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+print_stdout = "deny"
+# allow-list (reason each)
+module_name_repetitions = "allow"  # `poi::PoiCache` style names read better than renamed ones
+
 [profile.dev]
 debug = 0
 
@@ -21,8 +43,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rand = "0.9"
 ureq = "3"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [dev-dependencies]
+
+[lints]
+workspace = true
 
 [patch.crates-io]
 archipelago_rs = { path = "vendor/archipelago_rs" }

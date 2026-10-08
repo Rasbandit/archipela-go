@@ -1,5 +1,6 @@
 //! Spike B demo: fetch POIs in one bulk query, sample trips, print timings.
-//! Usage: cargo run --release --example gen_trips -- <lat> <lon> <max_m> <trips> [seed]
+//! Usage: cargo run --release --example `gen_trips` -- <lat> <lon> <`max_m`> <trips> [seed]
+#![allow(clippy::print_stdout, clippy::expect_used, clippy::cast_possible_truncation, clippy::cast_sign_loss)] // CLI example: prints results, fails fast on bad input, and uses demo-sized numbers
 
 use std::path::PathBuf;
 use std::time::Instant;

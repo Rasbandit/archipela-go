@@ -2,3 +2,5 @@ default: true
 MD013: false
 MD033: false
 MD041: false
+# docs/context files open with an italic "_Last verified: DATE_" stamp (context-doc skill convention), which MD036 reads as a fake heading.
+MD036: false

@@ -39,12 +39,15 @@ LETTER_NAMES = tuple(f"Letter {c}" for c in "ARCHIPELGO")
 
 
 def letter(char: str) -> str:
+    """Item name of one goal letter."""
     return f"Letter {char}"
 
 
 def quest_name(difficulty: str, mode: str, number: int) -> str:
+    """Location name of a quest, unique per (difficulty, mode, number)."""
     return f"{difficulty.capitalize()} {mode.capitalize()} Quest #{number}"
 
 
 def zone_name(zone: int) -> str:
+    """Region name of a 1-based zone id."""
     return f"Zone {zone}"

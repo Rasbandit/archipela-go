@@ -1,0 +1,12 @@
+# Dev CLI scripts: apworld's strict ruff config, minus rules that only make sense for library code.
+extend = "../apworld/pyproject.toml"
+
+[lint]
+extend-ignore = [
+  "E501",     # long report/message strings; the formatter cannot wrap them
+  "T201",     # CLIs print to stdout
+  "D103",     # module docstring documents the script; helpers are private in practice
+  "PLR2004",  # argv/protocol constants are clearer inline
+  "S603", "S607",  # adb/git invocations with fixed argv, no shell
+  "S108",     # /tmp is the documented adb scratch location on the device
+]

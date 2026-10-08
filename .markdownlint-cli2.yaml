@@ -1,0 +1,5 @@
+# Skip untracked/ignored trees (.venv, .superpowers, node_modules) and vendored docs.
+gitignore: true
+ignores:
+  - "core/vendor/**"
+  - "core/target/**"

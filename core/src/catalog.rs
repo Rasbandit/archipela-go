@@ -1,83 +1,150 @@
-//! The quest catalog: which kinds of quests the map data can support (data-driven, see data/quest_catalog.json).
+//! The quest catalog: which kinds of quests the map data can support (data-driven, see `data/quest_catalog.json`).
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+/// How the player travels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
+    /// On foot.
     Walk,
+    /// Running.
     Run,
+    /// By bike.
     Bike,
+    /// By car.
     Drive,
 }
 
 impl Mode {
-    pub const ALL: [Mode; 4] = [Mode::Walk, Mode::Run, Mode::Bike, Mode::Drive];
+    /// Every mode.
+    pub const ALL: [Self; 4] = [Self::Walk, Self::Run, Self::Bike, Self::Drive];
 
     /// The modes a game can use for now. Car is left out until it is supported.
-    pub const PLAY: [Mode; 3] = [Mode::Walk, Mode::Run, Mode::Bike];
+    pub const PLAY: [Self; 3] = [Self::Walk, Self::Run, Self::Bike];
 
+    /// The lowercase name of the mode, as used in settings and files.
+    #[must_use]
     pub fn name(self) -> &'static str {
         match self {
-            Mode::Walk => "walk",
-            Mode::Run => "run",
-            Mode::Bike => "bike",
-            Mode::Drive => "drive",
+            Self::Walk => "walk",
+            Self::Run => "run",
+            Self::Bike => "bike",
+            Self::Drive => "drive",
         }
     }
 
-    pub fn parse(s: &str) -> Option<Mode> {
-        Mode::ALL.into_iter().find(|m| m.name() == s || (s == "car" && *m == Mode::Drive))
+    /// The mode called `s` (`car` also means drive), if any.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.name() == s || (s == "car" && *m == Self::Drive))
     }
 
     /// Typical active speed in meters per minute.
+    #[must_use]
     pub fn m_per_min(self) -> f64 {
         match self {
-            Mode::Walk => 75.0,
-            Mode::Run => 150.0,
-            Mode::Bike => 250.0,
-            Mode::Drive => 583.0,
+            Self::Walk => 75.0,
+            Self::Run => 150.0,
+            Self::Bike => 250.0,
+            Self::Drive => 583.0,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// A condition on one map tag.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cond {
+    /// The OSM tag key to look at.
     pub key: String,
     /// `"*"` matches any value; OSM `a;b` multi-values match if any part matches.
     pub values: Vec<String>,
 }
 
 impl Cond {
+    /// Whether the tag set satisfies the condition.
+    #[must_use]
     pub fn holds(&self, tags: &BTreeMap<String, String>) -> bool {
         let Some(v) = tags.get(&self.key) else { return false };
         self.values.iter().any(|want| want == "*" || v.split(';').any(|part| part.trim() == want))
     }
 }
 
+/// The shape of the map feature a kind uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Geom {
+    /// A single point.
     Point,
+    /// An area.
     Area,
+    /// A line or path.
     Line,
+    /// No map feature (anywhere works).
     None,
 }
 
+/// How a quest kind is proven complete.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Verify {
-    Reach { radius_m: f64 },
-    Dwell { minutes: f64, radius_m: f64 },
-    DwellInArea { minutes: f64 },
-    FollowLine { corridor_m: f64, coverage: f64, min_len_m: f64, max_len_m: f64 },
-    Courier { legs: u32 },
+    /// Get within `radius_m` of a place.
+    Reach {
+        /// How close counts as reached, in metres.
+        radius_m: f64,
+    },
+    /// Stay near a place for some time.
+    Dwell {
+        /// How long to stay, in minutes.
+        minutes: f64,
+        /// How close counts as there, in metres.
+        radius_m: f64,
+    },
+    /// Spend time inside an area.
+    DwellInArea {
+        /// How long to stay, in minutes.
+        minutes: f64,
+    },
+    /// Follow a path.
+    FollowLine {
+        /// How far off the path still counts, in metres.
+        corridor_m: f64,
+        /// Share of the path to cover, 0 to 1.
+        coverage: f64,
+        /// Shortest path allowed, in metres.
+        min_len_m: f64,
+        /// Longest path allowed, in metres.
+        max_len_m: f64,
+    },
+    /// Carry something between places.
+    Courier {
+        /// Number of legs.
+        legs: u32,
+    },
+    /// Go to a far point and come back home.
     RoundTrip,
-    CoverCells { cells: u32, cell_m: f64 },
-    Steps { steps: u32 },
-    Away { min_distance_m: f64, minutes: f64 },
+    /// Visit new map cells.
+    CoverCells {
+        /// Number of cells.
+        cells: u32,
+        /// Edge length of a cell, in metres.
+        cell_m: f64,
+    },
+    /// Take a number of steps.
+    Steps {
+        /// Number of steps.
+        steps: u32,
+    },
+    /// Spend time far from home.
+    Away {
+        /// Minimum distance from home, in metres.
+        min_distance_m: f64,
+        /// How long to stay away, in minutes.
+        minutes: f64,
+    },
+    /// The biggest quest of the realm.
     Boss,
 }
 
@@ -91,49 +158,67 @@ fn metres(m: f64) -> String {
 
 impl Verify {
     /// What the player has to do, in one plain sentence.
+    #[must_use]
     pub fn how(&self) -> String {
         match self {
-            Verify::Reach { radius_m } => format!("Get within {}.", metres(*radius_m)),
-            Verify::Dwell { minutes, radius_m } => format!("Stay within {} for {} min.", metres(*radius_m), minutes.round()),
-            Verify::DwellInArea { minutes } => format!("Spend {} min inside it.", minutes.round()),
-            Verify::FollowLine { coverage, .. } => format!("Walk {}% of its length.", (coverage * 100.0).round()),
-            Verify::Courier { .. } => "Pick something up at one spot and deliver it to another.".to_string(),
-            Verify::RoundTrip => "Go out to a spot and come back home in time.".to_string(),
-            Verify::CoverCells { cells, .. } => format!("Visit {cells} new map cells."),
-            Verify::Steps { steps } => format!("Take {steps} steps."),
-            Verify::Away { min_distance_m, minutes } => format!("Get {} from home and stay {} min.", metres(*min_distance_m), minutes.round()),
-            Verify::Boss => "The biggest quest of the realm.".to_string(),
+            Self::Reach { radius_m } => format!("Get within {}.", metres(*radius_m)),
+            Self::Dwell { minutes, radius_m } => format!("Stay within {} for {} min.", metres(*radius_m), minutes.round()),
+            Self::DwellInArea { minutes } => format!("Spend {} min inside it.", minutes.round()),
+            Self::FollowLine { coverage, .. } => format!("Walk {}% of its length.", (coverage * 100.0).round()),
+            Self::Courier { .. } => "Pick something up at one spot and deliver it to another.".to_string(),
+            Self::RoundTrip => "Go out to a spot, then come back home (no time limit).".to_string(),
+            Self::CoverCells { cells, .. } => format!("Visit {cells} new map cells."),
+            Self::Steps { steps } => format!("Take {steps} steps."),
+            Self::Away { min_distance_m, minutes } => format!("Get {} from home and stay {} min.", metres(*min_distance_m), minutes.round()),
+            Self::Boss => "The biggest quest of the realm.".to_string(),
         }
     }
 }
 
+/// A kind of quest: which places it matches, how it is proven and in which modes it can be played.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)] // mirrors the catalog JSON schema, where each flag is an independent switch
 pub struct Kind {
+    /// Stable id of the kind.
     pub id: String,
+    /// Display name.
     pub name: String,
+    /// Family the kind belongs to.
     pub family: String,
+    /// Short description shown to the player.
     pub blurb: String,
+    /// What sort of map feature the kind uses.
     pub geom: Geom,
+    /// Groups of conditions; a place matches when every condition of any one group holds.
     #[serde(default)]
     pub any_of: Vec<Vec<Cond>>,
+    /// Conditions that rule a place out.
     #[serde(default)]
     pub none_of: Vec<Cond>,
+    /// Whether a place needs a name to match.
     #[serde(default)]
     pub require_name: bool,
+    /// How the quest is proven complete.
     pub verify: Verify,
+    /// Modes the kind can be played in.
     pub modes: Vec<Mode>,
+    /// How many matching places a realm needs before the kind is offered.
     #[serde(default)]
     pub min_features: u32,
+    /// Whether a reach quest picks its point in one compass direction from home (a 90-degree sector).
     #[serde(default)]
     pub sector: bool,
+    /// Whether the area is shown as an outline on the map.
     #[serde(default)]
     pub outline: bool,
+    /// Whether a line must form a closed loop.
     #[serde(default)]
     pub closed: bool,
 }
 
 impl Kind {
     /// The `key=value` map tags this kind looked at on a place, so the player can see why it matched.
+    #[must_use]
     pub fn evidence(&self, tags: &BTreeMap<String, String>) -> Vec<String> {
         let mut keys: Vec<&str> = self.any_of.iter().flatten().map(|c| c.key.as_str()).collect();
         keys.sort_unstable();
@@ -142,6 +227,7 @@ impl Kind {
     }
 
     /// Does an OSM feature with these tags satisfy this kind's filters?
+    #[must_use]
     pub fn matches(&self, tags: &BTreeMap<String, String>) -> bool {
         if self.any_of.is_empty() || (self.require_name && !tags.contains_key("name")) {
             return false;
@@ -152,29 +238,44 @@ impl Kind {
         self.any_of.iter().any(|group| group.iter().all(|c| c.holds(tags)))
     }
 
+    /// Whether the kind can be played in `mode`.
+    #[must_use]
     pub fn allows(&self, mode: Mode) -> bool {
         self.modes.contains(&mode)
     }
 }
 
+/// The quest catalog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Catalog {
+    /// Catalog format version.
     pub version: u32,
+    /// Names of the quest families.
     pub families: Vec<String>,
+    /// Every quest kind.
     pub kinds: Vec<Kind>,
 }
 
 impl Catalog {
-    pub fn builtin() -> Catalog {
+    /// The quest catalog embedded in the binary.
+    ///
+    /// # Panics
+    /// Panics if the embedded `quest_catalog.json` is malformed; a unit test guards against shipping that.
+    #[must_use]
+    #[allow(clippy::expect_used)] // the embedded JSON is validated by tests
+    pub fn builtin() -> Self {
         serde_json::from_str(include_str!("../data/quest_catalog.json")).expect("quest_catalog.json is valid")
     }
 
+    /// The kind with this id, if any.
+    #[must_use]
     pub fn kind(&self, id: &str) -> Option<&Kind> {
         self.kinds.iter().find(|k| k.id == id)
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::assert_is_empty)] // test code: `is_empty()` reads better in assertions than comparing with a typed empty array
 mod tests {
     use super::*;
 

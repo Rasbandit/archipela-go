@@ -6,7 +6,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 profile="${1:-debug}"
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
-export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$(ls -d "$ANDROID_HOME"/ndk/* | sort -V | tail -1)}"
+export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)}"
 export PATH="$HOME/.cargo/bin:$PATH"
 
 flag=()

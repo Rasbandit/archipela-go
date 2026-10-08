@@ -6,17 +6,25 @@ use rand::{Rng, SeedableRng};
 use crate::geo::{distance_m, Point};
 use crate::overpass::Candidate;
 
+/// What a trip needs from the sampler: its number and distance tier.
 #[derive(Debug, Clone, Copy)]
 pub struct TripSpec {
+    /// Trip number, starting at 1.
     pub number: u32,
+    /// Distance tier, starting at 1; higher is farther.
     pub tier: u8,
 }
 
+/// A trip with its chosen real-world candidate.
 #[derive(Debug, Clone)]
 pub struct Trip {
+    /// Trip number, starting at 1.
     pub number: u32,
+    /// Distance tier, starting at 1.
     pub tier: u8,
+    /// The place picked for this trip.
     pub candidate: Candidate,
+    /// Straight-line distance from home in metres.
     pub distance_m: f64,
     /// False when no candidate fit the tier band and the nearest one was used.
     pub in_band: bool,
@@ -24,6 +32,7 @@ pub struct Trip {
 
 /// Tier `t` targets distances in `((t-1)*step, t*step]`. Candidates are never reused and trips stay at
 /// least `min_spacing_m` apart; if a band is empty the closest remaining candidate is used.
+#[must_use]
 pub fn sample(candidates: &[Candidate], home: Point, specs: &[TripSpec], step_m: f64, min_spacing_m: f64, seed: u64) -> Vec<Trip> {
     let mut rng = StdRng::seed_from_u64(seed);
     let dists: Vec<f64> = candidates.iter().map(|c| distance_m(home, c.point)).collect();
@@ -37,7 +46,7 @@ pub fn sample(candidates: &[Candidate], home: Point, specs: &[TripSpec], step_m:
         let in_band: Vec<usize> = (0..candidates.len()).filter(|&i| free(i, &used, &chosen) && dists[i] > lo && dists[i] <= hi).collect();
 
         let (pick, band) = if in_band.is_empty() {
-            let mid = (lo + hi) / 2.0;
+            let mid = f64::midpoint(lo, hi);
             let nearest = (0..candidates.len()).filter(|&i| free(i, &used, &chosen)).min_by(|&a, &b| (dists[a] - mid).abs().total_cmp(&(dists[b] - mid).abs()));
             match nearest {
                 Some(i) => (i, false),
@@ -65,6 +74,7 @@ pub fn sample(candidates: &[Candidate], home: Point, specs: &[TripSpec], step_m:
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_precision_loss)] // test code: test fixtures use small numbers
 mod tests {
     use super::*;
     use crate::geo::{distance_m, Point};

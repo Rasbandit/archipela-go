@@ -8,14 +8,14 @@ A kind appears for a realm only if the scan found at least `min_features` matchi
 ## reach (2)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **Street Smarts** | Get to a spot on the street grid. The classic. | (no map data needed) | reach (radius_m=40) | walk, run, bike, drive |
 | **Compass Rose** | Head out in a surprise compass direction from home. | (no map data needed) | reach (radius_m=40) | walk, run, bike |
 
 ## dwell (7)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **Bench Warmer** | Sit on a bench for a few minutes. | amenity=bench | dwell (minutes=3, radius_m=40) | walk, run, bike |
 | **Picnic Break** | Take a break at a picnic spot. | tourism=picnic_site OR leisure=picnic_table | dwell (minutes=5, radius_m=40) | walk, run, bike |
 | **Under the Roof** | Wait out a few minutes in a shelter. | amenity=shelter | dwell (minutes=3, radius_m=40) | walk, run, bike |
@@ -27,7 +27,7 @@ A kind appears for a realm only if the scan found at least `min_features` matchi
 ## landmark (49)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **Gallery Without Walls** | Find a public artwork. | tourism=artwork | reach (radius_m=40) | walk, run, bike, drive |
 | **Mural, Mural** | Track down a mural. | tourism=artwork + artwork_type=mural | reach (radius_m=40) | walk, run, bike, drive |
 | **Remember When** | Visit a memorial or monument. | historic=memorial/monument/wayside_cross/wayside_shrine | reach (radius_m=40) | walk, run, bike, drive |
@@ -43,7 +43,7 @@ A kind appears for a realm only if the scan found at least `min_features` matchi
 | **Hydrant Hunter** | Find a fire hydrant. Works almost anywhere with a town. | emergency=fire_hydrant | reach (radius_m=40) | walk, run, bike, drive |
 | **Rack 'Em Up** | Visit a bike rack. | amenity=bicycle_parking | reach (radius_m=40) | walk, run, bike, drive |
 | **Mailbox Maven** | Locate a post box. | amenity=post_box | reach (radius_m=40) | walk, run, bike, drive |
-| **Tree Hugger** | Find a notable mapped tree. | natural=tree + denotation=* OR natural=tree + name=* | reach (radius_m=40) | walk, run, bike |
+| **Tree Hugger** | Find a notable mapped tree. | natural=tree + denotation=\* OR natural=tree + name=\* | reach (radius_m=40) | walk, run, bike |
 | **Nothing But Net** | Visit a basketball court. | leisure=pitch + sport=basketball | reach (radius_m=40) | walk, run, bike, drive |
 | **Love All** | Visit a tennis court. | leisure=pitch + sport=tennis | reach (radius_m=40) | walk, run, bike, drive |
 | **Dill With It** | Visit a pickleball court. | leisure=pitch + sport=pickleball | reach (radius_m=40) | walk, run, bike, drive |
@@ -81,7 +81,7 @@ A kind appears for a realm only if the scan found at least `min_features` matchi
 ## trail (5)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **Trail Boss** | Walk a named trail end to end. | highway=path/footway/track (not footway=sidewalk/crossing) (named) | follow_line (corridor_m=25, coverage=0.9, min_len_m=800, max_len_m=15000) | walk, run |
 | **Full Circle** | Complete a loop trail. | highway=path/footway/track (not footway=sidewalk/crossing) (named) | follow_line (corridor_m=25, coverage=0.9, min_len_m=600, max_len_m=10000) | walk, run |
 | **Pedal Pusher** | Ride a named cycle route. | highway=cycleway OR route=bicycle/mtb (named) | follow_line (corridor_m=25, coverage=0.9, min_len_m=1500, max_len_m=40000) | bike |
@@ -91,7 +91,7 @@ A kind appears for a realm only if the scan found at least `min_features` matchi
 ## park (5)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **Touch Grass** | Spend a few minutes inside a park. | leisure=park/nature_reserve/common/recreation_ground | dwell_in_area (minutes=3) | walk, run, bike |
 | **Dog Days** | Visit a dog park. | leisure=dog_park | dwell_in_area (minutes=3) | walk, run |
 | **Garden Party** | Visit a public named garden. | leisure=garden (not access=private/no, garden:type=residential) (named) | dwell_in_area (minutes=3) | walk, run |
@@ -101,37 +101,37 @@ A kind appears for a realm only if the scan found at least `min_features` matchi
 ## water (2)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **Follow the Flow** | Follow a stream or river. | waterway=stream/river (named) | follow_line (corridor_m=40, coverage=0.8, min_len_m=500, max_len_m=10000) | walk, run, bike |
 | **Towpath Tour** | Follow a canal. | waterway=canal | follow_line (corridor_m=40, coverage=0.8, min_len_m=500, max_len_m=10000) | walk, run, bike |
 
 ## courier (2)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **Special Delivery** | Pick up at A, deliver to B before time runs out. | (no map data needed) | courier (legs=2) | walk, run, bike, drive |
-| **There and Back Again** | Go out far, then return home within the time limit. | (no map data needed) | round_trip | walk, run, bike, drive |
+| **There and Back Again** | Go out to a far spot, then come back home whenever you like. | (no map data needed) | round_trip | walk, run, bike, drive |
 
 ## explore (1)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **Cartographer** | Reveal a handful of new map cells by walking them. | (no map data needed) | cover_cells (cells=8, cell_m=150) | walk, run, bike |
 
 ## steps (1)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **Step Up** | Rack up steps (counts on the phone's step sensor). | (no map data needed) | steps (steps=2000) | walk, run |
 
 ## away (1)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **Wanderlust** | Spend time well away from home. | (no map data needed) | away (min_distance_m=1000, minutes=60) | walk, run, bike, drive |
 
 ## boss (1)
 
 | Quest | What | Map data (OSM) | Proof | Modes |
-|--|--|--|--|--|
+| -- | -- | -- | -- | -- |
 | **The Big One** | The hardest thing your realm offers. | (no map data needed) | boss | walk, run, bike, drive |

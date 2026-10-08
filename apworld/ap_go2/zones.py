@@ -8,6 +8,8 @@ from .constants import MODE_TOOLS
 
 @dataclass(frozen=True)
 class Zone:
+    """One zone: its travel mode and what is needed to enter it."""
+
     id: int  # 1-based
     mode: str
     keys_needed: int  # Progressive Zone Keys to enter (zone 1 is free)
@@ -15,6 +17,7 @@ class Zone:
 
 
 def build_zones(zone_modes: Sequence[str]) -> list[Zone]:
+    """Build zones from the per-zone modes; only a mode change away from zone 1 needs a tool."""
     first = zone_modes[0]
     return [
         Zone(

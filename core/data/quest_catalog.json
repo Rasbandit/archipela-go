@@ -2209,7 +2209,7 @@
    "id": "there_and_back",
    "name": "There and Back Again",
    "family": "courier",
-   "blurb": "Go out far, then return home within the time limit.",
+   "blurb": "Go out to a far spot, then come back home whenever you like.",
    "geom": "none",
    "any_of": [],
    "require_name": false,

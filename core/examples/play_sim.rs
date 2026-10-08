@@ -1,12 +1,21 @@
 //! End-to-end check on REAL map data: scan a realm, generate a solo game, autoplay every quest to the goal.
-//! Usage: cargo run --release --example play_sim -- <lat> <lon> <radius_m> <trips> <goal> [mode]
+//! Usage: cargo run --release --example `play_sim` -- <lat> <lon> <`radius_m`> <trips> <goal> [mode]
+#![allow(
+    clippy::print_stdout,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::too_many_lines,
+    clippy::many_single_char_names
+)] // CLI example: prints results, fails fast on bad input, and uses demo-sized numbers
 
 use std::collections::BTreeMap;
 use std::time::Instant;
 
 use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Mode};
-use apgo_core::game::{Backend, Event, Game, NewGame, QuestState};
+use apgo_core::game::{AwayOptions, Backend, Event, Game, NewGame, QuestState};
 use apgo_core::geo::{destination, Point};
 use apgo_core::realm::{Realm, Shape};
 use apgo_core::scan::scan_realm;
@@ -67,6 +76,7 @@ fn main() {
             solo_rewards: sg.rewards,
             surface: apgo_core::assign::SurfacePref::Any,
             avoid_stairs: false,
+            away: AwayOptions::default(),
         },
         &catalog,
     )

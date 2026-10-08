@@ -2,19 +2,27 @@ pre-commit:
   parallel: true
   commands:
     ruff-format:
-      glob: "*.py"
+      glob: "apworld/**/*.py"
       run: uv run --project apworld ruff format --check {staged_files}
     ruff-lint:
-      glob: "*.py"
+      glob: "apworld/**/*.py"
       run: uv run --project apworld ruff check {staged_files}
+    rustfmt:
+      glob: "core/**/*.rs"
+      exclude: ["core/vendor/**"]
+      run: cd core && PATH=$HOME/.cargo/bin:$PATH cargo fmt --all --check
+    ktlint:
+      glob: "android/**/*.{kt,kts}"
+      run: cd android && JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-25-openjdk} ./gradlew :app:spotlessCheck --console=plain -q
     typos:
       run: typos --force-exclude {staged_files}
     gitleaks:
       run: gitleaks protect --staged --no-banner
 pre-push:
   commands:
-    check:
-      run: just check
+    checks:
+      use_stdin: true
+      run: bash scripts/prepush.sh
 commit-msg:
   commands:
     committed:

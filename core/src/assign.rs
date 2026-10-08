@@ -14,79 +14,199 @@ use crate::geo::{bearing_deg, distance_m, point_inside, polyline_len_m, Point};
 use crate::realm::Realm;
 use crate::scan::{Atlas, Feature};
 
+/// A quest slot to fill: one Archipelago location and what it asks for.
 #[derive(Debug, Clone)]
 pub struct SlotIn {
+    /// Archipelago location id of the check.
     pub location_id: i64,
+    /// Zone number the quest belongs to.
     pub zone: u32,
+    /// How the player travels in that zone.
     pub mode: Mode,
+    /// Quest family wanted for the slot.
     pub family: String,
+    /// Effort tier wanted, starting at 1.
     pub tier: u8,
+    /// Whether this is the realm's boss quest.
     pub boss: bool,
 }
 
+/// What the player has to do to complete a quest, with the numbers it needs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Target {
-    Point { p: Point, r: f64 },
-    Dwell { p: Point, r: f64, minutes: f64 },
-    DwellArea { poly: Vec<Point>, center: Point, r: f64, minutes: f64 },
-    Line { pts: Vec<Point>, corridor_m: f64, coverage: f64 },
-    Courier { a: Point, b: Point, r: f64, time_limit_min: f64 },
-    RoundTrip { far: Point, r: f64, time_limit_min: f64 },
-    Cells { n: u32, cell_m: f64 },
-    Steps { n: u32 },
-    Away { min_distance_m: f64, minutes: f64 },
+    /// Reach a single place.
+    Point {
+        /// The place to reach.
+        p: Point,
+        /// How close counts as reached, in metres.
+        r: f64,
+    },
+    /// Stay near a place for a while.
+    Dwell {
+        /// The place to stay at.
+        p: Point,
+        /// How close counts as there, in metres.
+        r: f64,
+        /// How long to stay, in minutes.
+        minutes: f64,
+    },
+    /// Spend time inside an area.
+    DwellArea {
+        /// The outline of the area.
+        poly: Vec<Point>,
+        /// Middle of the area.
+        center: Point,
+        /// Radius of the circle used when no outline is available, in metres.
+        r: f64,
+        /// How long to stay, in minutes.
+        minutes: f64,
+    },
+    /// Follow a path.
+    Line {
+        /// The path, in order.
+        pts: Vec<Point>,
+        /// How far off the path still counts, in metres.
+        corridor_m: f64,
+        /// Share of the path to cover, 0 to 1.
+        coverage: f64,
+    },
+    /// Pick up at one place and deliver to another in time.
+    Courier {
+        /// Pick-up place.
+        a: Point,
+        /// Delivery place.
+        b: Point,
+        /// How close counts as there, in metres.
+        r: f64,
+        /// Time allowed between pick-up and delivery, in minutes.
+        time_limit_min: f64,
+    },
+    /// Go to a far place and come back.
+    RoundTrip {
+        /// The turning point.
+        far: Point,
+        /// How close counts as there, in metres.
+        r: f64,
+    },
+    /// Visit new map cells.
+    Cells {
+        /// Number of new cells to visit.
+        n: u32,
+        /// Edge length of a cell, in metres.
+        cell_m: f64,
+    },
+    /// Take a number of steps.
+    Steps {
+        /// Number of steps.
+        n: u32,
+    },
+    /// Spend time far from home.
+    Away {
+        /// Minimum distance from home, in metres.
+        min_distance_m: f64,
+        /// How long to stay away, in minutes.
+        minutes: f64,
+    },
 }
 
+impl Target {
+    /// What the player has to do, in one line ("Get within 40 m").
+    #[must_use]
+    pub fn goal_text(&self) -> String {
+        match self {
+            Self::Point { r, .. } => format!("Get within {r:.0} m"),
+            Self::Dwell { r, minutes, .. } => format!("Stay {minutes:.0} min within {r:.0} m"),
+            Self::DwellArea { minutes, .. } => format!("Spend {minutes:.0} min inside the area"),
+            Self::Line { pts, coverage, .. } => format!("Cover {:.0}% of this {:.1} km path", coverage * 100.0, polyline_len_m(pts) / 1000.0),
+            Self::Courier { time_limit_min, .. } => format!("Pick up at A, deliver to B within {time_limit_min:.0} min"),
+            Self::RoundTrip { .. } => "Reach the far point, then come back home".to_string(),
+            Self::Cells { n, .. } => format!("Visit {n} new map cells"),
+            Self::Steps { n } => format!("Take {n} steps"),
+            Self::Away { min_distance_m, minutes } => format!("Spend {minutes:.0} min at least {:.1} km from home", min_distance_m / 1000.0),
+        }
+    }
+}
+
+/// A quest assigned to a slot: what to do, where, and how it is described.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assignment {
+    /// Archipelago location id of the check.
     pub location_id: i64,
+    /// Zone number the quest belongs to.
     pub zone: u32,
+    /// How the player travels in that zone.
     pub mode: Mode,
+    /// Quest family of the chosen kind.
     pub family: String,
+    /// Catalog id of the chosen kind.
     pub kind_id: String,
+    /// Display name of the quest.
     pub quest_name: String,
+    /// Short description of the quest kind.
     pub blurb: String,
+    /// Name of the place the quest uses.
     pub place: String,
+    /// Effort tier, starting at 1.
     pub tier: u8,
+    /// Expected effort in minutes.
     pub effort_min: f64,
+    /// What the player must do to complete it.
     pub target: Target,
     /// True when the realm could not offer the requested family and a street quest was used instead.
     pub fallback: bool,
+    /// Whether this is the realm's boss quest.
     pub boss: bool,
 }
 
+/// A zone prepared for quest assignment: its travel mode, realm and scanned map data.
 pub struct ZoneCtx<'a> {
+    /// Zone number.
     pub zone: u32,
+    /// How the player travels in this zone.
     pub mode: Mode,
+    /// The realm the zone belongs to.
     pub realm: &'a Realm,
+    /// Scanned places and streets of the realm.
     pub atlas: &'a Atlas,
 }
 
 /// How much rough going (unpaved paths, unknown-surface trails, stairs) the player accepts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SurfacePref {
+    /// No preference.
     #[default]
     Any,
+    /// Use paved routes when enough of them exist.
     PreferPaved,
+    /// Use only paved routes.
     PavedOnly,
 }
 
 impl SurfacePref {
-    pub fn parse(s: &str) -> SurfacePref {
+    /// Read a surface preference from its settings string; unknown values mean [`Self::Any`].
+    #[must_use]
+    pub fn parse(s: &str) -> Self {
         match s {
-            "prefer_paved" => SurfacePref::PreferPaved,
-            "paved_only" => SurfacePref::PavedOnly,
-            _ => SurfacePref::Any,
+            "prefer_paved" => Self::PreferPaved,
+            "paved_only" => Self::PavedOnly,
+            _ => Self::Any,
         }
     }
 }
 
+/// Settings that steer quest assignment.
 pub struct AssignParams {
+    /// The home point distances are measured from.
     pub home: Point,
+    /// Minutes of effort that one tier covers.
     pub minutes_per_tier: f64,
+    /// Quests must be at least this far from home, in metres.
     pub min_distance_m: f64,
+    /// Seed for the random choices, so the same inputs give the same quests.
     pub seed: u64,
+    /// How much rough going the player accepts.
     pub surface: SurfacePref,
+    /// Whether quests with stairs are dropped.
     pub avoid_stairs: bool,
 }
 
@@ -106,14 +226,13 @@ const MIN_TRAIL_SHARE: f64 = 0.25;
 /// How many effort-minutes of misfit a favorite place can make up for.
 const FAVORITE_BONUS_MIN: f64 = 6.0;
 
-fn street_pool(z: &ZoneCtx, pref: SurfacePref) -> Vec<Point> {
+fn street_pool(z: &ZoneCtx<'_>, pref: SurfacePref) -> Vec<Point> {
     let (paved, rough) = (&z.atlas.streets, &z.atlas.streets_rough);
     let all = || paved.iter().chain(rough.iter()).copied().collect::<Vec<_>>();
     let pool = match pref {
-        SurfacePref::Any => all(),
         SurfacePref::PreferPaved if paved.len() >= 50 => paved.clone(),
-        SurfacePref::PreferPaved => all(),
         SurfacePref::PavedOnly => paved.clone(),
+        SurfacePref::Any | SurfacePref::PreferPaved => all(),
     };
     if pool.len() >= 20 {
         pool
@@ -163,8 +282,18 @@ fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point, want: f64) -> 
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn free_candidate(k: &Kind, z: &ZoneCtx, pool: &[Point], p: &AssignParams, want: f64, rng: &mut StdRng, used_pts: &[Point]) -> Option<(Target, f64, String)> {
+#[allow(clippy::too_many_arguments)] // pre-existing: flat argument lists keep the exported/geometry call sites explicit
+#[allow(clippy::many_single_char_names)] // short names for zone/pool/params mirror the geometry vocabulary used across this module
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // counts are rounded then clamped to a small range before the cast
+fn free_candidate(
+    k: &Kind,
+    z: &ZoneCtx<'_>,
+    pool: &[Point],
+    p: &AssignParams,
+    want: f64,
+    rng: &mut StdRng,
+    used_pts: &[Point],
+) -> Option<(Target, f64, String)> {
     let mode = z.mode;
     let far_from_used = |q: Point| used_pts.iter().all(|u| distance_m(*u, q) >= SPACING_M);
     match &k.verify {
@@ -195,7 +324,7 @@ fn free_candidate(k: &Kind, z: &ZoneCtx, pool: &[Point], p: &AssignParams, want:
         Verify::RoundTrip => {
             let far = best_point(pool, p.home, mode, want / 2.0, p.min_distance_m, rng, &far_from_used)?;
             let one_way = travel_min(distance_m(p.home, far), mode);
-            Some((Target::RoundTrip { far, r: 50.0, time_limit_min: one_way * 2.0 * 1.5 + 5.0 }, one_way * 2.0, "Out and back".into()))
+            Some((Target::RoundTrip { far, r: 50.0 }, one_way * 2.0, "Out and back".into()))
         }
         Verify::CoverCells { cell_m, .. } => {
             let n = ((want * mode.m_per_min() * 0.7 / cell_m).round() as u32).clamp(3, 60);
@@ -215,7 +344,7 @@ fn free_candidate(k: &Kind, z: &ZoneCtx, pool: &[Point], p: &AssignParams, want:
 
 fn one(
     s: &SlotIn,
-    z: &ZoneCtx,
+    z: &ZoneCtx<'_>,
     catalog: &Catalog,
     p: &AssignParams,
     rng: &mut StdRng,
@@ -288,6 +417,7 @@ fn one(
     let pick = if top == 0 { None } else { Some(cands.swap_remove(if s.boss || best_is_favorite { 0 } else { rng.random_range(0..top) })) };
     let c = pick.unwrap_or_else(|| {
         // Absolutely nothing (e.g. an empty pool): a point at home keeps the slot playable.
+        #[allow(clippy::expect_used)] // the builtin catalog always defines street_smarts
         let k = catalog.kind("street_smarts").expect("street_smarts exists").clone();
         fallback = true;
         Cand { score: 0.0, kind: k, target: Target::Point { p: p.home, r: 40.0 }, effort: want, place: "Home".into(), feature_id: None, favorite: false }
@@ -326,7 +456,8 @@ fn one(
 }
 
 /// Assign every slot (boss last so it gets the best leftovers). Output keeps the input slot order.
-pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx], catalog: &Catalog, p: &AssignParams) -> Vec<Assignment> {
+#[must_use]
+pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx<'_>], catalog: &Catalog, p: &AssignParams) -> Vec<Assignment> {
     let mut rng = StdRng::seed_from_u64(p.seed);
     let mut used_feat = BTreeSet::new();
     let mut used_pts: Vec<Point> = Vec::new();
@@ -344,6 +475,7 @@ pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx], catalog: &Catalog, p: &Assign
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_sign_loss, clippy::many_single_char_names)] // test code: short names for points and coordinates in test fixtures; test fixtures use small, known-positive numbers
 mod tests {
     use super::*;
     use crate::effort::tier_for;
@@ -601,7 +733,7 @@ mod tests {
             vec![t0, destination(t0, 90.0, 800.0), destination(t0, 90.0, 1600.0)],
         );
         let base = atlas(&cat, false);
-        let a = crate::scan::build_atlas("r", 0, vec![dirt], base.streets.clone(), &cat);
+        let a = crate::scan::build_atlas("r", 0, vec![dirt], base.streets, &cat);
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
         let slots = vec![slot(1, "trail", 6, Mode::Walk)];
         let mut p = params(1);
@@ -612,7 +744,7 @@ mod tests {
         let mut b = atlas(&cat, false);
         let o2 = Point::new(40.0, -111.0);
         let stairs =
-            Feature { id: "L:stairmaster:S:0".into(), point: o2, name: None, tags: Default::default(), geometry: vec![o2, destination(o2, 0.0, 200.0)] };
+            Feature { id: "L:stairmaster:S:0".into(), point: o2, name: None, tags: BTreeMap::default(), geometry: vec![o2, destination(o2, 0.0, 200.0)] };
         b.features.push(stairs);
         b.matches.insert("stairmaster".into(), vec![b.features.len() - 1]);
         let zb = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &b }];
@@ -633,5 +765,37 @@ mod tests {
         let z2 = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &empty }];
         let out = assign(&slots, &z2, &cat, &params(9));
         assert_eq!(out.len(), 8, "an empty atlas must still yield playable (lattice) quests");
+    }
+}
+
+#[cfg(test)]
+mod goal_text_tests {
+    use super::*;
+    use crate::geo::{destination, Point};
+
+    #[test]
+    fn an_old_save_with_a_round_trip_time_limit_still_loads() {
+        let old = r#"{"RoundTrip":{"far":{"lat":40.0,"lon":-111.0},"r":50.0,"time_limit_min":42.4}}"#;
+        let t: Target = serde_json::from_str(old).expect("old saves must keep loading");
+        assert!(matches!(t, Target::RoundTrip { r, .. } if (r - 50.0).abs() < f64::EPSILON));
+    }
+
+    #[test]
+    fn every_target_kind_says_what_to_do() {
+        let p = Point::new(40.0, -111.0);
+        let cases = [
+            (Target::Point { p, r: 40.0 }, "Get within 40 m"),
+            (Target::Dwell { p, r: 40.0, minutes: 3.0 }, "Stay 3 min within 40 m"),
+            (Target::DwellArea { poly: vec![], center: p, r: 40.0, minutes: 5.0 }, "Spend 5 min inside the area"),
+            (Target::Line { pts: vec![p, destination(p, 0.0, 1000.0)], corridor_m: 25.0, coverage: 0.9 }, "Cover 90% of this 1.0 km path"),
+            (Target::Courier { a: p, b: p, r: 40.0, time_limit_min: 12.0 }, "Pick up at A, deliver to B within 12 min"),
+            (Target::RoundTrip { far: p, r: 50.0 }, "Reach the far point, then come back home"),
+            (Target::Cells { n: 12, cell_m: 100.0 }, "Visit 12 new map cells"),
+            (Target::Steps { n: 500 }, "Take 500 steps"),
+            (Target::Away { min_distance_m: 1500.0, minutes: 20.0 }, "Spend 20 min at least 1.5 km from home"),
+        ];
+        for (t, want) in cases {
+            assert_eq!(t.goal_text(), want);
+        }
     }
 }

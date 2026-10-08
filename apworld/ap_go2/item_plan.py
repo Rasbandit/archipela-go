@@ -17,6 +17,8 @@ _BONUS_MIN = 3
 
 @dataclass(frozen=True)
 class ItemPlan:
+    """How many copies of each item name go into the pool."""
+
     counts: dict[str, int]
 
 

@@ -8,7 +8,10 @@ import androidx.compose.runtime.setValue
  * An undo/redo history of editor states. [push] records a new state after an edit (and forgets anything that could be redone),
  * [undo] and [redo] step along it. [canUndo] and [canRedo] are observable, so buttons enable and disable themselves.
  */
-class History<T>(initial: T, private val limit: Int = 100) {
+internal class History<T>(
+    initial: T,
+    private val limit: Int = 100,
+) {
     private val past = ArrayDeque<T>()
     private val future = ArrayDeque<T>()
     private var version by mutableIntStateOf(0)

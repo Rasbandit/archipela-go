@@ -3,16 +3,21 @@
 _Last verified: 2026-10-07_
 
 ## Status
+
 Upstream 0.7.0 generation is broken/slow (issue #16: 90 min for 20 locations, 4 km radius, dense city). Section "Proposed redesign" is OUR design, not implemented yet. Statements tagged (UNVERIFIED) were not tested live.
 
 ## What This Is
+
 How the client turns slot_data trips (`distance_tier`, `key_needed`) into real lat/lon points. Source: upstream `utils/getLocations.ts` (+ caller in `screens/MapScreen.tsx`, commit 125d11f, release 0.7.0).
 
 ## Environment
+
 React Native `fetch`; Overpass endpoint hard-coded `https://overpass.private.coffee/api/interpreter`; header `user-agent: archipela-go/0.7.0`. Nominatim code (`lookupApi`, `getOSMTypeAndIdAPI`) still present but unused after 0.7.0.
 
 ## Upstream algorithm (exact)
+
 Per trip (sorted by `key_needed`; `theta` re-rolled when key group changes), `MapScreen.getCoordinatesForLocations` loops `getLocations` up to `LOCATION_RETRIES+1` times until lat/lon is not already used:
+
 1. `maxDist = maximum_distance/10 * distance_tier`; `minDist = minimum_distance`; `correction` tweaks (see dead code below). If `maxDist < min` -> `min*1.1`.
 2. `theta = calculateTheta(MIN_RADIAN, MAX_RADIAN)` (user angle sector; circular-slider radians are flipped).
 3. `r = (max-min)*sqrt(rand)+min` (NOT area-uniform; correct is `sqrt(min^2 + u*(max^2-min^2))`). Offset by `dx=r cosθ, dy=r sinθ` using 111.19 km/deg and cos(lat) for lon.
@@ -22,6 +27,7 @@ Per trip (sorted by `key_needed`; `theta` re-rolled when key group changes), `Ma
 So: ONE Overpass request per candidate point, >= 1 per trip, plus retries.
 
 ## Why it fails (root causes, file refs)
+
 - `getLocations.ts` `wait()` is `setTimeout(...)` inside an async fn without awaiting a Promise: returns immediately. No delay ever happens (`await wait(125)` is a no-op).
 - No HTTP status check: on 429/504 the body is HTML/text -> `res.json()` throws -> catch -> osmID "0" -> immediate retry. Unbounded tight retry loop against a busy server = request storm (matches #16; private.coffee turbo returned `Dispatcher_Client::request_read_and_idx::timeout` on 2026-06-06).
 - Overpass can also answer HTTP 200 with a `remark` ("runtime error: ...") and empty `elements` (UNVERIFIED here, known Overpass behavior): treated as "no road here" -> retry.
@@ -34,7 +40,9 @@ So: ONE Overpass request per candidate point, >= 1 per trip, plus retries.
 - Maintainer note (#14 comment): attempting an all-nodes query for the full max radius failed ("maximum distance in the apworld is so large"), so they kept per-point calls. The fix is tiling, not one giant query.
 
 ## Proposed redesign (bulk Overpass, local sampling)
+
 Goal: <= ~5-15 requests per generation instead of hundreds; works with partial failure; resumable; offline after first generation.
+
 1. Plan targets locally first: for each trip choose `(r, θ)` (seeded PRNG stored per session; r area-uniform in `[min, effMax(tier)]`, θ within user sector). Map target -> tile.
 2. Tile grid: fixed lat/lon grid (e.g. 0.02 deg ~2.2 km; size tunable) keyed `z/x/y`-style string. Fetch only tiles that contain >=1 target (or its 1-ring neighbours as fallback), not the whole disc. For a 5 km max radius that is ~at most 20-80 tiles but typically far fewer needed; sequential, 1 in flight.
 3. Per-tile query (bbox is much cheaper than huge `around`):
@@ -48,27 +56,31 @@ Goal: <= ~5-15 requests per generation instead of hundreds; works with partial f
 10. Quality filters: unlit/private/gated (`access`), `foot=no`, exclude `highway=service` + `service~"driveway|parking_aisle"` optionally, minimum way length, prefer ways with `surface`; avoid water by using ways only (no raw node geometry).
 
 ## Rate limits / usage policy (verified by scraping 2026-10-07)
+
 - OSM wiki Overpass_API page, public instances table:
   - overpass-api.de (FOSSGIS): fair use < 10,000 queries/day AND < 1 GB/day AND < 10 min total processing per day; for regular/app use divide by 100 (< 100 queries, < 10 MB/day); an app's usage is the SUM over all its users. Pause 30 s on HTTP 429/406. Do not deploy via instant-AI-app platforms.
-  - overpass.private.coffee (formerly overpass.kumi.systems): "no rate limit in place", asks to be notified in advance for large-scale projects; contact support@private.coffee. Upstream maintainer cited "notify us if over ten requests a second". It was timing out for a user in June 2026 (#16).
+  - overpass.private.coffee (formerly overpass.kumi.systems): "no rate limit in place", asks to be notified in advance for large-scale projects; contact <support@private.coffee>. Upstream maintainer cited "notify us if over ten requests a second". It was timing out for a user in June 2026 (#16).
   - Per general Overpass docs (via search, medium confidence): per-IP slots (e.g. 2), `/api/status` shows slots, request queues up to ~15 s then 429; 504 = query too heavy or server overloaded -> shrink query, don't hammer.
 - Nominatim (operations.osmfoundation.org/policies/nominatim): max 1 req/s absolute; valid User-Agent/Referer identifying the app; display attribution; apps must be able to switch service without a software update; cache results; periodic app requests = bulk geocoding, strongly discouraged; "systematic queries" incl. reverse geocoding in a grid are banned. Reverse geocoding returns only named/indexed roads (bad for rural, #14). Recommendation: do NOT use Nominatim for generation; at most for one-off user-typed home-address search.
 - Data license ODbL: show "© OpenStreetMap contributors" in app (map screen + about). Share-alike applies to derived databases; cached tiles are fine for in-app use.
 - Set a real UA with contact: `ArchipelaGoClone/<ver> (contact url/email)`; upstream uses `archipela-go/0.7.0`.
 
 ## Failed Approaches / Dead Ends
+
 - Nominatim reverse geocode per point (pre-0.7): misses unnamed paths (#14), 1 req/s.
 - OSRM `nearest` (#14 reporter): inconsistent snapping, "off by miles".
 - Single huge `around`/bbox for max radius (maintainer, #14): fails/timeouts; use tiles.
 - Per-point Overpass (0.7.0): this doc's root causes.
 
 ## Gotchas
+
 - `out skel` returns nodes without way context; use `out geom` to keep way ids for ban lists and per-road limits.
 - Overpass `around` on large radius with union filters is expensive; bbox + tag filter is cheap and cacheable.
 - Lat/lon math: use cos(lat) for lon; at high lat/`>50 km` prefer geodesic (haversine) distance checks.
 - #14 reporter's note: Google map style hides small tracks at low zoom; draw our own polylines or use OSM-based tiles if showing paths.
 
 ## References
+
 - Upstream: `utils/getLocations.ts`, `screens/MapScreen.tsx` (branch `archipela-go`), issues #14 (closed), #16 (open)
-- https://wiki.openstreetmap.org/wiki/Overpass_API ; https://operations.osmfoundation.org/policies/nominatim/
+- <https://wiki.openstreetmap.org/wiki/Overpass_API> ; <https://operations.osmfoundation.org/policies/nominatim/>
 - Related: `docs/context/archipela-go-game-design.md`, `docs/context/archipela-go-upstream-architecture.md`

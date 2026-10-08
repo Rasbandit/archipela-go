@@ -9,10 +9,16 @@ from .constants import DIFFICULTY_BANDS, MAX_TIER, MIN_TIER, MODE_SPEED_KMH
 
 
 def tier_range(difficulty: str) -> tuple[int, int]:
+    """Inclusive (low, high) tier band of a difficulty."""
     return DIFFICULTY_BANDS[difficulty]
 
 
 def difficulty_of(tier: int) -> str:
+    """Name the difficulty whose band contains `tier`.
+
+    Raises:
+        ValueError: If the tier is outside every band.
+    """
     for name, (low, high) in DIFFICULTY_BANDS.items():
         if low <= tier <= high:
             return name
@@ -26,6 +32,7 @@ def tier_for_effort(effort_min: float, minutes_per_tier: int) -> int:
 
 
 def effort_minutes(tier: int, minutes_per_tier: int) -> int:
+    """Active minutes a quest of this tier costs."""
     return tier * minutes_per_tier
 
 

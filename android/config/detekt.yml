@@ -1,0 +1,32 @@
+naming:
+  FunctionNameMaxLength:
+    excludes: ['**/test/**'] # test names are sentences (`fooDoesBarWhenBaz`), the limit is for production code
+  FunctionNaming:
+    ignoreAnnotated: ['Composable'] # composables are PascalCase by convention
+complexity:
+  TooManyFunctions:
+    # Private helpers are what LongMethod/ComplexMethod/ComposableNestingDepth ask for, so they must not count against the limit.
+    ignorePrivate: true
+  LabeledExpression:
+    # Early return from a coroutine/Compose lambda has no other spelling; nesting if/else instead would raise cognitive complexity.
+    ignoredLabels: ['launch', 'LaunchedEffect', 'Canvas']
+  LongParameterList:
+    ignoreAnnotated: ['Composable'] # composables take state + modifier + callbacks
+style:
+  MagicNumber:
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreAnnotated: ['Preview']
+  UnusedPrivateFunction: # detekt 2 split UnusedPrivateMember into per-kind rules
+    ignoreAnnotated: ['Preview'] # previews are used by tooling only
+  MaxLineLength:
+    maxLineLength: 140 # same limit as ktlint (max_line_length in .editorconfig), so the two gates agree
+  UnnecessaryParentheses:
+    allowForUnclearPrecedence: true # keeps (a && b) || (c && d) readable; plain redundant parentheses are still reported
+  StringShouldBeRawString:
+    excludes: ['**/test/**'] # tests assert exact escaping (newline, tab, quote), which a raw string cannot spell
+Compose:
+  UnstableCollections:
+    # Strong skipping (default since Kotlin 2.0.20, we are on 2.4) skips composables whose List/Map parameters are unchanged by
+    # instance, so the stability concern behind this rule is gone; kotlinx-immutable-collections would only add copies and a dependency.
+    active: false
