@@ -48,6 +48,7 @@ private val NAV_TABS =
 internal fun AppRoot(
     m: AppModel,
     modifier: Modifier = Modifier,
+    backgroundPromptUp: Boolean = false,
 ) {
     if (m.setup.visible) {
         Surface(modifier.fillMaxSize()) { SetupFlow(m) }
@@ -55,7 +56,8 @@ internal fun AppRoot(
         // One root for the screen and its dialogs (dialogs open their own windows, so this adds nothing visible).
         Box(modifier) {
             m.away?.let { AwayDialog(it) { m.away = null } }
-            HomeWifiDialog(m.presence)
+            val othersUp = listOf(m.away != null, m.scans.ask != null, m.yamlText != null, backgroundPromptUp)
+            if (showHomeOffer(othersUp)) HomeWifiDialog(m.presence)
             // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves
             // the app as usual.
             BackHandler(enabled = m.tab != AppTab.REALMS) { m.tab = AppTab.REALMS }

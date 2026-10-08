@@ -14,7 +14,7 @@ class HomeWifiOfferTest {
             saved = emptyList(),
             playing = true,
             fix = GeoFix(home.lat, home.lon, accuracyM = 10.0),
-            fixAtMs = now,
+            fixAgeMs = 1_000L,
             home = home,
             wifi = WifiId("\"HomeNet\"", "aa:bb:cc:dd:ee:01"),
             muted = emptySet(),
@@ -83,11 +83,46 @@ class HomeWifiOfferTest {
     }
 
     @Test fun onlyAFixFromTheLastTwoMinutesCounts() {
-        val sec = 1000L
-        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(base.copy(fixAtMs = now - 119 * sec)))
-        assertNull(HomeWifiOffer.decide(base.copy(fixAtMs = now - 121 * sec)))
-        assertNull("a cached last-known fix from hours ago", HomeWifiOffer.decide(base.copy(fixAtMs = now - 3 * 3_600 * sec)))
-        assertNull("no timestamp", HomeWifiOffer.decide(base.copy(fixAtMs = null)))
+        val offered = WifiId("HomeNet", "aa:bb:cc:dd:ee:01")
+        assertEquals(offered, HomeWifiOffer.decide(base.copy(fixAgeMs = 119_000L)))
+        assertEquals("exactly 120 s still counts", offered, HomeWifiOffer.decide(base.copy(fixAgeMs = 120_000L)))
+        assertNull(HomeWifiOffer.decide(base.copy(fixAgeMs = 120_001L)))
+        assertNull(HomeWifiOffer.decide(base.copy(fixAgeMs = 121_000L)))
+        assertNull("a cached last-known fix from hours ago", HomeWifiOffer.decide(base.copy(fixAgeMs = 3 * 3_600_000L)))
+        assertNull("no timestamp", HomeWifiOffer.decide(base.copy(fixAgeMs = null)))
+        assertNull("a future-stamped fix (negative age)", HomeWifiOffer.decide(base.copy(fixAgeMs = -1L)))
+    }
+
+    @Test fun aRealNameInQuotesStaysMutedAfterTheRoundTrip() {
+        val quoted = base.copy(wifi = WifiId("\"\"Net\"\"", null))
+        val offer = HomeWifiOffer.decide(quoted)
+        assertEquals(WifiId("\"Net\"", null), offer)
+        val muted = HomeWifiOffer.mute(emptySet(), offer!!.ssid!!)
+        assertNull(HomeWifiOffer.decide(quoted.copy(muted = muted)))
+    }
+
+    @Test fun aNewOfferIsShownWhenNoneIsUp() {
+        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.next(null, base))
+        assertNull(HomeWifiOffer.next(null, base.copy(playing = false)))
+    }
+
+    @Test fun theShowingOfferIsKeptWhileItStillHolds() {
+        val showing = WifiId("HomeNet", "aa:bb:cc:dd:ee:01")
+        assertEquals(showing, HomeWifiOffer.next(showing, base.copy(showing = true)))
+        assertEquals(
+            "same network, other access point: keep the one on screen",
+            showing,
+            HomeWifiOffer.next(showing, base.copy(wifi = WifiId("HomeNet", "aa:bb:cc:dd:ee:02"))),
+        )
+    }
+
+    @Test fun theShowingOfferIsClearedWhenItNoLongerHolds() {
+        val showing = WifiId("HomeNet", "aa:bb:cc:dd:ee:01")
+        assertNull("game closed", HomeWifiOffer.next(showing, base.copy(playing = false)))
+        assertNull("Wi-Fi lost", HomeWifiOffer.next(showing, base.copy(wifi = null)))
+        assertNull("walked away", HomeWifiOffer.next(showing, base.copy(fix = GeoFix(north(500.0), home.lon, 10.0))))
+        assertNull("saved in setup", HomeWifiOffer.next(showing, base.copy(saved = listOf(HomeNetwork("HomeNet", null)))))
+        assertNull("another network", HomeWifiOffer.next(showing, base.copy(wifi = WifiId("CafeWifi", null))))
     }
 
     @Test fun distanceIsMeasuredInMetres() {

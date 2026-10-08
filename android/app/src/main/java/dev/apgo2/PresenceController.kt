@@ -27,6 +27,7 @@ private const val REEVALUATE_MS = 5_000L
 private const val SEED_TIMEOUT_MS = 3_000L
 private const val SEED_POLL_MS = 1_000L
 private const val TAG = "presence"
+private const val NANOS_PER_MS = 1_000_000L
 
 /**
  * Decides, from the Wi-Fi, Bluetooth and zone signals, whether the player is playing, and applies it: the GPS rate, the
@@ -125,29 +126,28 @@ internal class PresenceController(
     private fun checkHomeOffer(t: Long) {
         val loc = model.realLoc?.takeIf { it.hasAccuracy() && model.simPos == null }
         val pin = model.realmOps.homePoint()
-        val offer =
-            HomeWifiOffer.decide(
-                OfferSignals(
-                    saved = model.settings.homeNetworks,
-                    playing = model.hud != null,
-                    fix = loc?.let { GeoFix(it.latitude, it.longitude, it.accuracy.toDouble()) },
-                    fixAtMs = loc?.time?.takeIf { it > 0L }, // UTC wall clock like model.now(); 0 means unset
-                    home = pin?.let { GeoFix(it.lat, it.lon, 0.0) },
-                    wifi = monitor.currentWifi,
-                    muted = model.settings.mutedHomeOffers,
-                    showing = homeOffer != null,
-                    dismissedAtMs = offerDismissedAtMs,
-                    nowMs = t,
-                ),
+        val signals =
+            OfferSignals(
+                saved = model.settings.homeNetworks,
+                playing = model.hud != null,
+                fix = loc?.let { GeoFix(it.latitude, it.longitude, it.accuracy.toDouble()) },
+                // Monotonic age, immune to GPS/wall-clock skew; the "Later" cooldown stays on the wall clock (nowMs).
+                fixAgeMs = loc?.let { (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / NANOS_PER_MS },
+                home = pin?.let { GeoFix(it.lat, it.lon, 0.0) },
+                wifi = monitor.currentWifi,
+                muted = model.settings.mutedHomeOffers,
+                showing = homeOffer != null,
+                dismissedAtMs = offerDismissedAtMs,
+                nowMs = t,
             )
-        if (offer != null) {
-            Diag.info(TAG, "home wifi offer")
-            homeOffer = offer
-        }
+        val next = HomeWifiOffer.next(homeOffer, signals)
+        if (next != homeOffer) Diag.info(TAG, if (next == null) "home wifi offer withdrawn" else "home wifi offer")
+        homeOffer = next
     }
 
     /** "Add": save the offered network as home; the at-home rule takes over from here. */
     fun acceptHomeOffer() {
+        checkHomeOffer(model.now()) // things may have changed while the dialog was up (e.g. Wi-Fi saved in setup)
         val w = homeOffer ?: return
         homeOffer = null
         model.settings.addHome(HomeNetwork(w.ssid ?: return, w.bssid))

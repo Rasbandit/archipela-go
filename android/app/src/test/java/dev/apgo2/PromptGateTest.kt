@@ -5,6 +5,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PromptGateTest {
+    @Test fun theHomeOfferWaitsForEveryOtherDialog() {
+        assertTrue(showHomeOffer(otherDialogs = listOf(false, false, false)))
+        assertTrue(showHomeOffer(otherDialogs = emptyList()))
+        assertFalse(showHomeOffer(otherDialogs = listOf(false, true, false)))
+    }
+
     @Test fun followUpsWaitForLocation() = assertFalse(askFollowUps(location = false, setupOpen = false))
 
     @Test fun followUpsAreHeldWhileSetupIsOpen() = assertFalse(askFollowUps(location = true, setupOpen = true))

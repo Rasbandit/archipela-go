@@ -38,11 +38,13 @@ internal class SetupWizard(
     /** Close without marking it done (Back on the first step): the Home card keeps offering it. */
     fun leave() {
         visible = false
+        model.presence.evaluate() // a home Wi-Fi saved in the wizard withdraws a pending "add this Wi-Fi?" offer
     }
 
     /** Mark the wizard done and close it. */
     fun finish() {
         model.settings.setupDone = true
         visible = false
+        model.presence.evaluate()
     }
 }

@@ -18,8 +18,8 @@ internal data class OfferSignals(
     val saved: List<HomeNetwork>,
     val playing: Boolean,
     val fix: GeoFix?,
-    /** When [fix] was taken, on the same wall clock as [nowMs] (`Location.time`); `null` when unknown. */
-    val fixAtMs: Long?,
+    /** How long ago [fix] was taken, on the monotonic clock (`elapsedRealtimeNanos`); `null` when unknown. */
+    val fixAgeMs: Long?,
     val home: GeoFix?,
     val wifi: WifiId?,
     val muted: Set<String>,
@@ -47,11 +47,35 @@ internal object HomeWifiOffer {
         return if (ok) net else null
     }
 
-    // A fresh, accurate fix near the pin. The age check keeps out a cached last-known location (it carries its original time).
+    /**
+     * What the dialog should show now, given the offer on screen ([current]): decided afresh every time (as if nothing were showing),
+     * the current offer is kept while its network still qualifies and cleared (without a cooldown) as soon as it does not, or when
+     * another network would be offered instead; that one comes on the next check.
+     */
+    fun next(
+        current: WifiId?,
+        s: OfferSignals,
+    ): WifiId? {
+        val fresh = decide(s.copy(showing = false))
+        return when {
+            current == null -> fresh
+            fresh?.ssid == current.ssid -> current
+            else -> null
+        }
+    }
+
+    /** The muted list with [ssid] added as is: it is already cleaned, and cleaning it again would strip a real name's quotes. */
+    fun mute(
+        muted: Set<String>,
+        ssid: String,
+    ): Set<String> = muted + ssid
+
+    // A fresh, accurate fix near the pin. The age check keeps out a cached last-known location (it keeps its original time), and a
+    // negative age (a fix stamped in the future) never passes.
     private fun atHome(s: OfferSignals): Boolean {
         val fix = s.fix
         val home = s.home
-        val fresh = s.fixAtMs != null && s.nowMs - s.fixAtMs <= MAX_FIX_AGE_MS
+        val fresh = s.fixAgeMs != null && s.fixAgeMs in 0..MAX_FIX_AGE_MS
         return fix != null && home != null && fresh && fix.accuracyM <= MAX_ACCURACY_M && distanceM(fix, home) <= NEAR_HOME_M
     }
 

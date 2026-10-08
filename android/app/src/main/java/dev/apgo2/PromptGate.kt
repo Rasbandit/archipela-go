@@ -26,3 +26,6 @@ internal fun explainBackground(
     setupOpen: Boolean,
     followUpsDone: Boolean,
 ) = location && !background && !declined && sdk >= ANDROID_10 && !setupOpen && followUpsDone
+
+/** The home Wi-Fi offer waits (it is held, not dropped) while any other dialog is up, so dialogs never stack. */
+internal fun showHomeOffer(otherDialogs: List<Boolean>) = otherDialogs.none { it }

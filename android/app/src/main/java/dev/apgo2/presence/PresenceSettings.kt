@@ -42,9 +42,9 @@ internal class PresenceSettings(
     val mutedHomeOffers: Set<String>
         get() = prefs.getStringSet("muted_home_offers", null)?.toSet() ?: emptySet()
 
+    /** [ssid] is the offer's already-cleaned name; it is stored as is. */
     fun muteHomeOffer(ssid: String) {
-        val key = PresenceSignals.cleanSsid(ssid) ?: return
-        prefs.edit { putStringSet("muted_home_offers", mutedHomeOffers + key) }
+        prefs.edit { putStringSet("muted_home_offers", HomeWifiOffer.mute(mutedHomeOffers, ssid)) }
     }
 
     private fun parseHome(): List<HomeNetwork> =
