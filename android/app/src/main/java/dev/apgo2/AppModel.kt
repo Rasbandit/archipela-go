@@ -20,6 +20,7 @@ import org.json.JSONObject
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.ApEvent
 import uniffi.apgo_ffi.ApSession
+import uniffi.apgo_ffi.AwayReportOut
 import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.Engine
 import uniffi.apgo_ffi.EventOut
@@ -31,6 +32,8 @@ import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
 import uniffi.apgo_ffi.SoloOptionsIn
 import uniffi.apgo_ffi.ZoneOut
+
+private const val AWAY_MIN_MS = 60_000L
 
 class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     val engine = Engine(ctx.filesDir.absolutePath)
@@ -47,6 +50,10 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     var quests by mutableStateOf<List<QuestOut>>(emptyList())
     var zones by mutableStateOf<List<ZoneOut>>(emptyList())
     var hud by mutableStateOf<HudOut?>(null)
+    /** Where you have been in this game: one line per unbroken stretch of GPS. */
+    var trace by mutableStateOf<List<List<LatLng>>>(emptyList())
+    /** Set when you come back to the app after being away; shown once. */
+    var away by mutableStateOf<AwayReportOut?>(null)
     var games by mutableStateOf<List<GameInfo>>(emptyList())
     val log = mutableStateListOf<String>()
     var realLoc by mutableStateOf<Location?>(null)
@@ -93,9 +100,22 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             quests = engine.quests()
             zones = engine.zones()
             hud = engine.hud(now())
+            trace = engine.track(0L, Long.MAX_VALUE).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
         } else {
-            quests = emptyList(); zones = emptyList(); hud = null
+            quests = emptyList(); zones = emptyList(); hud = null; trace = emptyList()
         }
+    }
+
+    // ----------------------------------------------------------------- away report
+    /** The app left the screen: the trace has a gap from now on. */
+    fun onBackground() = engine.logAppState(false, now())
+
+    /** Back on screen: if you were gone a while, build the report of what the phone recorded. */
+    fun onForeground() {
+        val left = engine.lastBackgroundMs()
+        val t = now()
+        engine.logAppState(true, t)
+        if (left != null && t - left >= AWAY_MIN_MS) away = engine.awayReport(left, t)
     }
 
     fun homePoint(): GeoPoint? = engine.home() ?: realms.firstOrNull()?.let { r -> if (r.polygonActive) r.polygon.firstOrNull() else r.circle?.center }
@@ -280,7 +300,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
 
     fun onFix(loc: Location) {
         if (!engine.hasGame() || simPos != null) return
-        handle(engine.onFix(loc.latitude, loc.longitude, now(), loc.accuracy.toDouble(), stepsTotal))
+        handle(engine.onFix(loc.latitude, loc.longitude, now(), loc.accuracy.toDouble(), stepsTotal, false))
         refreshPlay()
     }
 
@@ -296,7 +316,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     private fun fix(p: GeoPoint, advanceMs: Long, steps: Boolean = false): List<EventOut> {
         simPos = LatLng(p.lat, p.lon)
         if (steps) simSteps += 400
-        return engine.onFix(p.lat, p.lon, tick(advanceMs), 5.0, if (steps) simSteps else null)
+        return engine.onFix(p.lat, p.lon, tick(advanceMs), 5.0, if (steps) simSteps else null, true)
     }
 
     private fun offset(p: GeoPoint, northM: Double, eastM: Double) =

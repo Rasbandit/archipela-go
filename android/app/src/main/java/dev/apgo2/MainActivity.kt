@@ -49,6 +49,18 @@ class MainActivity : ComponentActivity() {
                 Surface(Modifier.fillMaxSize()) {
                     val scope = rememberCoroutineScope()
                     val model = remember { AppModel(applicationContext, scope).also { it.refreshAll() } }
+                    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+                    DisposableEffect(owner, model) {
+                        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+                            when (e) {
+                                androidx.lifecycle.Lifecycle.Event.ON_START -> model.onForeground()
+                                androidx.lifecycle.Lifecycle.Event.ON_STOP -> model.onBackground()
+                                else -> {}
+                            }
+                        }
+                        owner.lifecycle.addObserver(obs)
+                        onDispose { owner.lifecycle.removeObserver(obs) }
+                    }
                     var permitted by remember { mutableStateOf(false) }
                     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permitted = it }
                     LaunchedEffect(Unit) { ask.launch(Manifest.permission.ACCESS_FINE_LOCATION) }

@@ -119,6 +119,7 @@ import uniffi.apgo_ffi.SoloOptionsIn
 
 @Composable
 fun AppRoot(m: AppModel) {
+    m.away?.let { AwayDialog(it) { m.away = null } }
     // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves the app as usual.
     BackHandler(enabled = m.tab != 0) { m.tab = 0 }
     Scaffold(
@@ -827,6 +828,7 @@ fun PlayScreen(m: AppModel) {
             },
             Modifier.fillMaxWidth().height(260.dp),
             home = m.home?.let { LatLng(it.lat, it.lon) },
+            trace = m.trace,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(onClick = { m.devTeleportNext() }) { Text("DEV: do next", fontSize = 11.sp) }

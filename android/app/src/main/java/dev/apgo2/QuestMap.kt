@@ -44,6 +44,9 @@ import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.iconImage
 import org.maplibre.android.style.layers.PropertyFactory.iconOpacity
+import org.maplibre.android.style.layers.PropertyFactory.lineCap
+import org.maplibre.android.style.layers.PropertyFactory.lineJoin
+import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
 import org.maplibre.android.style.layers.PropertyFactory.iconSize
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.Property
@@ -123,6 +126,10 @@ private fun lineFeatures(quests: List<QuestOut>): List<JSONObject> =
         feature(JSONObject().put("type", "LineString").put("coordinates", coords), JSONObject().put("state", it.state))
     }
 
+private fun traceFeatures(trace: List<List<LatLng>>): List<JSONObject> = trace.filter { it.size >= 2 }.map { seg ->
+    feature(JSONObject().put("type", "LineString").put("coordinates", JSONArray(seg.map { coord(it.latitude, it.longitude) })))
+}
+
 private fun areaFeatures(quests: List<QuestOut>): List<JSONObject> =
     quests.filter { it.state != "hidden" && it.shape == "area" && it.path.size >= 3 }.map {
         feature(
@@ -196,6 +203,8 @@ fun QuestMap(
     onAnchor: ((androidx.compose.ui.geometry.Offset?) -> Unit)? = null,
     /** When false the drawn shape is only an outline: no handles, radius line, label or corner dots (and [onHandleMove] is not called). */
     editable: Boolean = true,
+    /** Where you have been: one line per unbroken stretch of GPS. */
+    trace: List<List<LatLng>> = emptyList(),
 ) {
     val context = LocalContext.current
     val density = androidx.compose.ui.platform.LocalDensity.current.density
@@ -279,10 +288,11 @@ fun QuestMap(
             m.addOnMapLongClickListener { ll -> longClickHandler?.invoke(ll) != null }
             m.setStyle(Style.Builder().fromUri(STYLE_URL)) { s ->
                 val empty = fc(emptyList())
-                listOf("realms", "areas", "lines", "quests", "finds", "draft", "marks", "home", "handles", "radius", "ringknobs", "ringlabel", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
+                listOf("realms", "areas", "lines", "trace", "quests", "finds", "draft", "marks", "home", "handles", "radius", "ringknobs", "ringlabel", "me").forEach { s.addSource(GeoJsonSource(it, empty)) }
                 s.addLayer(FillLayer("realms-fill", "realms").withProperties(fillColor(ApgoPalette.realm.hex()), fillOpacity(0.07f)))
                 s.addLayer(LineLayer("realms-line", "realms").withProperties(lineColor(ApgoPalette.realm.hex()), lineWidth(1.8f)))
                 s.addLayer(FillLayer("areas-fill", "areas").withProperties(fillColor(stateColor()), fillOpacity(0.18f)))
+                s.addLayer(LineLayer("trace-layer", "trace").withProperties(lineColor(ApgoPalette.me.hex()), lineWidth(3f), lineOpacity(0.7f), lineCap("round"), lineJoin("round")))
                 s.addLayer(LineLayer("lines-layer", "lines").withProperties(lineColor(stateColor()), lineWidth(4f)))
                 s.addLayer(
                     CircleLayer("quests-sel", "quests").withFilter(Expression.eq(Expression.get("sel"), Expression.literal(true))).withProperties(
@@ -424,6 +434,7 @@ fun QuestMap(
         style?.getSourceAs<GeoJsonSource>("lines")?.setGeoJson(fc(lineFeatures(quests)))
         style?.getSourceAs<GeoJsonSource>("areas")?.setGeoJson(fc(areaFeatures(quests)))
     }
+    LaunchedEffect(style, trace) { style?.getSourceAs<GeoJsonSource>("trace")?.setGeoJson(fc(traceFeatures(trace))) }
     LaunchedEffect(style, draft, circle, editable) { style?.getSourceAs<GeoJsonSource>("draft")?.setGeoJson(fc(draftFeatures(draft, circle, editable))) }
     LaunchedEffect(style, thaw, waypoint) {
         val marks = mutableListOf<JSONObject>()
