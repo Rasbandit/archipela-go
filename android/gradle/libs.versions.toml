@@ -14,6 +14,7 @@ ktlint = "1.8.0"
 composeRulesKtlint = "0.6.7"
 detekt = "2.0.0-alpha.6"
 composeRulesDetekt = "0.6.7"
+kover = "0.9.11"
 
 [libraries]
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
@@ -35,3 +36,4 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 detekt = { id = "dev.detekt", version.ref = "detekt" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }

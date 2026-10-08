@@ -20,7 +20,7 @@ typecheck:
     uv run --project apworld pyright --project apworld
 
 test:
-    uv run --project apworld pytest apworld
+    uv run --project apworld pytest apworld --cov --cov-config=apworld/pyproject.toml --cov-report=term-missing:skip-covered -q
 
 spell:
     typos
@@ -33,13 +33,13 @@ check: lint typecheck test spell check-rust
 build:
     bash scripts/build_apworld.sh
 
-# Rust core: format, lint, docs, supply chain, tests
+# Rust core: format, lint, docs, supply chain, tests with line-coverage floor
 check-rust:
     cd core && cargo fmt --all --check
     cd core && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings
     cd core && RUSTDOCFLAGS="-D warnings" cargo doc -p apgo-core -p apgo-ffi --no-deps -q
     cd core && cargo deny check
-    cd core && cargo test -p apgo-core -p apgo-ffi -q
+    cd core && cargo llvm-cov -p apgo-core -p apgo-ffi -q --fail-under-lines 80
 
 # --- Android dev loop (phone paired over adb) ---
 export JAVA_HOME := "/usr/lib/jvm/java-25-openjdk"
@@ -55,7 +55,7 @@ android-core profile="debug":
 # Android: bindings (host build), format, static analysis, lint, unit tests
 check-android:
     bash scripts/android_bindings.sh
-    cd android && ./gradlew :app:spotlessCheck :app:detekt :app:lintDebug :app:testDebugUnitTest --console=plain -q
+    cd android && ./gradlew :app:spotlessCheck :app:detekt :app:lintDebug :app:testDebugUnitTest :app:koverVerifyDebug --console=plain -q
 
 android-build:
     cd android && ./gradlew assembleDebug --console=plain -q

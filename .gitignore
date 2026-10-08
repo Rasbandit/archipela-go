@@ -17,3 +17,4 @@ android/local.properties
 *.iml
 android/app/src/main/kotlin/uniffi/
 diag/
+.coverage

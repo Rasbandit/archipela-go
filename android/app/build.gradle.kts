@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.spotless)
     alias(libs.plugins.detekt)
+    alias(libs.plugins.kover)
 }
 
 android {
@@ -68,4 +69,11 @@ dependencies {
     implementation(libs.maplibre)
     implementation(libs.lucide)
     testImplementation(libs.junit)
+}
+
+kover {
+    reports {
+        filters { excludes { packages("uniffi.*") } } // generated bindings
+        verify { rule { minBound(7) } }
+    }
 }
