@@ -572,6 +572,10 @@ impl Game {
         self.last_fix = None;
         self.odo_anchor = None;
         self.outlier_streak = 0;
+        if !on {
+            // A dwell or area timer started before a pause must not finish on the first fix after it.
+            self.trackers.clear();
+        }
     }
 
     /// The engine tells the game whether the player is inside the area of one of its zones.
@@ -1542,6 +1546,19 @@ mod tests {
         g.set_counting(true);
         assert!(g.on_steps(5_100, 3).is_empty(), "only the 100 steps since counting resumed");
         assert_eq!(g.counters.progress["1:step_up"], 100.0);
+    }
+
+    #[test]
+    fn a_dwell_started_before_a_pause_does_not_finish_on_the_first_fix_after_it() {
+        let mut g = chain_game("dwell", vec![Target::Dwell { p: home(), r: 50.0, minutes: 10.0 }]);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 0) }, None);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 300) }, None); // 5 of 10 minutes
+        g.set_counting(false);
+        g.set_counting(true);
+        let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 700) }, None);
+        assert!(ev.is_empty() && g.done.is_empty(), "the timer starts again after the pause: {ev:?}");
+        let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 1400) }, None);
+        assert_eq!(done_ids(&ev), vec![1000], "and a full dwell after the pause still counts");
     }
 
     #[test]
