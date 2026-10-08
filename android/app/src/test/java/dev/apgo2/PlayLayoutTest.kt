@@ -8,7 +8,7 @@ class PlayLayoutTest {
     private fun q(id: Long, shape: String, state: String = "open", progress: Float = 0f) = QuestOut(
         locationId = id, zone = 1u, name = "q$id", place = "", family = "", kindId = "", difficulty = "Easy", tier = 1u, effortMin = 10.0,
         mode = "walk", state = state, progress = progress, shape = shape, anchor = null, anchorB = null, radiusM = 0.0, path = emptyList(),
-        detail = "", fallback = false, boss = false, blurb = "", reward = null,
+        detail = "", fallback = false, boss = false, blurb = "", reward = null, chainId = null,
     )
 
     private fun ids(l: List<QuestOut>) = l.map { it.locationId }
