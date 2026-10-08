@@ -3,13 +3,24 @@
 ## Setup
 
 ```bash
-mise install      # pinned toolchain (python, uv, just, lefthook, gitleaks, typos, committed, actionlint, java)
+mise install      # every pinned tool in mise.toml (python, uv, just, lefthook, gitleaks, typos, committed,
+                  # actionlint, shellcheck, cargo-deny, cargo-llvm-cov, markdownlint-cli2, node, java)
 just setup        # python env, pinned Archipelago checkout in .ap/, git hooks
-cargo install --locked cargo-deny cargo-llvm-cov
-npm install -g --prefix ~/.local markdownlint-cli2@0.23.3
 ```
 
-Without mise, install lefthook, typos, gitleaks, committed and actionlint yourself.
+Also needed, outside mise:
+
+- rustup: `core/rust-toolchain.toml` pins Rust 1.99.0 plus the Android targets; rustup installs them on first use.
+- Android SDK with `ANDROID_HOME` set (default `~/Android/Sdk`), and JDK 25 with `JAVA_HOME` (mise installs the JDK).
+- `just check` includes `check-android`, which needs the SDK. `just check-py` and `just check-rust` work without it.
+
+Without mise, install the pinned versions yourself: lefthook, typos, gitleaks, committed, actionlint, shellcheck
+(versions in `mise.toml`), then:
+
+```bash
+cargo install --locked cargo-deny@0.20.2 cargo-llvm-cov@0.9.1
+npm install -g --prefix ~/.local markdownlint-cli2@0.23.3
+```
 
 ## Workflow
 
@@ -22,8 +33,8 @@ Without mise, install lefthook, typos, gitleaks, committed and actionlint yourse
 
 ## Recipes
 
-- `just check-hygiene`: typos, gitleaks, actionlint, markdownlint-cli2, pre-push dispatcher tests.
-- `just check-py` (needs `.ap/`): ruff (ALL), pyright strict, pytest with a coverage floor of 99.
+- `just check-hygiene`: typos, gitleaks, actionlint, shellcheck (`scripts/`), markdownlint-cli2, pre-push dispatcher tests.
+- `just check-py` (needs `.ap/`): ruff (ALL, also over `scripts/*.py` via `scripts/ruff.toml`), pyright strict, pytest with a coverage floor of 99.
 - `just check-rust`: rustfmt, clippy (pedantic, deny), rustdoc `-D warnings`, cargo deny, cargo llvm-cov floor of 80.
 - `just check-android`: host-built bindings, Spotless/ktlint, detekt, Android Lint (warnings are errors), unit tests,
   Kover floor of 7.

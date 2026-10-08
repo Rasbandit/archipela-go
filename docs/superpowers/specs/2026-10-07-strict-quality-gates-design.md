@@ -37,8 +37,8 @@ Out of scope (issues filed): emulator e2e in CI (needs a KVM runner), mutation t
   - Allow-list with reasons: `module_name_repetitions`; others only if justified in the commit body.
 - Cast lints are fixed with `try_from`/checked conversions; a local `#[allow]` with a comment only where loss is
   intended (geo math).
-- `RUSTFLAGS=-D warnings` everywhere; `just check-rust` also runs `cargo test` for `apgo-ffi` and `cargo doc` with
-  `-D warnings`.
+- Warnings are errors: clippy `--all-targets -- -D warnings` and rustdoc `RUSTDOCFLAGS=-D warnings` enforce it;
+  `just check-rust` also runs `cargo test` for `apgo-ffi`.
 - `cargo-deny` (`core/deny.toml`): advisories, licence allow-list (MIT/Apache/BSD/ISC/Unicode/Zlib/MPL), bans
   duplicate major versions as warnings, sources restricted to crates.io. Matters for the future monetisation decision.
 

@@ -22,7 +22,7 @@
 | Emulator | `adb -s emulator-5554 install -r android/app/build/outputs/apk/debug/app-debug.apk`; start with `just emu-start` (headless, `-gpu swangle_indirect`) |
 | Phone | `adb connect 10.0.20.151:40843` then `ANDROID_SERIAL=10.0.20.151:40843 adb install -r ...`. When both are attached always set `ANDROID_SERIAL` |
 | Screenshot | `adb exec-out screencap -p > /tmp/x.png` then Read the PNG |
-| UI driver | `python3 scripts/android_ui.py texts \| tap "Label" [exact] \| tapn \| type \| wait` (honors `ANDROID_SERIAL`; prefix with`timeout 20`) |
+| UI driver | `python3 scripts/android_ui.py texts \| tap "Label" [exact] \| tapn \| type \| wait` (honors `ANDROID_SERIAL`; prefix with `timeout 20`) |
 | Dev Archipelago server | `APGO_GOALS="Letter Hunt,The Big One" APGO_REQ=require_all_goals scripts/ap_host.sh start 60`, `scripts/ap_host.sh stop` |
 | Parse a slot_data file with the app's reader | `cd core && cargo run -q --example parse_slot -- file.json` |
 
