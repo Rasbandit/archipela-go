@@ -1,6 +1,5 @@
 //! Spike B2: fill a zone with trips. Works with streets, an offline lattice, POIs, or a mix.
-//! Usage: `gen_zone` <streets|cells|pois|mixed> <circle lat lon r | annulus lat lon min max | poly "lat,lon;lat,lon;...">
-//!        <trips> [seed]
+//! Usage: `gen_zone <streets|cells|pois|mixed> <circle lat lon r | annulus lat lon min max | poly "lat,lon;lat,lon;..."> <trips> [seed]`
 #![allow(clippy::print_stdout, clippy::expect_used, clippy::cast_possible_truncation, clippy::cast_sign_loss)] // CLI example: prints results, fails fast on bad input, and uses demo-sized numbers
 
 use std::path::PathBuf;
