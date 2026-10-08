@@ -34,12 +34,16 @@ class Sensors(private val ctx: Context, private val model: AppModel) {
         stopLocation()
         val l = LocationListener { loc -> model.realLoc = loc; model.onFix(loc) }
         // One provider only: mixing them interleaved 100 m-off network fixes with good GPS fixes and made the position jump streets.
+        var registered = false
         providers().forEach { p ->
             runCatching {
                 lm.requestLocationUpdates(p, rate.intervalMs, rate.minDistanceM, l)
+                registered = true
                 lm.getLastKnownLocation(p)?.let { model.realLoc = it }
             }.onFailure { Diag.e("sensors", "requestLocationUpdates failed for $p", it) }
         }
+        // Nothing registered (no permission yet): remember nothing, so a later call with the same rate tries again.
+        if (!registered) return lm.removeUpdates(l)
         locationListener = l
         this.rate = rate
         Diag.i("sensors", "location started", "interval_ms" to rate.intervalMs, "min_dist_m" to rate.minDistanceM, "providers" to providers().joinToString(","))

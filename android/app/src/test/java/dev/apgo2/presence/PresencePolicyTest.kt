@@ -90,4 +90,30 @@ class DebouncerTest {
         d.feed(true, 0)
         assertNull(d.feed(null, 1_000))
     }
+
+    @Test fun pendingIsTrueWhileAChangeIsBeingHeld() {
+        val d = Debouncer(45_000)
+        d.feed(false, 0)
+        assertEquals("steady", false, d.pending)
+        d.feed(true, 1_000)
+        assertEquals("holding", true, d.pending)
+        d.feed(true, 46_000)
+        assertEquals("settled", false, d.pending)
+    }
+
+    @Test fun seedAdoptsTheValueAtOnceAndHoldsLaterChanges() {
+        val d = Debouncer(45_000)
+        d.seed(true)
+        assertEquals("seeded", true, d.feed(true, 0))
+        assertEquals("change is held", true, d.feed(false, 1_000))
+        assertEquals("not pending after seed", false, Debouncer(45_000).also { it.seed(false) }.pending)
+    }
+
+    @Test fun seedingNullKeepsUnknownAndStillDebouncesTheFirstTrue() {
+        val d = Debouncer(45_000)
+        d.seed(null)
+        assertNull(d.feed(null, 0))
+        assertNull("true is held after a seed", d.feed(true, 1_000))
+        assertEquals(true, d.feed(true, 46_000))
+    }
 }

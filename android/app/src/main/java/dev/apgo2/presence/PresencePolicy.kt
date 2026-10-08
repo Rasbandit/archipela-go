@@ -35,6 +35,16 @@ class Debouncer(private val holdMs: Long = 45_000) {
     private var candidate: Boolean? = null
     private var since = 0L
 
+    /** True while the latest raw value differs from the stable one, so a later [feed] may still change the outcome. */
+    val pending: Boolean get() = started && candidate != stable
+
+    /** Take [value] as the starting point (stable at once, later changes are debounced). */
+    fun seed(value: Boolean?) {
+        started = true
+        stable = value
+        candidate = value
+    }
+
     fun feed(raw: Boolean?, nowMs: Long): Boolean? {
         if (!started || raw == null) {
             started = true

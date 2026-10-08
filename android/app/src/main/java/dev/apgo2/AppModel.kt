@@ -46,12 +46,14 @@ import uniffi.apgo_ffi.SoloOptionsIn
 import uniffi.apgo_ffi.ZoneOut
 
 private const val AWAY_MIN_MS = 60_000L
+private const val REEVALUATE_MS = 5_000L
+private const val SEED_FALLBACK_MS = 3_000L
 
 class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     val engine = Engine(ctx.filesDir.absolutePath)
     val sensors = Sensors(ctx, this)
     val settings = PresenceSettings(ctx)
-    val monitor = PresenceMonitor(ctx) { evaluatePresence() }
+    val monitor = PresenceMonitor(ctx) { onMonitorChange() }
     /** What the presence rules decided last (the status chip shows its state). */
     var presence by mutableStateOf(Decision(PresenceState.Stopped, GpsMode.Off, counting = false))
         private set
@@ -154,16 +156,63 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private val reevaluate = Runnable { evaluatePresence() }
+    private val seedFallback = Runnable { seedDebouncers() }
+    /** The debouncers take their first real reading once per monitor start; until then raw values are used and nothing is fed. */
+    private var seeded = false
+    private var monitorBluetooth: Boolean? = null
+    var locationPermitted = false
+
+    private fun rawHome() = PresenceSignals.isHome(monitor.currentWifi, settings.homeNetworks)
+    private fun rawCar() = PresenceSignals.carConnected(monitor.connectedCarCandidates, settings.carDevices)
+
+    private fun seedDebouncers() {
+        if (seeded) return
+        seeded = true
+        main.removeCallbacks(seedFallback)
+        homeDebounce.seed(rawHome())
+        carDebounce.seed(rawCar())
+        evaluatePresence()
+    }
+
+    private fun onMonitorChange() {
+        seedDebouncers() // no-op once seeded
+        evaluatePresence()
+    }
+
+    /**
+     * Start the Wi-Fi/Bluetooth watcher once location permission is there, and again only when the Bluetooth grant changes.
+     * It is never stopped within the process life: it belongs to the model (like the sensors), not to the activity, so rotation or
+     * swiping the app away cannot leave the presence state stale while the tracking service keeps the game running. It is cheap
+     * (two registered callbacks).
+     */
+    fun ensureMonitor(bluetoothGranted: Boolean) {
+        if (monitorBluetooth == bluetoothGranted) return
+        monitorBluetooth = bluetoothGranted
+        monitor.stop()
+        seeded = false
+        runCatching { monitor.start() }.onFailure { Diag.e("presence", "monitor start failed", it) }
+        // If no callback arrives (not on Wi-Fi, no Bluetooth), the first reading is what we have after 3 s.
+        main.removeCallbacks(seedFallback)
+        main.postDelayed(seedFallback, SEED_FALLBACK_MS)
+    }
+
     /** Recompute the presence decision from the current signals and apply it: GPS rate, the core's counting flag, and an activity-log line on change. */
     fun evaluatePresence() {
         val t = now()
-        val home = homeDebounce.feed(PresenceSignals.isHome(monitor.currentWifi, settings.homeNetworks), t)
-        val car = carDebounce.feed(PresenceSignals.carConnected(monitor.connectedCarCandidates, settings.carDevices), t)
+        if (hud == null) zone = Zone.Unknown
+        val home = if (seeded) homeDebounce.feed(rawHome(), t) else rawHome()
+        val car = if (seeded) carDebounce.feed(rawCar(), t) else rawCar()
+        // A debounced change gets no event of its own (GPS may be off), so look again until it has settled.
+        main.removeCallbacks(reevaluate)
+        if (seeded && (homeDebounce.pending || carDebounce.pending)) main.postDelayed(reevaluate, REEVALUATE_MS)
         val d = PresencePolicy.decide(Signals(playing = hud != null, homeWifi = home, carBluetooth = car, zone = zone))
+        // Every run, not only on change: a game that replaces an open one starts counting again. The core ignores an unchanged value.
+        engine.setCounting(d.counting)
         if (d == presence) return
         val changedState = d.state != presence.state
         presence = d
-        engine.setCounting(d.counting)
         if (changedState) {
             Diag.i("presence", d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
             if (hud != null) engine.logPresence(presenceText(d.state), t)
@@ -176,24 +225,15 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         PresenceState.InCar -> "Car Bluetooth connected: not counting"
         PresenceState.OutsideZones -> "Outside every zone: saving battery"
         PresenceState.InZone -> "Tracking"
-        PresenceState.Stopped -> "Stopped playing"
+        PresenceState.Stopped -> "Stopped playing" // not logged (only with a game open), kept so the when is exhaustive
     }
 
     var appVisible = true
     /** Start, change or stop location to match the presence decision. */
     fun applyLocation() {
-        val rate = GpsPolicy.forDecision(presence, appVisible)
+        val rate = if (locationPermitted) GpsPolicy.forDecision(presence, appVisible) else null
         if (rate == null) sensors.stopLocation() else sensors.startLocation(rate)
     }
-
-    /** (Re)start the Wi-Fi and Bluetooth watcher; restarting picks up a Bluetooth permission granted since the last start. */
-    fun restartMonitor() {
-        monitor.stop()
-        runCatching { monitor.start() }.onFailure { Diag.e("presence", "monitor start failed", it) }
-        evaluatePresence()
-    }
-
-    fun stopMonitor() = monitor.stop()
 
     /** One line a minute while a game is open: what the sensors delivered, power state and battery. Gaps in these lines are the story. */
     fun heartbeat() {
@@ -211,6 +251,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             "presence" to presence.state.name, "counting" to presence.counting,
         )
         fixesSinceBeat = 0; rejectedSinceBeat = 0; providerCounts.clear()
+        evaluatePresence() // backstop: a settled debounce never waits longer than a minute
         drainCoreDiag()
     }
 
