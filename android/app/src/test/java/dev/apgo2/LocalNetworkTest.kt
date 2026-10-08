@@ -1,6 +1,8 @@
 package dev.apgo2
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -66,5 +68,49 @@ class LocalNetworkTest {
         notLocal(":38281")
         notLocal("999.1.1.1:38281")
         notLocal("192.168.1:38281") // a name with dots, not an address
+    }
+
+    @Test fun carrierGradeNatIsLocal() {
+        local("100.64.0.1:38281")
+        local("100.127.255.255:38281")
+        notLocal("100.63.255.255:38281")
+        notLocal("100.128.0.1:38281")
+    }
+
+    @Test fun aTrailingDotIsIgnored() {
+        local("nas.lan.:38281")
+        local("fastraid.:38281")
+        notLocal("archipelago.gg.:38281")
+        assertEquals("archipelago.gg", serverHost("wss://archipelago.gg.:38281/"))
+    }
+
+    @Test fun serverHostIsTheBareHost() {
+        assertEquals("192.168.1.2", serverHost("ws://192.168.1.2:38281"))
+        assertEquals("fe80::1", serverHost("[fe80::1]:38281"))
+        assertEquals("archipelago.gg", serverHost("ARCHIPELAGO.GG"))
+        assertNull(serverHost("ws://"))
+        assertNull(serverHost("  "))
+    }
+
+    @Test fun resolvedAddressesAreClassifiedAsRawLiterals() {
+        assertTrue(isLocalAddress("10.0.20.214"))
+        assertTrue(isLocalAddress("fe80::1%wlan0")) // InetAddress.hostAddress carries the scope
+        assertTrue(isLocalAddress("fd7a:115c:a1e0::1"))
+        assertFalse(isLocalAddress("2001:4860:4860::8888"))
+        assertFalse(isLocalAddress("::1"))
+        assertFalse(isLocalAddress("127.0.0.1"))
+        assertFalse(isLocalAddress("8.8.8.8"))
+        assertFalse(isLocalAddress("not an address"))
+        assertFalse(isLocalAddress(""))
+    }
+
+    @Test fun promptWhenTheNameOrAnyResolvedAddressIsLocal() {
+        // A public name pointed at the LAN (split DNS, Pi-hole, sslip.io) is only caught by its addresses.
+        assertTrue(needsLocalNetworkPrompt("ap.example.com:38281", listOf("10.0.0.5")))
+        assertTrue(needsLocalNetworkPrompt("ap.example.com:38281", listOf("8.8.8.8", "fd00::5")))
+        assertTrue(needsLocalNetworkPrompt("192.168.1.2:38281", emptyList()))
+        assertFalse(needsLocalNetworkPrompt("archipelago.gg:38281", listOf("1.2.3.4")))
+        assertFalse(needsLocalNetworkPrompt("localhost:38281", listOf("127.0.0.1", "::1")))
+        assertFalse(needsLocalNetworkPrompt("archipelago.gg:38281", emptyList())) // lookup failed
     }
 }

@@ -561,7 +561,7 @@ private fun ArchipelagoSection(
     form: NewGameForm,
     modifier: Modifier = Modifier,
 ) {
-    val connect = rememberLanAwareConnect({ m.ap.connect(it, form.slot) }, { m.ap.status = it })
+    val connect = rememberLanAwareConnect({ m.ap.connect(it, form.slot) }, { m.ap.hint = it })
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         LabelWithHelp("Join an Archipelago game", Help.archipelago, style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -573,6 +573,7 @@ private fun ArchipelagoSection(
             connect(form.url)
         }) { Text("Connect") }
         Text("Status: ${m.ap.status}${m.ap.goalSummary()?.let { "  ·  goal: $it" } ?: ""}", fontSize = 12.sp)
+        m.ap.hint?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.error) }
         if (m.ap.zoneModes.isNotEmpty()) {
             Text("This game needs ${m.ap.zoneModes.size} zone(s). Pick a realm for each:", fontSize = 12.sp)
             m.ap.zoneModes.forEachIndexed { i, mode ->

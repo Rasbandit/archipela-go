@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -17,6 +18,9 @@ import kotlin.random.Random
 
 private const val MAX_PRINT_LOG = 40
 
+// A LAN server blocked by Android 17's local network protection never answers: after this long, show LAN_HINT.
+private const val LAN_HINT_AFTER_MS = 10_000L
+
 /** The connection to an Archipelago server and the games played over it. */
 internal class ApController(
     private val model: AppModel,
@@ -25,6 +29,9 @@ internal class ApController(
 ) {
     var session by mutableStateOf<ApSession?>(null)
     var status by mutableStateOf("not connected")
+
+    // A line shown next to [status]; kept apart because tick() rewrites status from the session on every poll.
+    var hint by mutableStateOf<String?>(null)
     var slotJson by mutableStateOf<String?>(null)
     var zoneModes by mutableStateOf<List<String>>(emptyList())
     private var syncedChecked = false
@@ -36,7 +43,13 @@ internal class ApController(
     ) {
         syncedChecked = false
         slotJson = null
-        session = ApSession.connect(url, slot, null, ctx.cacheDir.resolve("ap").absolutePath)
+        hint = null
+        val s = ApSession.connect(url, slot, null, ctx.cacheDir.resolve("ap").absolutePath)
+        session = s
+        scope.launch {
+            delay(LAN_HINT_AFTER_MS)
+            if (session === s && s.status() == "connecting" && ctx.lacksLocalNetwork()) hint = LAN_HINT
+        }
     }
 
     /** Called from a coroutine loop while a session exists. */

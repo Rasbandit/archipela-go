@@ -74,7 +74,9 @@ AGP 9.4.1, Gradle 9.8.1, Kotlin 2.4.20, Compose BOM 2026.09.00, UniFFI 0.32.2, c
 
 - Compose BOM 2026.09 requires `compileSdk = 37` (AAR metadata check fails otherwise).
 - targetSdk 37 (Android 17) blocks LAN traffic without `ACCESS_LOCAL_NETWORK` (a TCP connect just times out, Rust sockets included).
-  `LocalNetwork.kt` asks for it on Connect only when the server is a LAN address/name; `localhost` via `adb reverse` is loopback and not gated.
+  `LocalNetwork.kt` asks on Connect when the server name or any resolved address is local, then always connects (VPN routes are not gated);
+  a hint shows after a denial or 10 s stuck connecting. `localhost` via `adb reverse` is loopback and not gated. Bluetooth shares the
+  Nearby devices group, so test the prompt from a fresh install.
 - UniFFI error variant fields must not be named `message` (collides with Kotlin `Throwable.message`); use `detail`.
 - AGP 9 built-in Kotlin ignores `build/generated` via `java.srcDir`; generate bindings into `android/app/src/main/kotlin/uniffi` (git-ignored).
 - `Display` + `std::error::Error` must be implemented on the Rust error enum for `#[derive(uniffi::Error)]` returned in `Result`.
