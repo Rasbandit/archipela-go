@@ -21,7 +21,7 @@ def quest_entry(quest: Quest) -> dict[str, Any]:
     }
 
 
-def build_slot_data(  # noqa: PLR0913
+def build_slot_data(  # noqa: PLR0913  # keyword-only, one argument per slot_data field
     *,
     goals: Sequence[tuple[str, int]],
     goal_requirement: str,
