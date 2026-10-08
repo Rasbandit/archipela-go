@@ -182,7 +182,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     private val seedPoll = Runnable { pollSeeding() }
     private val seeding = PresenceSeeding(SEED_TIMEOUT_MS)
     private var monitorBluetooth: Boolean? = null
-    var locationPermitted = false
+    var locationPermitted by mutableStateOf(false)
 
     private fun rawHome() = PresenceSignals.isHome(monitor.currentWifi, settings.homeNetworks)
     private fun rawCar() = PresenceSignals.carConnected(monitor.connectedCarCandidates, settings.carDevices)

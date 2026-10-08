@@ -73,16 +73,18 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
     var nearby by remember { mutableStateOf(scanner.nearby()) }
     var query by remember { mutableStateOf("") }
     var typed by remember { mutableStateOf("") }
+    // Names unticked during this visit stay listed (unticked) until the step closes, so a slip can be undone.
+    var removed by remember { mutableStateOf(emptyList<String>()) }
     var note by remember { mutableStateOf<String?>(null) }
     var scanning by remember { mutableStateOf(false) }
     // The scan answers a moment later; read it then.
     LaunchedEffect(scanning) { if (scanning) { delay(3_000); nearby = scanner.nearby(); scanning = false } }
-    LaunchedEffect(Unit) { if (m.locationPermitted && scanner.rescan()) scanning = true }
+    LaunchedEffect(m.locationPermitted) { if (m.locationPermitted && scanner.rescan()) scanning = true }
 
     val inRange = nearby.mapNotNull { PresenceSignals.cleanSsid(it) }.toSet()
-    val choices = WifiChoices.merge(saved, m.monitor.currentNetwork(), nearby, query)
+    val choices = WifiChoices.merge(saved, m.monitor.currentNetwork(), nearby + removed, query)
     fun toggle(c: WifiChoice, on: Boolean) {
-        if (on) m.settings.addHome(HomeNetwork(c.ssid, c.bssid)) else m.settings.removeHome(c.ssid)
+        if (on) m.settings.addHome(HomeNetwork(c.ssid, c.bssid)) else { m.settings.removeHome(c.ssid); removed = removed + c.ssid }
         saved = m.settings.homeNetworks
         m.evaluatePresence()
     }
@@ -90,7 +92,9 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
         val ssid = PresenceSignals.cleanSsid(typed) ?: return
         m.settings.addHome(HomeNetwork(ssid, null))
         saved = m.settings.homeNetworks
+        removed = removed - ssid
         typed = ""
+        query = ""
         m.evaluatePresence()
     }
 
@@ -152,7 +156,10 @@ internal fun CarStep(m: AppModel, onBack: () -> Unit, onDone: () -> Unit) {
         why = "While your car is connected nothing counts, so rides do not turn into pickups. Skip this if you never drive while playing.",
         next = "Finish", skip = if (car.isEmpty()) "Skip" else null, onBack = onBack, onNext = onDone,
     ) {
-        if (!btOk) OutlinedButton(onClick = { askBt.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("Allow Bluetooth to pick your car") }
+        if (!btOk) {
+            OutlinedButton(onClick = { askBt.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("Allow Bluetooth to pick your car") }
+            Text("Bluetooth permission lets the app see your paired devices.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         else if (paired.isEmpty() && car.isEmpty()) Text("No paired Bluetooth devices found. Pair your car in the phone's Bluetooth settings first.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Search devices") }, singleLine = true)
         CarChoices.merge(paired, car, query).forEach { d ->
