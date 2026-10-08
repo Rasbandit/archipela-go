@@ -8,7 +8,7 @@ select_recipes() {
   while IFS= read -r path || [ -n "$path" ]; do
     case "$path" in
       "") ;;
-      __ALL__|justfile|lefthook.yml|mise.toml|scripts/*|.github/*) all=1 ;;
+      __ALL__|justfile|lefthook.yml|mise.toml|.editorconfig|scripts/*|.github/*) all=1 ;;
       apworld/docs/*) all=1 ;; # core include_str!s the slot_data sample and example YAML
       apworld/*|.ap-version) py=1 ;;
       core/*) rs=1; an=1 ;;
