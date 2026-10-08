@@ -13,6 +13,7 @@ use crate::catalog::{Catalog, Mode};
 use crate::fog::{anchor, reveal_radius, Fog};
 use crate::geo::{distance_m, Point};
 use crate::goal::{evaluate, evaluate_each, GoalCtx, GoalStatus};
+use crate::journal::JournalEvent;
 use crate::realm::Realm;
 use crate::scan::Atlas;
 use crate::slot::GoalSpec;
@@ -74,6 +75,26 @@ pub enum Event {
     Info { text: String },
 }
 
+/// What became of the most recent fix.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+enum Verdict {
+    #[default]
+    Used,
+    /// Rejected: the phone's own error radius was too big.
+    Blurry(f64),
+    /// Dropped: it implied an impossible jump from the last good position.
+    Jump,
+}
+
+/// A quest the player is close to, with the reason it does or does not count at this moment.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NearMiss {
+    pub location_id: i64,
+    pub name: String,
+    pub distance_m: f64,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Stats {
     pub distance_m: f64,
@@ -110,6 +131,10 @@ pub struct Game {
     #[serde(skip)]
     outlier_streak: u32,
     #[serde(skip)]
+    last_verdict: Verdict,
+    #[serde(skip)]
+    last_speed: Option<f64>,
+    #[serde(skip)]
     odo_anchor: Option<Point>,
     #[serde(skip)]
     last_block: Option<String>,
@@ -128,6 +153,15 @@ pub struct NewGame<'a> {
     pub solo_rewards: BTreeMap<i64, String>,
     pub surface: SurfacePref,
     pub avoid_stairs: bool,
+}
+
+/// How close the player must get for the quest's checkpoint (None for quests without one).
+fn reach_radius(t: &Target) -> Option<f64> {
+    match t {
+        Target::Point { r, .. } | Target::Dwell { r, .. } | Target::DwellArea { r, .. } | Target::Courier { r, .. } | Target::RoundTrip { r, .. } => Some(*r),
+        Target::Line { corridor_m, .. } => Some(*corridor_m),
+        _ => None,
+    }
 }
 
 /// Distance only counts after moving at least this far from the last counted point.
@@ -207,6 +241,8 @@ impl Game {
             trackers: BTreeMap::new(),
             last_fix: None,
             outlier_streak: 0,
+            last_verdict: Verdict::Used,
+            last_speed: None,
             odo_anchor: None,
             last_block: None,
         })
@@ -318,6 +354,7 @@ impl Game {
     pub fn on_fix(&mut self, fix: Fix, steps_total: Option<i64>) -> Vec<Event> {
         let mut ev = Vec::new();
         if fix.accuracy_m > MAX_ACCURACY_M {
+            self.last_verdict = Verdict::Blurry(fix.accuracy_m);
             return ev;
         }
         // A fix that implies an impossible jump (a network or cell fix far off) is dropped, so it can neither complete a quest nor become
@@ -326,11 +363,14 @@ impl Game {
             && self.outlier_streak < MAX_OUTLIER_STREAK - 1
         {
             self.outlier_streak += 1;
+            self.last_verdict = Verdict::Jump;
             return ev;
         }
         self.outlier_streak = 0;
+        self.last_verdict = Verdict::Used;
         let pos = fix.point();
         let speed = self.last_fix.as_ref().and_then(|l| implied_speed_kmh(l, &fix));
+        self.last_speed = speed;
         // Distance walked counts only once you are clearly away from where the last counted point was (GPS wobble while standing is not movement).
         if self.last_fix.is_some_and(|l| fix.t_ms - l.t_ms > 300_000) {
             self.odo_anchor = None;
@@ -515,6 +555,68 @@ impl Game {
                 Trap::Slow { .. } => "Slow: dwell x2",
             })
             .map(String::from)
+            .collect()
+    }
+
+    /// Journal entries for events, with the reason attached: how a quest was completed, where a reward came from, what an item does.
+    pub fn journal_events(&self, ev: &[Event], t_ms: i64, at: Option<(f64, f64)>) -> Vec<JournalEvent> {
+        let quest = |id: &i64| self.assignments.iter().find(|a| a.location_id == *id);
+        ev.iter()
+            .map(|e| {
+                let mut j = JournalEvent::from_game_event(e, t_ms, at);
+                match e {
+                    Event::QuestDone { location_id, name } => {
+                        if let Some(a) = quest(location_id) {
+                            j.detail = format!("{name} at {}: {}", a.place, a.target.goal_text());
+                        }
+                    }
+                    Event::Reward { location_id, item } => {
+                        let from = quest(location_id).map_or("a quest", |a| a.quest_name.as_str());
+                        j.detail = format!("{item} (reward for {from}): {}", crate::items::blurb(item));
+                    }
+                    Event::SendCheck { location_id } => {
+                        if let Some(a) = quest(location_id) {
+                            j.detail = format!("{} sent to the server", a.quest_name);
+                        }
+                    }
+                    Event::Trap { item, message } => j.detail = format!("{item}: {message} ({})", crate::items::blurb(item)),
+                    _ => {}
+                }
+                j
+            })
+            .collect()
+    }
+
+    /// For every open quest within `radius_m` of the fix: the distance and why it would or would not count right now.
+    pub fn explain_near(&self, fix: &Fix, radius_m: f64) -> Vec<NearMiss> {
+        let blocked = self.traps.blocks_checks(fix.point());
+        self.assignments
+            .iter()
+            .filter(|a| !self.done.contains(&a.location_id))
+            .filter_map(|a| {
+                let at = crate::fog::anchor(&a.target)?;
+                let distance_m = distance_m(fix.point(), at);
+                if distance_m > radius_m {
+                    return None;
+                }
+                let reach = reach_radius(&a.target);
+                let reason = match self.last_verdict {
+                    Verdict::Blurry(acc) => format!("GPS accuracy {acc:.0} m (needs {MAX_ACCURACY_M:.0} m or better)"),
+                    Verdict::Jump => "ignored as a GPS jump".to_string(),
+                    Verdict::Used if !self.zone_unlocked(a.zone) => format!("zone {} is still locked", a.zone),
+                    Verdict::Used if self.fog_on() && !self.fog.discovered.contains(&a.location_id) => "not discovered yet (fog of war)".to_string(),
+                    Verdict::Used if blocked.is_some() => blocked.clone().unwrap_or_default(),
+                    Verdict::Used if self.last_speed.is_some_and(|s| !speed_ok(a.mode, s)) => {
+                        format!("moving too fast for {:?} ({:.0} km/h)", a.mode, self.last_speed.unwrap_or(0.0))
+                    }
+                    Verdict::Used => match reach {
+                        Some(r) if distance_m <= r => format!("in range ({distance_m:.0} m, needs {r:.0} m): counting"),
+                        Some(r) => format!("{distance_m:.0} m away, needs {r:.0} m"),
+                        None => format!("{distance_m:.0} m away"),
+                    },
+                };
+                Some(NearMiss { location_id: a.location_id, name: a.quest_name.clone(), distance_m, reason })
+            })
             .collect()
     }
 
@@ -857,6 +959,38 @@ mod tests {
         }
         let d = g.stats.distance_m;
         assert!((d - 280.0).abs() < 28.0, "walked 280 m, counted {d}");
+    }
+
+    #[test]
+    fn a_completed_quest_is_logged_with_how_it_was_done_and_its_reward_with_where_it_came_from() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let q = g.quest_views().remove(0);
+        let ev = g.on_fix(fixat(q.anchor.unwrap(), 100), None);
+        let at = Some((q.anchor.unwrap().lat, q.anchor.unwrap().lon));
+        let log = g.journal_events(&ev, 100_000, at);
+        let done = log.iter().find(|e| e.kind == "quest_done").expect("a quest_done entry");
+        assert!(done.detail.contains(&q.name) && done.detail.contains("Get within 40 m"), "{}", done.detail);
+        let reward = log.iter().find(|e| e.kind == "reward").expect("a reward entry");
+        assert!(reward.detail.contains(&format!("reward for {}", q.name)), "{}", reward.detail);
+        assert!(reward.detail.len() > q.name.len() + 20, "carries an explanation of the item: {}", reward.detail);
+        assert!(log.iter().all(|e| e.t_ms == 100_000 && e.at == at));
+    }
+
+    #[test]
+    fn near_a_quest_the_reason_it_does_or_does_not_count_is_explained() {
+        let (mut g, id, p0) = start_near_a_quest();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| crate::fog::anchor(&a.target)).unwrap();
+        let near = |g: &Game, p: Point, acc: f64| g.explain_near(&Fix { accuracy_m: acc, ..fixat(p, 1000) }, 100.0).into_iter().find(|n| n.location_id == id);
+        assert!(near(&g, p0, 5.0).is_none(), "200 m away is not near");
+        let nm = near(&g, destination(target, 0.0, 70.0), 5.0).expect("70 m away is near");
+        assert!((nm.distance_m - 70.0).abs() < 2.0 && nm.reason.contains("needs 40"), "{nm:?}");
+        // The state the game is in decides the reason.
+        let jump = Fix { accuracy_m: 5.0, ..fixat(target, 1003) };
+        g.on_fix(jump, None); // dropped as a jump
+        assert!(g.explain_near(&jump, 100.0).iter().any(|n| n.location_id == id && n.reason.contains("jump")));
+        let blurry = Fix { accuracy_m: 60.0, ..fixat(target, 2000) };
+        g.on_fix(blurry, None);
+        assert!(g.explain_near(&blurry, 100.0).iter().any(|n| n.location_id == id && n.reason.contains("accuracy 60")));
     }
 
     #[test]

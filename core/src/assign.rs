@@ -37,6 +37,23 @@ pub enum Target {
     Away { min_distance_m: f64, minutes: f64 },
 }
 
+impl Target {
+    /// What the player has to do, in one line ("Get within 40 m").
+    pub fn goal_text(&self) -> String {
+        match self {
+            Target::Point { r, .. } => format!("Get within {r:.0} m"),
+            Target::Dwell { r, minutes, .. } => format!("Stay {minutes:.0} min within {r:.0} m"),
+            Target::DwellArea { minutes, .. } => format!("Spend {minutes:.0} min inside the area"),
+            Target::Line { pts, coverage, .. } => format!("Cover {:.0}% of this {:.1} km path", coverage * 100.0, crate::geo::polyline_len_m(pts) / 1000.0),
+            Target::Courier { time_limit_min, .. } => format!("Pick up at A, deliver to B within {time_limit_min:.0} min"),
+            Target::RoundTrip { time_limit_min, .. } => format!("Reach the far point and be back home within {time_limit_min:.0} min"),
+            Target::Cells { n, .. } => format!("Visit {n} new map cells"),
+            Target::Steps { n } => format!("Take {n} steps"),
+            Target::Away { min_distance_m, minutes } => format!("Spend {minutes:.0} min at least {:.1} km from home", min_distance_m / 1000.0),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assignment {
     pub location_id: i64,
@@ -633,5 +650,30 @@ mod tests {
         let z2 = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &empty }];
         let out = assign(&slots, &z2, &cat, &params(9));
         assert_eq!(out.len(), 8, "an empty atlas must still yield playable (lattice) quests");
+    }
+}
+
+#[cfg(test)]
+mod goal_text_tests {
+    use super::*;
+    use crate::geo::{destination, Point};
+
+    #[test]
+    fn every_target_kind_says_what_to_do() {
+        let p = Point::new(40.0, -111.0);
+        let cases = [
+            (Target::Point { p, r: 40.0 }, "Get within 40 m"),
+            (Target::Dwell { p, r: 40.0, minutes: 3.0 }, "Stay 3 min within 40 m"),
+            (Target::DwellArea { poly: vec![], center: p, r: 40.0, minutes: 5.0 }, "Spend 5 min inside the area"),
+            (Target::Line { pts: vec![p, destination(p, 0.0, 1000.0)], corridor_m: 25.0, coverage: 0.9 }, "Cover 90% of this 1.0 km path"),
+            (Target::Courier { a: p, b: p, r: 40.0, time_limit_min: 12.0 }, "Pick up at A, deliver to B within 12 min"),
+            (Target::RoundTrip { far: p, r: 50.0, time_limit_min: 14.0 }, "Reach the far point and be back home within 14 min"),
+            (Target::Cells { n: 12, cell_m: 100.0 }, "Visit 12 new map cells"),
+            (Target::Steps { n: 500 }, "Take 500 steps"),
+            (Target::Away { min_distance_m: 1500.0, minutes: 20.0 }, "Spend 20 min at least 1.5 km from home"),
+        ];
+        for (t, want) in cases {
+            assert_eq!(t.goal_text(), want);
+        }
     }
 }
