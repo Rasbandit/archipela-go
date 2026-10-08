@@ -66,8 +66,9 @@ import org.maplibre.android.style.sources.GeoJsonSource
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.circleRing
-import dev.apgo2.ui.renderGlyph
 import dev.apgo2.ui.renderMarker
+import dev.apgo2.ui.MapMarkers
+import dev.apgo2.ui.MarkerSpec
 import dev.apgo2.ui.renderPin
 import dev.apgo2.ui.hex
 import uniffi.apgo_ffi.QuestOut
@@ -103,20 +104,25 @@ private fun ring(points: List<Pair<Double, Double>>): JSONArray {
     return r
 }
 
-private fun glyphName(q: QuestOut) = "glyph|${q.kindId}|${q.family}"
+private fun markerKey(q: QuestOut) = MarkerSpec.Quest(q.kindId, q.family, q.state).key
 
-private fun findImage(f: MapFind) = "pin|${f.kindId}|${f.family}|${f.mark}"
+private fun findImage(f: MapFind) = MarkerSpec.Find(f.kindId, f.family, f.mark).key
+
+/** What a quest pin needs on the map: its image, size, draw order and whether it is the selected one. */
+private fun questProps(q: QuestOut, selected: Boolean) = JSONObject()
+    .put("state", q.state).put("sel", selected).put("img", markerKey(q))
+    .put("scale", MapMarkers.iconScale(q.difficulty, q.boss).toDouble()).put("z", MapMarkers.drawOrder(q.state))
 
 private fun questFeatures(quests: List<QuestOut>, selected: Long?): List<JSONObject> =
     quests.filter { it.state != "hidden" && it.anchor != null && it.shape != "line" }.map {
         val a = it.anchor!!
         feature(
             pointGeo(a.lat, a.lon),
-            JSONObject().put("state", it.state).put("diff", if (it.boss) "boss" else it.difficulty).put("sel", it.locationId == selected).put("img", glyphName(it)),
+            questProps(it, it.locationId == selected),
         )
     } + quests.filter { it.state != "hidden" && it.shape == "courier" && it.anchorB != null }.map {
         val b = it.anchorB!!
-        feature(pointGeo(b.lat, b.lon), JSONObject().put("state", it.state).put("diff", "easy").put("sel", it.locationId == selected).put("img", glyphName(it)))
+        feature(pointGeo(b.lat, b.lon), questProps(it, it.locationId == selected))
     }
 
 private fun lineFeatures(quests: List<QuestOut>): List<JSONObject> =
@@ -294,26 +300,25 @@ fun QuestMap(
                 s.addLayer(FillLayer("areas-fill", "areas").withProperties(fillColor(stateColor()), fillOpacity(0.18f)))
                 s.addLayer(LineLayer("trace-layer", "trace").withProperties(lineColor(ApgoPalette.me.hex()), lineWidth(3f), lineOpacity(0.7f), lineCap("round"), lineJoin("round")))
                 s.addLayer(LineLayer("lines-layer", "lines").withProperties(lineColor(stateColor()), lineWidth(4f)))
+                // Quests are the same pins as finds (family colour, state as a badge). They thin out by collision, in-progress and open first;
+                // the selected one gets a halo and is always drawn, larger.
                 s.addLayer(
                     CircleLayer("quests-sel", "quests").withFilter(Expression.eq(Expression.get("sel"), Expression.literal(true))).withProperties(
-                        circleRadius(21f), circleColor(ApgoPalette.onMap.hex()), circleStrokeColor(ApgoPalette.realm.hex()), circleStrokeWidth(3f),
+                        circleRadius(26f), circleColor(ApgoPalette.onMap.hex()), circleStrokeColor(ApgoPalette.realm.hex()), circleStrokeWidth(3f),
                     ),
                 )
                 s.addLayer(
-                    CircleLayer("quests-layer", "quests").withProperties(
-                        circleRadius(
-                            Expression.match(
-                                Expression.get("diff"), Expression.literal(8f),
-                                Expression.stop("easy", Expression.literal(9f)),
-                                Expression.stop("medium", Expression.literal(11f)),
-                                Expression.stop("hard", Expression.literal(13f)),
-                                Expression.stop("boss", Expression.literal(16f)),
-                            ),
-                        ),
-                        circleColor(stateColor()), circleStrokeColor(ApgoPalette.onMap.hex()), circleStrokeWidth(1.5f),
+                    SymbolLayer("quests-pins", "quests").withProperties(
+                        iconImage(Expression.get("img")), iconSize(Expression.get("scale")), iconAllowOverlap(false), iconIgnorePlacement(false),
+                        symbolSortKey(Expression.get("z")),
                     ),
                 )
-                s.addLayer(SymbolLayer("quests-icons", "quests").withProperties(iconImage(Expression.get("img")), iconSize(0.38f), iconAllowOverlap(true), iconIgnorePlacement(true)))
+                s.addLayer(
+                    SymbolLayer("quests-pins-sel", "quests").withFilter(Expression.eq(Expression.get("sel"), Expression.literal(true))).withProperties(
+                        iconImage(Expression.get("img")), iconSize(Expression.product(Expression.get("scale"), Expression.literal(1.25f))),
+                        iconAllowOverlap(true), iconIgnorePlacement(true),
+                    ),
+                )
                 // Finds: icon pins that thin out by collision, favorites winning over plain ones and banned ones; the selected find always shows.
                 s.addLayer(
                     SymbolLayer("finds-layer", "finds").withProperties(
@@ -360,20 +365,7 @@ fun QuestMap(
     LaunchedEffect(style, realms) { style?.getSourceAs<GeoJsonSource>("realms")?.setGeoJson(fc(realmFeatures(realms))) }
     fun ensureImage(s: Style, name: String) {
         if (!addedImages.add(name)) return
-        val parts = name.split("|")
-        val icon = ApgoIcons.forKind(parts[1], parts[2])
-        s.addImage(
-            name,
-            if (parts[0] == "pin") {
-                when (parts[3]) {
-                    "favorite" -> renderPin(icon, 96, fill = ApgoPalette.kind(parts[1], parts[2]), ring = ApgoPalette.favorite, ringFraction = 0.13f)
-                    "banned" -> renderPin(icon, 96, fill = ApgoPalette.muted)
-                    else -> renderPin(icon, 96, fill = ApgoPalette.kind(parts[1], parts[2]))
-                }
-            } else {
-                renderGlyph(icon, 48)
-            },
-        )
+        MapMarkers.parse(name)?.let { s.addImage(name, MapMarkers.render(it)) }
     }
     LaunchedEffect(style, finds) {
         val st = style ?: return@LaunchedEffect
@@ -429,7 +421,7 @@ fun QuestMap(
         m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(f.at).zoom(zoom).padding(0.0, top.toDouble(), 0.0, bottom.toDouble()).build()))
     }
     LaunchedEffect(style, quests, selected) {
-        style?.let { st -> quests.forEach { ensureImage(st, glyphName(it)) } }
+        style?.let { st -> quests.forEach { ensureImage(st, markerKey(it)) } }
         style?.getSourceAs<GeoJsonSource>("quests")?.setGeoJson(fc(questFeatures(quests, selected)))
         style?.getSourceAs<GeoJsonSource>("lines")?.setGeoJson(fc(lineFeatures(quests)))
         style?.getSourceAs<GeoJsonSource>("areas")?.setGeoJson(fc(areaFeatures(quests)))
