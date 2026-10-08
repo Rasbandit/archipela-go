@@ -1351,6 +1351,43 @@ mod tests {
     }
 
     #[test]
+    fn reroll_skips_real_chain_members_in_a_generated_game() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let ids: Vec<i64> = g.assignments.iter().take(2).map(|a| a.location_id).collect();
+        for (a, n) in g.assignments.iter_mut().take(2).zip([500, 1000]) {
+            *a = crate::chain::tests_support::member(a.location_id, 1, "step_up", Target::Steps { n });
+        }
+        let before = g.assignments.iter().map(|a| a.target.clone()).collect::<Vec<_>>();
+        let realms = vec![realm("r0", Mode::Walk)];
+        let n = g.reroll(&ids, &realms, 9, &Catalog::builtin()).unwrap();
+        assert_eq!(n, 0, "chain members are never re-placed");
+        assert_eq!(g.assignments.iter().map(|a| a.target.clone()).collect::<Vec<_>>(), before);
+    }
+
+    #[test]
+    fn an_old_save_pays_the_next_mark_once_and_floors_a_minutes_chain() {
+        let dir = std::env::temp_dir().join(format!("apgo-oldsave2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }, Target::Steps { n: 1100 }]);
+        g.done.extend([1000, 1001]);
+        g.counters = Counters::default();
+        g.save(&dir).unwrap();
+        let mut back = Game::load(&dir, "g1").unwrap();
+        back.on_steps(10, 1);
+        let ev = back.on_steps(1210, 2); // 1,200 gained: 1,500 -> 2,700 crosses the mark at 2,600
+        assert_eq!(done_ids(&ev), vec![1002]);
+
+        let mut m =
+            chain_game("wanderlust", vec![Target::Away { min_distance_m: 900.0, minutes: 30.0 }, Target::Away { min_distance_m: 900.0, minutes: 45.0 }]);
+        m.done.insert(1000);
+        m.counters = Counters::default();
+        m.save(&dir).unwrap();
+        let back = Game::load(&dir, "g1").unwrap();
+        assert_eq!(back.counters.progress["1:wanderlust"], 30.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn reroll_keeps_finished_quests() {
         let o = reach_only(&[Mode::Walk, Mode::Bike], 12, "all_trips");
         let mut g = game(&o, Backend::Solo, 1);
