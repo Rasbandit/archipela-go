@@ -12,7 +12,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -65,7 +64,6 @@ internal fun ProgressRow(
 @Composable
 internal fun ColumnScope.QuestDetails(
     q: QuestOut,
-    onReroll: () -> Unit,
     onClose: () -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -94,7 +92,6 @@ internal fun ColumnScope.QuestDetails(
     if (q.state == "progress") LinearProgressIndicator(progress = { q.progress }, Modifier.fillMaxWidth().padding(end = 8.dp))
     Text(q.blurb, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
     q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
-    if (q.state != "done" && q.chainId == null) OutlinedButton(onClick = onReroll) { Text("Reroll", fontSize = 11.sp) }
 }
 
 // One progressive quest: name and rule, a bar with a mark per check, and what is next. Tap for the list of marks.

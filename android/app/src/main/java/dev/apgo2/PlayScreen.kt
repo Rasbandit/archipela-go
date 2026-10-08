@@ -195,7 +195,7 @@ private fun BoxScope.QuestPopup(
     onBubbleSize: (Int) -> Unit,
 ) {
     val details: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
-        QuestDetails(q, { m.library.reroll(q.locationId) }, { m.selected = null })
+        QuestDetails(q) { m.selected = null }
     }
     if (q.anchor == null) {
         MapOverlayCard(Modifier.align(Alignment.BottomCenter), content = details)

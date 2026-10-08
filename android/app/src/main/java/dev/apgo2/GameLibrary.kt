@@ -86,12 +86,6 @@ internal class GameLibrary(
         model.tab = AppTab.PLAY
     }
 
-    /** Give an unfinished quest a new place (the player's own reroll, not the Shuffle trap). */
-    fun reroll(id: Long) {
-        runCatching { model.engine.reroll(listOf(id), (Random.nextLong() ushr 1).toULong()) }.onFailure { Diag.failure("reroll", it) }
-        model.refreshPlay()
-    }
-
     /** Reload what happened in the open (or last paused) game. */
     fun refreshActivity() {
         model.activity = model.engine.activity(ACTIVITY_LIMIT)
