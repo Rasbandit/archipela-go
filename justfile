@@ -55,8 +55,8 @@ check-rust:
     cd core && cargo llvm-cov -p apgo-core -p apgo-ffi -q --fail-under-lines 80
 
 # --- Android dev loop (phone paired over adb) ---
-export JAVA_HOME := "/usr/lib/jvm/java-25-openjdk"
-export ANDROID_HOME := env("HOME") + "/Android/Sdk"
+export JAVA_HOME := env("JAVA_HOME", "/usr/lib/jvm/java-25-openjdk")
+export ANDROID_HOME := env("ANDROID_HOME", env("HOME") + "/Android/Sdk")
 export PATH := env("HOME") + "/.cargo/bin:" + env("PATH")
 apk := "android/app/build/outputs/apk/debug/app-debug.apk"
 app := "dev.apgo2.app"
