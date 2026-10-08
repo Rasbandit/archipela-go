@@ -199,6 +199,7 @@ impl Traps {
 }
 
 #[cfg(test)]
+#[allow(clippy::assert_is_empty, clippy::float_cmp)] // test code: `is_empty()` reads better in assertions than comparing with a typed empty array; comparing against exact constants the code returns verbatim
 mod tests {
     use super::*;
     use rand::SeedableRng;

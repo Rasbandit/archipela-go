@@ -648,6 +648,7 @@ pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, no
 }
 
 #[cfg(test)]
+#[allow(clippy::assert_is_empty)] // test code: `is_empty()` reads better in assertions than comparing with a typed empty array
 mod tests {
     use super::*;
     use crate::geo::destination;
@@ -678,10 +679,15 @@ mod tests {
         let cat = Catalog::builtin();
         let attempts: StdMutex<BTreeMap<String, usize>> = StdMutex::new(BTreeMap::new());
         let fetch = |q: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
-            let mut m = attempts.lock().unwrap();
-            let n = m.entry(q.to_string()).or_insert(0);
-            *n += 1;
-            if *n < 3 {
+            let n = {
+                let mut m = attempts.lock().unwrap();
+                let n = m.entry(q.to_string()).or_insert(0);
+                *n += 1;
+                let tried = *n;
+                drop(m);
+                tried
+            };
+            if n < 3 {
                 Err(Error::Parse("busy".into()))
             } else {
                 Ok(BENCH_BODY.to_string())
@@ -721,7 +727,7 @@ mod tests {
                 a.lat, a.lon, b.lat, b.lon
             )
         };
-        let body = format!(r#"{{"elements":[{}]}}"#, way(o, crate::geo::destination(o, 0.0, 1200.0))); // crosses the 40.01 tile edge
+        let body = format!(r#"{{"elements":[{}]}}"#, way(o, destination(o, 0.0, 1200.0))); // crosses the 40.01 tile edge
         let fetch = |q: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
             Ok(if q.contains("\"highway\"~") && q.contains("out geom qt") { body.clone() } else { r#"{"elements":[]}"#.to_string() })
         };
@@ -738,12 +744,12 @@ mod tests {
         let line = |id: i64, tags: &str, a: Point, b: Point| {
             format!(r#"{{"type":"way","id":{id},"tags":{{{tags}}},"geometry":[{{"lat":{},"lon":{}}},{{"lat":{},"lon":{}}}]}}"#, a.lat, a.lon, b.lat, b.lon)
         };
-        let far = crate::geo::destination(o, 90.0, 600.0);
+        let far = destination(o, 90.0, 600.0);
         let mut els = vec![line(1, r#""highway":"residential""#, o, far)]; // a 600 m street
                                                                            // forty tiny sidewalk crossings and corner pieces, 4 m each: they must add almost nothing and sidewalks/crossings none at all
         for i in 0..40 {
-            let a = crate::geo::destination(o, 0.0, 10.0 + f64::from(i));
-            els.push(line(100 + i64::from(i), r#""highway":"footway","footway":"crossing""#, a, crate::geo::destination(a, 90.0, 4.0)));
+            let a = destination(o, 0.0, 10.0 + f64::from(i));
+            els.push(line(100 + i64::from(i), r#""highway":"footway","footway":"crossing""#, a, destination(a, 90.0, 4.0)));
         }
         els.push(line(300, r#""highway":"footway","footway":"sidewalk""#, o, far)); // a sidewalk running alongside the street
         let body = format!(r#"{{"elements":[{}]}}"#, els.join(","));
@@ -765,11 +771,8 @@ mod tests {
                 a.lat, a.lon, b.lat, b.lon
             )
         };
-        let main_st = (
-            way(1, "Main Street", o, crate::geo::destination(o, 90.0, 900.0)),
-            way(2, "Main Street", crate::geo::destination(o, 90.0, 900.0), crate::geo::destination(o, 90.0, 1500.0)),
-        );
-        let elm = way(3, "Elm Avenue", o, crate::geo::destination(o, 0.0, 500.0));
+        let main_st = (way(1, "Main Street", o, destination(o, 90.0, 900.0)), way(2, "Main Street", destination(o, 90.0, 900.0), destination(o, 90.0, 1500.0)));
+        let elm = way(3, "Elm Avenue", o, destination(o, 0.0, 500.0));
         let nameless = format!(
             r#"{{"type":"way","id":4,"tags":{{"highway":"service"}},"geometry":[{{"lat":{},"lon":{}}},{{"lat":{},"lon":{}}}]}}"#,
             o.lat,
@@ -785,7 +788,7 @@ mod tests {
         assert_eq!(a.street_count(), 2, "Main Street (two ways) and Elm Avenue; the unnamed service road does not count");
         a.restrict_to(&Zone::Circle { center: o, radius_m: 300.0 });
         assert_eq!(a.street_count(), 2, "both start at the centre");
-        a.restrict_to(&Zone::Circle { center: crate::geo::destination(o, 180.0, 4000.0), radius_m: 300.0 });
+        a.restrict_to(&Zone::Circle { center: destination(o, 180.0, 4000.0), radius_m: 300.0 });
         assert_eq!(a.street_count(), 0);
     }
 
@@ -806,7 +809,15 @@ mod tests {
             Err(Error::Parse("down".into()))
         };
         let jobs = jobs_for(&small_realm(Point::new(40.0, -111.0), 600.0).shape.to_zone(), &cat).len();
-        let _ = scan_with(&small_realm(Point::new(40.0, -111.0), 600.0), &cat, 0, &fetch, &quick(), Instant::now() - Duration::from_secs(1), &|_, _| {});
+        let _ = scan_with(
+            &small_realm(Point::new(40.0, -111.0), 600.0),
+            &cat,
+            0,
+            &fetch,
+            &quick(),
+            Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
+            &|_, _| {},
+        );
         assert!(calls.load(AtomicOrdering::SeqCst) <= jobs, "no retry rounds once the budget is gone");
     }
 
@@ -840,8 +851,8 @@ mod tests {
     fn moving_a_realm_only_needs_the_queries_of_the_tiles_it_newly_touches() {
         let cat = Catalog::builtin();
         let c = Point::new(40.0, -111.0);
-        let first: std::collections::BTreeSet<String> = jobs_for(&small_realm(c, 1500.0).shape.to_zone(), &cat).into_iter().map(|(_, q)| q).collect();
-        let moved = small_realm(crate::geo::destination(c, 90.0, 1200.0), 1500.0).shape.to_zone();
+        let first: BTreeSet<String> = jobs_for(&small_realm(c, 1500.0).shape.to_zone(), &cat).into_iter().map(|(_, q)| q).collect();
+        let moved = small_realm(destination(c, 90.0, 1200.0), 1500.0).shape.to_zone();
         let p = plan(&moved, &cat, &|q| first.contains(q));
         assert!(p.cached > 0 && p.missing() > 0 && p.missing() < p.jobs, "only part of the moved area is new: {p:?}");
     }

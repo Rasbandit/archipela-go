@@ -475,6 +475,7 @@ pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx<'_>], catalog: &Catalog, p: &As
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_sign_loss, clippy::many_single_char_names)] // test code: short names for points and coordinates in test fixtures; test fixtures use small, known-positive numbers
 mod tests {
     use super::*;
     use crate::effort::tier_for;
@@ -732,7 +733,7 @@ mod tests {
             vec![t0, destination(t0, 90.0, 800.0), destination(t0, 90.0, 1600.0)],
         );
         let base = atlas(&cat, false);
-        let a = crate::scan::build_atlas("r", 0, vec![dirt], base.streets.clone(), &cat);
+        let a = crate::scan::build_atlas("r", 0, vec![dirt], base.streets, &cat);
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
         let slots = vec![slot(1, "trail", 6, Mode::Walk)];
         let mut p = params(1);
@@ -743,7 +744,7 @@ mod tests {
         let mut b = atlas(&cat, false);
         let o2 = Point::new(40.0, -111.0);
         let stairs =
-            Feature { id: "L:stairmaster:S:0".into(), point: o2, name: None, tags: Default::default(), geometry: vec![o2, destination(o2, 0.0, 200.0)] };
+            Feature { id: "L:stairmaster:S:0".into(), point: o2, name: None, tags: BTreeMap::default(), geometry: vec![o2, destination(o2, 0.0, 200.0)] };
         b.features.push(stairs);
         b.matches.insert("stairmaster".into(), vec![b.features.len() - 1]);
         let zb = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &b }];
@@ -776,7 +777,7 @@ mod goal_text_tests {
     fn an_old_save_with_a_round_trip_time_limit_still_loads() {
         let old = r#"{"RoundTrip":{"far":{"lat":40.0,"lon":-111.0},"r":50.0,"time_limit_min":42.4}}"#;
         let t: Target = serde_json::from_str(old).expect("old saves must keep loading");
-        assert!(matches!(t, Target::RoundTrip { r, .. } if r == 50.0));
+        assert!(matches!(t, Target::RoundTrip { r, .. } if (r - 50.0).abs() < f64::EPSILON));
     }
 
     #[test]

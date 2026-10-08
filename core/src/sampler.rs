@@ -74,6 +74,7 @@ pub fn sample(candidates: &[Candidate], home: Point, specs: &[TripSpec], step_m:
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_precision_loss)] // test code: test fixtures use small numbers
 mod tests {
     use super::*;
     use crate::geo::{distance_m, Point};

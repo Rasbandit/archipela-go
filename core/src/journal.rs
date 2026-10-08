@@ -311,6 +311,7 @@ impl Journal {
 }
 
 #[cfg(test)]
+#[allow(clippy::assert_is_empty)] // test code: `is_empty()` reads better in assertions than comparing with a typed empty array
 mod tests {
     use super::*;
 

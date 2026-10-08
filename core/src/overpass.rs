@@ -358,7 +358,7 @@ mod tests {
         std::fs::write(query_cache_file(&dir, q), r#"{"elements":[]}"#).unwrap();
         assert!(is_cached(q, &dir));
         // an already expired deadline would fail any real request at once, so success proves the answer came from disk
-        let past = std::time::Instant::now() - std::time::Duration::from_secs(5);
+        let past = std::time::Instant::now().checked_sub(Duration::from_secs(5)).unwrap();
         assert_eq!(fetch_cached_from(q, Some(&dir), 0, Some(past)).unwrap(), r#"{"elements":[]}"#);
         assert!(!is_cached("[out:json];node(9,9,9,9);out;", &dir), "a different query is a different cache entry");
     }

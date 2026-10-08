@@ -275,8 +275,8 @@ mod tests {
                 family: q.family.clone(),
                 kind_id: format!("kind{}", q.location_id),
                 quest_name: "x".into(),
-                blurb: "".into(),
-                place: "".into(),
+                blurb: String::new(),
+                place: String::new(),
                 tier: 2,
                 effort_min: 10.0,
                 target: Target::Steps { n: 1 },
@@ -289,7 +289,7 @@ mod tests {
     fn eval(s: &SlotData, done: &[i64], items: &[&str], dist: f64, cells: usize, streak: u32) -> GoalStatus {
         let a = assigns(s);
         let d: BTreeSet<i64> = done.iter().copied().collect();
-        let it: Vec<String> = items.iter().map(|x| x.to_string()).collect();
+        let it: Vec<String> = items.iter().map(ToString::to_string).collect();
         let _ = Point::new(0.0, 0.0);
         evaluate(&GoalCtx { slot: s, assignments: &a, done: &d, items: &it, distance_m: dist, cells_discovered: cells, streak_days: streak })
     }

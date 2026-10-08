@@ -1167,6 +1167,7 @@ impl Game {
 }
 
 #[cfg(test)]
+#[allow(clippy::assert_is_empty, clippy::cast_possible_wrap, clippy::cast_precision_loss)] // test code: `is_empty()` reads better in assertions than comparing with a typed empty array; test fixtures use small numbers
 mod tests {
     use super::*;
     use crate::geo::destination;
@@ -1233,7 +1234,7 @@ mod tests {
     /// A solo game whose quests are replaced by the given targets (all in zone 1, kind `kind`), each rewarding "Hydrate!".
     fn chain_game(kind: &str, targets: Vec<Target>) -> Game {
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        g.assignments = targets.into_iter().enumerate().map(|(i, t)| crate::chain::tests_support::member(1000 + i as i64, 1, kind, t)).collect();
+        g.assignments = targets.into_iter().enumerate().map(|(i, t)| chain::tests_support::member(1000 + i as i64, 1, kind, t)).collect();
         g.done.clear();
         g.solo_rewards = g.assignments.iter().map(|a| (a.location_id, "Hydrate!".to_string())).collect();
         g
@@ -1373,7 +1374,7 @@ mod tests {
     }
 
     fn freeze(g: &mut Game) {
-        g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_pool.clone(), &mut rand::SeedableRng::seed_from_u64(1));
+        g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_pool.clone(), &mut SeedableRng::seed_from_u64(1));
         assert!(!g.traps.active.is_empty(), "the freeze trap is active");
     }
 
@@ -1417,7 +1418,7 @@ mod tests {
     fn time_away_pauses_while_a_trap_blocks_checks() {
         let mut g = away_game(&[10.0], false, 1000.0);
         away_for(&mut g, 1500.0, 0, 1);
-        g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_pool.clone(), &mut rand::SeedableRng::seed_from_u64(1));
+        g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_pool.clone(), &mut SeedableRng::seed_from_u64(1));
         away_for(&mut g, 1500.0, 60, 5);
         assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "frozen: no minutes count");
         g.traps.active.clear();
@@ -1429,7 +1430,7 @@ mod tests {
     fn marks_wait_while_a_trap_blocks_checks_and_pay_when_it_ends() {
         let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 1) }, Some(1_000));
-        g.traps.trigger("Freeze Trap", 0, Some(home()), home(), &g.trap_pool.clone(), &mut rand::SeedableRng::seed_from_u64(1));
+        g.traps.trigger("Freeze Trap", 0, Some(home()), home(), &g.trap_pool.clone(), &mut SeedableRng::seed_from_u64(1));
         assert!(g.on_steps(1_600, 2).is_empty(), "frozen: no check counts");
         g.traps.active.clear();
         assert_eq!(done_ids(&g.on_steps(1_601, 3)), vec![1000], "the counter kept the steps");
@@ -1598,7 +1599,7 @@ mod tests {
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
         let ids: Vec<i64> = g.assignments.iter().take(2).map(|a| a.location_id).collect();
         for (a, n) in g.assignments.iter_mut().take(2).zip([500, 1000]) {
-            *a = crate::chain::tests_support::member(a.location_id, 1, "step_up", Target::Steps { n });
+            *a = chain::tests_support::member(a.location_id, 1, "step_up", Target::Steps { n });
         }
         let before = g.assignments.iter().map(|a| a.target.clone()).collect::<Vec<_>>();
         let realms = vec![realm("r0", Mode::Walk)];
@@ -1767,7 +1768,7 @@ mod tests {
     #[test]
     fn the_first_fix_after_resuming_is_not_judged_against_a_stale_one() {
         let (mut g, id, p0) = start_near_a_quest();
-        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| crate::fog::anchor(&a.target)).unwrap();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| anchor(&a.target)).unwrap();
         g.set_counting(false);
         g.set_counting(true);
         // 200 m from the last fix 3 s later would be dropped as a jump if the old fix were kept
@@ -1789,7 +1790,7 @@ mod tests {
     #[test]
     fn a_far_off_network_style_fix_is_dropped_even_on_the_target() {
         let (mut g, id, p0) = start_near_a_quest();
-        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| crate::fog::anchor(&a.target)).unwrap();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| anchor(&a.target)).unwrap();
         let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(target, 1003) }, None);
         assert!(ev.is_empty() && !g.done.contains(&id), "a 200 m jump in 3 s is a bad fix and must not complete the quest");
         assert_eq!(g.last_pos(), Some(p0), "the last good position is kept");
@@ -1798,7 +1799,7 @@ mod tests {
     #[test]
     fn walking_to_the_target_still_completes_after_an_outlier() {
         let (mut g, id, _) = start_near_a_quest();
-        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| crate::fog::anchor(&a.target)).unwrap();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| anchor(&a.target)).unwrap();
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(target, 1003) }, None); // dropped
         let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(target, 1100) }, None); // 200 m in 100 s: a brisk walk
         assert!(ev.iter().any(|e| matches!(e, Event::QuestDone { location_id, .. } if *location_id == id)));
@@ -1817,7 +1818,7 @@ mod tests {
     #[test]
     fn fixes_worse_than_35_m_are_ignored() {
         let (mut g, id, _) = start_near_a_quest();
-        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| crate::fog::anchor(&a.target)).unwrap();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| anchor(&a.target)).unwrap();
         let ev = g.on_fix(Fix { accuracy_m: 40.0, ..fixat(target, 2000) }, None);
         assert!(ev.is_empty() && !g.done.contains(&id));
     }
@@ -1867,7 +1868,7 @@ mod tests {
     #[test]
     fn near_a_quest_the_reason_it_does_or_does_not_count_is_explained() {
         let (mut g, id, p0) = start_near_a_quest();
-        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| crate::fog::anchor(&a.target)).unwrap();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| anchor(&a.target)).unwrap();
         let near = |g: &Game, p: Point, acc: f64| g.explain_near(&Fix { accuracy_m: acc, ..fixat(p, 1000) }, 100.0).into_iter().find(|n| n.location_id == id);
         assert!(near(&g, p0, 5.0).is_none(), "200 m away is not near");
         let nm = near(&g, destination(target, 0.0, 70.0), 5.0).expect("70 m away is near");

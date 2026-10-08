@@ -69,6 +69,7 @@ pub fn tiles_for(zone: &Zone) -> Vec<Tile> {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_sign_loss)] // test code: test fixtures use small, known-positive numbers
 mod tests {
     use super::*;
     use crate::geo::destination;

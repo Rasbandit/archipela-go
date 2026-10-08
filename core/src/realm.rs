@@ -320,6 +320,7 @@ impl RealmStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::assert_is_empty, clippy::many_single_char_names)] // test code: `is_empty()` reads better in assertions than comparing with a typed empty array; short names for points and coordinates in test fixtures
 mod tests {
     use super::*;
 
@@ -425,16 +426,16 @@ mod tests {
         use crate::marks::Mark;
         let store = RealmStore::new(tmp("marks"));
         store.save(&realm("a")).unwrap();
-        assert_eq!(store.marks("a"), crate::marks::Marks::default());
+        assert_eq!(store.marks("a"), Marks::default());
         let mut m = store.marks("a");
         m.set("n1", Mark::Favorite);
         m.set("n2", Mark::Banned);
         store.save_marks("a", &m).unwrap();
         let back = store.marks("a");
         assert_eq!((back.get("n1"), back.get("n2"), back.get("n3")), (Mark::Favorite, Mark::Banned, Mark::None));
-        assert_eq!(store.marks("b"), crate::marks::Marks::default(), "another realm is untouched");
+        assert_eq!(store.marks("b"), Marks::default(), "another realm is untouched");
         store.delete("a").unwrap();
-        assert_eq!(store.marks("a"), crate::marks::Marks::default(), "deleting a realm deletes its marks");
+        assert_eq!(store.marks("a"), Marks::default(), "deleting a realm deletes its marks");
     }
 
     #[test]

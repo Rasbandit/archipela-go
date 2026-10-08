@@ -79,6 +79,7 @@ impl Fog {
 }
 
 #[cfg(test)]
+#[allow(clippy::assert_is_empty)] // test code: `is_empty()` reads better in assertions than comparing with a typed empty array
 mod tests {
     use super::*;
     use crate::catalog::Mode;
@@ -92,8 +93,8 @@ mod tests {
             family: "reach".into(),
             kind_id: "k".into(),
             quest_name: "q".into(),
-            blurb: "".into(),
-            place: "".into(),
+            blurb: String::new(),
+            place: String::new(),
             tier: 1,
             effort_min: 5.0,
             target,
@@ -109,7 +110,7 @@ mod tests {
         let far = quest(2, Target::Point { p: destination(home, 0.0, 2000.0), r: 40.0 });
         let steps = quest(3, Target::Steps { n: 100 });
         let mut fog = Fog::default();
-        let found = fog.update(home, &[near.clone(), far.clone(), steps.clone()], reveal_radius(0));
+        let found = fog.update(home, &[near.clone(), far.clone(), steps], reveal_radius(0));
         assert_eq!(found, vec![1, 3], "the far quest stays hidden; sensor quests are always visible");
         assert!(fog.is_visible(true, 1) && !fog.is_visible(true, 2) && fog.is_visible(false, 2));
         let found2 = fog.update(destination(home, 0.0, 1900.0), &[near, far], reveal_radius(0));

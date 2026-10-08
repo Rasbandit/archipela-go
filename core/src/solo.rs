@@ -452,6 +452,7 @@ pub fn is_beatable(g: &SoloGame) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // test code: test fixtures use small numbers; test fixtures use small, known-positive numbers
 mod tests {
     use super::*;
 
@@ -514,7 +515,7 @@ mod tests {
         assert_eq!(g.slot.trips.len(), 100);
         assert!(g.slot.boss.is_some());
         let mut ids: Vec<i64> = g.slot.all_quests().iter().map(|q| q.location_id).collect();
-        ids.sort();
+        ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), 101);
         for q in &g.slot.trips {
