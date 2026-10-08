@@ -55,7 +55,7 @@ Repeatable testing without a phone: `scripts/emu.sh create|start|stop`, `just em
 - Phone: Developer options -> Wireless debugging -> `adb pair ip:port` (code) then it appears in `adb devices`. A charge-only USB cable shows nothing in `lsusb`.
 
 ## Versions that worked (Oct 2026)
-AGP 9.4.1, Gradle 9.8.0, Kotlin 2.4.20, Compose BOM 2026.09.00, UniFFI 0.32.2, cargo-ndk 4.1.2, JNA 5.19.1 (aar), minSdk 26, compileSdk 37, targetSdk 36.
+AGP 9.4.1, Gradle 9.8.1, Kotlin 2.4.20, Compose BOM 2026.09.00, UniFFI 0.32.2, cargo-ndk 4.1.2, JNA 5.19.1 (aar), minSdk 26, compileSdk 37, targetSdk 36.
 
 ## Gotchas hit
 - Compose BOM 2026.09 requires `compileSdk = 37` (AAR metadata check fails otherwise).

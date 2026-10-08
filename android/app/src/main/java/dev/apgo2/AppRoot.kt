@@ -139,18 +139,20 @@ private fun ScanAskDialog(m: AppModel) {
 // The Archipelago YAML that was just exported, with a Copy button.
 @Composable
 private fun YamlDialog(m: AppModel) {
-    val yaml = m.yamlText ?: return
     val clip = LocalClipboard.current
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope() // before the early return: the dialog (and this scope) must outlive the copy
+    val yaml = m.yamlText ?: return
     AlertDialog(
         onDismissRequest = { m.yamlText = null },
         title = { Text("Archipelago YAML") },
         text = { Text(yaml, fontSize = 11.sp, modifier = Modifier.verticalScroll(rememberScrollState())) },
         confirmButton = {
             TextButton(onClick = {
-                scope.launch { clip.setClipEntry(ClipEntry(ClipData.newPlainText("Archipelago YAML", yaml))) }
-                m.status = "YAML copied"
-                m.yamlText = null
+                scope.launch {
+                    clip.setClipEntry(ClipEntry(ClipData.newPlainText("Archipelago YAML", yaml)))
+                    m.status = "YAML copied"
+                    m.yamlText = null
+                }
             }) { Text("Copy") }
         },
         dismissButton = { TextButton(onClick = { m.yamlText = null }) { Text("Close") } },
