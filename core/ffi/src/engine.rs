@@ -1007,7 +1007,7 @@ impl Engine {
     ///
     /// # Errors
     /// Returns an error if the options are invalid, a realm is missing or not scanned, or the game cannot be saved.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // pre-existing: flat argument lists keep the exported/geometry call sites explicit
     pub fn start_solo(
         &self,
         game_id: String,
@@ -1055,7 +1055,7 @@ impl Engine {
     ///
     /// # Errors
     /// Returns an error if the `slot_data` is invalid, a realm is missing or not scanned, or the game cannot be saved.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // pre-existing: flat argument lists keep the exported/geometry call sites explicit
     pub fn start_archipelago(
         &self,
         game_id: String,

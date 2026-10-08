@@ -282,7 +282,7 @@ fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point, want: f64) -> 
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // pre-existing: flat argument lists keep the exported/geometry call sites explicit
 #[allow(clippy::many_single_char_names)] // short names for zone/pool/params mirror the geometry vocabulary used across this module
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // counts are rounded then clamped to a small range before the cast
 fn free_candidate(
