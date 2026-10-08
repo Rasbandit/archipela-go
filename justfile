@@ -28,14 +28,18 @@ spell:
 secrets:
     gitleaks detect --no-banner
 
-check: lint typecheck test spell core-check
+check: lint typecheck test spell check-rust
 
 build:
     bash scripts/build_apworld.sh
 
-# Rust core: format, lint and test
-core-check:
-    cd core && cargo fmt --all --check && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings && cargo test -p apgo-core -q
+# Rust core: format, lint, docs, supply chain, tests
+check-rust:
+    cd core && cargo fmt --all --check
+    cd core && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings
+    cd core && RUSTDOCFLAGS="-D warnings" cargo doc -p apgo-core -p apgo-ffi --no-deps -q
+    cd core && cargo deny check
+    cd core && cargo test -p apgo-core -p apgo-ffi -q
 
 # --- Android dev loop (phone paired over adb) ---
 export JAVA_HOME := "/usr/lib/jvm/java-25-openjdk"

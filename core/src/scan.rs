@@ -317,7 +317,7 @@ pub fn stitch(ways: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
 /// Largest gap bridged when joining the pieces of one trail or staircase.
 const LINK_M: f64 = 30.0;
 
-/// Join chains whose ends are within [`LINK_M`] of each other (a straight connector spans the gap), closest pair first.
+/// Join chains whose ends are within `LINK_M` of each other (a straight connector spans the gap), closest pair first.
 #[must_use]
 pub fn link(mut chains: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
     loop {
