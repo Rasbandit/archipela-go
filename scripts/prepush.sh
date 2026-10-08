@@ -22,20 +22,49 @@ select_recipes() {
   printf '%s\n' "$out"
 }
 
-changed_files() {
-  local base
+diff_names() {
+  git -c core.quotePath=false diff --name-only --no-renames "$1" "$2"
+}
+
+is_zero() { [[ "$1" =~ ^0+$ ]]; }
+is_commit() { git cat-file -e "$1^{commit}" 2>/dev/null; }
+
+# Fallback when git gave no refs (e.g. `lefthook run pre-push`): upstream, else merge-base with origin/main.
+fallback_files() {
+  local base files
   if base="$(git rev-parse --verify -q '@{upstream}')"; then :
   elif base="$(git merge-base HEAD origin/main 2>/dev/null)"; then :
   else echo "__ALL__"; return; fi
-  local files
-  files="$(git diff --name-only "$base" HEAD)"
-  # New branch whose upstream equals HEAD (nothing new) still pushes; check everything to be safe.
+  files="$(diff_names "$base" HEAD)"
+  # Nothing new relative to the base still pushes; check everything to be safe.
   if [ -z "$files" ] && [ "$(git rev-parse HEAD)" = "$base" ]; then echo "__ALL__"; return; fi
   printf '%s\n' "$files"
 }
 
-if [ "${1:-}" = select ]; then select_recipes; exit; fi
-recipes="$(changed_files | select_recipes)"
+# stdin: git pre-push lines "<local ref> <local sha> <remote ref> <remote sha>" -> union of changed paths.
+pushed_files() {
+  local input lsha rsha base
+  input="$(cat)"
+  if ! printf '%s' "$input" | grep -q '[^[:space:]]'; then fallback_files; return; fi
+  while read -r _ lsha _ rsha; do
+    [ -n "$lsha" ] || continue
+    if is_zero "$lsha"; then continue; fi # remote delete: nothing pushed
+    if ! is_commit "$lsha"; then echo "__ALL__"; continue; fi # e.g. tag of a non-commit
+    if is_zero "$rsha"; then
+      base="$(git merge-base "$lsha" origin/main 2>/dev/null)" || { echo "__ALL__"; continue; }
+    elif is_commit "$rsha"; then base="$rsha"
+    else echo "__ALL__"; continue; fi
+    diff_names "$base" "$lsha"
+  done <<<"$input"
+  return 0
+}
+
+case "${1:-}" in
+  select) select_recipes; exit ;;
+  files) pushed_files; exit ;;
+esac
+# A terminal on stdin means a manual run: no refs to read.
+if [ -t 0 ]; then recipes="$(fallback_files | select_recipes)"; else recipes="$(pushed_files | select_recipes)"; fi
 echo "pre-push: just $recipes"
 # shellcheck disable=SC2086  # word-splitting is the recipe list
 exec just $recipes

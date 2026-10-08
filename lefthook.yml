@@ -21,6 +21,7 @@ pre-commit:
 pre-push:
   commands:
     checks:
+      use_stdin: true
       run: bash scripts/prepush.sh
 commit-msg:
   commands:
