@@ -8,7 +8,7 @@ them up (25 m) and banks what they carry on each arrival home; the quest is done
 
 **Architecture:** Core (Rust) gets a catalog verify type `Collect`, a target `Target::Collect`, placement from the zone's street pool
 (reusing `near_path::PathIndex` from PR #68), a tracker state that picks and banks, a persisted per-game progress map
-(`Game::collected`) and a Shuffle-trap path that moves only the unpicked items. FFI adds a `CollectOut` record on `QuestOut`;
+(`Game::collected`), a Shuffle-trap path that moves only the unpicked items, and `Game::bank_at_home` for joining home Wi-Fi. FFI adds a `CollectOut` record on `QuestOut`;
 Android draws one themed pin per unpicked item, a progress row text and an item list in the quest popup.
 
 **Tech Stack:** Rust (apgo-core, apgo-ffi, UniFFI 0.32, serde), Kotlin/Compose, MapLibre, Lucide icons 2.2.1, Python (catalog doc
@@ -17,15 +17,18 @@ generator).
 **Spec:** `docs/superpowers/specs/2026-10-08-forager-collect-quest-design.md` (owner-approved 2026-10-08; edited in commit `a6c2dc4` so
 only the Shuffle trap re-places items).
 
-**Execution prerequisite:** start only after PR #68 (`fix/quest-points-near-paths`, adds `core/src/near_path.rs` and the near-a-path
-placement in `assign.rs`) is merged and this branch is rebased on `main`. PR #68 is being revised: "near a path" will measure distance to
-street segments instead of sampled points, and `PathIndex::snap_into_area` may gain a filter parameter. This plan only uses
-`PathIndex::new`, `PathIndex::near_path` and `NEAR_PATH_M` (names stay). Before Task 3, re-read the merged `core/src/near_path.rs` and
-`core/src/assign.rs` and check every signature this plan quotes (`PathIndex::new(&[Point])`, `near_path(Point) -> bool`,
-`street_pool(&ZoneCtx, SurfacePref) -> Vec<Point>`, `free_candidate(..)`, `one(..)`, `ZonePaths`, the `must_reach` and `gap_to_street`
-test helpers); if `snap_into_area` or any of these changed, adapt the code in Tasks 3 and 4 to the merged names before writing it. The
-player's Reroll button is being removed in a separate PR: this plan has no player-reroll UI or tests; `Game::reroll` and `Engine::reroll`
-remain the Shuffle trap's path.
+**Execution prerequisite:** start only after PR #68 (`fix/quest-points-near-paths`) is merged and this branch is rebased on `main`.
+PR #68 grew while under review: `PathIndex::with_segments`, `within`, `nearest_on_path`, `snap_into_area_where`, `share_near`;
+`Atlas::street_runs`, `rough_runs`, `street_links(rough)`; `verify::LINE_SAMPLE_M`; and `ZonePaths::new(z, p: &AssignParams)` builds
+its index as `PathIndex::with_segments(&pool, &links)` from `street_links(false)` plus `street_links(true)` when `uses_rough(z, surface)`.
+"Near a path" now means within `NEAR_PATH_M` of a street segment, not only of a sample. Forager placement uses that segment-aware index
+(`near_path` / `within`), built the same way through a helper that Task 3 extracts from `ZonePaths::new`. This plan was checked against
+`git show origin/fix/quest-points-near-paths:core/src/assign.rs` at `2772649`; before Task 3, check it again against merged `main`
+(`street_pool`, `uses_rough`, `ZonePaths::new`, `free_candidate`, `one`, `anchor`, and the test helpers `realm`, `atlas`, `params`,
+`slot`, `at`, `must_reach`, `gap_to_paths`) and adapt names that changed before writing code. The player's Reroll button is being
+removed in a separate PR: this plan has no player-reroll UI or tests; `Game::reroll` and `Engine::reroll` remain the Shuffle trap's path.
+
+**Execution method:** subagent-driven (owner's choice).
 
 ## Global Constraints
 
@@ -34,9 +37,12 @@ remain the Shuffle trap's path.
 - Every item lies within 30 m (`NEAR_PATH_M`) of a road or path, at least 60 m from every other item, inside the zone; placed from
   `atlas.streets` and `streets_rough` (via `street_pool`), never from a grid. Check spacing and min distance from home on the FINAL points.
 - Pool too small for `2 * need` items: no forager in that slot (another courier kind is used).
-- Banking: on each accepted fix within the home radius (`HOME_RADIUS_M`, 100 m, the one round trips use), `banked += carried`,
-  `carried = 0`. Done when `banked >= need`. Progress `min(1, (banked + 0.5 * carried) / need)`.
-- Inaccurate fixes, impossible jumps, counting off (home Wi-Fi, car) and a Freeze trap that blocks checks: no pickups, no banking.
+- Banking: on each accepted fix within the home radius (`HOME_RADIUS_M`, 100 m, the one round trips use), and when the phone joins home
+  Wi-Fi (presence enters `AtHome`, even with no GPS fix): `banked += carried`, `carried = 0`. Done when `banked >= need`. Progress
+  `min(1, (banked + 0.5 * carried) / need)`. Home Wi-Fi banking is `Game::bank_at_home(t_ms)` / `Engine::bank_at_home(t_ms)`: every
+  forager, completes quests that reach the need, idempotent, blocked by a trap that blocks checks.
+- Inaccurate fixes, impossible jumps, counting off (home Wi-Fi, car) and a Freeze trap that blocks checks: no pickups, no fix banking.
+  Carried items are never lost while counting is off.
 - Shuffle trap: only unpicked items move; `carried`, `banked`, `need`, picked items and theme stay.
 - Title: `"Forager: bring home {need} {theme}"`; theme random per quest from a short list (flavour only).
 - No apworld, YAML or slot_data change (schema 3 stays). No CLAUDE.md edits.
@@ -51,8 +57,9 @@ remain the Shuffle trap's path.
 
 ## Review Focus
 
-1. Home Wi-Fi switches counting off at home, so the arrival fix may never be accepted: carried items must be kept and bank on the first
-   accepted fix inside the home radius (for example when leaving on the next walk). Test: Task 5 step 1, `carried_items_wait_out_home_wifi_and_bank_on_the_next_accepted_home_fix`.
+1. Walking home onto home Wi-Fi switches counting off before a GPS fix inside the home radius is accepted: joining home Wi-Fi must bank
+   what is carried exactly once, a trap that blocks checks must block that bank, and carried items must never be lost while counting is
+   off. Tests: Task 5 step 1 (`carried_items_wait_out_home_wifi_and_bank_on_the_next_accepted_home_fix`), Task 7 step 1, Task 11 step 1.
 2. Fog of war hides a quest until its anchor is near, and a hidden quest's tracker is never updated: the anchor must be the item nearest
    home so the quest is revealed on the way to its first item. Test: Task 3 step 1, items sorted nearest first.
 3. An item inside or next to the home radius would be picked and banked in one fix (a free quest): every item must be at least
@@ -72,12 +79,15 @@ remain the Shuffle trap's path.
 | `core/src/catalog.rs` | modify | `Verify::Collect`, `FORAGE_THEMES`, `how()` text |
 | `core/data/quest_catalog.json` | modify | the `forager` kind |
 | `docs/context/quest-catalog.md` | regenerate | generated catalog table |
-| `core/src/assign.rs` | modify | `Target::Collect`, `goal_text`, `place_items`, `free_candidate` arm, `quest_title`, `replace_unpicked` |
+| `core/src/assign.rs` | modify | `Target::Collect`, `goal_text`, `zone_index`, `place_items`, `free_candidate` arm, `quest_title`, `replace_unpicked` |
 | `core/src/verify.rs` | modify | `HOME_RADIUS_M` (pub), `Collected`, `State::Collect`, `collect_progress`, `Tracker::with_collected`, `Tracker::collected` |
 | `core/src/fog.rs` | modify | `anchor` for `Target::Collect` |
-| `core/src/game.rs` | modify | `Game::collected` (persisted), tracker resume/sync, `QuestView::collected`, progress after load, `reach_radius`, Shuffle path in `reroll` |
+| `core/src/game.rs` | modify | `Game::collected` (persisted), tracker resume/sync, `QuestView::collected`, progress after load, `reach_radius`, Shuffle path in `reroll`, `bank_at_home` |
 | `core/examples/play_sim.rs` | modify | autoplay arm for `Target::Collect` |
-| `core/ffi/src/engine.rs` | modify | `CollectOut`, `CollectItemOut`, `QuestOut::collect`, `describe` arm, anchor = first unpicked item |
+| `core/ffi/src/engine.rs` | modify | `CollectOut`, `CollectItemOut`, `QuestOut::collect`, `describe` arm, anchor = first unpicked item, `Engine::bank_at_home` |
+| `android/app/src/main/java/dev/apgo2/presence/PresencePolicy.kt` | modify | `PresencePolicy.arrivedHome(before, after)` (pure) |
+| `android/app/src/main/java/dev/apgo2/PresenceController.kt` | modify | bank on the transition to `AtHome` |
+| `android/app/src/main/java/dev/apgo2/AppModel.kt` | modify | `AppModel.bankAtHome()` |
 | `android/app/src/main/java/dev/apgo2/ui/CollectFormat.kt` | create | pure text for the row and the item list |
 | `android/app/src/main/java/dev/apgo2/PlayDetails.kt` | modify | row text and the item list in the popup |
 | `android/app/src/main/java/dev/apgo2/ui/HelpText.kt` | modify | courier family help mentions foraging |
@@ -175,7 +185,7 @@ git commit -m "feat: add collect verify type" -m "Refs #5" -m "Co-Authored-By: C
 
 **Files:**
 
-- Modify: `core/src/assign.rs` (enum `Target`, `goal_text`, test helper `must_reach`, `goal_text_tests`)
+- Modify: `core/src/assign.rs` (enum `Target`, `goal_text`, `anchor`, test helper `must_reach`, `goal_text_tests`)
 - Modify: `core/src/verify.rs`
 - Modify: `core/src/fog.rs` (`anchor`)
 - Modify: `core/ffi/src/engine.rs` (`describe`, exhaustive match)
@@ -309,6 +319,12 @@ In `Target::goal_text`:
             Self::Collect { need, r, theme, .. } => format!("Bring home {need} {theme} (pick up within {r:.0} m)"),
 ```
 
+In the private `fn anchor(t: &Target)` of assign.rs (exhaustive after #68), add before the `Cells | Steps | Away` arm:
+
+```rust
+        Target::Collect { pts, .. } => pts.first().copied(),
+```
+
 In the `tests` module's `must_reach` helper (assign.rs), add an arm (every item must be reachable):
 
 ```rust
@@ -434,21 +450,25 @@ git commit -m "feat: track forager pickups and banking" -m "Refs #5" -m "Co-Auth
 
 ### Task 3: Place forager quests and add the kind to the catalog
 
-Re-check `core/src/near_path.rs` and `core/src/assign.rs` on merged `main` first (see the prerequisite in the header).
+Re-check `core/src/near_path.rs` and `core/src/assign.rs` on merged `main` first (see the prerequisite in the header). Placement uses the
+segment-aware `PathIndex` built exactly as `ZonePaths::new` builds it, so this task first extracts that into `zone_index`.
 
 **Files:**
 
-- Modify: `core/src/assign.rs` (`place_items`, `free_candidate`, `quest_title`, `one`, tests)
+- Modify: `core/src/assign.rs` (`zone_index`, `ZonePaths::new`, `place_items`, `free_candidate`, `quest_title`, `one`, tests)
 - Modify: `core/data/quest_catalog.json`
 - Modify: `core/src/catalog.rs` (test)
 - Regenerate: `docs/context/quest-catalog.md`
 
 **Interfaces:**
 
-- Consumes: `Verify::Collect`, `FORAGE_THEMES` (Task 1); `Target::Collect`, `HOME_RADIUS_M` (Task 2); `PathIndex::new`,
-  `PathIndex::near_path`, `NEAR_PATH_M` (#68); `street_pool`, `free_candidate`, `one` (assign.rs); `effort::{dist_for, mid, tier_for, travel_min}`.
-- Produces: `fn place_items(pool: &[Point], home: Point, min_m: f64, far_m: f64, n: usize, keep: &[Point], rng: &mut StdRng) -> Option<Vec<Point>>`
-  (private, used by Task 4); `const ITEM_SPACING_M: f64 = 60.0`; forager `Assignment`s with `kind_id == "forager"`,
+- Consumes: `Verify::Collect`, `FORAGE_THEMES` (Task 1); `Target::Collect`, `HOME_RADIUS_M` (Task 2); `PathIndex::with_segments`,
+  `PathIndex::near_path`, `NEAR_PATH_M`, `Atlas::street_links`, `uses_rough`, `street_pool`, `ZonePaths::new` (#68); `free_candidate`,
+  `one` (assign.rs); `effort::{dist_for, mid, tier_for, travel_min}`; test helpers `gap_to_paths(p, &Atlas)`, `at`, `realm`, `atlas`,
+  `params`, `slot`.
+- Produces: `fn zone_index(z: &ZoneCtx<'_>, pool: &[Point], surface: SurfacePref) -> PathIndex` and
+  `fn place_items(pool: &[Point], index: &PathIndex, home: Point, min_m: f64, far_m: f64, n: usize, keep: &[Point], rng: &mut StdRng) -> Option<Vec<Point>>`
+  (both private, used by Task 4); `const ITEM_SPACING_M: f64 = 60.0`; forager `Assignment`s with `kind_id == "forager"`,
   `quest_name == "Forager: bring home {need} {theme}"`, `place == "Around home"`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -497,7 +517,7 @@ Re-check `core/src/near_path.rs` and `core/src/assign.rs` on merged `main` first
             assert_eq!(place, "Around home");
             let floor = crate::verify::HOME_RADIUS_M + 25.0;
             for (i, q) in pts.iter().enumerate() {
-                assert!(gap_to_street(*q, &pool) <= NEAR_PATH_M + 1e-6, "item {i} is off the paths");
+                assert!(gap_to_paths(*q, &a) <= NEAR_PATH_M + 1e-6, "item {i} is off the paths");
                 assert!(pool.contains(q), "item {i} is not a street point of the zone");
                 assert!(distance_m(home(), *q) >= floor, "item {i} is {:.0} m from home", distance_m(home(), *q));
                 for o in &pts[..i] {
@@ -605,6 +625,21 @@ python3 scripts/catalog_doc.py
 - Imports: `use crate::catalog::{Catalog, Geom, Kind, Mode, Verify, FORAGE_THEMES};`,
   `use crate::effort::{cadence_steps_per_min, dist_for, mid, tier_for, travel_min};`, `use crate::num::{count_f64, round_u32};`,
   `use crate::verify::HOME_RADIUS_M;`.
+- Extract the index building out of `ZonePaths::new` (no behaviour change; `ZonePaths::new` then calls it as
+  `let index = zone_index(z, &pool, p.surface);`):
+
+```rust
+/// The segment-aware path index of zone `z` over `pool`: its street points and the streets between them (rough ones when the surface
+/// preference uses them).
+fn zone_index(z: &ZoneCtx<'_>, pool: &[Point], surface: SurfacePref) -> PathIndex {
+    let mut links = z.atlas.street_links(false);
+    if uses_rough(z, surface) {
+        links.extend(z.atlas.street_links(true));
+    }
+    PathIndex::with_segments(pool, &links)
+}
+```
+
 - After `const FAVORITE_BONUS_MIN`:
 
 ```rust
@@ -615,12 +650,12 @@ const MAX_ITEM_CANDIDATES: usize = 2000;
 
 /// `n` street points for forager items, spread outward from `home`: the k-th of them (counting from 1) about k/n of the way from `min_m`
 /// to `far_m`, each at least [`ITEM_SPACING_M`] from the others and from `keep`. The rules are checked again on the final points (near a
-/// path, at least `min_m` from home, spaced), never only on candidates. `None` when the pool cannot supply `n` such points.
-fn place_items(pool: &[Point], home: Point, min_m: f64, far_m: f64, n: usize, keep: &[Point], rng: &mut StdRng) -> Option<Vec<Point>> {
+/// street segment by `index`, at least `min_m` from home, spaced), never only on candidates. `None` when the pool cannot supply `n` such points.
+#[allow(clippy::too_many_arguments)] // like free_candidate: the zone's pool and index, home, the band and the points to keep apart from
+fn place_items(pool: &[Point], index: &PathIndex, home: Point, min_m: f64, far_m: f64, n: usize, keep: &[Point], rng: &mut StdRng) -> Option<Vec<Point>> {
     if n == 0 {
         return Some(Vec::new());
     }
-    let index = PathIndex::new(pool);
     let far_m = far_m.max(min_m + 2.0 * ITEM_SPACING_M);
     let mut ring: Vec<(Point, f64)> = pool.iter().map(|q| (*q, distance_m(home, *q))).filter(|(_, d)| (min_m..=far_m * 1.5).contains(d)).collect();
     ring.shuffle(rng);
@@ -662,7 +697,8 @@ fn quest_title(kind_name: &str, t: &Target) -> String {
             let total = usize::try_from(need.saturating_mul(*spare_factor)).ok()?;
             // Never next to home: an item there would be picked and banked in the same step.
             let min_m = p.min_distance_m.max(HOME_RADIUS_M + pick_r_m);
-            let mut pts = place_items(pool, p.home, min_m, dist_for(want / 2.0, mode), total, used_pts, rng)?;
+            let index = zone_index(z, pool, p.surface);
+            let mut pts = place_items(pool, &index, p.home, min_m, dist_for(want / 2.0, mode), total, used_pts, rng)?;
             pts.sort_by(|a, b| distance_m(p.home, *a).total_cmp(&distance_m(p.home, *b)));
             let theme = (*FORAGE_THEMES.choose(rng)?).to_string();
             let farthest = pts.last().map_or(0.0, |q| distance_m(p.home, *q));
@@ -670,7 +706,7 @@ fn quest_title(kind_name: &str, t: &Target) -> String {
         }
 ```
 
-- In `one`, after `if let Some(a) = anchor { used_pts.push(a); }`:
+- In `one`, after `if let Some(a) = anchor(&c.target) { used_pts.push(a); }`:
 
 ```rust
     if let Target::Collect { pts, .. } = &c.target {
@@ -678,8 +714,7 @@ fn quest_title(kind_name: &str, t: &Target) -> String {
     }
 ```
 
-(`Target::Collect` must also get `anchor` = `pts.first()`: add `Target::Collect { pts, .. } => pts.first().copied(),` to the `anchor`
-match in `one`; `pts[1..]` is safe because a placed forager has at least 6 items.)
+(`anchor` already returns `pts.first()` for a forager (Task 2); `pts[1..]` is safe because a placed forager has at least 6 items.)
 
 - In `one`, replace the `(kind_id, quest_name)` lines with:
 
@@ -713,7 +748,7 @@ git commit -m "feat: place forager quests" -m "Refs #5" -m "Co-Authored-By: Clau
 
 **Interfaces:**
 
-- Consumes: `place_items`, `street_pool`, `ITEM_SPACING_M` (Task 3); `Target::Collect`, `HOME_RADIUS_M` (Task 2).
+- Consumes: `zone_index`, `place_items`, `ITEM_SPACING_M` (Task 3); `street_pool` (#68); `Target::Collect`, `HOME_RADIUS_M` (Task 2).
 - Produces: `pub fn replace_unpicked(t: &Target, picked: &BTreeSet<u16>, z: &ZoneCtx<'_>, p: &AssignParams, tier: u8, rng: &mut StdRng) -> Option<Target>`.
 
 - [ ] **Step 1: Write the failing tests** (assign.rs `mod tests`)
@@ -778,7 +813,10 @@ pub fn replace_unpicked(t: &Target, picked: &BTreeSet<u16>, z: &ZoneCtx<'_>, p: 
     let keep: Vec<Point> = pts.iter().enumerate().filter(|(i, _)| is_picked(*i)).map(|(_, q)| *q).collect();
     let want = mid(tier, p.minutes_per_tier);
     let min_m = p.min_distance_m.max(HOME_RADIUS_M + r);
-    let mut fresh = place_items(&street_pool(z, p.surface), p.home, min_m, dist_for(want / 2.0, z.mode), pts.len() - keep.len(), &keep, rng)?.into_iter();
+    let pool = street_pool(z, p.surface);
+    let index = zone_index(z, &pool, p.surface);
+    let open = pts.len() - keep.len();
+    let mut fresh = place_items(&pool, &index, p.home, min_m, dist_for(want / 2.0, z.mode), open, &keep, rng)?.into_iter();
     let pts = pts.iter().enumerate().map(|(i, q)| if is_picked(i) { Some(*q) } else { fresh.next() }).collect::<Option<Vec<Point>>>()?;
     Some(Target::Collect { pts, need: *need, r: *r, theme: theme.clone() })
 }
@@ -1062,7 +1100,112 @@ git commit -m "feat: shuffle only unpicked forager items" -m "Refs #5" -m "Co-Au
 
 ---
 
-### Task 7: Forager items and counts over FFI
+### Task 7: Bank on joining home Wi-Fi (core)
+
+Owner decision: joining home Wi-Fi banks what is carried even with no GPS fix, because home Wi-Fi switches counting off, often
+before a fix inside the home radius is accepted.
+
+**Files:**
+
+- Modify: `core/src/game.rs`
+
+**Interfaces:**
+
+- Consumes: `Game::collected` (Task 5), `Game::complete`, `Game::zone_unlocked`, `Traps::blocks_checks`.
+- Produces: `pub fn Game::bank_at_home(&mut self, t_ms: i64) -> Vec<Event>`: for every unfinished forager in an unlocked zone,
+  `banked += carried`, `carried = 0`, drops its tracker (rebuilt from `collected` on the next fix), completes it when
+  `banked >= need`. Idempotent. Returns nothing when `self.traps.blocks_checks(self.home)` is `Some`. Not gated by `counting`
+  (counting is off at home by definition).
+
+- [ ] **Step 1: Write the failing tests** (game.rs `mod tests`, next to the Task 5 tests; reuses `forager_game`, `carried_banked`,
+  `done_ids`, `freeze`)
+
+```rust
+    #[test]
+    fn joining_home_wifi_banks_what_is_carried_once_and_completes_a_forager_at_its_need() {
+        let (mut g, pts) = forager_game();
+        g.on_fix(fixat(pts[0], 600), None);
+        g.on_fix(fixat(pts[1], 1200), None);
+        g.set_counting(false); // home Wi-Fi: no fix inside the home radius is ever accepted
+        assert!(done_ids(&g.bank_at_home(1300)).is_empty(), "2 of 3 banked, not done");
+        assert_eq!(carried_banked(&g), (0, 2));
+        assert!(g.bank_at_home(1400).is_empty());
+        assert_eq!(carried_banked(&g), (0, 2), "a second call banks nothing new");
+        g.set_counting(true);
+        g.on_fix(fixat(pts[2], 3000), None);
+        assert_eq!(carried_banked(&g), (1, 2), "the tracker carries on from the banked state");
+        g.set_counting(false);
+        assert_eq!(done_ids(&g.bank_at_home(3600)), vec![2000]);
+        assert_eq!(carried_banked(&g), (0, 3));
+        assert!(g.bank_at_home(3700).is_empty(), "a finished quest is not completed twice");
+    }
+
+    #[test]
+    fn a_trap_that_blocks_checks_blocks_banking_at_home_and_keeps_what_is_carried() {
+        let (mut g, pts) = forager_game();
+        g.on_fix(fixat(pts[0], 600), None);
+        freeze(&mut g);
+        assert!(g.bank_at_home(700).is_empty());
+        assert_eq!(carried_banked(&g), (1, 0), "still carried, nothing lost");
+        let mut plain = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        assert!(plain.bank_at_home(700).is_empty(), "a game without foragers has nothing to bank");
+    }
+```
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `cd core && cargo test -p apgo-core bank`
+Expected: compile error, no method `bank_at_home` on `Game`.
+
+- [ ] **Step 3: Implement** (`impl Game`, after `set_in_zone`)
+
+```rust
+    /// The phone joined home Wi-Fi (presence entered "at home"), with or without a GPS fix: every forager banks what it carries, and one
+    /// that reaches its need is completed. Counting is off at home, so it is not checked here; a trap that blocks checks blocks this as it
+    /// blocks banking on a fix. Calling it again banks nothing new.
+    pub fn bank_at_home(&mut self, t_ms: i64) -> Vec<Event> {
+        if self.traps.blocks_checks(self.home).is_some() {
+            return Vec::new();
+        }
+        let mut reached = Vec::new();
+        for a in &self.assignments {
+            let Target::Collect { need, .. } = &a.target else { continue };
+            if self.done.contains(&a.location_id) || !self.zone_unlocked(a.zone) {
+                continue;
+            }
+            let Some(c) = self.collected.get_mut(&a.location_id) else { continue };
+            if c.carried == 0 {
+                continue;
+            }
+            c.banked += std::mem::take(&mut c.carried);
+            if c.banked >= *need {
+                reached.push(a.location_id);
+            }
+            self.trackers.remove(&a.location_id); // rebuilt from `collected` on the next fix
+        }
+        let home = self.home;
+        reached.into_iter().flat_map(|id| self.complete(id, t_ms, Some(home))).collect()
+    }
+```
+
+(Field borrows are disjoint: `self.assignments` is read while `self.collected` and `self.trackers` are changed; `zone_unlocked`
+only reads.)
+
+- [ ] **Step 4: Run to verify they pass**
+
+Run: `cd core && cargo test -p apgo-core && cargo clippy -p apgo-core --all-targets -- -D warnings`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add core/src/game.rs
+git commit -m "feat: bank forager items on home Wi-Fi" -m "Refs #5" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 8: Forager items and counts over FFI
 
 **Files:**
 
@@ -1072,10 +1215,10 @@ git commit -m "feat: shuffle only unpicked forager items" -m "Refs #5" -m "Co-Au
 
 **Interfaces:**
 
-- Consumes: `QuestView::collected` (Task 5), `Target::Collect` (Task 2).
+- Consumes: `QuestView::collected` (Task 5), `Target::Collect` (Task 2), `Game::bank_at_home` (Task 7).
 - Produces (Kotlin, `uniffi.apgo_ffi`): `CollectItemOut(at: GeoPoint, picked: Boolean)`, `CollectOut(theme: String, need: UInt,
   carried: UInt, banked: UInt, items: List<CollectItemOut>)`, `QuestOut.collect: CollectOut?` (last field); a forager's
-  `QuestOut.anchor` is its first unpicked item; `shape == "collect"`.
+  `QuestOut.anchor` is its first unpicked item; `shape == "collect"`; `Engine.bankAtHome(tMs: Long): List<EventOut>`.
 
 - [ ] **Step 1: Write the failing test** (new `#[cfg(test)] mod tests` at the end of `core/ffi/src/engine.rs`)
 
@@ -1165,6 +1308,25 @@ In `Engine::quests`, inside the `map`:
 
 and add `collect,` at the end of the `QuestOut { .. }` literal.
 
+In the exported `impl Engine`, after `on_steps` (same shape; it saves at once because banking is progress even when nothing completes;
+its logic is unit-tested in core, Task 7):
+
+```rust
+    /// The phone joined home Wi-Fi: every forager quest banks what it carries (see `Game::bank_at_home`). Safe to call again.
+    pub fn bank_at_home(&self, t_ms: i64) -> Vec<EventOut> {
+        let Some((game_id, ev, entries)) = self.with_game(|g| {
+            let ev = g.bank_at_home(t_ms);
+            self.save_if_due(g, t_ms, true);
+            let entries = g.journal_events(&ev, t_ms, None);
+            (g.id.clone(), ev, entries)
+        }) else {
+            return Vec::new();
+        };
+        self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&game_id, e)));
+        ev.into_iter().map(ev_out).collect()
+    }
+```
+
 Kotlin fixtures: in `PlayLayoutTest.kt` and `MapGeoJsonTest.kt`, the `QuestOut(...)` calls get `collect = null,` after `chainId = ..`.
 
 - [ ] **Step 4: Run to verify it passes**
@@ -1181,7 +1343,7 @@ git commit -m "feat: expose forager items over ffi" -m "Refs #5" -m "Co-Authored
 
 ---
 
-### Task 8: Forager row text, item list and help
+### Task 9: Forager row text, item list and help
 
 **Files:**
 
@@ -1193,7 +1355,7 @@ git commit -m "feat: expose forager items over ffi" -m "Refs #5" -m "Co-Authored
 
 **Interfaces:**
 
-- Consumes: `CollectOut`, `CollectItemOut` (Task 7).
+- Consumes: `CollectOut`, `CollectItemOut` (Task 8).
 - Produces: `CollectFormat.row(c: CollectOut): String`, `CollectFormat.banked(c): String`, `CollectFormat.item(c, i: Int): String`;
   `ApgoIcons.collectible(theme: String): ImageVector`.
 
@@ -1338,7 +1500,7 @@ git commit -m "feat: show forager progress and items" -m "Refs #5" -m "Co-Author
 
 ---
 
-### Task 9: Forager item pins on the Play map
+### Task 10: Forager item pins on the Play map
 
 **Files:**
 
@@ -1351,7 +1513,7 @@ git commit -m "feat: show forager progress and items" -m "Refs #5" -m "Co-Author
 
 **Interfaces:**
 
-- Consumes: `QuestOut.collect` (Task 7), `ApgoIcons.collectible` (Task 8).
+- Consumes: `QuestOut.collect` (Task 8), `ApgoIcons.collectible` (Task 9).
 - Produces: `MarkerSpec.Item(theme: String, state: String)` with key `"item|$theme|courier|$state"`;
   `MapFeatures.questImages(quests: List<QuestOut>): Set<String>`; `QuestOut.tapPoints: List<GeoPoint>`.
 
@@ -1500,7 +1662,95 @@ git commit -m "feat: draw forager item pins" -m "Refs #5" -m "Co-Authored-By: Cl
 
 ---
 
-### Task 10: Docs, full gates and device check
+### Task 11: Bank when presence arrives home (Android)
+
+**Files:**
+
+- Modify: `android/app/src/main/java/dev/apgo2/presence/PresencePolicy.kt`
+- Modify: `android/app/src/main/java/dev/apgo2/PresenceController.kt`
+- Modify: `android/app/src/main/java/dev/apgo2/AppModel.kt`
+- Test: `android/app/src/test/java/dev/apgo2/presence/PresencePolicyTest.kt`
+
+**Interfaces:**
+
+- Consumes: `Engine.bankAtHome(tMs: Long): List<EventOut>` (Task 8), `AppModel.handle`, `AppModel.refreshPlay`, `AppModel.now`.
+- Produces: `PresencePolicy.arrivedHome(before: PresenceState, after: PresenceState): Boolean`; `AppModel.bankAtHome()`.
+
+- [ ] **Step 1: Write the failing test** (`PresencePolicyTest`, add `import org.junit.Assert.assertFalse` and
+  `import org.junit.Assert.assertTrue`)
+
+```kotlin
+    @Test fun arrivingHomeIsOnlyTheChangeIntoAtHome() {
+        assertTrue(PresencePolicy.arrivedHome(PresenceState.InZone, PresenceState.AtHome))
+        assertTrue(PresencePolicy.arrivedHome(PresenceState.OutsideZones, PresenceState.AtHome))
+        assertTrue("from the car to home", PresencePolicy.arrivedHome(PresenceState.InCar, PresenceState.AtHome))
+        assertTrue("opening a game at home", PresencePolicy.arrivedHome(PresenceState.Stopped, PresenceState.AtHome))
+        assertFalse("still home", PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.AtHome))
+        assertFalse("leaving home", PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.InZone))
+        assertFalse(PresencePolicy.arrivedHome(PresenceState.InZone, PresenceState.InCar))
+    }
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `cd android && ./gradlew :app:testDebugUnitTest --tests 'dev.apgo2.presence.PresencePolicyTest' --console=plain -q`
+Expected: compile error, `arrivedHome` unresolved.
+
+- [ ] **Step 3: Implement**
+
+`PresencePolicy` (after `decide`):
+
+```kotlin
+    /** Whether presence just arrived home (home Wi-Fi joined): the moment forager quests bank what they carry. */
+    fun arrivedHome(
+        before: PresenceState,
+        after: PresenceState,
+    ): Boolean = after == PresenceState.AtHome && before != PresenceState.AtHome
+```
+
+`AppModel` (next to `onSteps`):
+
+```kotlin
+    /** Presence arrived home (home Wi-Fi): forager quests bank what they carry, even with no GPS fix. */
+    fun bankAtHome() {
+        if (!engine.hasGame()) return
+        handle(engine.bankAtHome(now()))
+        refreshPlay(withTrace = false)
+    }
+```
+
+`PresenceController.evaluate`, after `if (d == decision) return`:
+
+```kotlin
+        val changedState = d.state != decision.state
+        val arrived = PresencePolicy.arrivedHome(decision.state, d.state)
+        decision = d
+        if (changedState) {
+            Diag.info(TAG, d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
+            if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
+        }
+        if (arrived && model.hud != null) model.bankAtHome()
+        applyLocation()
+```
+
+(Only the `arrived` lines are new; keep the rest as it is on `main`.)
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `just check-android`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add android/app/src/main/java/dev/apgo2/presence/PresencePolicy.kt android/app/src/main/java/dev/apgo2/PresenceController.kt \
+  android/app/src/main/java/dev/apgo2/AppModel.kt android/app/src/test/java/dev/apgo2/presence/PresencePolicyTest.kt
+git commit -m "feat: bank forager items on arriving home" -m "Refs #5" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 12: Docs, full gates and device check
 
 **Files:**
 
@@ -1514,7 +1764,8 @@ git commit -m "feat: draw forager item pins" -m "Refs #5" -m "Co-Authored-By: Cl
 ```markdown
 - **Forager (#5)**: courier-family kind `forager` (walk, run, bike), verify `Collect`. `2 * need` items (need 3/5/7/10 by tier, 10 above
   tier 4) are street-pool points at least 60 m apart and at least `max(min_distance_m, 125 m)` from home, spread out to the effort
-  distance (`dist_for(want / 2)`), nearest first (the fog anchor). Pickup 25 m; banking on any accepted fix within `verify::HOME_RADIUS_M`.
+  distance (`dist_for(want / 2)`), nearest first (the fog anchor). Pickup 25 m; banking on any accepted fix within `verify::HOME_RADIUS_M`,
+  and on joining home Wi-Fi (`PresenceController` calls `Engine::bank_at_home` on the change to `AtHome`).
   Progress is saved in `Game::collected` (trackers are not saved). A Shuffle trap moves only unpicked items (`assign::replace_unpicked`).
   Verified by unit tests and on the emulator; the device walk is not done yet.
 ```

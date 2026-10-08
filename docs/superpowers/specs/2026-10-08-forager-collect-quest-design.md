@@ -12,14 +12,14 @@ up, and the quest completes once enough have been brought home. It rewards wande
 | Where items come from | Points on the walkable street and path network of the zone (not OSM features) |
 | Path rule | Every item lies within 30 m of a road or path (same rule as #51 for all quest points) |
 | How many | Need N by tier: 3 / 5 / 7 / 10 for tiers 1 to 4. The map shows 2N |
-| Banking | Partial: whatever is carried is banked on each arrival home and adds to a saved total |
+| Banking | Partial: whatever is carried is banked on each arrival home (a fix within the home radius, or joining home Wi-Fi even with no GPS fix) and adds to a saved total |
 | Done when | Banked total reaches N |
 | Pickup distance | 25 m |
 | Modes | Walk, run, bike (not drive) |
 | Family | Existing `courier` family: no apworld, YAML or slot_data change |
 | Model | Each quest owns its own items (no shared inventory) |
 | Shuffle trap | Banked and carried counts are kept; only the unpicked points move |
-| Theme | Random per quest (pinecones, shells, mushrooms, acorns, ...), flavour only |
+| Theme | Random per quest (pinecones, shells, acorns, leaves, feathers, clovers, gems), flavour only |
 
 ## Catalog
 
@@ -57,6 +57,13 @@ Progress for the quest row and chain-free views: `min(1, (banked + 0.5 * carried
 Same rules as other quests: fixes that are too inaccurate or imply an impossible jump are ignored; nothing counts while
 presence has counting off (home Wi-Fi, car); a Freeze trap that blocks checks also blocks pickups and banking.
 
+Joining home Wi-Fi also banks (owner decision, 2026-10-08). Home Wi-Fi switches counting off, often before a GPS fix inside
+the home radius is accepted, so arriving home must not depend on that fix. A core entry point `Game::bank_at_home(t_ms)`
+(FFI `Engine::bank_at_home`) moves `carried` into `banked` for every forager quest, completes those that reach `need`,
+and does nothing on a second call. Android calls it when presence enters the at-home state (`PresenceController.evaluate`,
+on the change to `PresenceState.AtHome`). A trap that blocks checks blocks this bank too, as it blocks banking on a fix.
+Items carried while counting is off are never lost.
+
 ## Shuffle trap
 
 A Shuffle trap re-places only the unpicked items (new points under the same generation rules). `carried`,
@@ -83,10 +90,12 @@ Core (written first):
 - Pickup: one pickup per item, the 25 m boundary, inaccurate fixes ignored.
 - Banking: partial banking over several outings, done exactly when `banked >= need`, nothing banked away from home.
 - Counting off and Freeze trap: no pickups or banking.
+- Home Wi-Fi: joining it banks what is carried with no fix, once, completes a quest that reaches its need, and is blocked
+  by a trap that blocks checks.
 - Shuffle trap: unpicked items move, `carried` and `banked` kept, picked items do not come back.
 - Save round trip, and an old save without the new state loads.
 
-Android: a unit test for the progress text formatter. Device check: a short walk that picks up two items, banks at home,
+Android: a unit test for the progress text formatter, and one for the arrived-home transition. Device check: a short walk that picks up two items, banks at home,
 goes out again and completes the quest.
 
 ## Out of scope
