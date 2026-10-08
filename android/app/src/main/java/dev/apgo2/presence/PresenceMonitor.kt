@@ -1,0 +1,96 @@
+package dev.apgo2.presence
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+
+/** Watches the Wi-Fi network and the Bluetooth connections that decide presence. Needs location permission for Wi-Fi names and BLUETOOTH_CONNECT for devices. */
+class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit) {
+    private val main = Handler(Looper.getMainLooper())
+    private val cm = ctx.getSystemService(ConnectivityManager::class.java)
+    var currentWifi: WifiId? = null
+        private set
+
+    /** Addresses of connected Bluetooth devices; `null` while BLUETOOTH_CONNECT is not granted. */
+    var connectedCarCandidates: Set<String>? = null
+        private set
+    private val bt = mutableSetOf<String>()
+    private var started = false
+
+    private val netCallback: ConnectivityManager.NetworkCallback =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
+            override fun onCapabilitiesChanged(n: Network, caps: NetworkCapabilities) = update((caps.transportInfo as? WifiInfo)?.let { WifiId(it.ssid, it.bssid) })
+            override fun onLost(n: Network) = update(null)
+        } else object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(n: Network, caps: NetworkCapabilities) = update(legacyWifi())
+            override fun onLost(n: Network) = update(null)
+        }
+
+    @Suppress("DEPRECATION")
+    @SuppressLint("MissingPermission")
+    private fun legacyWifi(): WifiId? = ctx.applicationContext.getSystemService(WifiManager::class.java)?.connectionInfo?.let { WifiId(it.ssid, it.bssid) }
+
+    private fun update(w: WifiId?) { main.post { if (w != currentWifi) { currentWifi = w; onChange() } } }
+
+    private val btReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            val d = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java) else @Suppress("DEPRECATION") i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+            val a = d?.address ?: return
+            if (i.action == BluetoothDevice.ACTION_ACL_CONNECTED) bt.add(a) else bt.remove(a)
+            connectedCarCandidates = bt.toSet()
+            onChange()
+        }
+    }
+
+    private fun btAllowed() = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || ctx.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+
+    @SuppressLint("MissingPermission")
+    fun start() {
+        if (started) return
+        started = true
+        cm.registerNetworkCallback(NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), netCallback)
+        if (btAllowed()) {
+            val filter = IntentFilter().apply { addAction(BluetoothDevice.ACTION_ACL_CONNECTED); addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED) }
+            // The ACL broadcasts come from the system, so the receiver is exported (required on API 34+ for context-registered receivers).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ctx.registerReceiver(btReceiver, filter, Context.RECEIVER_EXPORTED) else ctx.registerReceiver(btReceiver, filter)
+            connectedCarCandidates = bt.toSet()
+            val adapter = ctx.getSystemService(BluetoothManager::class.java)?.adapter
+            for (profile in intArrayOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)) {
+                adapter?.getProfileProxy(ctx, object : BluetoothProfile.ServiceListener {
+                    override fun onServiceConnected(p: Int, proxy: BluetoothProfile) {
+                        runCatching { proxy.connectedDevices.forEach { bt.add(it.address) } }
+                        connectedCarCandidates = bt.toSet()
+                        adapter.closeProfileProxy(p, proxy)
+                        main.post(onChange)
+                    }
+                    override fun onServiceDisconnected(p: Int) {}
+                }, profile)
+            }
+        }
+    }
+
+    fun stop() {
+        if (!started) return
+        started = false
+        runCatching { cm.unregisterNetworkCallback(netCallback) }
+        runCatching { ctx.unregisterReceiver(btReceiver) }
+    }
+
+    /** The network the phone is on right now, for "Add current network". */
+    fun currentNetwork(): WifiId? = currentWifi ?: legacyWifi().takeIf { PresenceSignals.cleanSsid(it?.ssid) != null }
+}
