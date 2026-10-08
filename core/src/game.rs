@@ -573,8 +573,8 @@ impl Game {
         self.odo_anchor = None;
         self.outlier_streak = 0;
         if !on {
-            // A dwell or area timer started before a pause must not finish on the first fix after it.
-            self.trackers.clear();
+            // A dwell or away timer started before a pause must not finish on the first fix after it (progress is kept).
+            self.trackers.values_mut().for_each(Tracker::pause);
         }
     }
 
@@ -1559,6 +1559,29 @@ mod tests {
         assert!(ev.is_empty() && g.done.is_empty(), "the timer starts again after the pause: {ev:?}");
         let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 1400) }, None);
         assert_eq!(done_ids(&ev), vec![1000], "and a full dwell after the pause still counts");
+    }
+
+    #[test]
+    fn a_courier_pickup_survives_a_counting_pause() {
+        let (a, b) = (destination(home(), 0.0, 400.0), destination(home(), 90.0, 800.0));
+        let mut g = chain_game("courier", vec![Target::Courier { a, b, r: 40.0, time_limit_min: 30.0 }]);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(a, 10) }, None); // picked up
+        g.set_counting(false);
+        g.set_counting(true); // e.g. a ride in the car with Bluetooth connected
+        let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(b, 300) }, None);
+        assert_eq!(done_ids(&ev), vec![1000], "the pickup is kept: {ev:?}");
+    }
+
+    #[test]
+    fn a_round_trips_far_point_survives_a_counting_pause() {
+        let far = destination(home(), 0.0, 1500.0);
+        let mut g = chain_game("round_trip", vec![Target::RoundTrip { far, r: 50.0 }]);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(destination(home(), 0.0, 300.0), 0) }, None);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(far, 200) }, None); // reached the far point
+        g.set_counting(false);
+        g.set_counting(true);
+        let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 900) }, None);
+        assert_eq!(done_ids(&ev), vec![1000], "the far point is kept: {ev:?}");
     }
 
     #[test]

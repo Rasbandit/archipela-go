@@ -215,6 +215,17 @@ impl Tracker {
         self.status()
     }
 
+    /// Counting was switched off (car, home): forget only running timers, so what happened before the pause is not
+    /// stitched to what happens after it. Progress (a courier pickup, a round trip's far point, coverage, cells) stays;
+    /// a dwell keeps its best stretch (`best_ms` is progress) but its current stretch starts over.
+    pub fn pause(&mut self) {
+        match &mut self.state {
+            State::Dwell { since, .. } => *since = None,
+            State::Away { last_t, .. } => *last_t = None,
+            _ => {}
+        }
+    }
+
     fn dwell(inside: bool, t: i64, minutes: f64, since: &mut Option<i64>, best_ms: &mut i64, progress: &mut f32, done: &mut bool) {
         if inside {
             let s = *since.get_or_insert(t);
@@ -306,6 +317,35 @@ mod tests {
             done = t.update(&fix(destination(home(), 0.0, 20.0 * f64::from(i)), 200 + i64::from(i)), None) == Status::Done;
         }
         assert!(done);
+    }
+
+    #[test]
+    fn pause_resets_only_timing_state() {
+        let mut dwell = Tracker::new(Target::Dwell { p: home(), r: 50.0, minutes: 10.0 }, home());
+        dwell.update(&fix(home(), 0), None);
+        dwell.update(&fix(home(), 300), None);
+        dwell.pause();
+        assert_ne!(dwell.update(&fix(home(), 700), None), Status::Done, "the stretch starts again after the pause");
+        assert_eq!(dwell.update(&fix(home(), 1300), None), Status::Done);
+
+        let far = destination(home(), 0.0, 1000.0);
+        let mut away = Tracker::new(Target::Away { min_distance_m: 500.0, minutes: 10.0 }, home());
+        away.update(&fix(far, 0), None);
+        away.update(&fix(far, 60), None); // one minute counted
+        away.pause();
+        away.update(&fix(far, 100), None); // no interval spans the pause
+        assert_eq!(away.update(&fix(far, 160), None), Status::Active(0.2), "only 1 + 1 minutes");
+
+        let (a, b) = (destination(home(), 0.0, 400.0), destination(home(), 90.0, 800.0));
+        let mut courier = Tracker::new(Target::Courier { a, b, r: 40.0, time_limit_min: 10.0 }, home());
+        courier.update(&fix(a, 0), None);
+        courier.pause();
+        assert_eq!(courier.update(&fix(b, 100), None), Status::Done);
+
+        let mut cells = Tracker::new(Target::Cells { n: 2, cell_m: 100.0 }, home());
+        cells.update(&fix(home(), 0), None);
+        cells.pause();
+        assert_eq!(cells.update(&fix(destination(home(), 0.0, 400.0), 100), None), Status::Done, "cells seen before the pause still count");
     }
 
     #[test]
