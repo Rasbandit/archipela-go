@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use apgo_core::assign::SurfacePref;
 use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Mode};
+use apgo_core::chain::ChainUnit;
 use apgo_core::game::{AwayOptions, Backend, Event, Game, NearMiss, NewGame, QuestState};
 use apgo_core::geo::{distance_m, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
@@ -227,6 +228,29 @@ pub struct GameInfo {
 }
 
 #[derive(Debug, uniffi::Record)]
+pub struct MarkOut {
+    pub at: f64,
+    pub location_id: i64,
+    pub reached: bool,
+    pub reward: Option<String>,
+}
+
+#[derive(Debug, uniffi::Record)]
+pub struct ChainOut {
+    pub id: String,
+    pub zone: u32,
+    pub kind_id: String,
+    pub name: String,
+    pub family: String,
+    /// steps | minutes | cells
+    pub unit: String,
+    pub counter: f64,
+    pub total: f64,
+    pub rule: String,
+    pub marks: Vec<MarkOut>,
+}
+
+#[derive(Debug, uniffi::Record)]
 pub struct QuestOut {
     pub location_id: i64,
     pub zone: u32,
@@ -252,6 +276,7 @@ pub struct QuestOut {
     pub boss: bool,
     pub blurb: String,
     pub reward: Option<String>,
+    pub chain_id: Option<String>,
 }
 
 #[derive(Debug, uniffi::Record)]
@@ -381,6 +406,8 @@ pub struct Engine {
     last_reject_log_ms: std::sync::atomic::AtomicI64,
     catalog: Catalog,
     game: Mutex<Option<Game>>,
+    /// Shapes of the open game's zone realms, for the "inside a zone" check on each fix.
+    zone_shapes: Mutex<Vec<Shape>>,
     /// Requests finished and in all, for the scan in progress.
     scan_done: std::sync::atomic::AtomicU32,
     scan_total: std::sync::atomic::AtomicU32,
@@ -425,6 +452,20 @@ impl Engine {
         if q.len() > 200 {
             q.remove(0);
         }
+    }
+
+    /// Make `game` the open game and remember the shapes of its zones' realms (for "inside a zone" checks).
+    fn install(&self, game: Game) {
+        let store = self.store();
+        let shapes = game.zone_realms.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect();
+        *self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner()) = shapes;
+        *self.game.lock().unwrap_or_else(|e| e.into_inner()) = Some(game);
+    }
+
+    /// Distance in metres from a point to the nearest zone area of the open game (0 inside), or `None` with no game.
+    fn zone_distance_m(&self, p: Point) -> Option<f64> {
+        let shapes = self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner());
+        shapes.iter().map(|s| s.distance_m(p)).reduce(f64::min)
     }
 
     fn game_id(&self) -> Option<String> {
@@ -500,6 +541,7 @@ impl Engine {
             last_reject_log_ms: std::sync::atomic::AtomicI64::new(i64::MIN),
             catalog: Catalog::builtin(),
             game: Mutex::new(None),
+            zone_shapes: Mutex::new(Vec::new()),
             scan_done: Default::default(),
             scan_total: Default::default(),
         })
@@ -731,6 +773,8 @@ impl Engine {
         seed: u64,
         surface: String,
         avoid_stairs: bool,
+        away_zone_only: bool,
+        away_distance_m: u32,
     ) -> Result<(), CoreError> {
         let opts = to_core(o)?;
         if zone_realms.len() != opts.zone_modes.len() {
@@ -753,13 +797,13 @@ impl Engine {
                 solo_rewards: generated.rewards,
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
-                away: AwayOptions::default(),
+                away: AwayOptions { zone_only: away_zone_only, custom_m: (away_distance_m > 0).then_some(f64::from(away_distance_m)) },
             },
             &self.catalog,
         )
         .map_err(err)?;
         game.save(&self.dir).map_err(err)?;
-        *self.game.lock().unwrap_or_else(|e| e.into_inner()) = Some(game);
+        self.install(game);
         Ok(())
     }
 
@@ -774,6 +818,8 @@ impl Engine {
         seed: u64,
         surface: String,
         avoid_stairs: bool,
+        away_zone_only: bool,
+        away_distance_m: u32,
     ) -> Result<(), CoreError> {
         let slot = SlotData::from_json(&slot_json).map_err(err)?;
         let realms = self.realm_atlases(&zone_realms)?;
@@ -792,13 +838,13 @@ impl Engine {
                 solo_rewards: Default::default(),
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
-                away: AwayOptions::default(),
+                away: AwayOptions { zone_only: away_zone_only, custom_m: (away_distance_m > 0).then_some(f64::from(away_distance_m)) },
             },
             &self.catalog,
         )
         .map_err(err)?;
         game.save(&self.dir).map_err(err)?;
-        *self.game.lock().unwrap_or_else(|e| e.into_inner()) = Some(game);
+        self.install(game);
         Ok(())
     }
 
@@ -813,7 +859,7 @@ impl Engine {
 
     pub fn open_game(&self, id: String) -> Result<(), CoreError> {
         let g = Game::load(&self.dir, &id).map_err(err)?;
-        *self.game.lock().unwrap_or_else(|e| e.into_inner()) = Some(g);
+        self.install(g);
         Ok(())
     }
 
@@ -878,6 +924,7 @@ impl Engine {
                         boss: q.boss,
                         blurb: q.blurb,
                         reward: q.reward,
+                        chain_id: q.chain_id,
                     }
                 })
                 .collect()
@@ -944,8 +991,10 @@ impl Engine {
         let dir = self.dir.clone();
         let fix = Fix { lat, lon, t_ms, accuracy_m };
         let at = Some((lat, lon));
+        let inside = self.zone_distance_m(Point::new(lat, lon)).is_none_or(|d| d == 0.0);
         let Some((game_id, ev, entries, near)) = self
             .with_game(|g| {
+                g.set_in_zone(inside);
                 let ev = g.on_fix(fix, steps);
                 if !ev.is_empty() {
                     let _ = g.save(&dir);
@@ -971,6 +1020,50 @@ impl Engine {
             }
             entries.iter().try_for_each(|e| j.log(&game_id, e))
         });
+        ev.into_iter().map(ev_out).collect()
+    }
+
+    /// The progressive quests of the open game, one entry per bar.
+    pub fn chains(&self) -> Vec<ChainOut> {
+        self.with_game(|g| {
+            g.chain_views()
+                .into_iter()
+                .map(|c| ChainOut {
+                    id: c.id,
+                    zone: c.zone,
+                    kind_id: c.kind_id,
+                    name: c.name,
+                    family: c.family,
+                    unit: match c.unit {
+                        ChainUnit::Steps => "steps",
+                        ChainUnit::Minutes => "minutes",
+                        ChainUnit::Cells => "cells",
+                    }
+                    .into(),
+                    counter: c.counter,
+                    total: c.total,
+                    rule: c.rule,
+                    marks: c.marks.into_iter().map(|m| MarkOut { at: m.at, location_id: m.location_id, reached: m.reached, reward: m.reward }).collect(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    /// A step-counter reading from the phone (cumulative since boot). Only counts while a game is open.
+    pub fn on_steps(&self, total: i64, t_ms: i64) -> Vec<EventOut> {
+        let dir = self.dir.clone();
+        let Some((game_id, ev, entries)) = self.with_game(|g| {
+            let ev = g.on_steps(total, t_ms);
+            if !ev.is_empty() {
+                let _ = g.save(&dir);
+            }
+            let entries = g.journal_events(&ev, t_ms, None);
+            (g.id.clone(), ev, entries)
+        }) else {
+            return Vec::new();
+        };
+        self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&game_id, e)));
         ev.into_iter().map(ev_out).collect()
     }
 
