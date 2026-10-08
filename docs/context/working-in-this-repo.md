@@ -23,7 +23,7 @@ owner: never switch branches or edit files there. A `git switch` by one session 
   uniffi bindings itself; Gradle finds the SDK through `ANDROID_HOME` (the justfile exports it).
 - Shared across worktrees: branches, hooks and the stash stack. Never use a bare `git stash`/`git stash pop` (you can pop another
   session's entry); use a WIP commit. A branch can be checked out in only one worktree at a time.
-- Git hooks export `GIT_DIR` (and in a worktree it points at the real repo). Any script or test that builds a scratch repo must
+- Git hooks export `GIT_DIR` (pointing at the real repo, in any checkout). Any script or test that builds a scratch repo must
   start with `unset $(git rev-parse --local-env-vars)`, or its `git init`/`commit` lands in the real repo: on 2026-10-08 a
   pre-push run committed test fixtures onto a pushed branch and set `core.bare=true` for every checkout.
   `scripts/tests/git_env_test.sh` (in `check-hygiene`) catches this for every `*_test.sh`.
