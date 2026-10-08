@@ -6,6 +6,7 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
+use crate::game::Event;
 use crate::geo::{distance_m, Point};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +26,23 @@ pub struct JournalEvent {
     pub kind: String,
     pub detail: String,
     pub at: Option<(f64, f64)>,
+}
+
+impl JournalEvent {
+    pub fn from_game_event(e: &Event, t_ms: i64, at: Option<(f64, f64)>) -> JournalEvent {
+        let (kind, detail) = match e {
+            Event::QuestDone { name, .. } => (kind::QUEST_DONE, name.clone()),
+            Event::SendCheck { location_id } => (kind::CHECK_SENT, location_id.to_string()),
+            Event::Reward { item, .. } => (kind::REWARD, item.clone()),
+            Event::ZoneUnlocked { zone } => (kind::ZONE_UNLOCKED, zone.to_string()),
+            Event::Trap { item, message } => (kind::TRAP, format!("{item}: {message}")),
+            Event::ShuffleRequested => (kind::INFO, "Shuffle requested".to_string()),
+            Event::Discovered { location_id } => (kind::DISCOVERED, location_id.to_string()),
+            Event::GoalAchieved { label } => (kind::GOAL, label.clone()),
+            Event::Info { text } => (kind::INFO, text.clone()),
+        };
+        JournalEvent { t_ms, kind: kind.to_string(), detail, at }
+    }
 }
 
 pub mod kind {
@@ -169,6 +187,11 @@ impl Journal {
             .collect()
     }
 
+    /// Time of the newest event of this kind for a game.
+    pub fn last_of_kind(&self, game: &str, kind: &str) -> rusqlite::Result<Option<i64>> {
+        self.conn.query_row("SELECT MAX(t_ms) FROM events WHERE game = ?1 AND kind = ?2", (game, kind), |r| r.get(0))
+    }
+
     pub fn summary(&self, game: &str, from_ms: i64, to_ms: i64) -> rusqlite::Result<Summary> {
         let mut s = Summary { from_ms, to_ms, ..Summary::default() };
         let mut prev: Option<TrackPoint> = None;
@@ -290,6 +313,38 @@ mod tests {
         j.add_point("g", &pt(0, 40.0, -111.0)).unwrap();
         j.add_point("g", &pt(10_000_000, 41.0, -111.0)).unwrap(); // hours later, 111 km away: not walked
         assert!(j.summary("g", 0, i64::MAX).unwrap().distance_m < 1.0);
+    }
+
+    #[test]
+    fn game_events_map_to_audit_kinds() {
+        use crate::game::Event;
+        let at = Some((40.0, -111.0));
+        let cases = [
+            (Event::QuestDone { location_id: 1, name: "Easy Walk Quest #1".into() }, kind::QUEST_DONE, "Easy Walk Quest #1"),
+            (Event::SendCheck { location_id: 7 }, kind::CHECK_SENT, "7"),
+            (Event::Reward { location_id: 1, item: "Bike".into() }, kind::REWARD, "Bike"),
+            (Event::ZoneUnlocked { zone: 2 }, kind::ZONE_UNLOCKED, "2"),
+            (Event::Trap { item: "Freeze".into(), message: "Frozen".into() }, kind::TRAP, "Freeze: Frozen"),
+            (Event::Discovered { location_id: 3 }, kind::DISCOVERED, "3"),
+            (Event::GoalAchieved { label: "Win".into() }, kind::GOAL, "Win"),
+            (Event::Info { text: "hi".into() }, kind::INFO, "hi"),
+            (Event::ShuffleRequested, kind::INFO, "Shuffle requested"),
+        ];
+        for (e, k, d) in cases {
+            let got = JournalEvent::from_game_event(&e, 42, at);
+            assert_eq!((got.kind.as_str(), got.detail.as_str(), got.t_ms, got.at), (k, d, 42, at), "{e:?}");
+        }
+    }
+
+    #[test]
+    fn last_of_kind_is_the_latest_time_for_that_game() {
+        let j = Journal::open_memory().unwrap();
+        j.log("g", &ev(100, kind::APP_BACKGROUND)).unwrap();
+        j.log("g", &ev(500, kind::APP_BACKGROUND)).unwrap();
+        j.log("g", &ev(900, kind::APP_FOREGROUND)).unwrap();
+        j.log("other", &ev(999, kind::APP_BACKGROUND)).unwrap();
+        assert_eq!(j.last_of_kind("g", kind::APP_BACKGROUND).unwrap(), Some(500));
+        assert_eq!(j.last_of_kind("g", kind::TRAP).unwrap(), None);
     }
 
     #[test]

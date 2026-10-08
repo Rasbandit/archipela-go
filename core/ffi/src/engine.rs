@@ -8,12 +8,13 @@ use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Mode};
 use apgo_core::game::{Backend, Event, Game, NewGame, QuestState};
 use apgo_core::geo::{distance_m, Point};
+use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
 use apgo_core::realm::{Realm, RealmStore, Shape};
 use apgo_core::scan::{scan_realm, Atlas};
 use apgo_core::slot::SlotData;
 use apgo_core::solo::{generate, SoloOptions};
-use apgo_core::verify::Fix;
+use apgo_core::verify::{Fix, MAX_ACCURACY_M};
 use apgo_core::yaml::build_yaml;
 
 use crate::{CoreError, GeoPoint};
@@ -336,9 +337,45 @@ fn describe(t: &Target) -> (&'static str, Option<Point>, Option<Point>, f64, Vec
     }
 }
 
+/// One unbroken stretch of the trace (the line breaks where the phone was off or the app closed).
+#[derive(Debug, uniffi::Record)]
+pub struct TrackSegmentOut {
+    pub points: Vec<GeoPoint>,
+}
+
+#[derive(Debug, uniffi::Record)]
+pub struct AuditEventOut {
+    pub t_ms: i64,
+    pub kind: String,
+    pub detail: String,
+    pub at: Option<GeoPoint>,
+}
+
+#[derive(Debug, uniffi::Record)]
+pub struct KindCountOut {
+    pub kind: String,
+    pub count: u32,
+}
+
+/// "While you were out": everything recorded between two moments.
+#[derive(Debug, uniffi::Record)]
+pub struct AwayReportOut {
+    pub from_ms: i64,
+    pub to_ms: i64,
+    pub points: u32,
+    pub simulated_points: u32,
+    pub distance_m: f64,
+    pub counts: Vec<KindCountOut>,
+    pub events: Vec<AuditEventOut>,
+}
+
 #[derive(uniffi::Object)]
 pub struct Engine {
     dir: PathBuf,
+    /// Track and audit log; `None` if the file could not be opened (the game still plays, nothing is recorded).
+    journal: Option<Mutex<Journal>>,
+    /// When a rejected fix was last logged, so a bad-signal stretch is one line, not thousands.
+    last_reject_log_ms: std::sync::atomic::AtomicI64,
     catalog: Catalog,
     game: Mutex<Option<Game>>,
     /// Requests finished and in all, for the scan in progress.
@@ -353,6 +390,19 @@ impl Engine {
 
     fn cache(&self) -> PathBuf {
         self.dir.join("http-cache")
+    }
+
+    /// Run `f` on the journal if there is one; failures are reported and never interrupt play.
+    fn journal_do(&self, f: impl FnOnce(&Journal) -> rusqlite::Result<()>) {
+        if let Some(j) = &self.journal {
+            if let Err(e) = f(&j.lock().unwrap_or_else(|e| e.into_inner())) {
+                eprintln!("journal write failed: {e}");
+            }
+        }
+    }
+
+    fn game_id(&self) -> Option<String> {
+        self.with_game(|g| g.id.clone())
     }
 
     fn with_game<T>(&self, f: impl FnOnce(&mut Game) -> T) -> Option<T> {
@@ -413,7 +463,16 @@ impl Engine {
     pub fn new(dir: String) -> Arc<Self> {
         let dir = PathBuf::from(dir);
         let _ = std::fs::create_dir_all(&dir);
-        Arc::new(Self { dir, catalog: Catalog::builtin(), game: Mutex::new(None), scan_done: Default::default(), scan_total: Default::default() })
+        let journal = Journal::open(&dir.join("journal.db")).map_err(|e| eprintln!("journal unavailable: {e}")).ok().map(Mutex::new);
+        Arc::new(Self {
+            dir,
+            journal,
+            last_reject_log_ms: std::sync::atomic::AtomicI64::new(i64::MIN),
+            catalog: Catalog::builtin(),
+            game: Mutex::new(None),
+            scan_done: Default::default(),
+            scan_total: Default::default(),
+        })
     }
 
     pub fn catalog_size(&self) -> u32 {
@@ -732,6 +791,7 @@ impl Engine {
 
     pub fn delete_game(&self, id: String) -> Result<(), CoreError> {
         let _ = std::fs::remove_file(Game::path_for(&self.dir, &id));
+        self.journal_do(|j| j.clear_game(&id));
         let mut g = self.game.lock().unwrap_or_else(|e| e.into_inner());
         if g.as_ref().is_some_and(|x| x.id == id) {
             *g = None;
@@ -841,29 +901,48 @@ impl Engine {
         })
     }
 
-    pub fn on_fix(&self, lat: f64, lon: f64, t_ms: i64, accuracy_m: f64, steps: Option<i64>) -> Vec<EventOut> {
+    pub fn on_fix(&self, lat: f64, lon: f64, t_ms: i64, accuracy_m: f64, steps: Option<i64>, simulated: bool) -> Vec<EventOut> {
         let dir = self.dir.clone();
-        self.with_game(|g| {
+        let Some((game_id, ev)) = self.with_game(|g| {
             let ev = g.on_fix(Fix { lat, lon, t_ms, accuracy_m }, steps);
             if !ev.is_empty() {
                 let _ = g.save(&dir);
             }
-            ev.into_iter().map(ev_out).collect()
-        })
-        .unwrap_or_default()
+            (g.id.clone(), ev)
+        }) else {
+            return Vec::new();
+        };
+        let at = Some((lat, lon));
+        self.journal_do(|j| {
+            if accuracy_m > MAX_ACCURACY_M {
+                let last = self.last_reject_log_ms.load(std::sync::atomic::Ordering::Relaxed);
+                if t_ms.saturating_sub(last) >= 60_000 {
+                    self.last_reject_log_ms.store(t_ms, std::sync::atomic::Ordering::Relaxed);
+                    j.log(&game_id, &JournalEvent { t_ms, kind: kind::FIX_REJECTED.into(), detail: format!("accuracy {accuracy_m:.0} m"), at })?;
+                }
+            } else {
+                j.add_point(&game_id, &TrackPoint { t_ms, lat, lon, accuracy_m, simulated })?;
+            }
+            ev.iter().try_for_each(|e| j.log(&game_id, &JournalEvent::from_game_event(e, t_ms, at)))
+        });
+        ev.into_iter().map(ev_out).collect()
     }
 
     /// Archipelago: pass the full received-item name list; new items trigger unlocks/traps.
     pub fn sync_items(&self, items: Vec<String>, now_ms: i64, pos: Option<GeoPoint>) -> Vec<EventOut> {
         let dir = self.dir.clone();
-        self.with_game(|g| {
+        let Some((game_id, ev)) = self.with_game(|g| {
             let ev = g.sync_items(&items, now_ms, pos.as_ref().map(pt));
             if !ev.is_empty() {
                 let _ = g.save(&dir);
             }
-            ev.into_iter().map(ev_out).collect()
-        })
-        .unwrap_or_default()
+            (g.id.clone(), ev)
+        }) else {
+            return Vec::new();
+        };
+        let at = pos.as_ref().map(|p| (p.lat, p.lon));
+        self.journal_do(|j| ev.iter().try_for_each(|e| j.log(&game_id, &JournalEvent::from_game_event(e, now_ms, at))));
+        ev.into_iter().map(ev_out).collect()
     }
 
     pub fn mark_checked(&self, ids: Vec<i64>, now_ms: i64) {
@@ -872,6 +951,49 @@ impl Engine {
             g.mark_checked(&ids, now_ms);
             let _ = g.save(&dir);
         });
+    }
+
+    // ---------- track and audit ----------
+    /// Record that the app went to the foreground or background (the audit trail needs to know when tracking could not run).
+    pub fn log_app_state(&self, foreground: bool, t_ms: i64) {
+        let Some(id) = self.game_id() else { return };
+        let k = if foreground { kind::APP_FOREGROUND } else { kind::APP_BACKGROUND };
+        self.journal_do(|j| j.log(&id, &JournalEvent { t_ms, kind: k.into(), detail: String::new(), at: None }));
+    }
+
+    /// When the app was last sent to the background in the open game: the start of "while you were out".
+    pub fn last_background_ms(&self) -> Option<i64> {
+        let id = self.game_id()?;
+        let j = self.journal.as_ref()?.lock().unwrap_or_else(|e| e.into_inner());
+        j.last_of_kind(&id, kind::APP_BACKGROUND).ok().flatten()
+    }
+
+    /// The trace of the open game as separate lines.
+    pub fn track(&self, from_ms: i64, to_ms: i64) -> Vec<TrackSegmentOut> {
+        let (Some(id), Some(j)) = (self.game_id(), self.journal.as_ref()) else { return Vec::new() };
+        let segs = j.lock().unwrap_or_else(|e| e.into_inner()).segments(&id, from_ms, to_ms, DEFAULT_MAX_GAP_MS).unwrap_or_default();
+        segs.into_iter().map(|s| TrackSegmentOut { points: s.iter().map(|p| GeoPoint { lat: p.lat, lon: p.lon }).collect() }).collect()
+    }
+
+    /// Everything that happened in the open game between two moments.
+    pub fn away_report(&self, from_ms: i64, to_ms: i64) -> Option<AwayReportOut> {
+        let id = self.game_id()?;
+        let j = self.journal.as_ref()?.lock().unwrap_or_else(|e| e.into_inner());
+        let s = j.summary(&id, from_ms, to_ms).ok()?;
+        let events = j.events_since(&id, from_ms).ok()?;
+        Some(AwayReportOut {
+            from_ms,
+            to_ms,
+            points: s.points,
+            simulated_points: s.simulated_points,
+            distance_m: s.distance_m,
+            counts: s.by_kind.into_iter().map(|(kind, count)| KindCountOut { kind, count }).collect(),
+            events: events
+                .into_iter()
+                .filter(|e| e.t_ms <= to_ms)
+                .map(|e| AuditEventOut { t_ms: e.t_ms, kind: e.kind, detail: e.detail, at: e.at.map(|(lat, lon)| GeoPoint { lat, lon }) })
+                .collect(),
+        })
     }
 
     /// Reroll unfinished quests (all if `ids` is empty). Returns how many were re-placed.

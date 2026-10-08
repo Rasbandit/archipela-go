@@ -58,6 +58,7 @@ version = "0.0.1"
 dependencies = [
  "apgo-core",
  "archipelago_rs",
+ "rusqlite",
  "rustls",
  "serde_json",
  "uniffi",
