@@ -6,7 +6,7 @@ activityCompose = "1.13.0"
 lifecycle = "2.11.0"
 jna = "5.19.1"
 maplibre = "13.6.1"
-lucide = "1.1.0"
+lucide = "2.2.1"
 coreKtx = "1.19.1"
 junit = "4.13.2"
 spotless = "8.10.3"
@@ -29,7 +29,7 @@ maplibre = { module = "org.maplibre.gl:android-sdk", version.ref = "maplibre" }
 compose-rules-detekt = { module = "io.nlopez.compose.rules:detekt", version.ref = "composeRulesDetekt" }
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 junit = { module = "junit:junit", version.ref = "junit" }
-lucide = { module = "com.composables:icons-lucide-android", version.ref = "lucide" }
+lucide = { module = "com.composables:icons-lucide-cmp", version.ref = "lucide" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
