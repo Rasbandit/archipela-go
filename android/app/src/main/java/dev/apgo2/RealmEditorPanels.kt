@@ -52,6 +52,7 @@ import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.MarkToggle
 import dev.apgo2.ui.RealmStatsBox
 import dev.apgo2.ui.ScanFigures
+import dev.apgo2.ui.Units
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.apgo_ffi.CircleOut
@@ -63,12 +64,9 @@ import uniffi.apgo_ffi.RealmStatsOut
 internal const val HEADER_ITEMS = 3
 
 private const val MIN_CORNERS = 3
-private const val METERS_PER_KM = 1000
 private const val DETAILS_PANEL_FRACTION = 0.5f
 private const val BANNED_ALPHA = 0.5f
 private const val MAX_BUBBLE_KINDS = 2
-
-private fun distanceLabel(m: Double) = if (m < METERS_PER_KM) "${m.toInt()} m" else "%.1f km".format(m / METERS_PER_KM)
 
 // Area is just the map and a box of numbers about what is chosen.
 @Composable
@@ -276,7 +274,7 @@ private fun FindRow(
 // An unnamed find is titled by its first quest kind, so the subtitle must not repeat it.
 private fun findSubtitle(f: FindOut): String {
     val kinds = if (f.named) f.kinds.map { it.name } else listOf("unnamed") + f.kinds.drop(1).map { it.name }
-    return kinds.joinToString(", ") + " · ${distanceLabel(f.distanceM)}"
+    return kinds.joinToString(", ") + " · ${Units.distance(f.distanceM)}"
 }
 
 // The dialog to pick the realm's icon.
@@ -354,7 +352,7 @@ private fun BubbleHeader(
         Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
             Text(f.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                "${distanceLabel(f.distanceM)} from home" + if (f.named) "" else " · unnamed",
+                "${Units.distance(f.distanceM)} from home" + if (f.named) "" else " · unnamed",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

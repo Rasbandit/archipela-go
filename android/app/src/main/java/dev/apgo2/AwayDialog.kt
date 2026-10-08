@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.apgo2.ui.Units
 import uniffi.apgo_ffi.AwayReportOut
 import java.text.DateFormat
 import java.util.Date
@@ -32,7 +33,7 @@ internal fun AwayDialog(
         text = {
             Column {
                 Text(
-                    "${AwayFormat.duration(r.toMs - r.fromMs)} · ${AwayFormat.distance(r.distanceM)} · ${r.points} GPS points",
+                    "${AwayFormat.duration(r.toMs - r.fromMs)} · ${Units.distance(r.distanceM)} · ${r.points} GPS points",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (r.simulatedPoints >

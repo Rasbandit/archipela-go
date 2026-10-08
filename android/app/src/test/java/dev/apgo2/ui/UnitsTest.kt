@@ -72,6 +72,24 @@ class UnitsTest {
         assertEquals("1 km", Units.distance(1_000.0))
     }
 
+    @Test fun justUnderAKilometreRoundsUpToKilometresNotOneThousandMetres() {
+        metric()
+        assertEquals("999 m", Units.distance(999.4))
+        assertEquals("1 km", Units.distance(999.6))
+    }
+
+    @Test fun percentRoundsToAWholeNumber() {
+        assertEquals("38%", Units.percent(0.375))
+        assertEquals("0%", Units.percent(0.0))
+        assertEquals("100%", Units.percent(1.0))
+    }
+
+    @Test fun percentUsesWesternDigitsInEveryLocale() {
+        Locale.setDefault(Locale.forLanguageTag("ar-EG"))
+        assertEquals("38%", Units.percent(0.375))
+        assertEquals("1.5 km", Units.distance(1_500.0))
+    }
+
     @Test fun feetSwitchToMilesAtATenthOfAMile() {
         imperial()
         assertEquals("525 ft", Units.distance(160.0))

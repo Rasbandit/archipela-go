@@ -6,6 +6,8 @@ import kotlin.math.sin
 
 /** Metres in one degree of latitude (and of longitude at the equator). */
 internal const val METERS_PER_DEGREE = 111_195.0
+
+internal const val METERS_PER_KM = 1000
 private const val RING_POINTS = 48
 private const val DEGREES_PER_RING_POINT = 360.0 / RING_POINTS
 

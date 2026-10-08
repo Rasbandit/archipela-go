@@ -1,10 +1,12 @@
 package dev.apgo2.ui
 
 import java.util.Locale
+import kotlin.math.roundToLong
 
 /**
  * Distances and areas in the units the player's region uses: miles in the US, UK and a few others, kilometres elsewhere.
- * Numbers are always formatted with Locale.US (a decimal point), whatever the phone's locale.
+ * Numbers are always formatted with Locale.US (a decimal point, Western digits), whatever the phone's locale: this is the
+ * app's one number-locale policy, so every distance and percentage the player sees goes through here.
  */
 internal object Units {
     private const val M_PER_MILE = 1609.344
@@ -14,6 +16,7 @@ internal object Units {
     private const val SHORT_MILE_FRACTION = 0.1
     private const val HUNDREDS = 100
     private const val TENS = 10
+    private const val PERCENT = 100
     private val imperialCountries = setOf("US", "GB", "LR", "MM")
 
     private fun imperial() = Locale.getDefault().country in imperialCountries
@@ -43,8 +46,13 @@ internal object Units {
                 "${short(m / M_PER_MILE)} mi"
             }
         } else {
-            if (m < M_PER_KM) "${fmt("%.0f", m)} m" else "${short(m / M_PER_KM)} km"
+            // Switch on the rounded value, or 999.6 m would read "1000 m".
+            val whole = m.roundToLong()
+            if (whole < M_PER_KM) "$whole m" else "${short(m / M_PER_KM)} km"
         }
+
+    /** A share in 0..1 as a whole percentage, e.g. "38%". */
+    fun percent(fraction: Double): String = "${fmt("%.0f", fraction * PERCENT)}%"
 
     fun area(m2: Double): String = if (imperial()) "${trim(m2 / (M_PER_MILE * M_PER_MILE))} mi²" else "${trim(m2 / M2_PER_KM2)} km²"
 }

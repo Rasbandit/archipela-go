@@ -12,12 +12,6 @@ class AwayFormatTest {
         assertEquals("under a minute", AwayFormat.duration(-5))
     }
 
-    @Test fun distanceSwitchesToKilometres() {
-        assertEquals("850 m", AwayFormat.distance(850.4))
-        assertEquals("1.2 km", AwayFormat.distance(1234.0))
-        assertEquals("0 m", AwayFormat.distance(0.0))
-    }
-
     @Test fun kindsHaveReadableLabelsAndUnknownFallsBack() {
         assertEquals("Quests completed", AwayFormat.kindLabel("quest_done"))
         assertEquals("Bad GPS signal", AwayFormat.kindLabel("fix_rejected"))

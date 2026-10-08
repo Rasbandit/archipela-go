@@ -4,7 +4,6 @@ private const val APP_FOREGROUND = "app_foreground"
 private const val APP_BACKGROUND = "app_background"
 private const val MS_PER_MINUTE = 60_000
 private const val MINUTES_PER_HOUR = 60
-private const val METERS_PER_KM = 1000
 
 /** Plain-text pieces of the "while you were out" report. */
 internal object AwayFormat {
@@ -40,8 +39,6 @@ internal object AwayFormat {
             else -> "${min / MINUTES_PER_HOUR} h ${min % MINUTES_PER_HOUR} min"
         }
     }
-
-    fun distance(m: Double): String = if (m >= METERS_PER_KM) "%.1f km".format(m / METERS_PER_KM) else "${m.toInt()} m"
 
     fun kindLabel(kind: String): String = LABELS[kind] ?: kind
 

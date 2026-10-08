@@ -260,18 +260,20 @@ class MapFeaturesTest {
         assertNull(MapFeatures.radius(LatLng(0.0, 0.0) to 100.0, editable = false))
     }
 
-    @Test fun radiusLabelSwitchesToKilometres() {
-        Locale.setDefault(Locale.US)
+    private fun radiusLabel(r: Double) =
+        requireNotNull(MapFeatures.radius(LatLng(0.0, 0.0) to r, editable = true))
+            .label
+            .single()
+            .props()
+            .getString(MapProp.LABEL)
 
-        fun label(r: Double) =
-            requireNotNull(MapFeatures.radius(LatLng(0.0, 0.0) to r, editable = true))
-                .label
-                .single()
-                .props()
-                .getString(MapProp.LABEL)
-        assertEquals("999 m", label(999.9))
-        assertEquals("1.0 km", label(1000.0))
-        assertEquals("2.5 km", label(2500.0))
+    @Test fun radiusLabelUsesTheRegionsUnitWithADecimalPoint() {
+        Locale.setDefault(Locale.GERMANY)
+        assertEquals("999 m", radiusLabel(999.0))
+        assertEquals("1 km", radiusLabel(1000.0))
+        assertEquals("2.5 km", radiusLabel(2500.0))
+        Locale.setDefault(Locale.US)
+        assertEquals("1.5 mi", radiusLabel(1.5 * 1609.344))
     }
 
     @Test fun radiusKnobSitsOnTheRingDueEastAndTheLabelHalfway() {
