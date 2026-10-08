@@ -51,14 +51,22 @@ import dev.apgo2.ui.SetupText
 import dev.apgo2.ui.Tone
 import kotlinx.coroutines.delay
 
-/** The frame every text step shares: title, why it matters, a scrolling body, and Back / Skip / Next. */
+/**
+ * The frame every text step shares: title, why it matters, a fixed [header] (search), a list that scrolls in the space left over, a fixed [footer]
+ * (always just above the buttons and the keyboard), and Back / Skip / Next.
+ */
 @Composable
-internal fun StepPage(title: String, why: String, next: String, skip: String?, onBack: () -> Unit, onNext: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun StepPage(
+    title: String, why: String, next: String, skip: String?, onBack: () -> Unit, onNext: () -> Unit,
+    header: @Composable ColumnScope.() -> Unit = {}, footer: @Composable ColumnScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit,
+) {
     BackHandler { onBack() }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge)
-        Text(why, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(why, style = MaterialTheme.typography.bodyMedium)
+        header()
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+        footer()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("Back") }
             Spacer(Modifier.weight(1f))
@@ -111,8 +119,23 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
         title = "Home Wi-Fi · step 2 of 3",
         why = SetupText.wifiWhy,
         next = "Next", skip = if (saved.isEmpty()) "Skip, I'll do this at home" else null, onBack = onBack, onNext = onNext,
+        header = {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(query, { query = it }, Modifier.weight(1f), label = { Text("Search networks") }, singleLine = true)
+                OutlinedButton(enabled = !scanning, onClick = {
+                    if (scanner.rescan()) { scanning = true; note = null } else note = "Android limits how often Wi-Fi can be scanned. Showing the last results."
+                }) { Text(if (scanning) "Scanning…" else "Rescan") }
+            }
+            if (!m.locationPermitted) FeedbackText(SetupText.wifiNeedsLocation, Tone.Warning)
+            note?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        },
+        footer = {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(typed, { typed = it }, Modifier.weight(1f), label = { Text("Add a network by name") }, singleLine = true)
+                OutlinedButton(enabled = PresenceSignals.cleanSsid(typed) != null, onClick = { addTyped() }) { Text("Add") }
+            }
+        },
     ) {
-        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Search networks") }, singleLine = true)
         if (choices.isEmpty()) {
             Text(
                 if (query.isBlank()) SetupText.wifiNoneFound else "Nothing matches \"$query\".",
@@ -128,15 +151,6 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
                     tag?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
-        }
-        if (!m.locationPermitted) FeedbackText(SetupText.wifiNeedsLocation, Tone.Warning)
-        note?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        OutlinedButton(enabled = !scanning, onClick = {
-            if (scanner.rescan()) { scanning = true; note = null } else note = "Android limits how often Wi-Fi can be scanned. Showing the last results."
-        }) { Text(if (scanning) "Scanning…" else "Rescan") }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(typed, { typed = it }, Modifier.weight(1f), label = { Text("Add a network by name") }, singleLine = true)
-            OutlinedButton(enabled = PresenceSignals.cleanSsid(typed) != null, onClick = { addTyped() }) { Text("Add") }
         }
     }
 }
@@ -164,13 +178,13 @@ internal fun CarStep(m: AppModel, onBack: () -> Unit, onDone: () -> Unit) {
         title = "Car Bluetooth · step 3 of 3",
         why = SetupText.carWhy,
         next = "Finish", skip = if (car.isEmpty()) "Skip" else null, onBack = onBack, onNext = onDone,
+        header = { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Search devices") }, singleLine = true) },
     ) {
         if (!btOk) {
             OutlinedButton(onClick = { askBt.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("Allow Bluetooth to pick your car") }
             Text(SetupText.carNeedsBluetooth, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         else if (paired.isEmpty() && car.isEmpty()) Text(SetupText.carNonePaired, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Search devices") }, singleLine = true)
         CarChoices.merge(paired, car, query).forEach { d ->
             val on = car.any { it.address == d.address }
             Row(Modifier.fillMaxWidth().clickable { toggle(d, !on) }, verticalAlignment = Alignment.CenterVertically) {

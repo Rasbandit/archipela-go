@@ -140,7 +140,7 @@ fun AppRoot(m: AppModel) {
         bottomBar = {
             NavigationBar {
                 listOf("Realms", "New Game", "Play", "Activity").forEachIndexed { i, t ->
-                    NavigationBarItem(selected = m.tab == i, onClick = { m.tab = i; if (i == 0) { m.editing = null; m.pickingHome = false } }, // tapping Realms again leaves the editor
+                    NavigationBarItem(selected = m.tab == i, onClick = { m.tab = i; if (i == 0) m.editing = null }, // tapping Realms again leaves the editor
                          icon = { Icon(listOf(ApgoIcons.Realms, ApgoIcons.NewGame, ApgoIcons.Play, ApgoIcons.Activity)[i], contentDescription = t) }, label = { Text(t) })
                 }
             }
@@ -187,7 +187,6 @@ fun AppRoot(m: AppModel) {
 /** Two views: the list of realms, and a full-page map editor for a new one. */
 @Composable
 fun RealmsScreen(m: AppModel) {
-    if (m.pickingHome) { HomePicker(m, onBack = { m.pickingHome = false }); return }
     m.editing?.let { id -> RealmEditor(m, id.ifEmpty { null }) { m.editing = null } } ?: RealmList(m, onNew = { m.editing = "" }, onEdit = { m.editing = it })
 }
 
@@ -208,7 +207,7 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
     }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            HomeCard(m) { m.pickingHome = true }
+            HomeCard(m)
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Realms", style = MaterialTheme.typography.titleMedium)
                 Button(onClick = onNew) { IconLabel("New realm", ApgoIcons.Add) }
@@ -234,11 +233,11 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
 }
 
 /**
- * Where distances are measured from. It looks different from a realm on purpose (a green outline and a house), so it is never mistaken for one:
- * a small map of the spot, and a way to move it. Its button opens the setup flow.
+ * Home Base: where distances are measured from, plus the home Wi-Fi and car that pause the game. It looks different from a realm on purpose (a green
+ * outline and a house), so it is never mistaken for one. Tapping it opens the setup flow, at the first missing step when something is missing.
  */
 @Composable
-private fun HomeCard(m: AppModel, onClick: () -> Unit) {
+private fun HomeCard(m: AppModel) {
     val context = LocalContext.current
     val home = m.home?.let { LatLng(it.lat, it.lon) }
     val progress = m.setupProgress()
@@ -247,7 +246,7 @@ private fun HomeCard(m: AppModel, onClick: () -> Unit) {
         value = home?.let { runCatching { mapSnapshot(context, PreviewFrame(it, HOME_PREVIEW_ZOOM)) }.getOrNull() }
     }
     Card(
-        Modifier.fillMaxWidth().clickable(onClick = onClick),
+        Modifier.fillMaxWidth().clickable { m.openSetup(if (progress.needsAttention()) progress.nextStep() else null) },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(2.dp, ApgoPalette.home),
     ) {
@@ -255,14 +254,10 @@ private fun HomeCard(m: AppModel, onClick: () -> Unit) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(ApgoIcons.Home, contentDescription = null, tint = ApgoPalette.home, modifier = Modifier.size(26.dp))
-                    Text("Home", style = MaterialTheme.typography.titleMedium)
+                    Text(SetupText.homeBaseName, style = MaterialTheme.typography.titleMedium)
                 }
-                Text(
-                    if (home == null) "Not set yet. Tap to choose where distances are measured from." else "Distances are measured from here. Tap to move it.",
-                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text(if (home == null) SetupText.homeBaseUnset else SetupText.homeBaseCard, style = MaterialTheme.typography.bodyMedium)
                 if (progress.missingWifi) FeedbackText(SetupText.homeNeedsWifi, Tone.Warning)
-                OutlinedButton(onClick = { m.openSetup(if (progress.needsAttention()) progress.nextStep() else null) }) { Text(if (progress.needsAttention()) "Finish setup" else "Setup") }
             }
             if (home != null) HomePreview(map, Modifier.size(PREVIEW_DP.dp))
         }
@@ -306,11 +301,11 @@ private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
 }
 
 /**
- * Choose home on a map. The pin can be dragged, the map tapped to put it there, or "My location" pressed. Each placement is saved at once; the
- * confirm button closes the picker (or moves to the next setup step when used in the setup flow).
+ * Setup step 1: choose home on a map. The pin can be dragged, the map tapped to put it there, or "My location" pressed. Each placement is saved at
+ * once; Next stays disabled until home is saved.
  */
 @Composable
-internal fun HomePicker(m: AppModel, onBack: () -> Unit, onConfirm: () -> Unit = onBack, title: String = "Home", confirmLabel: String = "Done", requireHome: Boolean = false) {
+internal fun HomePicker(m: AppModel, title: String, onBack: () -> Unit, onNext: () -> Unit) {
     val start = remember { m.home?.let { LatLng(it.lat, it.lon) } ?: m.me ?: m.shownRealms.firstOrNull()?.let { r -> r.circle?.let { LatLng(it.center.lat, it.center.lon) } ?: r.polygon.firstOrNull()?.let { LatLng(it.lat, it.lon) } } }
     var pin by remember { mutableStateOf(start) }
     var saved by remember { mutableStateOf(m.home != null) }
@@ -341,7 +336,7 @@ internal fun HomePicker(m: AppModel, onBack: () -> Unit, onConfirm: () -> Unit =
             overlayTopDp = 16, overlayBottomDp = 150,
         )
         Row(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)).padding(top = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onConfirm, enabled = !requireHome || saved, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)) { IconLabel(confirmLabel, ApgoIcons.Done, 14.sp) }
+            Button(onClick = onNext, enabled = saved, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)) { IconLabel("Next", ApgoIcons.Done, 14.sp) }
         }
         if (saved) {
             Row(
@@ -356,7 +351,7 @@ internal fun HomePicker(m: AppModel, onBack: () -> Unit, onConfirm: () -> Unit =
             Text(title, style = MaterialTheme.typography.titleSmall)
             Text(
                 if (pin == null) "Tap the map to put your home there." else "Drag the pin or tap the map to move it. Distances in your games are measured from here.",
-                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
             )
             Button(onClick = { m.me?.let { place(it); focus = MapFocus(it, ++nonce) } }, enabled = m.me != null, modifier = Modifier.fillMaxWidth()) {
                 IconLabel(if (m.me == null) "Waiting for your location…" else "Use my location", ApgoIcons.Me, 14.sp)

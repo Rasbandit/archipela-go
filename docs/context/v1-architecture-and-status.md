@@ -18,7 +18,7 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 | `docs/context/` | Everything below; index in `CLAUDE.md` |
 
 ## Screens (all verified on the emulator; phone = Pixel 8 Pro over wireless adb)
-- **Realms**: Home card (green outline, house, map preview) above a Realms list. Realm cards: icon, name, finds, quest types, map-snapshot preview. Swipe to delete (confirm + Undo bar).
+- **Realms**: Home Base tile (green outline, house, map preview; tapping it opens the setup flow) above a Realms list. Realm cards: icon, name, finds, quest types, map-snapshot preview. Swipe to delete (confirm + Undo bar).
 - **Realm editor** (full-screen map, autosave, Undo/Redo, no Save/Cancel, Done button): left toolbar = Circle|Polygon pill + Details; Area shows a stats box
   (area, farthest from home, walkable, streets, trails, finds, parks, unpaved); Details shows name, icon, search, finds list with favorite/ban, callout bubbles.
 - **Home picker**: full-screen map, draggable house pin, tap to place, "Use my location".
@@ -59,7 +59,7 @@ GPS off, `counting=false`); zone Far = OutsideZones (GPS every 90 s, counting); 
 the chip on Play and writes a "Presence" activity line and a `presence` diag line on each change; heartbeat adds `presence`/`counting`, with a 60 s heartbeat and a 5 s
 re-evaluation loop. Settings (home SSIDs with optional BSSID, car device name+address) live in SharedPreferences `presence` via `PresenceSettings`, not in the core.
 Setup lives in `SetupFlow` (steps in `SetupSteps.kt`; pure helpers: `presence/SetupProgress.kt` (`SetupProgress`) and `presence/Choices.kt` (`WifiChoices`/`CarChoices`)).
-`PresenceSettings.setupDone` gates the first-run wizard; the Home card shows "Finish setup" when the wizard was never finished or home Wi-Fi is missing (a missing car never triggers it), else "Setup". The Play chip reads
+`PresenceSettings.setupDone` gates the first-run wizard; the Home Base tile has no button: tapping it opens the wizard (at the first missing step when it was never finished or home Wi-Fi is missing; a missing car never triggers that), and it shows a warning while home Wi-Fi is missing. Step 2 keeps search/Rescan at the top, the list scrolling in between, and "Add a network by name" pinned above the buttons. The Play chip reads
 "Protection off" when nothing is configured. Wi-Fi choices come from nearby scan results because Android exposes no saved-network list.
 Seeding at monitor start reads the signals for up to 3 s and trusts them at once (so a game opened at home shows "At home, paused" immediately); afterwards the
 **arrival** into AtHome/InCar is debounced 45 s (`Debouncer`) and leaving is immediate. A missing signal (no permission, Wi-Fi off) counts as "not present".

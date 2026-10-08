@@ -104,6 +104,9 @@ object Help {
 
 /** Explanatory copy of the setup wizard and its Home card nag, kept here with the rest of the app's help text. */
 object SetupText {
+    const val homeBaseName = "Home Base"
+    const val homeBaseCard = "Distances in your games are measured from here. On your home Wi-Fi the game pauses and GPS turns off; while your car is connected nothing counts. Tap to change."
+    const val homeBaseUnset = "Not set yet. Tap to choose where distances are measured from, and which Wi-Fi and car pause the game."
     const val wifiWhy = "While you are on any of these networks nothing counts and GPS turns off. That saves battery and stops cheating. Tick every network your home uses."
     const val carWhy = "While your car is connected nothing counts, so rides do not turn into pickups. Skip this if you never drive while playing."
     const val wifiNoneFound = "No networks found. Connect to your home Wi-Fi, or type its name below."
