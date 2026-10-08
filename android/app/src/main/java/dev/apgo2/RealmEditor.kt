@@ -18,7 +18,6 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -97,14 +96,10 @@ internal class RealmEditorState(
     var center by mutableStateOf(original?.circle?.let { LatLng(it.center.lat, it.center.lon) })
         private set
     var savedAt by mutableStateOf<Long?>(null) // when the realm was last written to disk
-    val finds = mutableStateListOf<FindOut>()
-    var findsVersion by mutableIntStateOf(0)
-    var selectedFind by mutableStateOf<String?>(null)
-    var focus by mutableStateOf<MapFocus?>(null)
+    val finds = EditorFinds({ m.engine.realmFinds(it) }, m.realmOps::setFindMark)
     var anchor by mutableStateOf<Offset?>(null)
     var query by mutableStateOf("")
     var filter by mutableStateOf(FindFilter.ALL)
-    var bubblePx by mutableIntStateOf(0)
     var panelPx by mutableIntStateOf(0)
     var fit by mutableStateOf<MapFit?>(null)
     private var deleted = false
@@ -175,7 +170,7 @@ internal class RealmEditorState(
         } else {
             // Back to the area: after the map settles, fit the whole shape in the view.
             fit = MapFit(shapePoints(), ++fitNonce)
-            selectedFind = null
+            finds.selected = null
         }
         tab = to
     }
@@ -298,10 +293,10 @@ internal fun RealmEditor(
         EditorMap(s, view, density)
         IconPickerDialog(s)
         ConfirmDelete(s.confirmDelete, onConfirm = s::delete, onDismiss = { s.confirmDelete = null })
-        view.visible.firstOrNull { it.id == s.selectedFind }?.let { f ->
+        view.visible.firstOrNull { it.id == s.finds.selected }?.let { f ->
             s.anchor?.let { at ->
-                FindBubble(f, at, onSize = { s.bubblePx = it.height }, onMark = { s.mark(f, it) }, onClose = {
-                    s.selectedFind =
+                FindBubble(f, at, onSize = { s.finds.bubblePx = it.height }, onMark = { s.mark(f, it) }, onClose = {
+                    s.finds.selected =
                         null
                 })
             }
@@ -325,9 +320,9 @@ private fun EditorEffects(
     DisposableEffect(s) { onDispose { s.leave() } }
     BackHandler { s.onClose() }
     LaunchedEffect(s.id, s.current?.scannedAtMs) { s.loadFinds() }
-    LaunchedEffect(s.bubblePx) { s.refocusOnBubble(density) }
-    LaunchedEffect(s.selectedFind) {
-        val fid = s.selectedFind ?: return@LaunchedEffect
+    LaunchedEffect(s.finds.bubblePx) { s.finds.refocusOnBubble(density) }
+    LaunchedEffect(s.finds.selected) {
+        val fid = s.finds.selected ?: return@LaunchedEffect
         val at = view.shown.indexOfFirst { it.id == fid }
         if (at >= 0 && listState.layoutInfo.visibleItemsInfo.none { it.key == fid }) listState.animateScrollToItem(at + HEADER_ITEMS)
     }
@@ -362,10 +357,10 @@ private fun EditorMap(
         onHandleRelease = s::commit,
         editable = editing,
         finds = view.mapFinds,
-        onFindClick = if (editing) null else { fid -> view.visible.firstOrNull { it.id == fid }?.let { s.show(it, density) } },
-        focus = s.focus,
+        onFindClick = if (editing) null else { fid -> view.visible.firstOrNull { it.id == fid }?.let { s.finds.show(it, density) } },
+        focus = s.finds.focus,
         fit = s.fit,
-        anchor = view.visible.firstOrNull { it.id == s.selectedFind }?.let { LatLng(it.at.lat, it.at.lon) },
+        anchor = view.visible.firstOrNull { it.id == s.finds.selected }?.let { LatLng(it.at.lat, it.at.lon) },
         onAnchor = { s.anchor = it },
     )
 }
@@ -413,12 +408,12 @@ private fun rememberFindsView(s: RealmEditorState): FindsView {
     val draftKey = s.m.draft.toList()
     val circleCenter = s.circleCenter
     val visible =
-        remember(s.findsVersion, s.polygon, s.radius, circleCenter, draftKey) {
-            s.finds.filter { f -> insideShape(f.at.lat, f.at.lon, s.polygon, circleCenter, s.radius.toDouble(), draftKey) }
+        remember(s.finds.version, s.polygon, s.radius, circleCenter, draftKey) {
+            s.finds.all.filter { f -> insideShape(f.at.lat, f.at.lon, s.polygon, circleCenter, s.radius.toDouble(), draftKey) }
         }
     val mapFinds =
-        remember(visible, s.selectedFind) {
-            visible.map { MapFind(it.id, LatLng(it.at.lat, it.at.lon), it.kindId, it.family, it.mark, it.id == s.selectedFind) }
+        remember(visible, s.finds.selected) {
+            visible.map { MapFind(it.id, LatLng(it.at.lat, it.at.lon), it.kindId, it.family, it.mark, it.id == s.finds.selected) }
         }
     val shown =
         remember(visible, s.query, s.filter) {

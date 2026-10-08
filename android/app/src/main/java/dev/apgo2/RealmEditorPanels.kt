@@ -171,7 +171,7 @@ private fun findsSummary(
             "No finds yet."
         }
 
-        s.findsVersion == 0 -> {
+        s.finds.version == 0 -> {
             "Loading finds…"
         }
 
@@ -235,8 +235,11 @@ private fun FindRow(
 ) {
     val density = LocalDensity.current.density
     val banned = f.mark == FindFilter.BANNED
-    val background = if (f.id == s.selectedFind) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
-    Row(Modifier.fillMaxWidth().background(background).clickable { s.show(f, density) }, verticalAlignment = Alignment.CenterVertically) {
+    val background = if (f.id == s.finds.selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
+    Row(
+        Modifier.fillMaxWidth().background(background).clickable { s.finds.show(f, density) },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Icon(
             ApgoIcons.forKind(f.kindId, f.family),
             contentDescription = null,
