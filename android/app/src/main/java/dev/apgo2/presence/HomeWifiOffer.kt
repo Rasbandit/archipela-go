@@ -18,6 +18,8 @@ internal data class OfferSignals(
     val saved: List<HomeNetwork>,
     val playing: Boolean,
     val fix: GeoFix?,
+    /** When [fix] was taken, on the same wall clock as [nowMs] (`Location.time`); `null` when unknown. */
+    val fixAtMs: Long?,
     val home: GeoFix?,
     val wifi: WifiId?,
     val muted: Set<String>,
@@ -34,18 +36,23 @@ internal object HomeWifiOffer {
     const val NEAR_HOME_M = 75.0
     const val MAX_ACCURACY_M = 50.0
     const val LATER_COOLDOWN_MS = 10 * 60 * 1000L
+    const val MAX_FIX_AGE_MS = 2 * 60 * 1000L
     private const val EARTH_RADIUS_M = 6_371_000.0
 
     /** The network to offer (SSID cleaned), or `null` when no offer should appear now. */
     fun decide(s: OfferSignals): WifiId? {
         val net = PresenceSignals.usableNetwork(s.wifi) ?: return null
+        val cooling = s.dismissedAtMs != null && s.nowMs - s.dismissedAtMs < LATER_COOLDOWN_MS
+        val ok = s.saved.isEmpty() && s.playing && !s.showing && !cooling && net.ssid !in s.muted && atHome(s)
+        return if (ok) net else null
+    }
+
+    // A fresh, accurate fix near the pin. The age check keeps out a cached last-known location (it carries its original time).
+    private fun atHome(s: OfferSignals): Boolean {
         val fix = s.fix
         val home = s.home
-        val cooling = s.dismissedAtMs != null && s.nowMs - s.dismissedAtMs < LATER_COOLDOWN_MS
-        val ok =
-            s.saved.isEmpty() && s.playing && !s.showing && !cooling && net.ssid !in s.muted &&
-                fix != null && home != null && fix.accuracyM <= MAX_ACCURACY_M && distanceM(fix, home) <= NEAR_HOME_M
-        return if (ok) net else null
+        val fresh = s.fixAtMs != null && s.nowMs - s.fixAtMs <= MAX_FIX_AGE_MS
+        return fix != null && home != null && fresh && fix.accuracyM <= MAX_ACCURACY_M && distanceM(fix, home) <= NEAR_HOME_M
     }
 
     /** Great-circle distance in metres (haversine). */

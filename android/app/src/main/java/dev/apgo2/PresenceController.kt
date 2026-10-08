@@ -131,6 +131,7 @@ internal class PresenceController(
                     saved = model.settings.homeNetworks,
                     playing = model.hud != null,
                     fix = loc?.let { GeoFix(it.latitude, it.longitude, it.accuracy.toDouble()) },
+                    fixAtMs = loc?.time?.takeIf { it > 0L }, // UTC wall clock like model.now(); 0 means unset
                     home = pin?.let { GeoFix(it.lat, it.lon, 0.0) },
                     wifi = monitor.currentWifi,
                     muted = model.settings.mutedHomeOffers,

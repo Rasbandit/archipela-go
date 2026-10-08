@@ -72,7 +72,7 @@ Setup lives in `SetupFlow` (steps in `SetupSteps.kt`; pure helpers: `presence/Se
 `presence/HomeWifiOffer.decide(OfferSignals)` offers when no home network is saved, a game is open, the last real fix is within 75 m of `realmOps.homePoint()` with
 accuracy at most 50 m, the Wi-Fi has a usable SSID that is not muted, no offer is showing and "Later" was not pressed in the last 10 minutes. `PresenceController`
 checks it in every `evaluate()` (so after each fix and each Wi-Fi change) and exposes `homeOffer`. Add saves the network (`addHome`) and re-evaluates; "Not this one"
-adds the SSID to `PresenceSettings.mutedHomeOffers` (a preferences string set, no settings UI); "Later" is an in-memory cooldown. The last fix is not checked for age.
+adds the SSID to `PresenceSettings.mutedHomeOffers` (a preferences string set, no settings UI); "Later" is an in-memory cooldown. The fix must be at most 2 min old (`Location.time` vs `model.now()`), so the cached last-known location loaded when GPS starts (it keeps its original time) cannot trigger it.
 Seeding at monitor start reads the signals for up to 3 s and trusts them at once (so a game opened at home shows "At home, paused" immediately); afterwards the
 **arrival** into AtHome/InCar is debounced 45 s (`Debouncer`) and leaving is immediate. A missing signal (no permission, Wi-Fi off) counts as "not present".
 Known limits: Bluetooth and the outside-zone duty cycle have no outdoor run yet; the SSID needs location permission; matching is by name (BSSID optional); the `gps` field in the

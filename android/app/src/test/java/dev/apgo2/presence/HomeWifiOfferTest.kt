@@ -14,6 +14,7 @@ class HomeWifiOfferTest {
             saved = emptyList(),
             playing = true,
             fix = GeoFix(home.lat, home.lon, accuracyM = 10.0),
+            fixAtMs = now,
             home = home,
             wifi = WifiId("\"HomeNet\"", "aa:bb:cc:dd:ee:01"),
             muted = emptySet(),
@@ -79,6 +80,14 @@ class HomeWifiOfferTest {
         assertNull(HomeWifiOffer.decide(base.copy(dismissedAtMs = now)))
         assertNull(HomeWifiOffer.decide(base.copy(dismissedAtMs = now - tenMin + 1)))
         assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(base.copy(dismissedAtMs = now - tenMin)))
+    }
+
+    @Test fun onlyAFixFromTheLastTwoMinutesCounts() {
+        val sec = 1000L
+        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(base.copy(fixAtMs = now - 119 * sec)))
+        assertNull(HomeWifiOffer.decide(base.copy(fixAtMs = now - 121 * sec)))
+        assertNull("a cached last-known fix from hours ago", HomeWifiOffer.decide(base.copy(fixAtMs = now - 3 * 3_600 * sec)))
+        assertNull("no timestamp", HomeWifiOffer.decide(base.copy(fixAtMs = null)))
     }
 
     @Test fun distanceIsMeasuredInMetres() {
