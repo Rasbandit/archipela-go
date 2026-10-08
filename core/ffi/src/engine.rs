@@ -475,7 +475,14 @@ impl Engine {
         let shapes = game.zone_realms.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect();
         *self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner()) = shapes;
         self.save_policy.lock().unwrap_or_else(|e| e.into_inner()).reset();
-        *self.game.lock().unwrap_or_else(|e| e.into_inner()) = Some(game);
+        let mut slot = self.game.lock().unwrap_or_else(|e| e.into_inner());
+        // Keep the outgoing game's progress (unless the new one replaces that very save).
+        if let Some(old) = slot.as_ref().filter(|old| old.id != game.id) {
+            if let Err(e) = old.save(&self.dir) {
+                self.note(format!("could not save game {} before replacing it: {e}", old.id));
+            }
+        }
+        *slot = Some(game);
     }
 
     /// Distance in metres from a point to the nearest zone area of the open game (0 inside), or `None` with no game.
