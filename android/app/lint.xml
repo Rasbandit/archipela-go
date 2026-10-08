@@ -4,10 +4,6 @@
     <issue id="NewApi">
         <ignore path="src/main/kotlin/uniffi/**" />
     </issue>
-    <!-- icons-lucide-android 2.x renames the icon API; the migration is tracked separately -->
-    <issue id="NewerVersionAvailable">
-        <ignore regexp="icons-lucide-android" />
-    </issue>
     <!-- targetSdk bump is a behaviour change; tracked separately -->
     <issue id="OldTargetApi" severity="ignore" />
 </lint>

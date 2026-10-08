@@ -26,7 +26,7 @@ import com.composables.icons.lucide.ChevronsUp
 import com.composables.icons.lucide.Church
 import com.composables.icons.lucide.Circle
 import com.composables.icons.lucide.CircleCheck
-import com.composables.icons.lucide.CircleHelp
+import com.composables.icons.lucide.CircleQuestionMark
 import com.composables.icons.lucide.Clock
 import com.composables.icons.lucide.Coffee
 import com.composables.icons.lucide.Compass
@@ -130,7 +130,7 @@ internal object ApgoIcons {
     val Redo = Lucide.Redo2
     val Finds = Lucide.ListChecks
     val Close = Lucide.X
-    val Help = Lucide.CircleHelp
+    val Help = Lucide.CircleQuestionMark
     val Remove = Lucide.Trash2
     val Check = Lucide.Check
     val Done = Lucide.Check

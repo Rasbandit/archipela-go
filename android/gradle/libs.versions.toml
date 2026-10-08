@@ -29,7 +29,7 @@ maplibre = { module = "org.maplibre.gl:android-sdk", version.ref = "maplibre" }
 compose-rules-detekt = { module = "io.nlopez.compose.rules:detekt", version.ref = "composeRulesDetekt" }
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 junit = { module = "junit:junit", version.ref = "junit" }
-lucide = { module = "com.composables:icons-lucide-android", version.ref = "lucide" }
+lucide = { module = "com.composables:icons-lucide-cmp", version.ref = "lucide" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
