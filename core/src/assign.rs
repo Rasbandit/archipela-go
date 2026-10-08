@@ -11,6 +11,7 @@ use crate::catalog::{Catalog, Geom, Kind, Mode, Verify};
 use crate::effort::{cadence_steps_per_min, mid, travel_min};
 use crate::fill::lattice;
 use crate::geo::{bearing_deg, distance_m, point_inside, polyline_len_m, Point};
+use crate::num::round_u32;
 use crate::realm::Realm;
 use crate::scan::{Atlas, Feature};
 
@@ -208,6 +209,8 @@ pub struct AssignParams {
     pub surface: SurfacePref,
     /// Whether quests with stairs are dropped.
     pub avoid_stairs: bool,
+    /// Whether progressive (chain) kinds may be placed. Off for a reroll, so a re-placed quest never joins or starts a chain.
+    pub allow_progressive: bool,
 }
 
 struct Cand {
@@ -284,7 +287,6 @@ fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point, want: f64) -> 
 
 #[allow(clippy::too_many_arguments)] // pre-existing: flat argument lists keep the exported/geometry call sites explicit
 #[allow(clippy::many_single_char_names)] // short names for zone/pool/params mirror the geometry vocabulary used across this module
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // counts are rounded then clamped to a small range before the cast
 fn free_candidate(
     k: &Kind,
     z: &ZoneCtx<'_>,
@@ -327,11 +329,11 @@ fn free_candidate(
             Some((Target::RoundTrip { far, r: 50.0 }, one_way * 2.0, "Out and back".into()))
         }
         Verify::CoverCells { cell_m, .. } => {
-            let n = ((want * mode.m_per_min() * 0.7 / cell_m).round() as u32).clamp(3, 60);
+            let n = round_u32(want * mode.m_per_min() * 0.7 / cell_m).clamp(3, 60);
             Some((Target::Cells { n, cell_m: *cell_m }, f64::from(n) * cell_m / (mode.m_per_min() * 0.7), "New map cells".into()))
         }
         Verify::Steps { .. } => {
-            let n = ((want * cadence_steps_per_min(mode)).round() as u32).clamp(500, 40_000);
+            let n = round_u32(want * cadence_steps_per_min(mode)).clamp(500, 40_000);
             Some((Target::Steps { n }, f64::from(n) / cadence_steps_per_min(mode), "Anywhere".into()))
         }
         Verify::Away { .. } => {
@@ -340,6 +342,15 @@ fn free_candidate(
         }
         _ => None,
     }
+}
+
+/// Whether kind `k` may be placed in slot `s` of zone `z`.
+fn offered(k: &Kind, s: &SlotIn, z: &ZoneCtx<'_>, p: &AssignParams) -> bool {
+    k.allows(z.mode)
+        && k.family != "boss"
+        && (s.boss || k.family == s.family)
+        && !(p.avoid_stairs && k.id == "stairmaster")
+        && (p.allow_progressive || !k.is_progressive())
 }
 
 fn one(
@@ -352,11 +363,7 @@ fn one(
     used_pts: &mut Vec<Point>,
 ) -> Assignment {
     let want = mid(s.tier, p.minutes_per_tier);
-    let kinds: Vec<&Kind> = catalog
-        .kinds
-        .iter()
-        .filter(|k| k.allows(z.mode) && k.family != "boss" && (s.boss || k.family == s.family) && !(p.avoid_stairs && k.id == "stairmaster"))
-        .collect();
+    let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| offered(k, s, z, p)).collect();
     let pool = street_pool(z, p.surface);
     let mut cands: Vec<Cand> = Vec::new();
     for k in &kinds {
@@ -532,7 +539,35 @@ mod tests {
     }
 
     fn params(seed: u64) -> AssignParams {
-        AssignParams { home: home(), minutes_per_tier: 10.0, min_distance_m: 150.0, seed, surface: SurfacePref::Any, avoid_stairs: false }
+        AssignParams {
+            home: home(),
+            minutes_per_tier: 10.0,
+            min_distance_m: 150.0,
+            seed,
+            surface: SurfacePref::Any,
+            avoid_stairs: false,
+            allow_progressive: true,
+        }
+    }
+
+    #[test]
+    fn a_kind_is_progressive_exactly_when_its_free_quest_is_a_chain_target() {
+        // Drift guard: Kind::is_progressive reads the Verify, chain membership reads the Target that free_candidate makes from it.
+        // The boss kind is only a label (the_big_one) and is never placed itself.
+        let cat = Catalog::builtin();
+        let (r, a) = (realm(Mode::Walk), atlas(&cat, false));
+        let mut checked = 0;
+        for k in cat.kinds.iter().filter(|k| k.geom == Geom::None && k.family != "boss") {
+            for mode in &k.modes {
+                let z = ZoneCtx { zone: 1, mode: *mode, realm: &r, atlas: &a };
+                let pool = street_pool(&z, SurfacePref::Any);
+                let mut rng = StdRng::seed_from_u64(1);
+                let (target, _, _) = free_candidate(k, &z, &pool, &params(1), 20.0, &mut rng, &[]).unwrap_or_else(|| panic!("{} gives no free quest", k.id));
+                assert_eq!(k.is_progressive(), crate::chain::is_chain_target(&target), "{} in {mode:?}", k.id);
+                checked += 1;
+            }
+        }
+        assert!(checked > 0);
     }
 
     fn slot(i: i64, fam: &str, tier: u8, mode: Mode) -> SlotIn {

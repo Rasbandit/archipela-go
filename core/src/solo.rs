@@ -9,7 +9,7 @@ use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::Mode;
-use crate::num::{count_i64, count_u32};
+use crate::num::{count_i64, count_u32, round_u32};
 use crate::slot::{check_goal_specs, GoalMode, GoalSpec, QuestSlot, SlotData, ZoneSlot, CURRENT_SCHEMA};
 
 /// First Archipelago id of this game; every location and item id is this plus an offset.
@@ -203,14 +203,13 @@ impl SoloOptions {
 }
 
 /// Largest-remainder split of `total` by weights (zero weights get zero).
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // each share is a non-negative floor of at most `total`
 fn split(total: u32, weights: &[u32]) -> Vec<u32> {
     let sum: u32 = weights.iter().sum();
     if sum == 0 {
         return vec![0; weights.len()];
     }
     let exact: Vec<f64> = weights.iter().map(|w| f64::from(total) * f64::from(*w) / f64::from(sum)).collect();
-    let mut out: Vec<u32> = exact.iter().map(|e| e.floor() as u32).collect();
+    let mut out: Vec<u32> = exact.iter().map(|e| round_u32(e.floor())).collect();
     let mut rem: Vec<usize> = (0..weights.len()).collect();
     rem.sort_by(|&a, &b| (exact[b] - exact[b].floor()).total_cmp(&(exact[a] - exact[a].floor())));
     for i in rem.into_iter().take((total - out.iter().sum::<u32>()) as usize) {
@@ -270,7 +269,6 @@ pub fn tool_names(o: &SoloOptions) -> Vec<&'static str> {
 /// # Errors
 /// Returns a message if `o` is invalid (see [`validate`]) or there are too few quests to hold the keys and tools.
 #[allow(clippy::too_many_lines)] // one linear pipeline; splitting it would scatter the RNG draw order that keeps seeds reproducible
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // share counts are floored non-negative values bounded by the location count
 pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     validate(o)?;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -345,7 +343,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     let mut free = i64::from(total_locs) - count_i64(unlock.len()) - count_i64(letters.len());
     let mut other: Vec<String> = Vec::new();
     let add_useful = |name: &str, share_pct: u32, min: u32, free: &mut i64, other: &mut Vec<String>| {
-        let want = ((f64::from(total_locs) * f64::from(share_pct) / 100.0).floor() as u32).max(min).min((*free).max(0) as u32);
+        let want = round_u32((f64::from(total_locs) * f64::from(share_pct) / 100.0).floor()).max(min).min(u32::try_from((*free).max(0)).unwrap_or(u32::MAX));
         other.extend(std::iter::repeat_n(name.to_string(), want as usize));
         *free -= i64::from(want);
     };
@@ -358,7 +356,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     if o.enable_collection {
         add_useful("Progressive Collection Distance", 5, 3, &mut free, &mut other);
     }
-    let free = free.max(0) as u32;
+    let free = u32::try_from(free.max(0)).unwrap_or(u32::MAX);
     let mut trap_names: Vec<String> = Vec::new();
     for t in &o.enabled_traps {
         if t == "honor" {

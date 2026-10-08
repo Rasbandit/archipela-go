@@ -46,6 +46,7 @@ check-hygiene: spell secrets
     markdownlint-cli2 "**/*.md" "#**/node_modules" "#.ap" "#core/vendor" "#core/target"
     bash scripts/tests/prepush_test.sh
     bash scripts/tests/git_env_test.sh
+    bash scripts/tests/java_home_test.sh
 
 check: check-hygiene check-py check-rust check-android
 
@@ -61,7 +62,7 @@ check-rust:
     cd core && cargo llvm-cov -p apgo-core -p apgo-ffi --fail-under-lines 80
 
 # --- Android dev loop (phone paired over adb) ---
-export JAVA_HOME := env("JAVA_HOME", "/usr/lib/jvm/java-25-openjdk")
+export JAVA_HOME := shell('bash "$1"', justfile_directory() / "scripts/java_home.sh")
 export ANDROID_HOME := env("ANDROID_HOME", env("HOME") + "/Android/Sdk")
 export PATH := env("HOME") + "/.cargo/bin:" + env("PATH")
 apk := "android/app/build/outputs/apk/debug/app-debug.apk"

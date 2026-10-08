@@ -17,7 +17,7 @@ use crate::geo::{distance_m, Point};
 use crate::goal::{evaluate, evaluate_each, GoalCtx, GoalStatus};
 use crate::journal::JournalEvent;
 use crate::num::{count_f64, count_u32, i64_to_f64, to_f32};
-use crate::realm::Realm;
+use crate::realm::{Realm, Shape};
 use crate::scan::Atlas;
 use crate::slot::GoalSpec;
 use crate::slot::SlotData;
@@ -217,7 +217,7 @@ pub struct Stats {
     pub quest_days: BTreeSet<i64>,
 }
 
-/// Distance from home for time-away chains when nothing better is known (old saves).
+/// Distance from home for time-away chains when nothing better is known (an old save whose realm is gone).
 pub const DEFAULT_AWAY_M: f64 = 1000.0;
 const AUTO_AWAY_SHARE: f64 = 0.4;
 const AUTO_AWAY_MIN_M: f64 = 300.0;
@@ -343,6 +343,9 @@ pub struct Game {
     trackers: BTreeMap<i64, Tracker>,
     #[serde(skip)]
     last_fix: Option<Fix>,
+    /// When each zone last unlocked in this session, so time away before it is not credited (a loaded game counts its open zones from the first fix).
+    #[serde(skip)]
+    unlocked_at: BTreeMap<u32, i64>,
     #[serde(skip_serializing, default = "yes")]
     in_zone: bool,
     #[serde(skip)]
@@ -452,6 +455,7 @@ impl Game {
             seed: n.seed,
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
+            allow_progressive: true,
         };
         let assignments = assign(&slots_in(&n.slot, None), &zones, catalog, &params);
         let pool: Vec<Point> =
@@ -482,6 +486,7 @@ impl Game {
             counters: Counters::default(),
             trackers: BTreeMap::new(),
             last_fix: None,
+            unlocked_at: BTreeMap::new(),
             in_zone: true,
             outlier_streak: 0,
             last_verdict: Verdict::Used,
@@ -674,6 +679,11 @@ impl Game {
         chain::derive(&self.assignments)
     }
 
+    /// The chains whose zone is unlocked: only these count progress or complete marks.
+    fn unlocked_chains(&self) -> Vec<Chain> {
+        self.chains().into_iter().filter(|c| self.zone_unlocked(c.zone)).collect()
+    }
+
     fn counter_of(&self, c: &Chain) -> f64 {
         match c.unit {
             ChainUnit::Cells => count_f64(self.fog.cells.len()),
@@ -682,7 +692,7 @@ impl Game {
     }
 
     /// Credit the steps since the last reading of the phone's cumulative step counter. The first reading of a session only sets the baseline;
-    /// a reading below the last one means the phone restarted its counter.
+    /// a reading below the last one means the phone restarted its counter. Only chains in unlocked zones are credited.
     fn credit_steps(&mut self, total: i64) {
         let gained = match self.counters.steps_last {
             None => 0,
@@ -693,7 +703,7 @@ impl Game {
         if gained == 0 {
             return;
         }
-        for c in self.chains().into_iter().filter(|c| c.unit == ChainUnit::Steps) {
+        for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Steps) {
             *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64(gained);
         }
     }
@@ -729,15 +739,18 @@ impl Game {
         self.in_zone = inside;
     }
 
-    /// Add the time between two accepted fixes to every time-away chain whose rules the player meets.
+    /// Add the time between two accepted fixes to every time-away chain (in an unlocked zone) whose rules the player meets. A zone that unlocked
+    /// between the two fixes is credited only from its unlock (the unlock time is the item's clock, close enough for a clamp).
     fn accrue_away(&mut self, prev: &Fix, fix: &Fix) {
-        let dt = fix.t_ms - prev.t_ms;
-        if dt <= 0 || dt > AWAY_MAX_GAP_MS || (self.away.zone_only && !self.in_zone) {
+        let gap = fix.t_ms - prev.t_ms;
+        if gap <= 0 || gap > AWAY_MAX_GAP_MS || (self.away.zone_only && !self.in_zone) {
             return;
         }
-        for c in self.chains().into_iter().filter(|c| c.unit == ChainUnit::Minutes) {
+        for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Minutes) {
+            let from = self.unlocked_at.get(&c.zone).map_or(prev.t_ms, |t| prev.t_ms.max(*t));
+            let dt = fix.t_ms - from;
             let d = self.away.distance_for(c.zone);
-            if distance_m(prev.point(), self.home) >= d && distance_m(fix.point(), self.home) >= d {
+            if dt > 0 && distance_m(prev.point(), self.home) >= d && distance_m(fix.point(), self.home) >= d {
                 *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64(dt) / 60_000.0;
             }
         }
@@ -753,10 +766,7 @@ impl Game {
             return Vec::new();
         }
         let mut ev = Vec::new();
-        for c in self.chains() {
-            if !self.zone_unlocked(c.zone) {
-                continue;
-            }
+        for c in self.unlocked_chains() {
             let counter = self.counter_of(&c);
             for id in c.reached(counter) {
                 if !self.done.contains(&id) {
@@ -911,6 +921,7 @@ impl Game {
         self.items.push(name.to_string());
         let mut ev = Vec::new();
         for z in self.unlocked_set().difference(&before) {
+            self.unlocked_at.insert(*z, now_ms);
             ev.push(Event::ZoneUnlocked { zone: *z });
         }
         if name.ends_with("Trap") {
@@ -945,7 +956,8 @@ impl Game {
         }
     }
 
-    /// Re-place unfinished quests (Shuffle trap or the player's reroll). Finished quests never change.
+    /// Re-place unfinished quests (Shuffle trap or the player's reroll). Finished quests and chain members never change,
+    /// and a re-placed quest never gets a progressive kind, so no chain gains, loses or shifts a mark.
     ///
     /// # Errors
     /// Returns a message if a zone has no realm assigned or its realm is missing.
@@ -963,6 +975,7 @@ impl Game {
             seed,
             surface: self.surface,
             avoid_stairs: self.avoid_stairs,
+            allow_progressive: false,
         };
         let fresh = assign(&slots_in(&self.slot, Some(&todo)), &zones, catalog, &params);
         let n = fresh.len();
@@ -1132,6 +1145,19 @@ impl Game {
         Ok(g)
     }
 
+    /// An old save has no away distance for its zones: give each the Automatic distance of its realm (looked up by realm id
+    /// with `shape_of`), as New Game would. Zones that already have one, or whose realm is gone, are left alone.
+    pub fn backfill_away(&mut self, shape_of: impl Fn(&str) -> Option<Shape>) {
+        for (z, realm_id) in self.slot.zones.iter().zip(&self.zone_realms) {
+            if self.away.distance_m.contains_key(&z.id) {
+                continue;
+            }
+            if let Some(shape) = shape_of(realm_id) {
+                self.away.distance_m.insert(z.id, AwayOptions::default().resolve(shape.farthest_m(self.home)));
+            }
+        }
+    }
+
     /// An old save has finished chain members but no counters: start each counter at its highest finished mark so nothing is lost or earned twice.
     fn normalize_counters(&mut self) {
         for c in self.chains() {
@@ -1171,7 +1197,6 @@ impl Game {
 mod tests {
     use super::*;
     use crate::geo::destination;
-    use crate::realm::Shape;
     use crate::scan::build_atlas;
     use crate::solo::{generate, SoloOptions};
 
@@ -1334,6 +1359,67 @@ mod tests {
             done.extend(done_ids(&g.on_fix(Fix { accuracy_m: 5.0, ..fixat(p, 1000 + i64::from(i) * 150) }, None)));
         }
         assert_eq!(done, vec![1001, 1000], "two cells unlock the 2-cell member, five the next");
+    }
+
+    /// Lock zone 1 (where `chain_game` puts its members) behind one zone key.
+    fn lock_zone_1(g: &mut Game) {
+        g.slot.zones.iter_mut().find(|z| z.id == 1).unwrap().zone_keys_needed = 1;
+        assert!(!g.zone_unlocked(1));
+    }
+
+    #[test]
+    fn steps_in_a_locked_zone_do_not_count_and_only_new_steps_count_after_unlock() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]); // marks at 500 and 1500
+        lock_zone_1(&mut g);
+        g.on_steps(0, 1);
+        assert!(g.on_steps(5000, 2).is_empty());
+        assert!(g.counters.progress.get("1:step_up").is_none_or(|n| *n == 0.0), "a locked zone's chain must not fill");
+        assert!(done_ids(&g.receive_item("Progressive Zone Key", 3, None)).is_empty());
+        assert!(g.on_steps(5300, 4).is_empty(), "unlocking pays nothing out at once");
+        assert!((g.counters.progress["1:step_up"] - 300.0).abs() < 0.01);
+        assert_eq!(done_ids(&g.on_steps(5600, 5)), vec![1000]);
+    }
+
+    #[test]
+    fn minutes_away_in_a_locked_zone_do_not_count_and_only_new_minutes_count_after_unlock() {
+        let mut g = away_game(&[3.0, 2.0], false, 1000.0); // marks at 2 and 5 minutes
+        lock_zone_1(&mut g);
+        assert!(away_for(&mut g, 1500.0, 0, 10).is_empty());
+        assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "a locked zone's chain must not fill");
+        assert!(done_ids(&g.receive_item("Progressive Zone Key", 560_000, None)).is_empty());
+        assert!(away_for(&mut g, 1500.0, 600, 1).is_empty(), "unlocking pays nothing out at once");
+        assert!((g.counters.progress["1:wanderlust"] - 40.0 / 60.0).abs() < 0.01, "only the 40 s after the unlock at 560 s count");
+        assert!(away_for(&mut g, 1500.0, 660, 1).is_empty());
+        assert_eq!(done_ids(&away_for(&mut g, 1500.0, 720, 1)), vec![1001]);
+    }
+
+    #[test]
+    fn a_reward_that_unlocks_the_zone_does_not_credit_the_locked_interval_before_it() {
+        let mut g = away_game(&[3.0, 2.0], false, 1000.0); // marks at 2 and 5 minutes
+        lock_zone_1(&mut g);
+        g.slot.zones.push(crate::slot::ZoneSlot { id: 2, mode: Mode::Walk, zone_keys_needed: 0, tool: None });
+        let key_spot = destination(g.home, 90.0, 1600.0); // 100 m beyond where `away_for` stands
+        g.assignments.push(chain::tests_support::member(2000, 2, "reach", Target::Point { p: key_spot, r: 50.0 }));
+        g.solo_rewards.insert(2000, "Progressive Zone Key".into());
+        away_for(&mut g, 1500.0, 0, 5); // locked, last fix at 240 s
+        let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(key_spot, 300) }, None);
+        assert!(ev.contains(&Event::ZoneUnlocked { zone: 1 }));
+        assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "the minute before the unlock was locked");
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(key_spot, 360) }, None);
+        assert!((g.counters.progress["1:wanderlust"] - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn steps_stop_counting_when_the_server_item_list_shrinks_and_relocks_the_zone() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]);
+        lock_zone_1(&mut g);
+        g.receive_item("Progressive Zone Key", 0, None);
+        g.on_steps(0, 1);
+        g.on_steps(100, 2);
+        g.sync_items(&[], 3, None);
+        assert!(!g.zone_unlocked(1));
+        g.on_steps(400, 4);
+        assert!((g.counters.progress["1:step_up"] - 100.0).abs() < 0.01);
     }
 
     #[test]
@@ -1606,6 +1692,25 @@ mod tests {
         let n = g.reroll(&ids, &realms, 9, &Catalog::builtin()).unwrap();
         assert_eq!(n, 0, "chain members are never re-placed");
         assert_eq!(g.assignments.iter().map(|a| a.target.clone()).collect::<Vec<_>>(), before);
+    }
+
+    #[test]
+    fn a_rerolled_quest_never_becomes_a_chain_member() {
+        // Every family, so the steps / away / explore slots and the boss could all be re-placed as progressive kinds.
+        let o = SoloOptions { zone_modes: vec![Mode::Walk], number_of_trips: 20, goal: "all_trips".into(), ..SoloOptions::default() };
+        let realms = vec![realm("r0", Mode::Walk)];
+        let catalog = Catalog::builtin();
+        for seed in 0..10 {
+            let mut g = game(&o, Backend::Solo, seed);
+            // Make every quest a plain one (as a fallback or an older version may have placed it), so each can be rerolled.
+            for a in &mut g.assignments {
+                a.target = Target::Point { p: home(), r: 40.0 };
+            }
+            let ids: Vec<i64> = g.assignments.iter().map(|a| a.location_id).collect();
+            assert_eq!(g.reroll(&ids, &realms, seed, &catalog).unwrap(), ids.len(), "seed {seed}: every quest re-placed");
+            let joined: Vec<&str> = g.assignments.iter().filter(|a| is_chain_target(&a.target)).map(|a| a.kind_id.as_str()).collect();
+            assert!(joined.is_empty(), "seed {seed}: rerolled quests became chain members: {joined:?}");
+        }
     }
 
     #[test]
@@ -1926,5 +2031,32 @@ mod tests {
         assert_eq!(back.away, AwayConfig::default());
         assert!(back.counters.progress.is_empty());
         assert_eq!(back.away.distance_for(1), DEFAULT_AWAY_M);
+    }
+
+    #[test]
+    fn an_old_save_gets_the_automatic_away_distance_of_each_zone_realm() {
+        let o = reach_only(&[Mode::Walk, Mode::Bike], 20, "all_trips");
+        let realms: Vec<(Realm, Atlas)> = o.zone_modes.iter().enumerate().map(|(i, m)| realm(&format!("r{i}"), *m)).collect();
+        let g = game(&o, Backend::Solo, 4);
+        let mut v = serde_json::to_value(&g).unwrap();
+        v.as_object_mut().unwrap().remove("away");
+        let mut back: Game = serde_json::from_value(v).unwrap();
+        // The second zone's realm is gone: it keeps the fallback.
+        back.backfill_away(|id| realms.iter().find(|(r, _)| r.id == id && id != "r1").map(|(r, _)| r.shape.clone()));
+        let z = &back.slot.zones;
+        let want = AwayOptions::default().resolve(realms[0].0.shape.farthest_m(back.home));
+        assert_eq!(back.away.distance_for(z[0].id), want);
+        assert_ne!(want, DEFAULT_AWAY_M, "the test realm must not match the fallback by chance");
+        assert_eq!(back.away.distance_for(z[1].id), DEFAULT_AWAY_M);
+        assert!(!back.away.distance_m.contains_key(&z[1].id));
+    }
+
+    #[test]
+    fn backfill_keeps_distances_a_game_already_has() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let zone = g.slot.zones[0].id;
+        g.away.distance_m.insert(zone, 1234.0);
+        g.backfill_away(|_| Some(Shape::Circle { center: home(), radius_m: 5000.0 }));
+        assert_eq!(g.away.distance_for(zone), 1234.0);
     }
 }
