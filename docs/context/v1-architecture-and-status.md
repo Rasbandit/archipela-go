@@ -52,6 +52,17 @@ Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone 
 - Walkable length = sum of unique street segments (sidewalks/crossings excluded), not points.
 - Zone keys + tools gate zones; every trap has an exit; anti-cheat is light (accuracy 75 m, speed caps).
 
+## Presence (home Wi-Fi, car Bluetooth, zone duty cycle)
+`android/.../presence/`: `PresencePolicy.decide(Signals)` is a pure function, first match wins: not playing = Stopped; car Bluetooth = InCar; home Wi-Fi = AtHome (all three:
+GPS off, `counting=false`); zone Far = OutsideZones (GPS every 90 s, counting); otherwise InZone (GPS every 5 s, counting). `PresenceMonitor` gathers the signals
+(Wi-Fi SSID, Bluetooth ACL, nearest zone), applies the decision to the location source and to the counting flag (the engine ignores fixes and steps while it is false), shows
+the chip on Play and writes a "Presence" activity line and a `presence` diag line on each change; heartbeat adds `presence`/`counting`, with a 60 s heartbeat and a 5 s
+re-evaluation loop. Settings (home SSIDs with optional BSSID, car device name+address) live in SharedPreferences `presence` via `PresenceSettings`, not in the core.
+Seeding at monitor start reads the signals for up to 3 s and trusts them at once (so a game opened at home shows "At home, paused" immediately); afterwards the
+**arrival** into AtHome/InCar is debounced 45 s (`Debouncer`) and leaving is immediate. A missing signal (no permission, Wi-Fi off) counts as "not present".
+Known limits: Bluetooth and the outside-zone duty cycle have no outdoor run yet; the SSID needs location permission; matching is by name (BSSID optional); the `gps` field in the
+first diag line prints `GpsMode$Off@hash` (cosmetic, no toString).
+
 ## Verified
 - Core 132 + apworld 210 tests; ruff, pyright, clippy (`-D warnings`), rustfmt clean.
 - Real Archipelago `Generate.py` + `MultiServer` with 3 goals / "at least 2": the app's own reader (`cargo run --example parse_slot`) accepts the slot_data.

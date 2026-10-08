@@ -22,6 +22,20 @@ honest about items not applied yet) and, with "Show GPS and app notes", why a ne
 - Stand still 3 min inside a Dwell place: progress must continue (no distance filter while playing).
 - Leave the app (Home), come back after more than 1 min: the "While you were out" dialog shows time, distance, points, events.
 
+## Presence checklist (home Wi-Fi, car, zones)
+Before leaving: Realms > Home card > **Presence**. At home, tap **Add current network** (needs location permission to read the Wi-Fi name). For the car, pair it in
+the phone's Bluetooth settings first, then tick it under **Car Bluetooth** (needs the Nearby devices permission). Open the game and read the chip next to the game name:
+- **Tracking**: inside a zone, GPS every 5 s, progress counts.
+- **At home, paused**: on a home network; GPS is off and nothing counts.
+- **In car, not counting**: a tagged car device is connected; GPS is off and nothing counts.
+- **Outside zones, saving battery**: far from every zone; GPS every 90 s, progress still counts.
+- **Not playing**: no game open or tracking paused.
+Verified on the emulator (home Wi-Fi only): Add/Remove network, At home (GPS unregistered, mock fixes ignored), back to Tracking after removing the network.
+**Untested until an outdoor run: car Bluetooth (no paired device on the emulator) and the outside-zone duty cycle with real movement.** Check: leave the home Wi-Fi
+and walk off (leaving is immediate; arriving back needs 45 s of Wi-Fi), start/stop the car connection, walk out of a zone and back in.
+Where to look afterwards: Activity tab, kind **Presence** ("Home Wi-Fi connected: paused", "Tracking", "Outside every zone: saving battery"); in the diag, lines with
+`"tag":"presence"` (`msg` = state, `counting`, `gps` mode) and the extra heartbeat fields `presence` and `counting` (a heartbeat with `fixes=0` is expected while AtHome/InCar).
+
 ## Bring the data back
 ```
 scripts/pull_diag.sh            # -> diag/<timestamp>/  (diag log, journal.db, games, logcat); ANDROID_SERIAL=<phone> if several devices
