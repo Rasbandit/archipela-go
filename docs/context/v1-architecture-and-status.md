@@ -58,7 +58,7 @@ GPS off, `counting=false`); zone Far = OutsideZones (GPS every 90 s, counting); 
 (Wi-Fi SSID, Bluetooth ACL, nearest zone), applies the decision to the location source and to the counting flag (the engine ignores fixes and steps while it is false), shows
 the chip on Play and writes a "Presence" activity line and a `presence` diag line on each change; heartbeat adds `presence`/`counting`, with a 60 s heartbeat and a 5 s
 re-evaluation loop. Settings (home SSIDs with optional BSSID, car device name+address) live in SharedPreferences `presence` via `PresenceSettings`, not in the core.
-Setup lives in `SetupFlow` (steps in `SetupSteps.kt`; pure helpers `SetupProgress` and `WifiChoices`/`CarChoices` in `presence/Choices.kt`).
+Setup lives in `SetupFlow` (steps in `SetupSteps.kt`; pure helpers: `presence/SetupProgress.kt` (`SetupProgress`) and `presence/Choices.kt` (`WifiChoices`/`CarChoices`)).
 `PresenceSettings.setupDone` gates the first-run wizard; the Home card shows "Finish setup" while steps are missing, else "Setup". The Play chip reads
 "Protection off" when nothing is configured. Wi-Fi choices come from nearby scan results because Android exposes no saved-network list.
 Seeding at monitor start reads the signals for up to 3 s and trusts them at once (so a game opened at home shows "At home, paused" immediately); afterwards the
