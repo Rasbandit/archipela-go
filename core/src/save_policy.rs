@@ -7,6 +7,7 @@ pub struct SavePolicy {
 }
 
 impl SavePolicy {
+    /// A policy that saves at least every `interval_ms` milliseconds.
     #[must_use]
     pub fn new(interval_ms: i64) -> Self {
         Self { interval_ms, last_ms: None }

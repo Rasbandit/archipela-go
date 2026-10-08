@@ -4,29 +4,42 @@
 use std::collections::BTreeMap;
 
 use crate::assign::{Assignment, Target};
+use crate::num::round_u64;
 
+/// What a chain counts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChainUnit {
+    /// Steps taken.
     Steps,
+    /// Minutes spent away.
     Minutes,
+    /// New map cells discovered.
     Cells,
 }
 
+/// One check on a chain, unlocked at a counter value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Milestone {
+    /// The Archipelago location id this mark unlocks.
     pub location_id: i64,
     /// The counter value at which this check unlocks (a running total of the members' own amounts).
     pub at: f64,
 }
 
+/// A group of progressive quests of one kind in one zone that share a counter.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chain {
     /// `"{zone}:{kind_id}"`.
     pub id: String,
+    /// Zone number the chain belongs to.
     pub zone: u32,
+    /// Catalog id of the quest kind.
     pub kind_id: String,
+    /// Display name of the chain.
     pub name: String,
+    /// What the counter counts.
     pub unit: ChainUnit,
+    /// The checks on the chain, in unlock order.
     pub marks: Vec<Milestone>,
 }
 
@@ -41,6 +54,7 @@ pub fn amount_of(t: &Target) -> Option<(ChainUnit, f64)> {
     }
 }
 
+/// Whether `t` is a target that belongs on a chain.
 #[must_use]
 pub fn is_chain_target(t: &Target) -> bool {
     amount_of(t).is_some()
@@ -63,7 +77,7 @@ pub fn thousands(n: u64) -> String {
 /// 270 -> "4 h 30 min", 45 -> "45 min", 120 -> "2 h".
 #[must_use]
 pub fn minutes_text(m: f64) -> String {
-    let m = m.max(0.0).round() as u64;
+    let m = round_u64(m.max(0.0));
     match (m / 60, m % 60) {
         (0, r) => format!("{r} min"),
         (h, 0) => format!("{h} h"),
@@ -82,6 +96,7 @@ pub fn distance_text(m: f64) -> String {
 }
 
 impl Chain {
+    /// The counter value at which the last mark unlocks; 0 for an empty chain.
     #[must_use]
     pub fn total(&self) -> f64 {
         self.marks.last().map_or(0.0, |m| m.at)
@@ -104,9 +119,9 @@ impl Chain {
     pub fn rule_text(&self, away_m: f64) -> String {
         let t = self.total();
         match self.unit {
-            ChainUnit::Steps => format!("Take {} steps", thousands(t.round() as u64)),
+            ChainUnit::Steps => format!("Take {} steps", thousands(round_u64(t))),
             ChainUnit::Minutes => format!("Spend {} at least {} from home", minutes_text(t), distance_text(away_m)),
-            ChainUnit::Cells => format!("Visit {} new map squares", t.round() as u64),
+            ChainUnit::Cells => format!("Visit {} new map squares", round_u64(t)),
         }
     }
 
@@ -114,9 +129,9 @@ impl Chain {
     #[must_use]
     pub fn amount_text(&self, at: f64) -> String {
         match self.unit {
-            ChainUnit::Steps => format!("{} steps", thousands(at.round() as u64)),
+            ChainUnit::Steps => format!("{} steps", thousands(round_u64(at))),
             ChainUnit::Minutes => minutes_text(at),
-            ChainUnit::Cells => format!("{} squares", at.round() as u64),
+            ChainUnit::Cells => format!("{} squares", round_u64(at)),
         }
     }
 }

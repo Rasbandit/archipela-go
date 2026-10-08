@@ -9,45 +9,60 @@ use serde_json::Value;
 use crate::catalog::{Catalog, Geom, Kind, Mode, Verify};
 use crate::geo::{centroid, distance_m, Point};
 use crate::marks::Marks;
+use crate::num::{count_f64, count_u32, floor_i64};
 use crate::overpass::{fetch_cached_from, Error};
 use std::time::{Duration, Instant};
 
-/// A scan stops after this long and keeps what it has; finished tiles are cached so a rescan continues.
 /// Street points are generated this far apart along each street.
 pub const STREET_SPACING_M: f64 = 60.0;
 
+/// A scan stops after this long and keeps what it has; finished tiles are cached so a rescan continues.
 pub const SCAN_BUDGET: Duration = Duration::from_secs(240);
 use crate::realm::Realm;
 use crate::zone::Zone;
 
+/// A place from the map: a point, or a way with its geometry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Feature {
+    /// Stable OpenStreetMap id, e.g. `n123` or `w456`.
     pub id: String,
+    /// A representative point of the feature.
     pub point: Point,
+    /// Name of the place, when it has one.
     pub name: Option<String>,
+    /// The OpenStreetMap tags.
     pub tags: BTreeMap<String, String>,
     /// Way geometry (polyline or polygon ring); empty for plain points.
     #[serde(default)]
     pub geometry: Vec<Point>,
 }
 
+/// A street name with one point on it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NamedStreet {
+    /// Name of the street.
     pub name: String,
+    /// A point on the street.
     pub at: Point,
 }
 
+/// What a scan of a realm found: the places, streets and which quest kinds each place fits.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Atlas {
+    /// Id of the realm that was scanned.
     pub realm_id: String,
+    /// When the scan finished, in Unix milliseconds.
     pub scanned_at_ms: u64,
+    /// All places found.
     pub features: Vec<Feature>,
+    /// Points along the walkable streets and paths.
     pub streets: Vec<Point>,
     /// Street/path points that are rough going (unpaved, unknown-surface trails, stairs).
     #[serde(default)]
     pub streets_rough: Vec<Point>,
     /// quest kind id -> indexes into `features`.
     pub matches: BTreeMap<String, Vec<usize>>,
+    /// Notes about pieces of the scan that did not arrive.
     #[serde(default)]
     pub warnings: Vec<String>,
     /// One point per named street per ~500 m cell, so streets can be counted (and still counted after the zone shrinks).
@@ -56,6 +71,7 @@ pub struct Atlas {
     /// Real length of the walkable streets (each segment once, sidewalks and crossings left out), in metres, and the part that is rough going.
     #[serde(default)]
     pub walkable_len_m: f64,
+    /// Length of the walkable streets that is rough going, in metres.
     #[serde(default)]
     pub rough_len_m: f64,
     /// Every this-many street points were kept (the rest dropped to keep the atlas small); 0 or 1 means all.
@@ -85,7 +101,7 @@ impl Atlas {
         if self.walkable_len_m > 0.0 {
             self.walkable_len_m
         } else {
-            (self.streets.len() + self.streets_rough.len()) as f64 * f64::from(self.street_stride.max(1)) * STREET_SPACING_M
+            count_f64(self.streets.len() + self.streets_rough.len()) * f64::from(self.street_stride.max(1)) * STREET_SPACING_M
         }
     }
 
@@ -99,7 +115,7 @@ impl Atlas {
         if all == 0 {
             0.0
         } else {
-            self.streets_rough.len() as f64 / all as f64
+            count_f64(self.streets_rough.len()) / count_f64(all)
         }
     }
 
@@ -115,7 +131,7 @@ impl Atlas {
             idxs.retain(|&i| !marks.is_banned(&self.features[i].id));
         }
         self.matches.retain(|_, v| !v.is_empty());
-        self.favorites = marks.favorites.clone();
+        self.favorites.clone_from(&marks.favorites);
     }
 
     /// quest kind id -> number of places, only for kinds a realm allowing any of `modes` can actually offer.
@@ -126,7 +142,7 @@ impl Atlas {
             if !modes.iter().any(|&m| k.allows(m)) {
                 continue;
             }
-            let n = if k.any_of.is_empty() { 0 } else { self.matches.get(&k.id).map_or(0, |v| v.len() as u32) };
+            let n = if k.any_of.is_empty() { 0 } else { self.matches.get(&k.id).map_or(0, |v| count_u32(v.len())) };
             if k.any_of.is_empty() || n >= k.min_features.max(1) {
                 out.insert(k.id.clone(), n);
             }
@@ -172,11 +188,13 @@ pub fn geom_query_in(filter: &str, catalog: &Catalog) -> String {
     format!("[out:json][timeout:40];\n(\n{body}\n);\nout geom tags qt;")
 }
 
+/// Overpass query for the places the catalog can use inside `zone`.
 #[must_use]
 pub fn poi_query(zone: &Zone, catalog: &Catalog) -> String {
     poi_query_in(&zone.overpass_filter(), catalog)
 }
 
+/// Overpass query for the trail, park and water geometry inside `zone`.
 #[must_use]
 pub fn geom_query(zone: &Zone, catalog: &Catalog) -> String {
     geom_query_in(&zone.overpass_filter(), catalog)
@@ -186,13 +204,16 @@ fn osm_prefix(t: &str) -> char {
     t.chars().next().unwrap_or('?')
 }
 
-/// Parse an Overpass body into features (`out center` and `out geom` shapes).
 /// Some ways carry their own OSM id as a `name` ("w999448118"); that is a data slip, not a name.
 fn looks_like_osm_id(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some('n' | 'w' | 'r')) && chars.clone().count() > 0 && chars.all(|c| c.is_ascii_digit())
 }
 
+/// Parse an Overpass body into features (`out center` and `out geom` shapes).
+///
+/// # Errors
+/// Returns [`Error::Parse`] if the body is not JSON or has no `elements`.
 pub fn parse_features(body: &str) -> Result<Vec<Feature>, Error> {
     let v: Value = serde_json::from_str(body).map_err(|e| Error::Parse(e.to_string()))?;
     let els = v.get("elements").and_then(Value::as_array).ok_or_else(|| Error::Parse("no elements".into()))?;
@@ -228,7 +249,7 @@ fn merge(a: Vec<Feature>, b: Vec<Feature>) -> Vec<Feature> {
         by.entry(f.id.clone())
             .and_modify(|e| {
                 if e.geometry.is_empty() {
-                    e.geometry = f.geometry.clone();
+                    e.geometry.clone_from(&f.geometry);
                 }
             })
             .or_insert(f);
@@ -255,6 +276,11 @@ pub fn is_rough(tags: &BTreeMap<String, String>) -> bool {
     }
 }
 
+/// First and last point of a path, if it has any.
+fn ends(pts: &[Point]) -> Option<(Point, Point)> {
+    Some((*pts.first()?, *pts.last()?))
+}
+
 /// Chain way geometries (same trail, same name) into longer polylines by joining shared endpoints.
 #[must_use]
 pub fn stitch(ways: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
@@ -262,20 +288,19 @@ pub fn stitch(ways: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
     pool.sort_by_key(|w| std::cmp::Reverse(w.len()));
     let mut chains = Vec::new();
     while let Some(mut chain) = (!pool.is_empty()).then(|| pool.remove(0)) {
-        loop {
-            let (head, tail) = (chain[0], *chain.last().unwrap());
-            let pos = pool.iter().position(|w| {
-                let (a, b) = (w[0], *w.last().unwrap());
-                [a, b].iter().any(|e| distance_m(*e, tail) < JOIN_M || distance_m(*e, head) < JOIN_M)
+        while let Some((head, tail)) = ends(&chain) {
+            let pos = pool.iter().enumerate().find_map(|(i, w)| {
+                let (a, b) = ends(w)?;
+                [a, b].iter().any(|e| distance_m(*e, tail) < JOIN_M || distance_m(*e, head) < JOIN_M).then_some((i, a, b))
             });
-            let Some(i) = pos else { break };
+            let Some((i, w_first, w_last)) = pos else { break };
             let mut w = pool.remove(i);
-            if distance_m(w[0], tail) < JOIN_M {
+            if distance_m(w_first, tail) < JOIN_M {
                 chain.extend(w.into_iter().skip(1));
-            } else if distance_m(*w.last().unwrap(), tail) < JOIN_M {
+            } else if distance_m(w_last, tail) < JOIN_M {
                 w.reverse();
                 chain.extend(w.into_iter().skip(1));
-            } else if distance_m(*w.last().unwrap(), head) < JOIN_M {
+            } else if distance_m(w_last, head) < JOIN_M {
                 w.extend(chain.into_iter().skip(1));
                 chain = w;
             } else {
@@ -299,10 +324,10 @@ pub fn link(mut chains: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
         let mut best: Option<(f64, usize, usize, bool, bool)> = None; // distance, i, j, flip i, flip j
         for i in 0..chains.len() {
             for j in i + 1..chains.len() {
-                let (a, b) = (&chains[i], &chains[j]);
+                let (Some((a_first, a_last)), Some((b_first, b_last))) = (ends(&chains[i]), ends(&chains[j])) else { continue };
                 // join tail of the (maybe reversed) i to head of the (maybe reversed) j
-                for (flip_i, end_i) in [(false, *a.last().unwrap()), (true, a[0])] {
-                    for (flip_j, end_j) in [(false, b[0]), (true, *b.last().unwrap())] {
+                for (flip_i, end_i) in [(false, a_last), (true, a_first)] {
+                    for (flip_j, end_j) in [(false, b_first), (true, b_last)] {
                         let d = distance_m(end_i, end_j);
                         if d < LINK_M && best.is_none_or(|(bd, ..)| d < bd) {
                             best = Some((d, i, j, flip_i, flip_j));
@@ -325,9 +350,10 @@ pub fn link(mut chains: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
     }
 }
 
+/// Whether a path ends where it starts, so it forms a loop.
 #[must_use]
 pub fn is_closed(pts: &[Point]) -> bool {
-    pts.len() >= 4 && distance_m(pts[0], *pts.last().unwrap()) < 15.0
+    pts.len() >= 4 && ends(pts).is_some_and(|(first, last)| distance_m(first, last) < 15.0)
 }
 
 /// Match features to kinds; line kinds get same-name ways stitched into synthetic line features.
@@ -376,7 +402,7 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
                             tags.insert("rough".to_string(), "yes".to_string());
                         }
                         // The id is the kind, the name and where the line starts, so it is the same after a rescan (marks are keyed by it).
-                        let start = chain[0].min_by_coords(*chain.last().unwrap());
+                        let start = ends(&chain).map_or(chain[0], |(first, last)| first.min_by_coords(last));
                         idxs.push(features.len());
                         features.push(Feature {
                             id: format!("L:{}:{}:{:.5}_{:.5}", k.id, if name.is_empty() { "~" } else { &name }, start.lat, start.lon),
@@ -415,10 +441,14 @@ fn retain_in_zone(features: Vec<Feature>, zone: &Zone) -> Vec<Feature> {
     features.into_iter().filter(|f| zone.contains(f.point) || f.geometry.iter().any(|&p| zone.contains(p))).collect()
 }
 
+/// The three kinds of request a scan makes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Job {
+    /// Places (points of interest).
     Poi,
+    /// Trail, park and water geometry.
     Geom,
+    /// Streets and paths.
     Streets,
 }
 
@@ -437,18 +467,23 @@ pub fn jobs_for(zone: &Zone, catalog: &Catalog) -> Vec<(Job, String)> {
 /// What a scan would cost: how many tiles and requests, and how many of those are already in the cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScanPlan {
+    /// Number of map tiles.
     pub tiles: usize,
+    /// Number of requests in all.
     pub jobs: usize,
+    /// How many requests are already cached.
     pub cached: usize,
 }
 
 impl ScanPlan {
+    /// Number of requests that still have to go to the network.
     #[must_use]
     pub fn missing(&self) -> usize {
         self.jobs - self.cached
     }
 }
 
+/// The cost of scanning `zone`, given a way to tell whether a request is cached.
 pub fn plan(zone: &Zone, catalog: &Catalog, is_cached: &dyn Fn(&str) -> bool) -> ScanPlan {
     let jobs = jobs_for(zone, catalog);
     ScanPlan { tiles: jobs.len() / 3, jobs: jobs.len(), cached: jobs.iter().filter(|(_, q)| is_cached(q)).count() }
@@ -457,6 +492,7 @@ pub fn plan(zone: &Zone, catalog: &Catalog, is_cached: &dyn Fn(&str) -> bool) ->
 /// How requests are paced. The public map servers are shared and slow: few requests at once, a pause between them, and quiet retries.
 #[derive(Debug, Clone, Copy)]
 pub struct Pacing {
+    /// How many requests run at once.
     pub workers: usize,
     /// Pause a worker takes after each request that went to the network.
     pub gap: Duration,
@@ -472,12 +508,13 @@ impl Default for Pacing {
     }
 }
 
+/// Fetches one query: takes the query text, the round it is in and a deadline, and returns the body.
 pub type Fetch<'a> = &'a (dyn Fn(&str, usize, Option<Instant>) -> Result<String, Error> + Sync);
 
 /// Run the jobs, `done` out of `total` reported as they finish. Failed jobs are retried in later rounds (with growing waits) while the deadline allows.
 fn run_jobs(
     jobs: &[(Job, String)],
-    fetch: Fetch,
+    fetch: Fetch<'_>,
     pacing: &Pacing,
     deadline: Instant,
     progress: &(dyn Fn(usize, usize) + Sync),
@@ -493,7 +530,7 @@ fn run_jobs(
             break;
         }
         if round > 0 {
-            std::thread::sleep(pacing.backoff * round as u32);
+            std::thread::sleep(pacing.backoff * count_u32(round));
         }
         let next = AtomicUsize::new(0);
         std::thread::scope(|s| {
@@ -521,11 +558,14 @@ fn run_jobs(
 
 /// Scan a realm with an injected fetcher (see [`scan_realm`]). Pieces that never arrive leave the atlas partial with a note, not an error;
 /// only a scan where nothing arrived at all fails.
+///
+/// # Errors
+/// Returns the last error if every request failed.
 pub fn scan_with(
     realm: &Realm,
     catalog: &Catalog,
     now_ms: u64,
-    fetch: Fetch,
+    fetch: Fetch<'_>,
     pacing: &Pacing,
     deadline: Instant,
     progress: &(dyn Fn(usize, usize) + Sync),
@@ -562,7 +602,7 @@ pub fn scan_with(
                         }
                         if c.score > 0 {
                             // `score` is 1 for a street that has a name
-                            let cell = ((c.point.lat / 0.005).floor() as i64, (c.point.lon / 0.005).floor() as i64);
+                            let cell = (floor_i64(c.point.lat / 0.005), floor_i64(c.point.lon / 0.005));
                             named_streets.entry((c.name.clone(), cell.0, cell.1)).or_insert(c.point);
                         }
                         if c.rough {
@@ -589,7 +629,7 @@ pub fn scan_with(
     let rough: Vec<Point> = rough.into_iter().step_by(stride).collect();
     let mut atlas = build_atlas(&realm.id, now_ms, retain_in_zone(merge(a, b), &zone), streets, catalog);
     atlas.streets_rough = rough;
-    atlas.street_stride = stride as u32;
+    atlas.street_stride = count_u32(stride);
     atlas.walkable_len_m = walkable_len;
     atlas.rough_len_m = rough_len;
     atlas.street_names = named_streets.into_iter().map(|((name, ..), at)| NamedStreet { name, at }).collect();
@@ -599,6 +639,9 @@ pub fn scan_with(
 
 /// Scan a realm over the network: one small fixed tile at a time, two at a time with a pause between, each cached (and shared with every other
 /// realm that touches the same tile). `progress(done, total)` is called as requests finish.
+///
+/// # Errors
+/// Returns the last error if every request failed.
 pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, now_ms: u64, progress: &(dyn Fn(usize, usize) + Sync)) -> Result<Atlas, Error> {
     let fetch = |q: &str, start: usize, deadline: Option<Instant>| fetch_cached_from(q, cache_dir, start, deadline);
     scan_with(realm, catalog, now_ms, &fetch, &Pacing::default(), Instant::now() + SCAN_BUDGET, progress)

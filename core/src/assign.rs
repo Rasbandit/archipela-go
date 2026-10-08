@@ -14,27 +14,99 @@ use crate::geo::{bearing_deg, distance_m, point_inside, polyline_len_m, Point};
 use crate::realm::Realm;
 use crate::scan::{Atlas, Feature};
 
+/// A quest slot to fill: one Archipelago location and what it asks for.
 #[derive(Debug, Clone)]
 pub struct SlotIn {
+    /// Archipelago location id of the check.
     pub location_id: i64,
+    /// Zone number the quest belongs to.
     pub zone: u32,
+    /// How the player travels in that zone.
     pub mode: Mode,
+    /// Quest family wanted for the slot.
     pub family: String,
+    /// Effort tier wanted, starting at 1.
     pub tier: u8,
+    /// Whether this is the realm's boss quest.
     pub boss: bool,
 }
 
+/// What the player has to do to complete a quest, with the numbers it needs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Target {
-    Point { p: Point, r: f64 },
-    Dwell { p: Point, r: f64, minutes: f64 },
-    DwellArea { poly: Vec<Point>, center: Point, r: f64, minutes: f64 },
-    Line { pts: Vec<Point>, corridor_m: f64, coverage: f64 },
-    Courier { a: Point, b: Point, r: f64, time_limit_min: f64 },
-    RoundTrip { far: Point, r: f64 },
-    Cells { n: u32, cell_m: f64 },
-    Steps { n: u32 },
-    Away { min_distance_m: f64, minutes: f64 },
+    /// Reach a single place.
+    Point {
+        /// The place to reach.
+        p: Point,
+        /// How close counts as reached, in metres.
+        r: f64,
+    },
+    /// Stay near a place for a while.
+    Dwell {
+        /// The place to stay at.
+        p: Point,
+        /// How close counts as there, in metres.
+        r: f64,
+        /// How long to stay, in minutes.
+        minutes: f64,
+    },
+    /// Spend time inside an area.
+    DwellArea {
+        /// The outline of the area.
+        poly: Vec<Point>,
+        /// Middle of the area.
+        center: Point,
+        /// Radius of the circle used when no outline is available, in metres.
+        r: f64,
+        /// How long to stay, in minutes.
+        minutes: f64,
+    },
+    /// Follow a path.
+    Line {
+        /// The path, in order.
+        pts: Vec<Point>,
+        /// How far off the path still counts, in metres.
+        corridor_m: f64,
+        /// Share of the path to cover, 0 to 1.
+        coverage: f64,
+    },
+    /// Pick up at one place and deliver to another in time.
+    Courier {
+        /// Pick-up place.
+        a: Point,
+        /// Delivery place.
+        b: Point,
+        /// How close counts as there, in metres.
+        r: f64,
+        /// Time allowed between pick-up and delivery, in minutes.
+        time_limit_min: f64,
+    },
+    /// Go to a far place and come back.
+    RoundTrip {
+        /// The turning point.
+        far: Point,
+        /// How close counts as there, in metres.
+        r: f64,
+    },
+    /// Visit new map cells.
+    Cells {
+        /// Number of new cells to visit.
+        n: u32,
+        /// Edge length of a cell, in metres.
+        cell_m: f64,
+    },
+    /// Take a number of steps.
+    Steps {
+        /// Number of steps.
+        n: u32,
+    },
+    /// Spend time far from home.
+    Away {
+        /// Minimum distance from home, in metres.
+        min_distance_m: f64,
+        /// How long to stay away, in minutes.
+        minutes: f64,
+    },
 }
 
 impl Target {
@@ -55,41 +127,63 @@ impl Target {
     }
 }
 
+/// A quest assigned to a slot: what to do, where, and how it is described.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assignment {
+    /// Archipelago location id of the check.
     pub location_id: i64,
+    /// Zone number the quest belongs to.
     pub zone: u32,
+    /// How the player travels in that zone.
     pub mode: Mode,
+    /// Quest family of the chosen kind.
     pub family: String,
+    /// Catalog id of the chosen kind.
     pub kind_id: String,
+    /// Display name of the quest.
     pub quest_name: String,
+    /// Short description of the quest kind.
     pub blurb: String,
+    /// Name of the place the quest uses.
     pub place: String,
+    /// Effort tier, starting at 1.
     pub tier: u8,
+    /// Expected effort in minutes.
     pub effort_min: f64,
+    /// What the player must do to complete it.
     pub target: Target,
     /// True when the realm could not offer the requested family and a street quest was used instead.
     pub fallback: bool,
+    /// Whether this is the realm's boss quest.
     pub boss: bool,
 }
 
+/// A zone prepared for quest assignment: its travel mode, realm and scanned map data.
 pub struct ZoneCtx<'a> {
+    /// Zone number.
     pub zone: u32,
+    /// How the player travels in this zone.
     pub mode: Mode,
+    /// The realm the zone belongs to.
     pub realm: &'a Realm,
+    /// Scanned places and streets of the realm.
     pub atlas: &'a Atlas,
 }
 
 /// How much rough going (unpaved paths, unknown-surface trails, stairs) the player accepts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SurfacePref {
+    /// No preference.
     #[default]
     Any,
+    /// Use paved routes when enough of them exist.
     PreferPaved,
+    /// Use only paved routes.
     PavedOnly,
 }
 
 impl SurfacePref {
+    /// Read a surface preference from its settings string; unknown values mean [`Self::Any`].
     #[must_use]
     pub fn parse(s: &str) -> Self {
         match s {
@@ -100,12 +194,19 @@ impl SurfacePref {
     }
 }
 
+/// Settings that steer quest assignment.
 pub struct AssignParams {
+    /// The home point distances are measured from.
     pub home: Point,
+    /// Minutes of effort that one tier covers.
     pub minutes_per_tier: f64,
+    /// Quests must be at least this far from home, in metres.
     pub min_distance_m: f64,
+    /// Seed for the random choices, so the same inputs give the same quests.
     pub seed: u64,
+    /// How much rough going the player accepts.
     pub surface: SurfacePref,
+    /// Whether quests with stairs are dropped.
     pub avoid_stairs: bool,
 }
 
@@ -125,14 +226,13 @@ const MIN_TRAIL_SHARE: f64 = 0.25;
 /// How many effort-minutes of misfit a favorite place can make up for.
 const FAVORITE_BONUS_MIN: f64 = 6.0;
 
-fn street_pool(z: &ZoneCtx, pref: SurfacePref) -> Vec<Point> {
+fn street_pool(z: &ZoneCtx<'_>, pref: SurfacePref) -> Vec<Point> {
     let (paved, rough) = (&z.atlas.streets, &z.atlas.streets_rough);
     let all = || paved.iter().chain(rough.iter()).copied().collect::<Vec<_>>();
     let pool = match pref {
-        SurfacePref::Any => all(),
         SurfacePref::PreferPaved if paved.len() >= 50 => paved.clone(),
-        SurfacePref::PreferPaved => all(),
         SurfacePref::PavedOnly => paved.clone(),
+        SurfacePref::Any | SurfacePref::PreferPaved => all(),
     };
     if pool.len() >= 20 {
         pool
@@ -183,7 +283,17 @@ fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point, want: f64) -> 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn free_candidate(k: &Kind, z: &ZoneCtx, pool: &[Point], p: &AssignParams, want: f64, rng: &mut StdRng, used_pts: &[Point]) -> Option<(Target, f64, String)> {
+#[allow(clippy::many_single_char_names)] // short names for zone/pool/params mirror the geometry vocabulary used across this module
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // counts are rounded then clamped to a small range before the cast
+fn free_candidate(
+    k: &Kind,
+    z: &ZoneCtx<'_>,
+    pool: &[Point],
+    p: &AssignParams,
+    want: f64,
+    rng: &mut StdRng,
+    used_pts: &[Point],
+) -> Option<(Target, f64, String)> {
     let mode = z.mode;
     let far_from_used = |q: Point| used_pts.iter().all(|u| distance_m(*u, q) >= SPACING_M);
     match &k.verify {
@@ -234,7 +344,7 @@ fn free_candidate(k: &Kind, z: &ZoneCtx, pool: &[Point], p: &AssignParams, want:
 
 fn one(
     s: &SlotIn,
-    z: &ZoneCtx,
+    z: &ZoneCtx<'_>,
     catalog: &Catalog,
     p: &AssignParams,
     rng: &mut StdRng,
@@ -307,6 +417,7 @@ fn one(
     let pick = if top == 0 { None } else { Some(cands.swap_remove(if s.boss || best_is_favorite { 0 } else { rng.random_range(0..top) })) };
     let c = pick.unwrap_or_else(|| {
         // Absolutely nothing (e.g. an empty pool): a point at home keeps the slot playable.
+        #[allow(clippy::expect_used)] // the builtin catalog always defines street_smarts
         let k = catalog.kind("street_smarts").expect("street_smarts exists").clone();
         fallback = true;
         Cand { score: 0.0, kind: k, target: Target::Point { p: p.home, r: 40.0 }, effort: want, place: "Home".into(), feature_id: None, favorite: false }
@@ -346,7 +457,7 @@ fn one(
 
 /// Assign every slot (boss last so it gets the best leftovers). Output keeps the input slot order.
 #[must_use]
-pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx], catalog: &Catalog, p: &AssignParams) -> Vec<Assignment> {
+pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx<'_>], catalog: &Catalog, p: &AssignParams) -> Vec<Assignment> {
     let mut rng = StdRng::seed_from_u64(p.seed);
     let mut used_feat = BTreeSet::new();
     let mut used_pts: Vec<Point> = Vec::new();

@@ -16,22 +16,36 @@ fn flatten(vertices: &[Point]) -> Vec<(f64, f64)> {
     vertices.iter().map(|v| ((v.lon - o.lon) * 111_195.0 * k, (v.lat - o.lat) * 111_195.0)).collect()
 }
 
+/// The area of a realm, as a circle or a polygon.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Shape {
-    Circle { center: Point, radius_m: f64 },
-    Polygon { vertices: Vec<Point> },
+    /// A circle.
+    Circle {
+        /// Middle of the circle.
+        center: Point,
+        /// Radius in metres.
+        radius_m: f64,
+    },
+    /// A free-form area.
+    Polygon {
+        /// Corner points, in order.
+        vertices: Vec<Point>,
+    },
 }
 
 /// Where a point is relative to a zone area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Proximity {
+    /// Within the area.
     Inside,
     /// Within `NEAR_ZONE_M` of the area: precise GPS starts here so arrival is not missed.
     Near,
+    /// Beyond `NEAR_ZONE_M`.
     Far,
 }
 
+/// Distance from an area at which precise GPS starts, in metres.
 pub const NEAR_ZONE_M: f64 = 300.0;
 
 /// The closest classification of `p` across `shapes` (Inside beats Near beats Far); `None` with no shapes.
@@ -41,6 +55,7 @@ pub fn closest_proximity(shapes: &[Shape], p: Point) -> Option<Proximity> {
 }
 
 impl Shape {
+    /// The shape as a play zone.
     #[must_use]
     pub fn to_zone(&self) -> Zone {
         match self {
@@ -49,6 +64,7 @@ impl Shape {
         }
     }
 
+    /// The middle of the shape.
     #[must_use]
     pub fn center(&self) -> Point {
         match self {
@@ -116,6 +132,7 @@ impl Shape {
         }
     }
 
+    /// Whether the shape is big enough to play in.
     #[must_use]
     pub fn is_valid(&self) -> bool {
         match self {
@@ -125,9 +142,12 @@ impl Shape {
     }
 }
 
+/// A named, scanned area of the map in which games are played.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Realm {
+    /// Stable id.
     pub id: String,
+    /// Display name.
     pub name: String,
     /// The icon picked for the realm (a name from the app's icon set); `None` until one is chosen. (Older files may still carry a `mode`; it is ignored,
     /// since how you travel is chosen per zone when a game is made.)
@@ -138,6 +158,7 @@ pub struct Realm {
     /// The other kind of shape (circle or polygon), kept so switching back and forth in the editor loses no work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spare: Option<Shape>,
+    /// When the realm was last scanned, in Unix milliseconds.
     #[serde(default)]
     pub scanned_at_ms: Option<u64>,
 }
@@ -165,6 +186,7 @@ impl Realm {
         })
     }
 
+    /// Whether the polygon, rather than the circle, is the active shape.
     #[must_use]
     pub fn polygon_active(&self) -> bool {
         matches!(self.shape, Shape::Polygon { .. })
@@ -176,15 +198,18 @@ pub struct RealmStore {
     dir: PathBuf,
 }
 
+#[allow(clippy::needless_pass_by_value)] // used as a `map_err` callback, which hands over the error by value
 fn io(e: std::io::Error) -> String {
     e.to_string()
 }
 
 impl RealmStore {
+    /// A store rooted at `dir`.
     pub fn new(dir: impl Into<PathBuf>) -> Self {
         Self { dir: dir.into() }
     }
 
+    /// The directory the files live in.
     #[must_use]
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -200,17 +225,23 @@ impl RealmStore {
         self.dir.join("marks").join(format!("{safe}.json"))
     }
 
+    /// The marks saved for realm `id`; empty when there are none.
     #[must_use]
     pub fn marks(&self, id: &str) -> Marks {
         std::fs::read_to_string(self.marks_path(id)).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
 
+    /// Save the marks of realm `id`.
+    ///
+    /// # Errors
+    /// Returns a message if the file cannot be written.
     pub fn save_marks(&self, id: &str, marks: &Marks) -> Result<(), String> {
         let path = self.marks_path(id);
         std::fs::create_dir_all(path.parent().unwrap_or(&self.dir)).map_err(io)?;
         std::fs::write(path, serde_json::to_string(marks).map_err(|e| e.to_string())?).map_err(io)
     }
 
+    /// Every saved realm.
     #[must_use]
     pub fn list(&self) -> Vec<Realm> {
         std::fs::read_to_string(self.dir.join("realms.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
@@ -223,6 +254,9 @@ impl RealmStore {
     }
 
     /// Insert or replace by id.
+    ///
+    /// # Errors
+    /// Returns a message if the shape is not valid or the file cannot be written.
     pub fn save(&self, realm: &Realm) -> Result<(), String> {
         if !realm.shape.is_valid() {
             return Err("a realm needs a polygon of 3+ points or a circle of at least 50 m".into());
@@ -235,6 +269,10 @@ impl RealmStore {
         self.write_list(&all)
     }
 
+    /// Delete realm `id` with its atlas and marks.
+    ///
+    /// # Errors
+    /// Returns a message if a file cannot be removed.
     pub fn delete(&self, id: &str) -> Result<(), String> {
         let all: Vec<Realm> = self.list().into_iter().filter(|r| r.id != id).collect();
         self.write_list(&all)?;
@@ -243,27 +281,38 @@ impl RealmStore {
         Ok(())
     }
 
+    /// The realm with this id, if saved.
     #[must_use]
     pub fn get(&self, id: &str) -> Option<Realm> {
         self.list().into_iter().find(|r| r.id == id)
     }
 
+    /// Save a realm's atlas.
+    ///
+    /// # Errors
+    /// Returns a message if the file cannot be written.
     pub fn save_atlas(&self, atlas: &Atlas) -> Result<(), String> {
         let path = self.atlas_path(&atlas.realm_id);
         std::fs::create_dir_all(path.parent().unwrap_or(&self.dir)).map_err(io)?;
         std::fs::write(path, serde_json::to_string(atlas).map_err(|e| e.to_string())?).map_err(io)
     }
 
+    /// The saved atlas of realm `id`, if any.
     #[must_use]
     pub fn load_atlas(&self, id: &str) -> Option<Atlas> {
         std::fs::read_to_string(self.atlas_path(id)).ok().and_then(|s| serde_json::from_str(&s).ok())
     }
 
+    /// The saved home point, if any.
     #[must_use]
     pub fn home(&self) -> Option<Point> {
         std::fs::read_to_string(self.dir.join("home.json")).ok().and_then(|s| serde_json::from_str(&s).ok())
     }
 
+    /// Save the home point.
+    ///
+    /// # Errors
+    /// Returns a message if the file cannot be written.
     pub fn set_home(&self, home: Point) -> Result<(), String> {
         std::fs::create_dir_all(&self.dir).map_err(io)?;
         std::fs::write(self.dir.join("home.json"), serde_json::to_string(&home).map_err(|e| e.to_string())?).map_err(io)

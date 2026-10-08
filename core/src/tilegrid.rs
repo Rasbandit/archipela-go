@@ -4,6 +4,7 @@
 use std::collections::BTreeSet;
 
 use crate::geo::{densify, Point};
+use crate::num::floor_i32;
 use crate::zone::Zone;
 
 /// Size of a cell in degrees (both ways): about 2.2 km north-south, 1.5 km east-west at 45 degrees.
@@ -12,16 +13,20 @@ pub const CELL_DEG: f64 = 0.02;
 /// A cell of the grid, by index (row = latitude, col = longitude). Cell 0,0 starts at 0N 0E.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Tile {
+    /// Row index, counted by latitude.
     pub row: i32,
+    /// Column index, counted by longitude.
     pub col: i32,
 }
 
 impl Tile {
+    /// The tile containing `p`.
     #[must_use]
     pub fn containing(p: Point) -> Self {
-        Self { row: (p.lat / CELL_DEG).floor() as i32, col: (p.lon / CELL_DEG).floor() as i32 }
+        Self { row: floor_i32(p.lat / CELL_DEG), col: floor_i32(p.lon / CELL_DEG) }
     }
 
+    /// The centre point of the tile.
     #[must_use]
     pub fn center(self) -> Point {
         Point::new((f64::from(self.row) + 0.5) * CELL_DEG, (f64::from(self.col) + 0.5) * CELL_DEG)

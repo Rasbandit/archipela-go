@@ -3,23 +3,35 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::assign::Assignment;
+use crate::num::{count_f32, count_f64, to_f32};
 use crate::slot::{GoalMode, GoalSpec, SlotData};
 
+/// How far along a win condition is.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GoalStatus {
     /// 0.0..1.0
     pub progress: f32,
+    /// Whether the condition is met.
     pub achieved: bool,
+    /// Short text describing the progress, for the UI.
     pub label: String,
 }
 
+/// Everything a win-condition check needs to know about the game.
 pub struct GoalCtx<'a> {
+    /// The slot data holding the goal settings.
     pub slot: &'a SlotData,
+    /// All quest assignments.
     pub assignments: &'a [Assignment],
+    /// Location ids of completed quests.
     pub done: &'a BTreeSet<i64>,
+    /// Names of items received so far.
     pub items: &'a [String],
+    /// Total distance travelled, in metres.
     pub distance_m: f64,
+    /// Number of explorer map cells discovered.
     pub cells_discovered: usize,
+    /// Current streak of days with a completed quest.
     pub streak_days: u32,
 }
 
@@ -58,7 +70,7 @@ pub fn goal_target_option(id: &str) -> Option<(&'static str, u32)> {
 }
 
 fn status(have: f64, need: f64, label: String) -> GoalStatus {
-    let progress = if need <= 0.0 { 1.0 } else { (have / need).clamp(0.0, 1.0) as f32 };
+    let progress = if need <= 0.0 { 1.0 } else { to_f32((have / need).clamp(0.0, 1.0)) };
     GoalStatus { progress, achieved: have >= need, label }
 }
 
@@ -84,7 +96,7 @@ fn letter_progress(items: &[String], word: &str) -> (f64, f64) {
     let have = letters(items);
     let need = letters_needed(word);
     let got: u32 = need.iter().map(|(c, n)| (*n).min(*have.get(c).unwrap_or(&0))).sum();
-    (f64::from(got), word.len() as f64)
+    (f64::from(got), count_f64(word.len()))
 }
 
 fn or_default(target: u32, default: u32) -> u32 {
@@ -97,7 +109,7 @@ fn or_default(target: u32, default: u32) -> u32 {
 
 /// Every goal of the game with its own progress, for the UI.
 #[must_use]
-pub fn evaluate_each(c: &GoalCtx) -> Vec<(GoalSpec, GoalStatus)> {
+pub fn evaluate_each(c: &GoalCtx<'_>) -> Vec<(GoalSpec, GoalStatus)> {
     c.slot
         .goal_list()
         .into_iter()
@@ -110,7 +122,7 @@ pub fn evaluate_each(c: &GoalCtx) -> Vec<(GoalSpec, GoalStatus)> {
 
 /// The game's win condition: its goal, or several goals combined by the slot's rule (any, all, or at least N).
 #[must_use]
-pub fn evaluate(c: &GoalCtx) -> GoalStatus {
+pub fn evaluate(c: &GoalCtx<'_>) -> GoalStatus {
     let mut each = evaluate_each(c);
     if each.len() == 1 {
         return each.remove(0).1; // one goal keeps its own label and progress
@@ -124,7 +136,7 @@ pub fn evaluate(c: &GoalCtx) -> GoalStatus {
     let done = each.iter().filter(|(_, s)| s.achieved).count();
     let mut progress: Vec<f32> = each.iter().map(|(_, s)| s.progress).collect();
     progress.sort_by(|a, b| b.total_cmp(a));
-    let shown = progress.iter().take(need).sum::<f32>() / need as f32; // the closest `need` goals are what count
+    let shown = progress.iter().take(need).sum::<f32>() / count_f32(need); // the closest `need` goals are what count
     let header = match c.slot.goal_mode {
         GoalMode::Any => format!("Finish any one of {n} goals"),
         GoalMode::All => format!("Finish all {n} goals"),
@@ -134,8 +146,8 @@ pub fn evaluate(c: &GoalCtx) -> GoalStatus {
     GoalStatus { progress: shown, achieved: done >= need, label: format!("{header} ({done} done): {}", parts.join(" · ")) }
 }
 
-fn evaluate_one(c: &GoalCtx, g: &str, t: u32) -> GoalStatus {
-    let trips_total = c.slot.trips.len() as f64;
+fn evaluate_one(c: &GoalCtx<'_>, g: &str, t: u32) -> GoalStatus {
+    let trips_total = count_f64(c.slot.trips.len());
     let boss_done = c.slot.boss.as_ref().is_some_and(|b| c.done.contains(&b.location_id));
     let done_assign = || c.assignments.iter().filter(|a| c.done.contains(&a.location_id));
     match g {
@@ -145,7 +157,7 @@ fn evaluate_one(c: &GoalCtx, g: &str, t: u32) -> GoalStatus {
             status(have, need, format!("Collect the letters of {word}: {have:.0}/{need:.0}"))
         }
         "all_trips" => {
-            let n = c.slot.all_quests().iter().filter(|q| c.done.contains(&q.location_id)).count() as f64;
+            let n = count_f64(c.slot.all_quests().iter().filter(|q| c.done.contains(&q.location_id)).count());
             status(n, trips_total + f64::from(u8::from(c.slot.boss.is_some())), format!("Complete every quest: {n:.0}/{}", c.slot.all_quests().len()))
         }
         "boss" => status(f64::from(u8::from(boss_done)), 1.0, "Defeat The Big One".into()),
@@ -163,11 +175,11 @@ fn evaluate_one(c: &GoalCtx, g: &str, t: u32) -> GoalStatus {
                 .iter()
                 .map(|z| {
                     let all: Vec<_> = c.slot.trips.iter().filter(|q| q.zone == z.id).collect();
-                    let d = all.iter().filter(|q| c.done.contains(&q.location_id)).count() as f64;
+                    let d = count_f64(all.iter().filter(|q| c.done.contains(&q.location_id)).count());
                     if all.is_empty() {
                         100.0
                     } else {
-                        100.0 * d / all.len() as f64
+                        100.0 * d / count_f64(all.len())
                     }
                 })
                 .fold(f64::MAX, f64::min);
@@ -176,12 +188,12 @@ fn evaluate_one(c: &GoalCtx, g: &str, t: u32) -> GoalStatus {
         "well_rounded" => {
             let want: BTreeSet<&str> = c.slot.trips.iter().map(|q| q.family.as_str()).collect();
             let got: BTreeSet<&str> = done_assign().filter(|a| a.family != "boss").map(|a| a.family.as_str()).filter(|f| want.contains(f)).collect();
-            status(got.len() as f64, want.len() as f64, format!("Do one quest of every type: {}/{}", got.len(), want.len()))
+            status(count_f64(got.len()), count_f64(want.len()), format!("Do one quest of every type: {}/{}", got.len(), want.len()))
         }
         "quest_dex" => {
             let need = or_default(t, 15);
             let kinds: BTreeSet<&str> = done_assign().map(|a| a.kind_id.as_str()).collect();
-            status(kinds.len() as f64, f64::from(need), format!("Complete {need} different kinds of quest: {}", kinds.len()))
+            status(count_f64(kinds.len()), f64::from(need), format!("Complete {need} different kinds of quest: {}", kinds.len()))
         }
         "marathon" => {
             let km = or_default(t, 42);
@@ -189,7 +201,7 @@ fn evaluate_one(c: &GoalCtx, g: &str, t: u32) -> GoalStatus {
         }
         "explorer" => {
             let need = or_default(t, 300);
-            status(c.cells_discovered as f64, f64::from(need), format!("Reveal {need} map cells: {}", c.cells_discovered))
+            status(count_f64(c.cells_discovered), f64::from(need), format!("Reveal {need} map cells: {}", c.cells_discovered))
         }
         "streak" => {
             let need = or_default(t, 7);
@@ -198,7 +210,7 @@ fn evaluate_one(c: &GoalCtx, g: &str, t: u32) -> GoalStatus {
         "boss_rush" => {
             let need = or_default(t, 5);
             let hard = c.slot.all_quests().iter().filter(|q| q.difficulty == "hard" && c.done.contains(&q.location_id)).count();
-            status(hard as f64, f64::from(need), format!("Finish {need} hard quests: {hard}"))
+            status(count_f64(hard), f64::from(need), format!("Finish {need} hard quests: {hard}"))
         }
         other => GoalStatus { progress: 0.0, achieved: false, label: format!("Unknown goal {other}") },
     }

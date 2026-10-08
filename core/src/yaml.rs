@@ -4,12 +4,14 @@ use crate::goal::{goal_target_option, goal_yaml_name};
 use crate::slot::GoalMode;
 use crate::solo::SoloOptions;
 
+/// The game name registered by the apworld.
 pub const GAME_NAME: &str = "Archipela-Go 2: Electric Boogaloo";
 
 fn list(v: &[String]) -> String {
     format!("[{}]", v.join(", "))
 }
 
+/// Archipelago player YAML for `player_name` built from the solo `o` options.
 #[must_use]
 pub fn build_yaml(player_name: &str, o: &SoloOptions) -> String {
     let modes: Vec<String> = o.zone_modes.iter().map(|m| m.name().to_string()).collect();

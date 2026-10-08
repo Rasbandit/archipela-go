@@ -10,26 +10,64 @@ use crate::geo::{destination, distance_m, Point};
 const MIN: i64 = 60_000;
 const THAW_RADIUS_M: f64 = 40.0;
 
+/// A negative effect applied to the player, each with a way out.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Trap {
     /// No checks count until you reach `thaw` (or the timer runs out).
-    Freeze { thaw: Point, until_ms: i64 },
+    Freeze {
+        /// Where to go to thaw.
+        thaw: Point,
+        /// Expiry time in Unix milliseconds.
+        until_ms: i64,
+    },
     /// The map hides all quests.
-    Fog { until_ms: i64 },
+    Fog {
+        /// Expiry time in Unix milliseconds.
+        until_ms: i64,
+    },
     /// Notifications muted.
-    Silence { until_ms: i64 },
+    Silence {
+        /// Expiry time in Unix milliseconds.
+        until_ms: i64,
+    },
     /// Checks only count within `radius_m` of `center`.
-    Leash { center: Point, radius_m: f64, until_ms: i64 },
+    Leash {
+        /// Middle of the allowed area.
+        center: Point,
+        /// Radius of the allowed area in metres.
+        radius_m: f64,
+        /// Expiry time in Unix milliseconds.
+        until_ms: i64,
+    },
     /// Visit `waypoint` before any check counts.
-    Detour { waypoint: Point, visited: bool, until_ms: i64 },
+    Detour {
+        /// The place that must be visited.
+        waypoint: Point,
+        /// Whether it has been visited yet.
+        visited: bool,
+        /// Expiry time in Unix milliseconds.
+        until_ms: i64,
+    },
     /// Cover `need_m` meters before any check counts.
-    Toll { need_m: f64, moved_m: f64, until_ms: i64 },
+    Toll {
+        /// Distance that must be covered, in metres.
+        need_m: f64,
+        /// Distance covered so far, in metres.
+        moved_m: f64,
+        /// Expiry time in Unix milliseconds.
+        until_ms: i64,
+    },
     /// Dwell quests take twice as long.
-    Slow { until_ms: i64 },
+    Slow {
+        /// Expiry time in Unix milliseconds.
+        until_ms: i64,
+    },
 }
 
+/// The traps currently affecting the player.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Traps {
+    /// Traps that have not yet expired or been cleared.
     pub active: Vec<Trap>,
 }
 
@@ -125,16 +163,19 @@ impl Traps {
         })
     }
 
+    /// Whether a fog trap is active.
     #[must_use]
     pub fn fog_active(&self) -> bool {
         self.active.iter().any(|t| matches!(t, Trap::Fog { .. }))
     }
 
+    /// Whether a silence trap is active.
     #[must_use]
     pub fn silenced(&self) -> bool {
         self.active.iter().any(|t| matches!(t, Trap::Silence { .. }))
     }
 
+    /// How much longer dwell quests take: 2 under a slow trap, otherwise 1.
     #[must_use]
     pub fn dwell_multiplier(&self) -> f64 {
         if self.active.iter().any(|t| matches!(t, Trap::Slow { .. })) {
@@ -144,11 +185,13 @@ impl Traps {
         }
     }
 
+    /// Where to go to thaw an active freeze trap.
     #[must_use]
     pub fn thaw_point(&self) -> Option<Point> {
         self.active.iter().find_map(|t| if let Trap::Freeze { thaw, .. } = t { Some(*thaw) } else { None })
     }
 
+    /// The detour waypoint still to be visited, if any.
     #[must_use]
     pub fn waypoint(&self) -> Option<Point> {
         self.active.iter().find_map(|t| if let Trap::Detour { waypoint, visited: false, .. } = t { Some(*waypoint) } else { None })

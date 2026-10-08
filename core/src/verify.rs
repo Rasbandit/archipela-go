@@ -4,27 +4,37 @@ use std::collections::BTreeSet;
 
 use crate::assign::Target;
 use crate::geo::{densify, distance_m, point_in_polygon, Point};
+use crate::num::{count_f32, count_f64, count_u32, floor_i64, i64_to_f64, to_f32, trunc_i64};
 
+/// One position reading from the phone.
 #[derive(Debug, Clone, Copy)]
 pub struct Fix {
+    /// Latitude in degrees.
     pub lat: f64,
+    /// Longitude in degrees.
     pub lon: f64,
+    /// When the reading was taken, in Unix milliseconds.
     pub t_ms: i64,
+    /// Horizontal accuracy in metres.
     pub accuracy_m: f64,
 }
 
 impl Fix {
+    /// The reading as a map point.
     #[must_use]
     pub fn point(&self) -> Point {
         Point::new(self.lat, self.lon)
     }
 }
 
+/// How far a quest has got.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Status {
+    /// Not started.
     Idle,
     /// 0.0..1.0 progress toward completion.
     Active(f32),
+    /// Completed.
     Done,
 }
 
@@ -39,7 +49,7 @@ pub const MAX_OUTLIER_STREAK: u32 = 3;
 /// `None` when the gap is too short (< 1 s) or too long (> 2 min) to say anything.
 #[must_use]
 pub fn implied_speed_kmh(prev: &Fix, cur: &Fix) -> Option<f64> {
-    let dt = (cur.t_ms - prev.t_ms) as f64 / 1000.0;
+    let dt = i64_to_f64(cur.t_ms - prev.t_ms) / 1000.0;
     if !(1.0..=120.0).contains(&dt) {
         return None;
     }
@@ -61,6 +71,7 @@ enum State {
     Away { accum_ms: i64, last_t: Option<i64> },
 }
 
+/// Watches phone signals and decides whether one quest has been completed.
 pub struct Tracker {
     target: Target,
     home: Point,
@@ -72,10 +83,11 @@ pub struct Tracker {
 fn cell_id(p: Point, cell_m: f64) -> (i64, i64) {
     let lat_m = p.lat * 111_195.0;
     let lon_m = p.lon * 111_195.0 * p.lat.to_radians().cos();
-    ((lat_m / cell_m).floor() as i64, (lon_m / cell_m).floor() as i64)
+    (floor_i64(lat_m / cell_m), floor_i64(lon_m / cell_m))
 }
 
 impl Tracker {
+    /// A tracker for `target`, with distances measured from `home`.
     #[must_use]
     pub fn new(target: Target, home: Point) -> Self {
         let state = match &target {
@@ -95,6 +107,7 @@ impl Tracker {
         Self { target, home, state, done: false, progress: 0.0 }
     }
 
+    /// The quest's current status.
     #[must_use]
     pub fn status(&self) -> Status {
         if self.done {
@@ -113,6 +126,7 @@ impl Tracker {
     }
 
     /// Feed a location fix (and the cumulative step counter, if available).
+    #[allow(clippy::too_many_lines)] // one match arm per target kind; splitting would only scatter them
     pub fn update(&mut self, fix: &Fix, steps_total: Option<i64>) -> Status {
         if self.done {
             return Status::Done;
@@ -143,14 +157,14 @@ impl Tracker {
                         covered[i] = true;
                     }
                 }
-                let frac = covered.iter().filter(|c| **c).count() as f64 / covered.len().max(1) as f64;
-                self.progress = (frac / coverage).min(1.0) as f32;
+                let frac = count_f64(covered.iter().filter(|c| **c).count()) / count_f64(covered.len().max(1));
+                self.progress = to_f32((frac / coverage).min(1.0));
                 self.done = frac >= *coverage;
             }
             (Target::Courier { a, b, r, time_limit_min }, State::Courier { picked_at }) => {
                 match *picked_at {
                     None if distance_m(p, *a) <= *r => *picked_at = Some(fix.t_ms),
-                    Some(t0) if fix.t_ms - t0 > (*time_limit_min * 60_000.0) as i64 => *picked_at = None,
+                    Some(t0) if fix.t_ms - t0 > trunc_i64(*time_limit_min * 60_000.0) => *picked_at = None,
                     Some(_) if distance_m(p, *b) <= *r => self.done = true,
                     _ => {}
                 }
@@ -188,14 +202,14 @@ impl Tracker {
             }
             (Target::Cells { n, cell_m }, State::Cells { seen }) => {
                 seen.insert(cell_id(p, *cell_m));
-                self.progress = (seen.len() as f32 / *n as f32).min(1.0);
-                self.done = seen.len() as u32 >= *n;
+                self.progress = (count_f32(seen.len()) / to_f32(f64::from(*n))).min(1.0);
+                self.done = count_u32(seen.len()) >= *n;
             }
             (Target::Steps { n }, State::Steps { baseline, now }) => {
                 if let Some(total) = steps_total {
                     let b = *baseline.get_or_insert(total);
                     *now = total - b;
-                    self.progress = (*now as f32 / *n as f32).clamp(0.0, 1.0);
+                    self.progress = (to_f32(i64_to_f64(*now)) / to_f32(f64::from(*n))).clamp(0.0, 1.0);
                     self.done = *now >= i64::from(*n);
                 }
             }
@@ -207,8 +221,8 @@ impl Tracker {
                     }
                 }
                 *last_t = Some(fix.t_ms);
-                self.progress = (*accum_ms as f64 / (*minutes * 60_000.0)).min(1.0) as f32;
-                self.done = *accum_ms as f64 >= *minutes * 60_000.0;
+                self.progress = to_f32((i64_to_f64(*accum_ms) / (*minutes * 60_000.0)).min(1.0));
+                self.done = i64_to_f64(*accum_ms) >= *minutes * 60_000.0;
             }
             _ => {}
         }
@@ -237,8 +251,8 @@ impl Tracker {
         } else {
             *since = None;
         }
-        let need = (minutes * 60_000.0) as i64;
-        *progress = (*best_ms as f64 / need as f64).min(1.0) as f32;
+        let need = trunc_i64(minutes * 60_000.0);
+        *progress = to_f32((i64_to_f64(*best_ms) / i64_to_f64(need)).min(1.0));
         *done = *best_ms >= need;
     }
 }

@@ -6,17 +6,25 @@ use rand::{Rng, SeedableRng};
 use crate::geo::{distance_m, Point};
 use crate::overpass::Candidate;
 
+/// What a trip needs from the sampler: its number and distance tier.
 #[derive(Debug, Clone, Copy)]
 pub struct TripSpec {
+    /// Trip number, starting at 1.
     pub number: u32,
+    /// Distance tier, starting at 1; higher is farther.
     pub tier: u8,
 }
 
+/// A trip with its chosen real-world candidate.
 #[derive(Debug, Clone)]
 pub struct Trip {
+    /// Trip number, starting at 1.
     pub number: u32,
+    /// Distance tier, starting at 1.
     pub tier: u8,
+    /// The place picked for this trip.
     pub candidate: Candidate,
+    /// Straight-line distance from home in metres.
     pub distance_m: f64,
     /// False when no candidate fit the tier band and the nearest one was used.
     pub in_band: bool,

@@ -1,11 +1,28 @@
 //! Play zones: where the game may place trips.
 
 use crate::geo::{distance_m, point_in_polygon, Point};
+use crate::num::count_f64;
 
+/// The area in which trips may be placed.
 #[derive(Debug, Clone)]
 pub enum Zone {
-    Circle { center: Point, radius_m: f64 },
-    Annulus { center: Point, min_m: f64, max_m: f64 },
+    /// Everything within `radius_m` of `center`.
+    Circle {
+        /// Middle of the circle.
+        center: Point,
+        /// Radius in metres.
+        radius_m: f64,
+    },
+    /// The ring between `min_m` and `max_m` of `center`.
+    Annulus {
+        /// Middle of the ring.
+        center: Point,
+        /// Inner radius in metres.
+        min_m: f64,
+        /// Outer radius in metres.
+        max_m: f64,
+    },
+    /// A free-form area given by its corner points.
     Polygon(Vec<Point>),
 }
 
@@ -16,7 +33,7 @@ impl Zone {
         match self {
             Self::Circle { center, .. } | Self::Annulus { center, .. } => *center,
             Self::Polygon(v) => {
-                let n = v.len().max(1) as f64;
+                let n = count_f64(v.len().max(1));
                 Point::new(v.iter().map(|p| p.lat).sum::<f64>() / n, v.iter().map(|p| p.lon).sum::<f64>() / n)
             }
         }
@@ -31,6 +48,7 @@ impl Zone {
         }
     }
 
+    /// Whether `p` lies inside the zone.
     #[must_use]
     pub fn contains(&self, p: Point) -> bool {
         match self {

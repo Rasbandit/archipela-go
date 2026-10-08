@@ -5,17 +5,24 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+/// How the player has marked a place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mark {
+    /// No mark.
     None,
+    /// Preferred when quests pick places.
     Favorite,
+    /// Never used for quests.
     Banned,
 }
 
+/// The places the player has marked as favorite or banned, by feature id.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Marks {
+    /// Feature ids marked as favorites.
     #[serde(default)]
     pub favorites: BTreeSet<String>,
+    /// Feature ids marked as banned.
     #[serde(default)]
     pub banned: BTreeSet<String>,
 }
@@ -28,6 +35,7 @@ impl Marks {
         &NONE
     }
 
+    /// The mark on place `id`; banned wins over favorite.
     #[must_use]
     pub fn get(&self, id: &str) -> Mark {
         if self.banned.contains(id) {
@@ -39,11 +47,13 @@ impl Marks {
         }
     }
 
+    /// Whether place `id` is banned.
     #[must_use]
     pub fn is_banned(&self, id: &str) -> bool {
         self.banned.contains(id)
     }
 
+    /// Whether place `id` is a favorite.
     #[must_use]
     pub fn is_favorite(&self, id: &str) -> bool {
         self.favorites.contains(id)

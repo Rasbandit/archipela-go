@@ -9,10 +9,14 @@ use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::Mode;
+use crate::num::{count_i64, count_u32};
 use crate::slot::{check_goal_specs, GoalMode, GoalSpec, QuestSlot, SlotData, ZoneSlot, CURRENT_SCHEMA};
 
+/// First Archipelago id of this game; every location and item id is this plus an offset.
 pub const ID_OFFSET: i64 = 8_902_400_000_000;
+/// Number of ids reserved for each kind of thing (a block).
 pub const BLOCK_SIZE: i64 = 1000;
+/// Ids of the win conditions a game can use.
 pub const GOALS: [&str; 12] = [
     "macguffin_short",
     "macguffin_long",
@@ -27,13 +31,17 @@ pub const GOALS: [&str; 12] = [
     "streak",
     "boss_rush",
 ];
+/// Ids of the quest families.
 pub const FAMILIES: [&str; 10] = ["reach", "dwell", "landmark", "trail", "park", "water", "courier", "explore", "steps", "away"];
 const DIFFICULTIES: [&str; 3] = ["easy", "medium", "hard"];
 const BANDS: [(u8, u8); 3] = [(1, 3), (4, 7), (8, 10)];
 const REACH_WEIGHT: usize = 3;
+/// Names of the honour-system trap items, which the player carries out in person.
 pub const HONOR_TRAPS: [&str; 5] = ["Push Up Trap", "Socializing Trap", "Sit Up Trap", "Jumping Jack Trap", "Touch Grass Trap"];
+/// Names of the filler items.
 pub const FILLERS: [&str; 2] = ["Hydrate!", "Take a Breather!"];
 
+/// The item name of the trap with this key, if it is a known trap.
 #[must_use]
 pub fn trap_item(key: &str) -> Option<&'static str> {
     Some(match key {
@@ -49,6 +57,7 @@ pub fn trap_item(key: &str) -> Option<&'static str> {
     })
 }
 
+/// The tool item a zone in `mode` needs, if any (walking needs none).
 #[must_use]
 pub fn tool_for(mode: Mode) -> Option<&'static str> {
     match mode {
@@ -69,34 +78,56 @@ fn family_allows(family: &str, mode: Mode) -> bool {
 }
 
 fn mode_index(m: Mode) -> i64 {
-    Mode::ALL.iter().position(|x| *x == m).unwrap_or(0) as i64
+    count_i64(Mode::ALL.iter().position(|x| *x == m).unwrap_or(0))
 }
 
+/// The options of a solo game: the same choices as the apworld YAML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)] // mirrors the YAML options, each an independent switch
 pub struct SoloOptions {
     /// The win condition. When `goals` is not empty it takes over (and these two are only the single-goal form).
     pub goal: String,
+    /// Parameter of the single goal.
     pub goal_target: u32,
+    /// The win conditions; when not empty they replace `goal`.
     pub goals: Vec<GoalSpec>,
+    /// How the goals combine into winning.
     pub goal_mode: GoalMode,
+    /// For an at-least goal mode, how many goals must be finished.
     pub goal_need: u32,
+    /// How many quest locations the game has.
     pub number_of_trips: u32,
+    /// Travel mode of each zone, in zone order.
     pub zone_modes: Vec<Mode>,
+    /// Weight of easy quests.
     pub easy_share: u32,
+    /// Weight of medium quests.
     pub medium_share: u32,
+    /// Weight of hard quests.
     pub hard_share: u32,
+    /// Minutes of effort one tier covers.
     pub minutes_per_tier: u32,
+    /// Quests must be at least this far from home, in metres.
     pub min_distance_m: u32,
+    /// Quest families the game may use.
     pub quest_types: Vec<String>,
     /// Quest types for each zone, in zone order. A missing or empty entry uses `quest_types`.
     pub zone_quest_types: Vec<Vec<String>>,
+    /// Keys of the traps in the item pool.
     pub enabled_traps: Vec<String>,
+    /// Share of filler items that are traps.
     pub trap_rate: u32,
+    /// Whether effort-reduction items are in the pool.
     pub enable_effort_reductions: bool,
+    /// Whether scout items are in the pool.
     pub enable_scouting: bool,
+    /// Whether collection items are in the pool.
     pub enable_collection: bool,
+    /// Percent of effort each reduction item removes.
     pub reduction_percent: u32,
+    /// Whether quests stay hidden until the player is near.
     pub fog_of_war: bool,
+    /// Whether the player must return home to finish a quest.
     pub return_home: bool,
 }
 
@@ -115,12 +146,9 @@ impl Default for SoloOptions {
             hard_share: 15,
             minutes_per_tier: 10,
             min_distance_m: 150,
-            quest_types: FAMILIES.iter().map(std::string::ToString::to_string).collect(),
+            quest_types: FAMILIES.iter().map(ToString::to_string).collect(),
             zone_quest_types: vec![],
-            enabled_traps: ["freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor"]
-                .iter()
-                .map(std::string::ToString::to_string)
-                .collect(),
+            enabled_traps: ["freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor"].iter().map(ToString::to_string).collect(),
             trap_rate: 30,
             enable_effort_reductions: false,
             enable_scouting: false,
@@ -132,8 +160,10 @@ impl Default for SoloOptions {
     }
 }
 
+/// A generated solo game: its slot data and where every reward is.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SoloGame {
+    /// The generated `slot_data`.
     pub slot: SlotData,
     /// `location_id` -> item name found there.
     pub rewards: BTreeMap<i64, String>,
@@ -173,6 +203,7 @@ impl SoloOptions {
 }
 
 /// Largest-remainder split of `total` by weights (zero weights get zero).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // each share is a non-negative floor of at most `total`
 fn split(total: u32, weights: &[u32]) -> Vec<u32> {
     let sum: u32 = weights.iter().sum();
     if sum == 0 {
@@ -188,6 +219,10 @@ fn split(total: u32, weights: &[u32]) -> Vec<u32> {
     out
 }
 
+/// Check that `o` describes a game that can be generated.
+///
+/// # Errors
+/// Returns a message if the zone count, goal setup, difficulty shares, trip count or quest types are invalid, or there are too few trips for the mandatory items.
 pub fn validate(o: &SoloOptions) -> Result<(), String> {
     if o.zone_modes.is_empty() || o.zone_modes.len() > 6 {
         return Err("zone_modes needs 1 to 6 zones".into());
@@ -199,9 +234,9 @@ pub fn validate(o: &SoloOptions) -> Result<(), String> {
     if !(1..=1000).contains(&o.number_of_trips) {
         return Err("number_of_trips must be 1..1000".into());
     }
-    let zones = o.zone_modes.len() as u32;
-    let tools = tool_names(o).len() as u32;
-    let mandatory = letters_for_goals(&o.goal_list()).len() as u32 + (zones - 1) + tools;
+    let zones = count_u32(o.zone_modes.len());
+    let tools = count_u32(tool_names(o).len());
+    let mandatory = count_u32(letters_for_goals(&o.goal_list()).len()) + (zones - 1) + tools;
     if o.number_of_trips < mandatory.max(zones) {
         return Err(format!("number_of_trips ({}) is too small; this setup needs at least {}", o.number_of_trips, mandatory.max(zones)));
     }
@@ -228,6 +263,14 @@ pub fn tool_names(o: &SoloOptions) -> Vec<&'static str> {
     v
 }
 
+/// Generate a solo game from `o`: the zones, quest locations and what each location gives.
+///
+/// The same `o` and `seed` always give the same game.
+///
+/// # Errors
+/// Returns a message if `o` is invalid (see [`validate`]) or there are too few quests to hold the keys and tools.
+#[allow(clippy::too_many_lines)] // one linear pipeline; splitting it would scatter the RNG draw order that keeps seeds reproducible
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // share counts are floored non-negative values bounded by the location count
 pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     validate(o)?;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -239,9 +282,9 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
         .iter()
         .enumerate()
         .map(|(i, m)| ZoneSlot {
-            id: i as u32 + 1,
+            id: count_u32(i) + 1,
             mode: *m,
-            zone_keys_needed: i as u32,
+            zone_keys_needed: count_u32(i),
             tool: if i > 0 && *m != first { tool_for(*m).map(String::from) } else { None },
         })
         .collect();
@@ -264,7 +307,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
             for _ in 0..*n {
                 let tier = rng.random_range(BANDS[di].0..=BANDS[di].1);
                 let family = fams.choose(&mut rng).copied().unwrap_or("reach");
-                let block = di as i64 * 4 + mode_index(zone.mode);
+                let block = count_i64(di) * 4 + mode_index(zone.mode);
                 let c = counters.entry((di, block)).or_insert(0);
                 *c += 1;
                 trips.push(QuestSlot {
@@ -278,20 +321,17 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
             }
         }
     }
-    let boss = has_boss_goal(&o.goal_list()).then(|| {
-        let last = zones.last().expect("zones");
-        QuestSlot {
-            location_id: ID_OFFSET + 12 * BLOCK_SIZE + 1,
-            zone: last.id,
-            mode: last.mode,
-            difficulty: "hard".into(),
-            effort_tier: 10,
-            family: "boss".into(),
-        }
+    let boss = zones.last().filter(|_| has_boss_goal(&o.goal_list())).map(|last| QuestSlot {
+        location_id: ID_OFFSET + 12 * BLOCK_SIZE + 1,
+        zone: last.id,
+        mode: last.mode,
+        difficulty: "hard".into(),
+        effort_tier: 10,
+        family: "boss".into(),
     });
 
     // ---- item pool (mirrors the apworld item plan) ----
-    let total_locs = trips.len() as u32 + u32::from(boss.is_some());
+    let total_locs = count_u32(trips.len()) + u32::from(boss.is_some());
     let mut unlock: Vec<(usize, String)> = Vec::new(); // (zone index that needs it, item)
     for k in 2..=zn {
         unlock.push((k, "Progressive Zone Key".into()));
@@ -302,7 +342,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
         }
     }
     let letters: Vec<String> = letters_for_goals(&o.goal_list()).chars().map(|c| format!("Letter {c}")).collect();
-    let mut free = i64::from(total_locs) - unlock.len() as i64 - letters.len() as i64;
+    let mut free = i64::from(total_locs) - count_i64(unlock.len()) - count_i64(letters.len());
     let mut other: Vec<String> = Vec::new();
     let add_useful = |name: &str, share_pct: u32, min: u32, free: &mut i64, other: &mut Vec<String>| {
         let want = ((f64::from(total_locs) * f64::from(share_pct) / 100.0).floor() as u32).max(min).min((*free).max(0) as u32);
@@ -322,17 +362,21 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     let mut trap_names: Vec<String> = Vec::new();
     for t in &o.enabled_traps {
         if t == "honor" {
-            trap_names.extend(HONOR_TRAPS.iter().map(std::string::ToString::to_string));
+            trap_names.extend(HONOR_TRAPS.iter().map(ToString::to_string));
         } else if let Some(n) = trap_item(t) {
             trap_names.push(n.to_string());
         }
     }
-    let traps = if trap_names.is_empty() { 0 } else { free * o.trap_rate.min(100) / 100 };
-    for _ in 0..traps {
-        other.push(trap_names.choose(&mut rng).cloned().expect("non-empty"));
+    let n_traps = if trap_names.is_empty() { 0 } else { free * o.trap_rate.min(100) / 100 };
+    for _ in 0..n_traps {
+        if let Some(name) = trap_names.choose(&mut rng) {
+            other.push(name.clone());
+        }
     }
-    for _ in 0..(free - traps) {
-        other.push(FILLERS.choose(&mut rng).map(std::string::ToString::to_string).expect("fillers"));
+    for _ in 0..(free - n_traps) {
+        if let Some(name) = FILLERS.choose(&mut rng) {
+            other.push((*name).to_string());
+        }
     }
 
     // ---- fill: unlock items go to zones that are already reachable, so the game is beatable by construction ----
@@ -348,10 +392,10 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
         Ok(())
     };
     for (zone_needing, item) in &unlock {
-        place(item, *zone_needing as u32 - 1, &mut rewards, &mut rng)?;
+        place(item, count_u32(*zone_needing) - 1, &mut rewards, &mut rng)?;
     }
     for l in &letters {
-        place(l, zn as u32, &mut rewards, &mut rng)?;
+        place(l, count_u32(zn), &mut rewards, &mut rng)?;
     }
     other.shuffle(&mut rng);
     for (id, _, _) in &locs {

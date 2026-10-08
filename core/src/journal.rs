@@ -9,26 +9,36 @@ use rusqlite::Connection;
 use crate::game::Event;
 use crate::geo::{distance_m, Point};
 
+/// One recorded GPS fix.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackPoint {
+    /// When the fix was taken, in Unix milliseconds.
     pub t_ms: i64,
+    /// Latitude in degrees.
     pub lat: f64,
+    /// Longitude in degrees.
     pub lon: f64,
+    /// Horizontal accuracy in metres.
     pub accuracy_m: f64,
     /// Dev simulator position, not real GPS.
     pub simulated: bool,
 }
 
+/// One line of the audit log.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JournalEvent {
+    /// When it happened, in Unix milliseconds.
     pub t_ms: i64,
     /// Short machine name, e.g. `quest_done`, `fix_rejected`, `app_background` (see the constants below).
     pub kind: String,
+    /// Human-readable detail of the event.
     pub detail: String,
+    /// Where the player was, as (latitude, longitude), when known.
     pub at: Option<(f64, f64)>,
 }
 
 impl JournalEvent {
+    /// The log entry for a game event, stamped with `t_ms` and an optional position.
     #[must_use]
     pub fn from_game_event(e: &Event, t_ms: i64, at: Option<(f64, f64)>) -> Self {
         let (kind, detail) = match e {
@@ -46,21 +56,35 @@ impl JournalEvent {
     }
 }
 
+/// Names for the `kind` of a journal event.
 pub mod kind {
+    /// A quest was completed.
     pub const QUEST_DONE: &str = "quest_done";
+    /// A check was sent to the server.
     pub const CHECK_SENT: &str = "check_sent";
+    /// A reward was received.
     pub const REWARD: &str = "reward";
+    /// A zone was unlocked.
     pub const ZONE_UNLOCKED: &str = "zone_unlocked";
+    /// A trap started.
     pub const TRAP: &str = "trap";
+    /// A quest was discovered under fog.
     pub const DISCOVERED: &str = "discovered";
+    /// A goal was achieved.
     pub const GOAL: &str = "goal";
+    /// General information.
     pub const INFO: &str = "info";
+    /// An item arrived from the multiworld.
     pub const ITEM_RECEIVED: &str = "item_received";
+    /// A GPS fix was ignored as unreliable.
     pub const FIX_REJECTED: &str = "fix_rejected";
+    /// The app came to the foreground.
     pub const APP_FOREGROUND: &str = "app_foreground";
+    /// The app went to the background.
     pub const APP_BACKGROUND: &str = "app_background";
     /// The player paused or resumed play (tracking off or on).
     pub const PLAY_PAUSED: &str = "play_paused";
+    /// Play resumed after a pause.
     pub const PLAY_RESUMED: &str = "play_resumed";
     /// A presence rule (home Wi-Fi, car) paused or resumed counting.
     pub const PRESENCE: &str = "presence";
@@ -71,14 +95,21 @@ pub mod kind {
 /// What happened between two moments: the "while you were out" report.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Summary {
+    /// Start of the period, in Unix milliseconds.
     pub from_ms: i64,
+    /// End of the period, in Unix milliseconds.
     pub to_ms: i64,
+    /// Number of GPS points recorded.
     pub points: u32,
+    /// How many of those points came from the dev simulator.
     pub simulated_points: u32,
+    /// Distance travelled, in metres.
     pub distance_m: f64,
+    /// Number of events by kind.
     pub by_kind: BTreeMap<String, u32>,
 }
 
+/// The on-device SQLite journal of GPS fixes and events.
 pub struct Journal {
     conn: Connection,
 }
@@ -112,7 +143,7 @@ CREATE INDEX IF NOT EXISTS events_game_t ON events (game, t_ms);
 
 const POINT_COLS: &str = "t_ms, lat, lon, accuracy_m, simulated";
 
-fn point_row(r: &rusqlite::Row) -> rusqlite::Result<TrackPoint> {
+fn point_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<TrackPoint> {
     Ok(TrackPoint { t_ms: r.get(0)?, lat: r.get(1)?, lon: r.get(2)?, accuracy_m: r.get(3)?, simulated: r.get::<_, i64>(4)? != 0 })
 }
 
@@ -122,6 +153,10 @@ impl Journal {
         Ok(Self { conn })
     }
 
+    /// Open (or create) the journal database at `path`.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be opened or the schema cannot be created.
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
         // Write-ahead log: a fix every few seconds must not block, and a crash must not lose the trace.
@@ -129,10 +164,18 @@ impl Journal {
         Self::init(conn)
     }
 
+    /// An in-memory journal, for tests and previews.
+    ///
+    /// # Errors
+    /// Returns an error if the schema cannot be created.
     pub fn open_memory() -> rusqlite::Result<Self> {
         Self::init(Connection::open_in_memory()?)
     }
 
+    /// Record an accepted GPS fix for `game`.
+    ///
+    /// # Errors
+    /// Returns any SQLite error.
     pub fn add_point(&self, game: &str, p: &TrackPoint) -> rusqlite::Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
@@ -145,12 +188,18 @@ impl Journal {
     }
 
     /// Points of a game in time order, `from_ms..=to_ms`.
+    ///
+    /// # Errors
+    /// Returns any SQLite error.
     pub fn track(&self, game: &str, from_ms: i64, to_ms: i64) -> rusqlite::Result<Vec<TrackPoint>> {
         let sql = format!("SELECT {POINT_COLS} FROM points WHERE game = ?1 AND t_ms BETWEEN ?2 AND ?3 ORDER BY t_ms, id");
         self.conn.prepare(&sql)?.query_map((game, from_ms, to_ms), point_row)?.collect()
     }
 
     /// The trace as separate lines, split wherever two points are further apart in time than `max_gap_ms`.
+    ///
+    /// # Errors
+    /// Returns any SQLite error.
     pub fn segments(&self, game: &str, from_ms: i64, to_ms: i64, max_gap_ms: i64) -> rusqlite::Result<Vec<Vec<TrackPoint>>> {
         let mut out: Vec<Vec<TrackPoint>> = Vec::new();
         for p in self.track(game, from_ms, to_ms)? {
@@ -163,6 +212,9 @@ impl Journal {
     }
 
     /// Points inside a lat/lon box (map viewport), time-ordered.
+    ///
+    /// # Errors
+    /// Returns any SQLite error.
     pub fn points_in_box(&self, game: &str, min: (f64, f64), max: (f64, f64)) -> rusqlite::Result<Vec<TrackPoint>> {
         let sql = format!(
             "SELECT {cols} FROM points p JOIN points_rt r ON r.id = p.id
@@ -173,6 +225,10 @@ impl Journal {
         self.conn.prepare(&sql)?.query_map((game, min.0, max.0, min.1, max.1), point_row)?.collect()
     }
 
+    /// Append an event to the audit log of `game`.
+    ///
+    /// # Errors
+    /// Returns any SQLite error.
     pub fn log(&self, game: &str, e: &JournalEvent) -> rusqlite::Result<()> {
         let (lat, lon) = e.at.unzip();
         self.conn
@@ -181,6 +237,9 @@ impl Journal {
     }
 
     /// Events of a game with `t_ms >= since_ms`, oldest first.
+    ///
+    /// # Errors
+    /// Returns any SQLite error.
     pub fn events_since(&self, game: &str, since_ms: i64) -> rusqlite::Result<Vec<JournalEvent>> {
         self.events_between(game, since_ms, i64::MAX)
     }
@@ -193,6 +252,9 @@ impl Journal {
     }
 
     /// The newest `limit` events of a game, newest first (the activity view).
+    ///
+    /// # Errors
+    /// Returns any SQLite error.
     pub fn recent_events(&self, game: &str, limit: u32) -> rusqlite::Result<Vec<JournalEvent>> {
         self.conn
             .prepare("SELECT t_ms, kind, detail, lat, lon FROM events WHERE game = ?1 ORDER BY t_ms DESC, id DESC LIMIT ?2")?
@@ -200,16 +262,23 @@ impl Journal {
             .collect()
     }
 
-    fn event_row(r: &rusqlite::Row) -> rusqlite::Result<JournalEvent> {
+    fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JournalEvent> {
         let (lat, lon): (Option<f64>, Option<f64>) = (r.get(3)?, r.get(4)?);
         Ok(JournalEvent { t_ms: r.get(0)?, kind: r.get(1)?, detail: r.get(2)?, at: lat.zip(lon) })
     }
 
     /// Time of the newest event of this kind for a game.
+    ///
+    /// # Errors
+    /// Returns any SQLite error.
     pub fn last_of_kind(&self, game: &str, kind: &str) -> rusqlite::Result<Option<i64>> {
         self.conn.query_row("SELECT MAX(t_ms) FROM events WHERE game = ?1 AND kind = ?2", (game, kind), |r| r.get(0))
     }
 
+    /// Count points, distance and events of `game` between `from_ms` and `to_ms`.
+    ///
+    /// # Errors
+    /// Returns any SQLite error.
     pub fn summary(&self, game: &str, from_ms: i64, to_ms: i64) -> rusqlite::Result<Summary> {
         let mut s = Summary { from_ms, to_ms, ..Summary::default() };
         let mut prev: Option<TrackPoint> = None;
@@ -228,6 +297,10 @@ impl Journal {
         Ok(s)
     }
 
+    /// Delete all points and events of `game`.
+    ///
+    /// # Errors
+    /// Returns any SQLite error.
     pub fn clear_game(&self, game: &str) -> rusqlite::Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM points_rt WHERE id IN (SELECT id FROM points WHERE game = ?1)", [game])?;

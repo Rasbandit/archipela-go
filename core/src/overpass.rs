@@ -6,7 +6,9 @@ use std::time::{Duration, SystemTime};
 use serde_json::Value;
 
 use crate::geo::Point;
+use crate::num::{i64_to_f64, round_i64};
 
+/// Public Overpass API mirrors, tried in order.
 pub const ENDPOINTS: [&str; 3] =
     ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
 const USER_AGENT: &str = "archipela-go2-spike/0.0";
@@ -14,10 +16,14 @@ const TILE_DEG: f64 = 0.05;
 const TILE_SLACK_M: u32 = 4_000;
 const CACHE_MAX_AGE: Duration = Duration::from_hours(720);
 
+/// Why an Overpass request or its parsing failed.
 #[derive(Debug)]
 pub enum Error {
+    /// The response body was not the expected JSON shape.
     Parse(String),
+    /// Every endpoint failed; holds the per-endpoint error messages.
     AllEndpointsFailed(Vec<String>),
+    /// Reading or writing the on-disk cache failed.
     Io(std::io::Error),
 }
 
@@ -39,11 +45,16 @@ impl From<std::io::Error> for Error {
     }
 }
 
+/// A real place a trip can target.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Candidate {
+    /// Stable feature id from OpenStreetMap.
     pub id: String,
+    /// Where the place is.
     pub point: Point,
+    /// Display name of the place.
     pub name: String,
+    /// Interest score; higher is picked more often.
     pub score: u32,
     /// Unpaved, unknown-surface trail, or stairs (see `scan::is_rough`).
     pub rough: bool,
@@ -66,14 +77,15 @@ pub fn poi_query(center: Point, radius_m: u32) -> String {
 }
 
 fn tile_index(p: Point) -> (i64, i64) {
-    ((p.lat / TILE_DEG).round() as i64, (p.lon / TILE_DEG).round() as i64)
+    (round_i64(p.lat / TILE_DEG), round_i64(p.lon / TILE_DEG))
 }
 
 fn tile_center(p: Point) -> Point {
     let (i, j) = tile_index(p);
-    Point::new(i as f64 * TILE_DEG, j as f64 * TILE_DEG)
+    Point::new(i64_to_f64(i) * TILE_DEG, i64_to_f64(j) * TILE_DEG)
 }
 
+/// File name for the cached response around `home` within `radius_m`.
 #[must_use]
 pub fn cache_key(home: Point, radius_m: u32) -> String {
     let (i, j) = tile_index(home);
@@ -85,7 +97,10 @@ fn score(tags: &Value) -> u32 {
     1 + 2 * u32::from(has("wikidata") || has("wikipedia")) + u32::from(has("historic")) + u32::from(has("tourism"))
 }
 
-/// Parse an Overpass JSON body; unnamed or geometry-less elements are skipped.
+/// Parse an Overpass JSON body into candidates; unnamed or geometry-less elements are skipped.
+///
+/// # Errors
+/// Returns [`Error::Parse`] if the body is not JSON or has no `elements`.
 pub fn parse(body: &str) -> Result<Vec<Candidate>, Error> {
     let v: Value = serde_json::from_str(body).map_err(|e| Error::Parse(e.to_string()))?;
     let elements = v
@@ -139,11 +154,17 @@ pub fn order_endpoints(health: &[i64], start: usize) -> Vec<usize> {
 }
 
 /// Try the endpoints best-first (50 s first round, a longer second round), updating their health.
+///
+/// # Errors
+/// Returns [`Error::AllEndpointsFailed`] if no endpoint answers.
 pub fn fetch(endpoints: &[&str], query: &str) -> Result<String, Error> {
     fetch_from(endpoints, query, 0, None)
 }
 
 /// Like `fetch`, but gives up once `deadline` has passed (so a scan can return partial results instead of hanging).
+///
+/// # Errors
+/// Returns [`Error::AllEndpointsFailed`] if no endpoint answers before the deadline.
 pub fn fetch_from(endpoints: &[&str], query: &str, start: usize, deadline: Option<std::time::Instant>) -> Result<String, Error> {
     use std::sync::atomic::Ordering::Relaxed;
     let mut failures = Vec::new();
@@ -211,6 +232,9 @@ pub fn is_cached(query: &str, cache_dir: &Path) -> bool {
 
 /// Fetch any query with an on-disk cache keyed by the query text (30-day freshness).
 /// `start` rotates which endpoint is tried first so parallel jobs spread across servers.
+///
+/// # Errors
+/// Returns an error if the cache cannot be read or written, or if no endpoint answers.
 pub fn fetch_cached_from(query: &str, cache_dir: Option<&Path>, start: usize, deadline: Option<std::time::Instant>) -> Result<String, Error> {
     let file = cache_dir.map(|d| query_cache_file(d, query));
     if let Some(f) = &file {
@@ -228,11 +252,18 @@ pub fn fetch_cached_from(query: &str, cache_dir: Option<&Path>, start: usize, de
     Ok(body)
 }
 
+/// The response for `query`, from the cache in `cache_dir` when present, otherwise fetched and cached.
+///
+/// # Errors
+/// Returns an error if the cache cannot be read or written, or if no endpoint answers.
 pub fn fetch_cached(query: &str, cache_dir: Option<&Path>) -> Result<String, Error> {
     fetch_cached_from(query, cache_dir, 0, None)
 }
 
 /// Candidates around `home`, fetched once per ~5 km tile and cached on disk for 30 days.
+///
+/// # Errors
+/// Returns an error if the cache cannot be read or written, no endpoint answers, or the response cannot be parsed.
 pub fn fetch_pois(home: Point, radius_m: u32, cache_dir: Option<&Path>) -> Result<Vec<Candidate>, Error> {
     let file = cache_dir.map(|d| d.join(format!("{}.json", cache_key(home, radius_m))));
     if let Some(f) = &file {

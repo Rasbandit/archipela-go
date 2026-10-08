@@ -16,6 +16,7 @@ use crate::fog::{anchor, reveal_radius, Fog};
 use crate::geo::{distance_m, Point};
 use crate::goal::{evaluate, evaluate_each, GoalCtx, GoalStatus};
 use crate::journal::JournalEvent;
+use crate::num::{count_f64, count_u32, i64_to_f64, to_f32};
 use crate::realm::Realm;
 use crate::scan::Atlas;
 use crate::slot::GoalSpec;
@@ -25,40 +26,66 @@ use crate::verify::{implied_speed_kmh, Fix, Status, Tracker, MAX_ACCURACY_M, MAX
 
 const DAY_MS: i64 = 86_400_000;
 
+/// Where checks are decided and rewards come from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Backend {
+    /// Played alone: the app holds the reward table.
     Solo,
+    /// Played in an Archipelago multiworld: checks go to the server and items come back.
     Archipelago,
 }
 
+/// Where a quest stands for the player.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuestState {
+    /// Its zone is not unlocked yet.
     Locked,
+    /// Hidden by fog until the player gets near.
     Hidden,
+    /// Available to do.
     Open,
+    /// Being tracked right now.
     InProgress,
+    /// Completed.
     Done,
 }
 
+/// A quest as the UI shows it.
 #[derive(Debug, Clone)]
 pub struct QuestView {
+    /// Archipelago location id of the check.
     pub location_id: i64,
+    /// Zone number the quest is in.
     pub zone: u32,
+    /// Display name of the quest.
     pub name: String,
+    /// Name of the place the quest uses.
     pub place: String,
+    /// Quest family.
     pub family: String,
     /// The quest kind's id ("`bench_warmer`"), for choosing an icon.
     pub kind_id: String,
+    /// Difficulty band: easy, medium or hard.
     pub difficulty: String,
+    /// Effort tier, starting at 1.
     pub tier: u8,
+    /// Expected effort in minutes.
     pub effort_min: f64,
+    /// How the player travels there.
     pub mode: Mode,
+    /// Where the quest stands for the player.
     pub state: QuestState,
+    /// Progress from 0 to 1.
     pub progress: f32,
+    /// Where the quest is on the map, if it has a place.
     pub anchor: Option<Point>,
+    /// What the player has to do.
     pub target: Target,
+    /// True when a street quest stands in for a family the realm could not offer.
     pub fallback: bool,
+    /// Whether this is the realm's boss quest.
     pub boss: bool,
+    /// Short description of the quest kind.
     pub blurb: String,
     /// Solo only: what the quest gave you (shown after it is done).
     pub reward: Option<String>,
@@ -66,40 +93,95 @@ pub struct QuestView {
     pub chain_id: Option<String>,
 }
 
+/// One milestone of a chain, as the UI shows it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarkView {
+    /// Counter value at which the milestone is reached.
     pub at: f64,
+    /// Archipelago location id of the check it unlocks.
     pub location_id: i64,
+    /// Whether the counter has reached it.
     pub reached: bool,
     /// Solo only: what the milestone gave you, once reached.
     pub reward: Option<String>,
 }
 
+/// A progressive quest chain as the UI shows it.
 #[derive(Debug, Clone)]
 pub struct ChainView {
+    /// Chain id.
     pub id: String,
+    /// Zone number the chain is in.
     pub zone: u32,
+    /// Catalog id of the quest kind.
     pub kind_id: String,
+    /// Display name.
     pub name: String,
+    /// Quest family.
     pub family: String,
+    /// What the counter counts.
     pub unit: ChainUnit,
+    /// Current counter value.
     pub counter: f64,
+    /// Counter value at the last milestone.
     pub total: f64,
+    /// Short rule text, e.g. how time away is counted.
     pub rule: String,
+    /// The milestones in order.
     pub marks: Vec<MarkView>,
 }
 
+/// Something that happened that the UI or the server needs to hear about.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    QuestDone { location_id: i64, name: String },
-    SendCheck { location_id: i64 },
-    Reward { location_id: i64, item: String },
-    ZoneUnlocked { zone: u32 },
-    Trap { item: String, message: String },
+    /// A quest was completed.
+    QuestDone {
+        /// Archipelago location id of the check.
+        location_id: i64,
+        /// Display name of the quest.
+        name: String,
+    },
+    /// A check must be sent to the server.
+    SendCheck {
+        /// Archipelago location id of the check.
+        location_id: i64,
+    },
+    /// A reward was received for a check.
+    Reward {
+        /// Archipelago location id of the check.
+        location_id: i64,
+        /// Name of the item.
+        item: String,
+    },
+    /// A zone became available.
+    ZoneUnlocked {
+        /// Zone number.
+        zone: u32,
+    },
+    /// A trap started.
+    Trap {
+        /// Name of the trap item.
+        item: String,
+        /// What the trap does, for the player.
+        message: String,
+    },
+    /// The player asked to reshuffle the quests.
     ShuffleRequested,
-    Discovered { location_id: i64 },
-    GoalAchieved { label: String },
-    Info { text: String },
+    /// A hidden quest was revealed.
+    Discovered {
+        /// Archipelago location id of the check.
+        location_id: i64,
+    },
+    /// The win condition was met.
+    GoalAchieved {
+        /// Text describing the goal.
+        label: String,
+    },
+    /// A general message.
+    Info {
+        /// The message.
+        text: String,
+    },
 }
 
 /// What became of the most recent fix.
@@ -116,15 +198,22 @@ enum Verdict {
 /// A quest the player is close to, with the reason it does or does not count at this moment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NearMiss {
+    /// Archipelago location id of the quest.
     pub location_id: i64,
+    /// Display name of the quest.
     pub name: String,
+    /// How far away the player is, in metres.
     pub distance_m: f64,
+    /// Why it did not count.
     pub reason: String,
 }
 
+/// Running totals for the open game.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Stats {
+    /// Total distance travelled, in metres.
     pub distance_m: f64,
+    /// Days (since the Unix epoch) on which a quest was completed.
     pub quest_days: BTreeSet<i64>,
 }
 
@@ -171,7 +260,9 @@ impl AwayOptions {
 /// The saved form of [`AwayOptions`]: the distance is resolved per zone when the game is created.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AwayConfig {
+    /// Count time away only inside a zone area (false: anywhere).
     pub zone_only: bool,
+    /// Away distance of each zone in metres, by zone number.
     pub distance_m: BTreeMap<u32, f64>,
 }
 
@@ -182,6 +273,7 @@ impl Default for AwayConfig {
 }
 
 impl AwayConfig {
+    /// The away distance for `zone` in metres, or the default when none was saved.
     #[must_use]
     pub fn distance_for(&self, zone: u32) -> f64 {
         self.distance_m.get(&zone).copied().unwrap_or(DEFAULT_AWAY_M)
@@ -197,31 +289,54 @@ pub struct Counters {
     pub steps_last: Option<i64>,
 }
 
+/// A game in progress: its quests, progress, rewards, fog, traps and goal. Saved as JSON.
 #[derive(Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)] // persisted state flags, each independent
 pub struct Game {
+    /// Unique id of the game.
     pub id: String,
+    /// Display name.
     pub name: String,
+    /// Where checks are decided.
     pub backend: Backend,
+    /// Name of the multiworld seed.
     pub seed_name: String,
+    /// The `slot_data` the game was created from.
     pub slot: SlotData,
+    /// Realm id for each zone, in zone order.
     pub zone_realms: Vec<String>,
+    /// Home point that distances are measured from.
     pub home: Point,
+    /// The quest assigned to every location.
     pub assignments: Vec<Assignment>,
+    /// Location ids of completed quests.
     pub done: BTreeSet<i64>,
+    /// Names of items received so far.
     pub items: Vec<String>,
+    /// Solo only: the item found at each location.
     pub solo_rewards: BTreeMap<i64, String>,
+    /// What the player has uncovered on the map.
     pub fog: Fog,
+    /// Active traps.
     pub traps: Traps,
+    /// Running totals.
     pub stats: Stats,
+    /// Whether the win has been reported to the server.
     pub goal_reported: bool,
+    /// Street points used to place trap targets.
     pub trap_pool: Vec<Point>,
+    /// Seed for random choices, so shuffles can be reproduced.
     pub seed: u64,
+    /// How much rough going the player accepts.
     #[serde(default)]
     pub surface: SurfacePref,
+    /// Whether quests with stairs were dropped.
     #[serde(default)]
     pub avoid_stairs: bool,
+    /// How time-away quests are counted.
     #[serde(default)]
     pub away: AwayConfig,
+    /// Saved progress of progressive quests.
     #[serde(default)]
     pub counters: Counters,
     #[serde(skip)]
@@ -244,19 +359,33 @@ pub struct Game {
     counting: bool,
 }
 
+/// What it takes to create a game.
 pub struct NewGame<'a> {
+    /// Unique id of the game.
     pub id: String,
+    /// Display name.
     pub name: String,
+    /// Where checks are decided.
     pub backend: Backend,
+    /// Name of the multiworld seed.
     pub seed_name: String,
+    /// The `slot_data` to play.
     pub slot: SlotData,
+    /// Realm id for each zone, in zone order.
     pub zone_realms: Vec<String>,
+    /// The scanned realms, with their atlases.
     pub realms: &'a [(Realm, Atlas)],
+    /// Home point that distances are measured from.
     pub home: Point,
+    /// Seed for random choices.
     pub seed: u64,
+    /// Solo only: the item found at each location.
     pub solo_rewards: BTreeMap<i64, String>,
+    /// How much rough going the player accepts.
     pub surface: SurfacePref,
+    /// Whether to drop quests with stairs.
     pub avoid_stairs: bool,
+    /// How time-away quests are counted.
     pub away: AwayOptions,
 }
 
@@ -310,7 +439,11 @@ fn slots_in(slot: &SlotData, only: Option<&[i64]>) -> Vec<SlotIn> {
 }
 
 impl Game {
-    pub fn create(n: NewGame, catalog: &Catalog) -> Result<Self, String> {
+    /// Create a game: assign a quest to every slot using the scanned realms.
+    ///
+    /// # Errors
+    /// Returns a message if a zone has no realm assigned or its realm is missing.
+    pub fn create(n: NewGame<'_>, catalog: &Catalog) -> Result<Self, String> {
         let zones = zone_ctx(&n.slot, &n.zone_realms, n.realms)?;
         let params = AssignParams {
             home: n.home,
@@ -360,9 +493,10 @@ impl Game {
     }
 
     fn count(&self, item: &str) -> u32 {
-        self.items.iter().filter(|i| *i == item).count() as u32
+        count_u32(self.items.iter().filter(|i| *i == item).count())
     }
 
+    /// Whether the player holds enough zone keys, and the tool, to enter `zone`.
     #[must_use]
     pub fn zone_unlocked(&self, zone: u32) -> bool {
         let keys = self.count("Progressive Zone Key");
@@ -391,6 +525,7 @@ impl Game {
         evaluate_each(&self.goal_ctx(now_ms))
     }
 
+    /// How far along the win condition is at `now_ms`.
     #[must_use]
     pub fn goal_status(&self, now_ms: i64) -> GoalStatus {
         evaluate(&GoalCtx {
@@ -408,6 +543,7 @@ impl Game {
         self.slot.fog_of_war
     }
 
+    /// Every quest as the UI shows it.
     #[must_use]
     pub fn quest_views(&self) -> Vec<QuestView> {
         let chains = self.chains();
@@ -464,6 +600,7 @@ impl Game {
             .collect()
     }
 
+    /// Every progressive chain as the UI shows it.
     #[must_use]
     pub fn chain_views(&self) -> Vec<ChainView> {
         self.chains()
@@ -519,7 +656,7 @@ impl Game {
         } else {
             (counter - prev) / (at - prev)
         };
-        Some((c.id.clone(), p as f32))
+        Some((c.id.clone(), to_f32(p)))
     }
 
     fn adjusted(&self, t: &Target) -> Target {
@@ -531,6 +668,7 @@ impl Game {
         }
     }
 
+    /// The progressive chains of this game.
     #[must_use]
     pub fn chains(&self) -> Vec<Chain> {
         chain::derive(&self.assignments)
@@ -538,7 +676,7 @@ impl Game {
 
     fn counter_of(&self, c: &Chain) -> f64 {
         match c.unit {
-            ChainUnit::Cells => self.fog.cells.len() as f64,
+            ChainUnit::Cells => count_f64(self.fog.cells.len()),
             _ => self.counters.progress.get(&c.id).copied().unwrap_or(0.0),
         }
     }
@@ -556,7 +694,7 @@ impl Game {
             return;
         }
         for c in self.chains().into_iter().filter(|c| c.unit == ChainUnit::Steps) {
-            *self.counters.progress.entry(c.id).or_insert(0.0) += gained as f64;
+            *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64(gained);
         }
     }
 
@@ -600,7 +738,7 @@ impl Game {
         for c in self.chains().into_iter().filter(|c| c.unit == ChainUnit::Minutes) {
             let d = self.away.distance_for(c.zone);
             if distance_m(prev.point(), self.home) >= d && distance_m(fix.point(), self.home) >= d {
-                *self.counters.progress.entry(c.id).or_insert(0.0) += dt as f64 / 60_000.0;
+                *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64(dt) / 60_000.0;
             }
         }
     }
@@ -691,7 +829,7 @@ impl Game {
             if let Some(b) = &blocked {
                 ev.push(Event::Info { text: b.clone() });
             }
-            self.last_block = blocked.clone();
+            self.last_block.clone_from(&blocked);
         }
 
         let in_chain: BTreeSet<i64> = self.assignments.iter().filter(|a| is_chain_target(&a.target)).map(|a| a.location_id).collect();
@@ -808,6 +946,9 @@ impl Game {
     }
 
     /// Re-place unfinished quests (Shuffle trap or the player's reroll). Finished quests never change.
+    ///
+    /// # Errors
+    /// Returns a message if a zone has no realm assigned or its realm is missing.
     pub fn reroll(&mut self, ids: &[i64], realms: &[(Realm, Atlas)], seed: u64, catalog: &Catalog) -> Result<usize, String> {
         let todo: Vec<i64> = ids
             .iter()
@@ -923,21 +1064,25 @@ impl Game {
             .collect()
     }
 
+    /// The last accepted position, if any.
     #[must_use]
     pub fn last_pos(&self) -> Option<Point> {
         self.last_fix.map(|f| f.point())
     }
 
+    /// Why checks are blocked right now (by a trap), if they are.
     #[must_use]
     pub fn blocked_reason(&self) -> Option<String> {
         self.last_fix.and_then(|f| self.traps.blocks_checks(f.point()))
     }
 
+    /// Days in a row, up to today, on which a quest was completed.
     #[must_use]
     pub fn streak_days(&self, now_ms: i64) -> u32 {
         streak(&self.stats.quest_days, now_ms / DAY_MS)
     }
 
+    /// Where the game with this id is saved under `dir`.
     #[must_use]
     pub fn path_for(dir: &Path, id: &str) -> PathBuf {
         let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
@@ -945,6 +1090,9 @@ impl Game {
     }
 
     /// Take a game out of the list but keep its save file in `games-archive/` (a played game's data is evidence, never thrown away).
+    ///
+    /// # Errors
+    /// Returns a message if the archive folder cannot be created or the file cannot be moved.
     pub fn archive(dir: &Path, id: &str) -> Result<(), String> {
         let from = Self::path_for(dir, id);
         if !from.exists() {
@@ -955,6 +1103,10 @@ impl Game {
         std::fs::rename(&from, &to).map_err(|e| e.to_string())
     }
 
+    /// Write the game to `dir`, safely: the old copy stays intact until the new one is on disk.
+    ///
+    /// # Errors
+    /// Returns a message if the file cannot be written or the game cannot be serialised.
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         let path = Self::path_for(dir, &self.id);
         std::fs::create_dir_all(path.parent().unwrap_or(dir)).map_err(|e| e.to_string())?;
@@ -968,6 +1120,10 @@ impl Game {
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
     }
 
+    /// Read the game with this id from `dir`.
+    ///
+    /// # Errors
+    /// Returns a message if the file cannot be read or is corrupt.
     pub fn load(dir: &Path, id: &str) -> Result<Self, String> {
         let s = std::fs::read_to_string(Self::path_for(dir, id)).map_err(|e| e.to_string())?;
         let mut g: Self = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
@@ -990,6 +1146,7 @@ impl Game {
         }
     }
 
+    /// The `(id, name)` of every saved game under `dir`.
     #[must_use]
     pub fn list_ids(dir: &Path) -> Vec<(String, String)> {
         let mut out = Vec::new();

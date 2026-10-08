@@ -2,11 +2,16 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::num::{ceil_usize, count_f64};
+
 const EARTH_RADIUS_M: f64 = 6_371_000.0;
 
+/// A WGS84 coordinate in degrees.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point {
+    /// Latitude in degrees, north positive.
     pub lat: f64,
+    /// Longitude in degrees, east positive.
     pub lon: f64,
 }
 
@@ -21,6 +26,7 @@ impl Point {
         }
     }
 
+    /// A point at `lat`, `lon` degrees.
     #[must_use]
     pub const fn new(lat: f64, lon: f64) -> Self {
         Self { lat, lon }
@@ -59,9 +65,9 @@ pub fn densify(pts: &[Point], step_m: f64) -> Vec<Point> {
     let mut out = Vec::new();
     for w in pts.windows(2) {
         let seg = distance_m(w[0], w[1]);
-        let n = (seg / step_m).ceil().max(1.0) as usize;
+        let n = ceil_usize(seg / step_m).max(1);
         for i in 0..n {
-            let t = i as f64 / n as f64;
+            let t = count_f64(i) / count_f64(n);
             out.push(Point::new(w[0].lat + (w[1].lat - w[0].lat) * t, w[0].lon + (w[1].lon - w[0].lon) * t));
         }
     }
@@ -74,12 +80,13 @@ pub fn densify(pts: &[Point], step_m: f64) -> Vec<Point> {
 /// Average of the points (good enough as a polygon "center" at city scale).
 #[must_use]
 pub fn centroid(pts: &[Point]) -> Point {
-    let n = pts.len().max(1) as f64;
+    let n = count_f64(pts.len().max(1));
     Point::new(pts.iter().map(|p| p.lat).sum::<f64>() / n, pts.iter().map(|p| p.lon).sum::<f64>() / n)
 }
 
 /// Shortest distance from `p` to the segment `a`-`b`, in metres (flat approximation around `p`, fine at city scale).
 #[must_use]
+#[allow(clippy::many_single_char_names)] // standard planar-geometry notation (p, a, b, k, t)
 pub fn distance_to_segment_m(p: Point, a: Point, b: Point) -> f64 {
     let k = 111_195.0;
     let cos_lat = p.lat.to_radians().cos();
@@ -94,6 +101,7 @@ pub fn distance_to_segment_m(p: Point, a: Point, b: Point) -> f64 {
 
 /// Ray-casting point-in-polygon on lat/lon (planar; fine at city scale).
 #[must_use]
+#[allow(clippy::many_single_char_names)] // standard ray-casting notation (p, v, i, j, a, b)
 pub fn point_in_polygon(p: Point, v: &[Point]) -> bool {
     let mut inside = false;
     let mut j = v.len().wrapping_sub(1);
@@ -109,6 +117,7 @@ pub fn point_in_polygon(p: Point, v: &[Point]) -> bool {
 
 /// A point guaranteed to be inside `poly` (falls back to the first vertex nudged inward for degenerate shapes).
 #[must_use]
+#[allow(clippy::many_single_char_names)] // short loop and geometry names (c, n, i, j, a, b)
 pub fn point_inside(poly: &[Point]) -> Point {
     let c = centroid(poly);
     if poly.len() < 3 || point_in_polygon(c, poly) {
