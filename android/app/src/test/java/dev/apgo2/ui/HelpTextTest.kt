@@ -3,27 +3,44 @@ package dev.apgo2.ui
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+
+// apworld/ap_go2/constants.py, its path passed in by build.gradle.kts, so a rename there fails these tests.
+private fun apworldConstants(): String {
+    val path = System.getProperty("apworld.constants") ?: error("system property apworld.constants is not set (build.gradle.kts)")
+    val file = File(path)
+    check(file.isFile) { "apworld constants not found at $path" }
+    return file.readText()
+}
+
+// The body of the top-level `NAME... = { ... }` dict literal in [source].
+private fun pyDict(
+    source: String,
+    name: String,
+): String =
+    Regex("""^$name\b[^=\n]*=\s*\{(.*?)^\}""", setOf(RegexOption.MULTILINE, RegexOption.DOT_MATCHES_ALL))
+        .find(source)
+        ?.groupValues
+        ?.get(1)
+        ?: error("$name dict not found in apworld constants.py")
 
 class HelpTextTest {
-    // The apworld's goal ids and player-facing names (apworld/ap_go2/constants.py GOAL_NAMES).
-    private val goalNames =
-        mapOf(
-            "macguffin_short" to "Letter Hunt",
-            "macguffin_long" to "Letter Hunt XL",
-            "all_trips" to "Completionist",
-            "boss" to "The Big One",
-            "treasure_hunt" to "Treasure Hunt",
-            "zone_conqueror" to "Zone Conqueror",
-            "well_rounded" to "Well Rounded",
-            "quest_dex" to "Quest-dex",
-            "marathon" to "Marathon",
-            "explorer" to "Explorer",
-            "streak" to "Daily Habit",
-            "boss_rush" to "Boss Rush",
-        )
+    private val constants = apworldConstants()
 
-    // The player-selectable quest families (apworld/ap_go2/constants.py FAMILY_MODES).
-    private val families = setOf("reach", "dwell", "landmark", "courier", "away", "explore", "trail", "water", "park", "steps")
+    // The apworld's goal ids and player-facing names (GOAL_NAMES).
+    private val goalNames =
+        Regex(""""([^"]+)"\s*:\s*"([^"]+)"""")
+            .findAll(pyDict(constants, "GOAL_NAMES"))
+            .associate { it.groupValues[1] to it.groupValues[2] }
+            .also { check(it.isNotEmpty()) { "GOAL_NAMES has no entries" } }
+
+    // The player-selectable quest families (the keys of FAMILY_MODES).
+    private val families =
+        Regex("""^\s*"([^"]+)"\s*:""", RegexOption.MULTILINE)
+            .findAll(pyDict(constants, "FAMILY_MODES"))
+            .map { it.groupValues[1] }
+            .toSet()
+            .also { check(it.isNotEmpty()) { "FAMILY_MODES has no entries" } }
 
     private val topics =
         with(Help) {
