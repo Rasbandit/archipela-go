@@ -656,8 +656,9 @@ impl Engine {
     }
 
     /// Make `game` the open game and remember the shapes of its zones' realms (for "inside a zone" checks).
-    fn install(&self, game: Game) {
+    fn install(&self, mut game: Game) {
         let store = self.store();
+        game.backfill_away(|id| store.get(id).map(|r| r.shape)); // old saves: Automatic distance per zone
         let shapes = game.zone_realms.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect();
         *self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = shapes;
         self.save_policy.lock().unwrap_or_else(std::sync::PoisonError::into_inner).reset();
