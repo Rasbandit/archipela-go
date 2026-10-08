@@ -28,7 +28,7 @@ object PresencePolicy {
     }
 }
 
-/** Holds a signal steady: a change only becomes the stable value after it has lasted [holdMs] (Wi-Fi reaches past the door, Bluetooth flaps). */
+/** Holds a signal steady: a change (including to unknown, `null`) only becomes the stable value after it has lasted [holdMs] (Wi-Fi reaches past the door, Bluetooth flaps). The very first value is adopted at once. */
 class Debouncer(private val holdMs: Long = 45_000) {
     private var stable: Boolean? = null
     private var started = false
@@ -60,7 +60,7 @@ class Debouncer(private val holdMs: Long = 45_000) {
             since = nowMs
             return stable
         }
-        if (!started || raw == null) {
+        if (!started) {
             started = true
             stable = raw
             candidate = raw

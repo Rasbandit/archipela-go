@@ -85,10 +85,44 @@ class DebouncerTest {
         assertEquals("held 45 s since 30 s", true, d.feed(true, 75_000))
     }
 
-    @Test fun unknownIsAdoptedImmediatelyAndNeverHeldBack() {
+    @Test fun unknownIsHeldLikeAnyOtherChange() {
         val d = Debouncer(45_000)
         d.feed(true, 0)
-        assertNull(d.feed(null, 1_000))
+        assertEquals("null just fed", true, d.feed(null, 1_000))
+        assertEquals("one ms short of holdMs", true, d.feed(null, 45_999))
+        assertNull("exactly holdMs", d.feed(null, 46_000))
+    }
+
+    @Test fun leavingForUnknownIsAdoptedAfterTheHoldFromTheFirstNull() {
+        val d = Debouncer(45_000)
+        d.feed(true, 0)
+        d.feed(null, 5_000)
+        assertEquals("44_999 ms after the null", true, d.feed(null, 49_999))
+        assertNull("45_000 ms after the null", d.feed(null, 50_000))
+    }
+
+    @Test fun edgeOfRangeFlappingBetweenTrueAndNullNeverFlips() {
+        val d = Debouncer(45_000)
+        assertEquals(true, d.feed(true, 0))
+        var flips = 0
+        var last: Boolean? = true
+        var t = 10_000L
+        repeat(40) {
+            val v = d.feed(if (it % 2 == 0) null else true, t)
+            if (v != last) flips++
+            last = v
+            t += 10_000
+        }
+        assertEquals("stable value changes", 0, flips)
+        assertEquals(true, last)
+    }
+
+    @Test fun seededTrueThenNullThenTrueWithinTheHoldStaysTrue() {
+        val d = Debouncer(45_000)
+        d.seed(true)
+        assertEquals(true, d.feed(null, 1_000))
+        assertEquals(true, d.feed(true, 20_000))
+        assertEquals("long after the blip", true, d.feed(true, 100_000))
     }
 
     @Test fun pendingIsTrueWhileAChangeIsBeingHeld() {
