@@ -7,12 +7,17 @@ widgets or write colours themselves.
 |--|--|
 | `Palette.kt` | `ApgoPalette`: every colour (brand, quest states, map/editor, feedback) plus `Color.hex()` for MapLibre style expressions |
 | `Theme.kt` | light and dark `ColorScheme`s built from the palette, and `ApgoTheme` (wraps the app in `MainActivity`) |
-| `Components.kt` | `ApgoChip`, `ChoiceChips`, `ModeChips`, `MapOverlayCard`, `FeedbackText`/`Tone`, `MarkToggle`, `IconLabel`, `MODES`, `modeLabel()` |
+| `Components.kt` | `ApgoChip`, `ChoiceChips`, `ModeChips`, `MapOverlayCard`, `MapBubble` (+ `BubblePlacement`), `FeedbackText`/`Tone`, `MarkToggle`, `IconLabel`, `MODES`, `modeLabel()` |
+| `MapMarkers.kt` | `MapMarkers`/`MarkerSpec`: the one definition of a map pin (see below) |
 | `Icons.kt` | `ApgoIcons`: every icon named by meaning, backed by Lucide |
 
 ## Rules
-- A colour is added to `ApgoPalette`, never inlined (`Color(0x...)` or `"#rrggbb"`). The quest list dot and the map marker use the same
-  `ApgoPalette.quest(state)`, so they cannot drift apart.
+- A colour is added to `ApgoPalette`, never inlined (`Color(0x...)` or `"#rrggbb"`). Quest state has one colour set, `ApgoPalette.quest(state)`: the list icon tint
+  and the map pin's state badge both use it, so they cannot drift apart. What a quest *is* is shown by family colour and icon (`ApgoPalette.kind`), on the map and in the realm editor alike.
+- A map pin is only ever built by `MapMarkers.render(MarkerSpec)`: `Find` (realm editor: family colour, ring for favorite, grey for banned) and `Quest` (Play map: family colour,
+  corner badge for state: none = open, amber dot = in progress, green check = done, lock = locked; locked pins are grey). Size by difficulty (`iconScale`), collision order by state (`drawOrder`).
+- A callout attached to a pin is a `MapBubble` (placement in `BubblePlacement`, unit-tested): the realm editor's find callout and the Play quest popup both use it. Quests with no pin
+  (steps, new squares, time away) show the same content in a `MapOverlayCard` at the bottom of the map.
 - Compose text colours come from `MaterialTheme.colorScheme` roles or `FeedbackText(Tone.*)`.
 - A pattern used twice becomes a component in `Components.kt`. Selected chips are a solid `primary` fill because the Material default
   (`secondaryContainer`) blended into the card behind it.
@@ -42,7 +47,7 @@ add the icon to `ApgoIcons` (named by meaning, e.g. `Favorite`, not `Star`) and 
 `MarkToggle`. Screens never import the icon library. The ISC notice lives in `THIRD_PARTY_NOTICES.md` and must stay with the app.
 Chosen over Material Icons Extended for a friendlier, more distinctive look.
 Quest kinds and finds get their own icon: `ApgoIcons.forKind(kindId, family)` (about 60 kind overrides, falling back to the family icon).
-Map symbols are bitmaps, so `ui/MapIcons.kt` draws the same Lucide `ImageVector`s into images (`renderPin` for finds, `renderGlyph` on quest markers).
+Map symbols are bitmaps, so `ui/MapIcons.kt` draws the same Lucide `ImageVector`s into images (`renderPin` for finds, `renderQuestPin` for quests; call them through `MapMarkers`).
 
 ## Where the colours come from
 Archipelago's web theme, ArchipelagoMW/Archipelago `WebHostLib/static/styles` (MIT): ocean theme `#11233e` panels, `#93dcff` headings,

@@ -781,13 +781,47 @@ fun PlayScreen(m: AppModel) {
         val room = (if (bubblePx > 0) bubblePx else (200 * screenDensity).toInt()) + (26 * screenDensity).toInt()
         focus = MapFocus(LatLng(a.lat, a.lon), ++focusNonce, room)
     }
-    Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+    val layout = remember(m.quests) { PlayLayout.split(m.quests) }
+    var allProgress by remember { mutableStateOf(false) }
+    var showPlaces by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // The map is the top of the screen; goals and progress-bar quests sit under it in a scrolling panel.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
             OutlinedButton(onClick = { m.pause() }) {
                 Icon(ApgoIcons.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
                 Text(" Stop playing", fontSize = 12.sp)
             }
+        }
+        Box(Modifier.fillMaxWidth().weight(0.55f)) {
+            QuestMap(
+                m.quests, m.realms.filter { r -> m.zones.any { it.realmId == r.id } }, emptyList(), m.me,
+                hud.thaw?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) }, hud.waypoint?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) },
+                m.selected, { ll ->
+                    m.quests.filter { it.anchor != null && it.state != "hidden" }.minByOrNull { q ->
+                        val a = q.anchor!!; val d = floatArrayOf(0f)
+                        android.location.Location.distanceBetween(ll.latitude, ll.longitude, a.lat, a.lon, d); d[0]
+                    }?.let { m.selected = it.locationId }
+                },
+                Modifier.fillMaxSize(),
+                home = m.home?.let { LatLng(it.lat, it.lon) },
+                trace = m.trace,
+                focus = focus,
+                anchor = selected?.anchor?.let { LatLng(it.lat, it.lon) },
+                onAnchor = { anchorPx = it },
+            )
+            selected?.let { q ->
+                val at = anchorPx
+                // A quest with a pin gets a callout on it; one with no spot on the map (steps, squares, time away) gets the same card at the bottom.
+                if (q.anchor != null && at != null) MapBubble(at, onSize = { bubblePx = it.height }) { QuestDetails(q, { m.reroll(q.locationId) }, { m.selected = null }) }
+                else if (q.anchor == null) MapOverlayCard(Modifier.align(Alignment.BottomCenter)) { QuestDetails(q, { m.reroll(q.locationId) }, { m.selected = null }) }
+            }
+        }
+        Column(Modifier.fillMaxWidth().weight(0.45f).verticalScroll(rememberScrollState()).padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (layout.progress.isNotEmpty()) {
+            Text("Progress", style = MaterialTheme.typography.titleSmall)
+            (if (allProgress) layout.progress else layout.progress.take(PROGRESS_ROWS)).forEach { q -> ProgressRow(q) { m.selected = q.locationId } }
+            if (layout.progress.size > PROGRESS_ROWS) TextButton(onClick = { allProgress = !allProgress }) { Text(if (allProgress) "Show fewer" else "Show all ${layout.progress.size}", fontSize = 11.sp) }
         }
         if (hud.goals.size > 1) {
             // Several goals: the rule and overall progress, then each goal with its own bar.
@@ -822,41 +856,9 @@ fun PlayScreen(m: AppModel) {
             }
         }
         (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let { FeedbackText(it.joinToString("  ·  "), Tone.Danger) }
-        val layout = remember(m.quests) { PlayLayout.split(m.quests) }
-        var allProgress by remember { mutableStateOf(false) }
-        var showPlaces by remember { mutableStateOf(false) }
-        if (layout.progress.isNotEmpty()) {
-            Text("Progress", style = MaterialTheme.typography.titleSmall)
-            (if (allProgress) layout.progress else layout.progress.take(PROGRESS_ROWS)).forEach { q -> ProgressRow(q) { m.selected = q.locationId } }
-            if (layout.progress.size > PROGRESS_ROWS) TextButton(onClick = { allProgress = !allProgress }) { Text(if (allProgress) "Show fewer" else "Show all ${layout.progress.size}", fontSize = 11.sp) }
-        }
-        Box(if (showPlaces) Modifier.fillMaxWidth().height(200.dp) else Modifier.fillMaxWidth().weight(1f).heightIn(min = 180.dp)) {
-            QuestMap(
-                m.quests, m.realms.filter { r -> m.zones.any { it.realmId == r.id } }, emptyList(), m.me,
-                hud.thaw?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) }, hud.waypoint?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) },
-                m.selected, { ll ->
-                    m.quests.filter { it.anchor != null && it.state != "hidden" }.minByOrNull { q ->
-                        val a = q.anchor!!; val d = floatArrayOf(0f)
-                        android.location.Location.distanceBetween(ll.latitude, ll.longitude, a.lat, a.lon, d); d[0]
-                    }?.let { m.selected = it.locationId }
-                },
-                Modifier.fillMaxSize(),
-                home = m.home?.let { LatLng(it.lat, it.lon) },
-                trace = m.trace,
-                focus = focus,
-                anchor = selected?.anchor?.let { LatLng(it.lat, it.lon) },
-                onAnchor = { anchorPx = it },
-            )
-            selected?.let { q ->
-                val at = anchorPx
-                // A quest with a pin gets a callout on it; one with no spot on the map (steps, squares, time away) gets the same card at the bottom.
-                if (q.anchor != null && at != null) MapBubble(at, onSize = { bubblePx = it.height }) { QuestDetails(q, { m.reroll(q.locationId) }, { m.selected = null }) }
-                else if (q.anchor == null) MapOverlayCard(Modifier.align(Alignment.BottomCenter)) { QuestDetails(q, { m.reroll(q.locationId) }, { m.selected = null }) }
-            }
-        }
         TextButton(onClick = { showPlaces = !showPlaces }) { Text("${if (showPlaces) "Hide" else "Show"} places on the map (${layout.places.size})", fontSize = 12.sp) }
-        if (showPlaces) LazyColumn(Modifier.weight(1f)) {
-            items(layout.places, key = { it.locationId }) { q ->
+        if (showPlaces) {
+            layout.places.forEach { q ->
                 Row(Modifier.fillMaxWidth().clickable { m.selected = q.locationId }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(ApgoIcons.forKind(q.kindId, q.family), contentDescription = null, tint = ApgoPalette.quest(q.state), modifier = Modifier.size(20.dp))
                     Column(Modifier.weight(1f)) {
@@ -868,6 +870,7 @@ fun PlayScreen(m: AppModel) {
             }
         }
         if (m.log.isNotEmpty()) Text(m.log.take(3).joinToString("\n"), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 
