@@ -12,6 +12,7 @@ use apgo_core::geo::{distance_m, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
 use apgo_core::realm::{Realm, RealmStore, Shape};
+use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_realm, Atlas};
 use apgo_core::slot::SlotData;
 use apgo_core::solo::{generate, SoloOptions};
@@ -390,6 +391,8 @@ pub struct AwayReportOut {
 
 /// Quests this close to a fix get a line in the log saying whether they count.
 const NEAR_MISS_RADIUS_M: f64 = 100.0;
+/// Longest the open game goes unsaved while the player moves without events.
+const SAVE_INTERVAL_MS: i64 = 30_000;
 
 #[derive(uniffi::Object)]
 pub struct Engine {
@@ -406,6 +409,8 @@ pub struct Engine {
     last_reject_log_ms: std::sync::atomic::AtomicI64,
     catalog: Catalog,
     game: Mutex<Option<Game>>,
+    /// When the open game is next written to disk between events (so counters survive a kill).
+    save_policy: Mutex<SavePolicy>,
     /// Shapes of the open game's zone realms, for the "inside a zone" check on each fix.
     zone_shapes: Mutex<Vec<Shape>>,
     /// Requests finished and in all, for the scan in progress.
@@ -454,11 +459,22 @@ impl Engine {
         }
     }
 
+    /// Save `g` when an event happened or the save interval has passed; a failure goes to the diagnostics log.
+    fn save_if_due(&self, g: &Game, t_ms: i64, eventful: bool) {
+        let due = self.save_policy.lock().unwrap_or_else(|e| e.into_inner()).due(t_ms, eventful);
+        if due {
+            if let Err(e) = g.save(&self.dir) {
+                self.note(format!("could not save game {}: {e}", g.id));
+            }
+        }
+    }
+
     /// Make `game` the open game and remember the shapes of its zones' realms (for "inside a zone" checks).
     fn install(&self, game: Game) {
         let store = self.store();
         let shapes = game.zone_realms.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect();
         *self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner()) = shapes;
+        self.save_policy.lock().unwrap_or_else(|e| e.into_inner()).reset();
         *self.game.lock().unwrap_or_else(|e| e.into_inner()) = Some(game);
     }
 
@@ -541,6 +557,7 @@ impl Engine {
             last_reject_log_ms: std::sync::atomic::AtomicI64::new(i64::MIN),
             catalog: Catalog::builtin(),
             game: Mutex::new(None),
+            save_policy: Mutex::new(SavePolicy::new(SAVE_INTERVAL_MS)),
             zone_shapes: Mutex::new(Vec::new()),
             scan_done: Default::default(),
             scan_total: Default::default(),
@@ -867,6 +884,9 @@ impl Engine {
         let mut game = self.game.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(g) = game.as_ref() {
             *self.last_game.lock().unwrap_or_else(|e| e.into_inner()) = Some(g.id.clone());
+            if let Err(e) = g.save(&self.dir) {
+                self.note(format!("could not save game {} on close: {e}", g.id));
+            }
         }
         *game = None;
     }
@@ -988,7 +1008,6 @@ impl Engine {
     }
 
     pub fn on_fix(&self, lat: f64, lon: f64, t_ms: i64, accuracy_m: f64, steps: Option<i64>, simulated: bool) -> Vec<EventOut> {
-        let dir = self.dir.clone();
         let fix = Fix { lat, lon, t_ms, accuracy_m };
         let at = Some((lat, lon));
         let inside = self.zone_distance_m(Point::new(lat, lon)).is_none_or(|d| d == 0.0);
@@ -996,9 +1015,7 @@ impl Engine {
             .with_game(|g| {
                 g.set_in_zone(inside);
                 let ev = g.on_fix(fix, steps);
-                if !ev.is_empty() {
-                    let _ = g.save(&dir);
-                }
+                self.save_if_due(g, t_ms, !ev.is_empty());
                 (g.id.clone(), g.journal_events(&ev, t_ms, at), g.explain_near(&fix, NEAR_MISS_RADIUS_M), ev)
             })
             .map(|(id, entries, near, ev)| (id, ev, entries, near))
@@ -1052,12 +1069,9 @@ impl Engine {
 
     /// A step-counter reading from the phone (cumulative since boot). Only counts while a game is open.
     pub fn on_steps(&self, total: i64, t_ms: i64) -> Vec<EventOut> {
-        let dir = self.dir.clone();
         let Some((game_id, ev, entries)) = self.with_game(|g| {
             let ev = g.on_steps(total, t_ms);
-            if !ev.is_empty() {
-                let _ = g.save(&dir);
-            }
+            self.save_if_due(g, t_ms, !ev.is_empty());
             let entries = g.journal_events(&ev, t_ms, None);
             (g.id.clone(), ev, entries)
         }) else {
@@ -1175,10 +1189,12 @@ impl Engine {
         .map_err(err)
     }
 
+    /// Write the open game to disk now (the app calls this when it goes to the background).
     pub fn save_game(&self) {
-        let dir = self.dir.clone();
         self.with_game(|g| {
-            let _ = g.save(&dir);
+            if let Err(e) = g.save(&self.dir) {
+                self.note(format!("could not save game {}: {e}", g.id));
+            }
         });
     }
 }

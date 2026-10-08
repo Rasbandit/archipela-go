@@ -159,6 +159,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     // ----------------------------------------------------------------- away report
     /** The app left the screen: the trace has a gap from now on. */
     fun onBackground() {
+        engine.saveGame()
         engine.logAppState(false, now())
         Diag.i("lifecycle", "background")
         drainCoreDiag()
