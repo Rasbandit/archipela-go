@@ -455,6 +455,7 @@ impl Game {
             seed: n.seed,
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
+            allow_progressive: true,
         };
         let assignments = assign(&slots_in(&n.slot, None), &zones, catalog, &params);
         let pool: Vec<Point> =
@@ -955,7 +956,8 @@ impl Game {
         }
     }
 
-    /// Re-place unfinished quests (Shuffle trap or the player's reroll). Finished quests never change.
+    /// Re-place unfinished quests (Shuffle trap or the player's reroll). Finished quests and chain members never change,
+    /// and a re-placed quest never gets a progressive kind, so no chain gains, loses or shifts a mark.
     ///
     /// # Errors
     /// Returns a message if a zone has no realm assigned or its realm is missing.
@@ -973,6 +975,7 @@ impl Game {
             seed,
             surface: self.surface,
             avoid_stairs: self.avoid_stairs,
+            allow_progressive: false,
         };
         let fresh = assign(&slots_in(&self.slot, Some(&todo)), &zones, catalog, &params);
         let n = fresh.len();
@@ -1677,6 +1680,25 @@ mod tests {
         let n = g.reroll(&ids, &realms, 9, &Catalog::builtin()).unwrap();
         assert_eq!(n, 0, "chain members are never re-placed");
         assert_eq!(g.assignments.iter().map(|a| a.target.clone()).collect::<Vec<_>>(), before);
+    }
+
+    #[test]
+    fn a_rerolled_quest_never_becomes_a_chain_member() {
+        // Every family, so the steps / away / explore slots and the boss could all be re-placed as progressive kinds.
+        let o = SoloOptions { zone_modes: vec![Mode::Walk], number_of_trips: 20, goal: "all_trips".into(), ..SoloOptions::default() };
+        let realms = vec![realm("r0", Mode::Walk)];
+        let catalog = Catalog::builtin();
+        for seed in 0..10 {
+            let mut g = game(&o, Backend::Solo, seed);
+            // Make every quest a plain one (as a fallback or an older version may have placed it), so each can be rerolled.
+            for a in &mut g.assignments {
+                a.target = Target::Point { p: home(), r: 40.0 };
+            }
+            let ids: Vec<i64> = g.assignments.iter().map(|a| a.location_id).collect();
+            assert_eq!(g.reroll(&ids, &realms, seed, &catalog).unwrap(), ids.len(), "seed {seed}: every quest re-placed");
+            let joined: Vec<&str> = g.assignments.iter().filter(|a| is_chain_target(&a.target)).map(|a| a.kind_id.as_str()).collect();
+            assert!(joined.is_empty(), "seed {seed}: rerolled quests became chain members: {joined:?}");
+        }
     }
 
     #[test]

@@ -36,7 +36,10 @@ A **chain** is the set of assigned quests of one _progressive kind_ in one zone.
 - The chain's total is its last mark. A milestone is _reached_ when the chain counter is >= its `at`. Reaching it completes that member location through the normal path
   (`Game::complete`), which pays the solo reward or sends the Archipelago check and logs the activity entry.
 - Chains are derived from `assignments` whenever needed (`Game::chains()`); only the **counters** are stored.
-- A reroll or Shuffle trap only re-places unfinished members. Chain members are rebuilt from the new targets; counters are untouched. (Rerolling a chain member is disabled in the UI: the chain is one thing.)
+- A reroll or Shuffle trap never re-places chain members: it skips them and re-places only unfinished non-chain quests, so chains and counters are untouched.
+  (Rerolling a chain member is disabled in the UI: the chain is one thing.)
+- A re-placed quest is never given a progressive kind (`AssignParams::allow_progressive` is off for a reroll), so a reroll cannot join an existing chain,
+  shift its marks or start a new one (a new Cartographer member would pay at once, since its counter is the whole game's visited cells).
 
 ## 2. Counters and counting rules
 
