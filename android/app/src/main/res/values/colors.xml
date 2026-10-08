@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon colours. Resources cannot reference Compose colours, so these mirror ApgoPalette (ui/Palette.kt). -->
+<resources>
+    <!-- ApgoPalette.navy -->
+    <color name="ic_launcher_background">#FF11233E</color>
+    <!-- ApgoPalette.sky -->
+    <color name="ic_launcher_pin">#FF93DCFF</color>
+    <!-- ApgoPalette.navy -->
+    <color name="ic_launcher_star">#FF11233E</color>
+    <!-- ApgoPalette.butter -->
+    <color name="ic_launcher_islands">#FFFFFC95</color>
+</resources>

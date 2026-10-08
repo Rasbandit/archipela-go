@@ -49,7 +49,7 @@ Stored in the game save (new fields, all optional so old saves load):
 | -- | -- | -- |
 | Step Up | `steps_acc: i64`, `steps_last: Option<i64>` | On each step-counter reading `r` while a game is open: if `steps_last` is `None`, set it to `r` (counting starts now). If `r >= last`, `acc += r - last`, else the phone rebooted: `acc += r`. Then `last = r`. **`steps_last` is reset to `None` every time the game is opened**, so steps taken while stopped are never credited. The reading arrives from the step sensor listener (kept alive in the Application). |
 | Wanderlust | `away_ms: i64` (milliseconds) | On each accepted fix (after the existing accuracy and jump filters), if the previous accepted fix was within 5 minutes and **both** fixes are beyond the chain distance from home, add the interval. If the setting is "inside a zone", also require the fix to be inside the area of one of the game's zone realms. |
-| Cartographer | `fog.cells.len()` (already saved) | Cells are 150 m, same as `Fog::CELL_M`. The counter is the number of distinct cells visited this game. |
+| Cartographer | `counters.progress` (cells new to `fog.cells`) | Cells are 150 m, same as `Fog::CELL_M`. The counter is the number of cells new to this game visited while the zone is unlocked (issue #32). |
 
 - **Wanderlust distance:** `Automatic` = 40% of the farthest extent, from home, of the realm of the chain's own zone (circle: distance to the centre plus radius, polygon: the farthest corner from home), clamped to 300 m .. 3000 m. `Custom` = the player's value in metres (100 .. 20000).
   The one distance replaces each member's own `min_distance_m`; members keep only their minutes.
