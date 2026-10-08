@@ -2,6 +2,7 @@
 
 pub mod assign;
 pub mod catalog;
+pub mod chain;
 pub mod effort;
 pub mod fill;
 pub mod fog;
