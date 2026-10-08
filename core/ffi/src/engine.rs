@@ -1,6 +1,6 @@
 //! `UniFFI` facade over the game engine: realms, scanning, game setup, play. Blocking calls; call from a background thread.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
@@ -660,6 +660,12 @@ impl Engine {
     fn install(&self, mut game: Game) {
         let store = self.store();
         game.backfill_away(|id| store.get(id).map(|r| r.shape)); // old saves: Automatic distance per zone
+        if !game.streets_attached() {
+            // A saved game keeps only a thin sample of streets: index every street of its zones so trap targets land on one.
+            let atlases: Vec<Atlas> =
+                game.zone_realms.iter().collect::<BTreeSet<_>>().into_iter().filter_map(|id| store.get(id)).filter_map(|r| self.zoned_atlas(&r)).collect();
+            game.attach_streets(&atlases.iter().collect::<Vec<_>>());
+        }
         let shapes = game.zone_realms.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect();
         *self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = shapes;
         self.save_policy.lock().unwrap_or_else(std::sync::PoisonError::into_inner).reset();
@@ -895,6 +901,12 @@ impl Engine {
         zoned.restrict_to(&current.shape.to_zone());
         zoned.apply_marks(&store.marks(&id));
         Ok(self.offers_of(&zoned))
+    }
+
+    /// Whether realm `id` was scanned before street runs were recorded, so its quests are placed by street points only until it is
+    /// scanned again (the app can rescan it quietly).
+    pub fn realm_needs_rescan(&self, id: String) -> bool {
+        self.store().load_atlas(&id).is_some_and(|a| a.needs_rescan())
     }
 
     /// The quest kinds realm `id` can offer, with counts.

@@ -13,6 +13,7 @@ pub mod goal;
 pub mod items;
 pub mod journal;
 pub mod marks;
+pub mod near_path;
 pub mod num;
 pub mod overpass;
 pub mod realm;

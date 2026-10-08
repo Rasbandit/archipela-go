@@ -77,6 +77,13 @@ pub struct Atlas {
     /// Every this-many street points were kept (the rest dropped to keep the atlas small); 0 or 1 means all.
     #[serde(default)]
     pub street_stride: u32,
+    /// `streets` split into runs of consecutive samples along one way (their lengths, in order), so the street between two samples is
+    /// known. Empty for scans made before runs were recorded.
+    #[serde(default)]
+    pub street_runs: Vec<u32>,
+    /// The same runs for `streets_rough`.
+    #[serde(default)]
+    pub rough_runs: Vec<u32>,
     /// The player's favorite places, set by [`Atlas::apply_marks`] when a game is prepared; never saved with the scan.
     #[serde(skip)]
     pub favorites: BTreeSet<String>,
@@ -90,9 +97,43 @@ impl Atlas {
             idxs.retain(|&i| zone.contains(self.features[i].point));
         }
         self.matches.retain(|_, v| !v.is_empty());
-        self.streets.retain(|&p| zone.contains(p));
-        self.streets_rough.retain(|&p| zone.contains(p));
+        self.retain_streets(&|p| zone.contains(p));
         self.street_names.retain(|s| zone.contains(s.at));
+    }
+
+    /// Keep only the street points `keep` accepts; a run that loses a point is split there, so no link jumps the gap.
+    pub fn retain_streets(&mut self, keep: &dyn Fn(Point) -> bool) {
+        retain_runs(&mut self.streets, &mut self.street_runs, keep);
+        retain_runs(&mut self.streets_rough, &mut self.rough_runs, keep);
+    }
+
+    /// The pieces of street between consecutive samples of one way, for the paved (`rough` false) or rough points. Only a straight
+    /// piece is linked: samples lie a fixed distance apart along the street, so a much shorter straight line between two of them cuts a
+    /// corner (and a longer one jumps a gap), and those spots are left to the points. A scan without runs (made before they were
+    /// recorded) has no links at all, see [`Self::needs_rescan`].
+    #[must_use]
+    pub fn street_links(&self, rough: bool) -> Vec<(Point, Point)> {
+        let (pts, runs) = if rough { (&self.streets_rough, &self.rough_runs) } else { (&self.streets, &self.street_runs) };
+        if !runs_fit(pts, runs) {
+            return vec![];
+        }
+        let step = STREET_SPACING_M * f64::from(self.street_stride.max(1));
+        let straight = |w: &[Point]| (step * 0.95..=step * 1.05).contains(&distance_m(w[0], w[1]));
+        let mut out = Vec::new();
+        let mut at = 0;
+        for n in runs {
+            let end = at + *n as usize;
+            out.extend(pts[at..end].windows(2).filter(|w| straight(w)).map(|w| (w[0], w[1])));
+            at = end;
+        }
+        out
+    }
+
+    /// Whether this atlas comes from a scan made before runs of street samples were recorded: it knows only the points, not the
+    /// streets between them, so quests near it are placed more strictly until the realm is scanned again.
+    #[must_use]
+    pub fn needs_rescan(&self) -> bool {
+        (self.street_runs.is_empty() && !self.streets.is_empty()) || (self.rough_runs.is_empty() && !self.streets_rough.is_empty())
     }
 
     /// Walkable street length in metres. Atlases scanned before real lengths were recorded fall back to an estimate from their street points.
@@ -429,10 +470,81 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
         matches,
         warnings: vec![],
         street_stride: 1,
+        street_runs: vec![],
+        rough_runs: vec![],
         walkable_len_m: 0.0,
         rough_len_m: 0.0,
         street_names: vec![],
         favorites: BTreeSet::new(),
+    }
+}
+
+/// Whether `runs` describes `pts` (older atlases have none).
+fn runs_fit(pts: &[Point], runs: &[u32]) -> bool {
+    !runs.is_empty() && runs.iter().map(|n| *n as usize).sum::<usize>() == pts.len()
+}
+
+fn retain_runs(pts: &mut Vec<Point>, runs: &mut Vec<u32>, keep: &dyn Fn(Point) -> bool) {
+    if !runs_fit(pts, runs) {
+        pts.retain(|p| keep(*p));
+        runs.clear();
+        return;
+    }
+    let (mut kept, mut new_runs, mut at) = (Vec::with_capacity(pts.len()), Vec::with_capacity(runs.len()), 0);
+    for n in runs.iter() {
+        let mut cur = 0u32;
+        for p in &pts[at..at + *n as usize] {
+            if keep(*p) {
+                kept.push(*p);
+                cur += 1;
+            } else if cur > 0 {
+                new_runs.push(cur);
+                cur = 0;
+            }
+        }
+        if cur > 0 {
+            new_runs.push(cur);
+        }
+        at += *n as usize;
+    }
+    (*pts, *runs) = (kept, new_runs);
+}
+
+/// Every `stride`-th point of each run (its first point always kept), with the new run lengths.
+fn thin_runs(pts: &[Point], runs: &[u32], stride: usize) -> (Vec<Point>, Vec<u32>) {
+    let (mut out, mut lens, mut at) = (Vec::new(), Vec::new(), 0);
+    for n in runs {
+        let run = &pts[at..at + *n as usize];
+        out.extend(run.iter().step_by(stride.max(1)).copied());
+        lens.push(count_u32(run.len().div_ceil(stride.max(1))));
+        at += *n as usize;
+    }
+    (out, lens)
+}
+
+/// Street points of one kind (paved or rough) as the scan reads them, split into runs of consecutive samples along one way.
+#[derive(Default)]
+struct RunBuilder {
+    pts: Vec<Point>,
+    runs: Vec<u32>,
+    last: Option<(String, u64)>,
+}
+
+impl RunBuilder {
+    /// Add the sample `id` (`w<way>.<k>`, k counting samples along the way) at `p`.
+    fn push(&mut self, id: &str, p: Point) {
+        let (way, k) = id.rsplit_once('.').map_or((id, 0), |(w, k)| (w, k.parse().unwrap_or(0)));
+        match (&self.last, self.runs.last_mut()) {
+            (Some((w, prev)), Some(n)) if w == way && *prev + 1 == k => *n += 1,
+            _ => self.runs.push(1),
+        }
+        self.pts.push(p);
+        self.last = Some((way.to_string(), k));
+    }
+
+    /// A sample was skipped: the next one starts a new run.
+    fn gap(&mut self) {
+        self.last = None;
     }
 }
 
@@ -574,7 +686,7 @@ pub fn scan_with(
     let jobs = jobs_for(&zone, catalog);
     let results = run_jobs(&jobs, fetch, pacing, deadline, progress);
 
-    let (mut a, mut b, mut streets, mut rough) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut a, mut b, mut streets, mut rough) = (Vec::new(), Vec::new(), RunBuilder::default(), RunBuilder::default());
     // A street that crosses a tile edge comes back from every tile it touches: each street point is kept once.
     let mut seen_street_points = std::collections::HashSet::new();
     let mut named_streets: BTreeMap<(String, i64, i64), Point> = BTreeMap::new();
@@ -598,6 +710,11 @@ pub fn scan_with(
                     }
                     for c in crate::fill::parse_streets(&body, &zone, STREET_SPACING_M).unwrap_or_default() {
                         if !seen_street_points.insert(c.id.clone()) {
+                            if c.rough {
+                                rough.gap();
+                            } else {
+                                streets.gap();
+                            }
                             continue;
                         }
                         if c.score > 0 {
@@ -606,9 +723,9 @@ pub fn scan_with(
                             named_streets.entry((c.name.clone(), cell.0, cell.1)).or_insert(c.point);
                         }
                         if c.rough {
-                            rough.push(c.point);
+                            rough.push(&c.id, c.point);
                         } else {
-                            streets.push(c.point);
+                            streets.push(&c.id, c.point);
                         }
                     }
                 }
@@ -624,11 +741,12 @@ pub fn scan_with(
         return Err(last_err.unwrap_or(Error::Parse("nothing could be fetched".into())));
     }
     // Keep the atlas small: thin the street points, but remember by how much so lengths can still be worked out.
-    let stride = ((streets.len() + rough.len()) / 16_000).max(1);
-    let streets = streets.into_iter().step_by(stride).collect();
-    let rough: Vec<Point> = rough.into_iter().step_by(stride).collect();
+    let stride = ((streets.pts.len() + rough.pts.len()) / 16_000).max(1);
+    let (streets, street_runs) = thin_runs(&streets.pts, &streets.runs, stride);
+    let (rough, rough_runs) = thin_runs(&rough.pts, &rough.runs, stride);
     let mut atlas = build_atlas(&realm.id, now_ms, retain_in_zone(merge(a, b), &zone), streets, catalog);
     atlas.streets_rough = rough;
+    (atlas.street_runs, atlas.rough_runs) = (street_runs, rough_runs);
     atlas.street_stride = count_u32(stride);
     atlas.walkable_len_m = walkable_len;
     atlas.rough_len_m = rough_len;
@@ -876,6 +994,89 @@ mod tests {
         a.restrict_to(&zone);
         assert_eq!(a.matches["bench_warmer"], vec![0], "only the bench inside the zone is kept");
         assert_eq!((a.streets, a.streets_rough), (vec![inside], vec![]));
+    }
+
+    #[test]
+    fn a_scan_links_the_street_points_of_each_way_and_never_across_ways() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.01, -111.01);
+        let way = |id: i64, a: Point, b: Point| {
+            format!(
+                r#"{{"type":"way","id":{id},"tags":{{"highway":"residential"}},"geometry":[{{"lat":{},"lon":{}}},{{"lat":{},"lon":{}}}]}}"#,
+                a.lat, a.lon, b.lat, b.lon
+            )
+        };
+        // two parallel streets 40 m apart: the end of one is right next to the start of the other, but they are not joined
+        let (e, n) = (destination(o, 90.0, 310.0), destination(o, 0.0, 40.0));
+        let body = format!(r#"{{"elements":[{},{}]}}"#, way(1, o, e), way(2, destination(e, 0.0, 40.0), n));
+        let fetch = |q: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
+            Ok(if q.contains("\"highway\"~") && q.contains("out geom qt") { body.clone() } else { r#"{"elements":[]}"#.to_string() })
+        };
+        let a = scan_with(&small_realm(o, 1500.0), &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {}).unwrap();
+        assert_eq!(a.street_runs, vec![6, 6], "each 310 m street is one run of six samples 60 m apart");
+        let links = a.street_links(false);
+        assert_eq!(links.len(), 10);
+        assert!(links.iter().all(|(p, q)| (p.lat - q.lat).abs() < 1e-6), "every link runs along its own street, none jumps across");
+    }
+
+    #[test]
+    fn restricting_splits_street_runs_and_an_old_atlas_has_no_links_and_needs_a_rescan() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let line: Vec<Point> = (0..5).map(|i| destination(o, 90.0, 60.0 * f64::from(i))).collect();
+        let mut a = build_atlas("r", 0, vec![], line.clone(), &cat);
+        assert!(a.street_runs.is_empty() && a.needs_rescan(), "a scan from before runs were recorded asks for a rescan");
+        assert!(a.street_links(false).is_empty(), "without runs nothing is linked: only the points count");
+        a.street_runs = vec![5];
+        assert!(!a.needs_rescan());
+        assert_eq!(a.street_links(false).len(), 4);
+        // a zone that leaves out the middle point: the run splits and nothing links across the gap
+        a.restrict_to(&Zone::Circle { center: line[2], radius_m: 10_000.0 });
+        assert_eq!(a.street_runs, vec![5], "nothing dropped, nothing split");
+        a.retain_streets(&|p: Point| p != line[2]);
+        assert_eq!((a.streets.len(), a.street_runs.clone()), (4, vec![2, 2]));
+        assert_eq!(a.street_links(false), vec![(line[0], line[1]), (line[3], line[4])]);
+        assert_eq!(thin_runs(&line, &[5], 2), (vec![line[0], line[2], line[4]], vec![3]));
+        assert_eq!(thin_runs(&line, &[2, 3], 2), (vec![line[0], line[2], line[4]], vec![1, 2]));
+        assert!(!Atlas::default().needs_rescan(), "nothing to link, nothing to rescan");
+        let rough_only = Atlas { streets_rough: vec![o], ..Atlas::default() };
+        assert!(rough_only.needs_rescan());
+    }
+
+    /// `north_m` north and `east_m` east of `o`.
+    fn ne(o: Point, north_m: f64, east_m: f64) -> Point {
+        destination(destination(o, 0.0, north_m), 90.0, east_m)
+    }
+
+    #[test]
+    fn two_parallel_streets_in_an_old_atlas_do_not_vouch_for_the_backyard_between_them() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        // street A runs east, street B 55 m north of it runs back west: in scan order A's last sample sits next to B's first
+        let mut pts: Vec<Point> = (0..6).map(|i| ne(o, 0.0, 60.0 * f64::from(i))).collect();
+        pts.extend((0..6).rev().map(|i| ne(o, 55.0, 60.0 * f64::from(i))));
+        let a = build_atlas("r", 0, vec![], pts.clone(), &cat);
+        let backyard = ne(o, 27.5, 320.0); // 34 m from both streets' ends, 20 m from the line joining them
+        let idx = crate::near_path::PathIndex::with_segments(&a.streets, &a.street_links(false));
+        assert!(!idx.near_path(backyard), "no runs: the gap between the streets is not a street");
+    }
+
+    #[test]
+    fn a_link_that_cuts_a_corner_is_dropped_at_stride_one_and_two() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        // a street east then north, round a 90 degree corner; samples every 60 m (stride 1) or 120 m (stride 2) along it
+        for (stride, samples, inside) in [
+            (1, vec![ne(o, 0.0, 0.0), ne(o, 0.0, 60.0), ne(o, 30.0, 90.0), ne(o, 90.0, 90.0)], ne(o, 35.0, 55.0)),
+            (2, vec![ne(o, 0.0, 0.0), ne(o, 0.0, 120.0), ne(o, 90.0, 150.0)], ne(o, 45.0, 118.0)),
+        ] {
+            let mut a = build_atlas("r", 0, vec![], samples.clone(), &cat);
+            (a.street_runs, a.street_stride) = (vec![count_u32(samples.len())], stride);
+            let links = a.street_links(false);
+            assert_eq!(links.len(), samples.len() - 2, "stride {stride}: only the straight pieces are linked");
+            let idx = crate::near_path::PathIndex::with_segments(&a.streets, &links);
+            assert!(!idx.near_path(inside), "stride {stride}: a spot inside the corner, over 30 m from the street, is not near it");
+        }
     }
 
     fn way(id: &str, name: Option<&str>, tags: &[(&str, &str)], pts: Vec<Point>) -> Feature {
