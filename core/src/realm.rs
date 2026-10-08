@@ -23,6 +23,17 @@ pub enum Shape {
     Polygon { vertices: Vec<Point> },
 }
 
+/// Where a point is relative to a zone area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Proximity {
+    Inside,
+    /// Within `NEAR_ZONE_M` of the area: precise GPS starts here so arrival is not missed.
+    Near,
+    Far,
+}
+
+pub const NEAR_ZONE_M: f64 = 300.0;
+
 impl Shape {
     pub fn to_zone(&self) -> Zone {
         match self {
@@ -79,6 +90,18 @@ impl Shape {
                 }
                 (0..vertices.len()).map(|i| crate::geo::distance_to_segment_m(p, vertices[i], vertices[(i + 1) % vertices.len()])).fold(f64::INFINITY, f64::min)
             }
+        }
+    }
+
+    /// Where `p` is relative to this area: inside, within `NEAR_ZONE_M` of it, or far.
+    pub fn proximity(&self, p: Point) -> Proximity {
+        let d = self.distance_m(p);
+        if d == 0.0 {
+            Proximity::Inside
+        } else if d <= NEAR_ZONE_M {
+            Proximity::Near
+        } else {
+            Proximity::Far
         }
     }
 
@@ -378,6 +401,15 @@ mod tests {
         assert_eq!(store.home(), Some(Point::new(1.5, 2.5)));
         std::fs::write(store.dir().join("realms.json"), "not json").unwrap();
         assert!(store.list().is_empty(), "corrupt file must not crash");
+    }
+
+    #[test]
+    fn proximity_is_inside_near_or_far_with_a_300_m_buffer() {
+        let c = Point::new(40.0, -111.0);
+        let s = Shape::Circle { center: c, radius_m: 500.0 };
+        assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 100.0)), Proximity::Inside);
+        assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 700.0)), Proximity::Near);
+        assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 900.0)), Proximity::Far);
     }
 
     #[test]

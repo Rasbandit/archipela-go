@@ -11,7 +11,7 @@ use apgo_core::game::{AwayOptions, Backend, Event, Game, NearMiss, NewGame, Ques
 use apgo_core::geo::{distance_m, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
-use apgo_core::realm::{Realm, RealmStore, Shape};
+use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
 use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_realm, Atlas};
 use apgo_core::slot::SlotData;
@@ -1134,6 +1134,35 @@ impl Engine {
         let Some(id) = self.game_id() else { return };
         let k = if resumed { kind::PLAY_RESUMED } else { kind::PLAY_PAUSED };
         self.journal_do(|j| j.log(&id, &JournalEvent { t_ms, kind: k.into(), detail: String::new(), at: None }));
+    }
+
+    /// "inside" | "near" | "far" for the open game's zones, "unknown" with no game or no zones.
+    pub fn zone_proximity(&self, lat: f64, lon: f64) -> String {
+        let p = Point::new(lat, lon);
+        let shapes = self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner());
+        let best = shapes.iter().map(|s| s.proximity(p)).min_by_key(|x| match x {
+            Proximity::Inside => 0,
+            Proximity::Near => 1,
+            Proximity::Far => 2,
+        });
+        match best {
+            Some(Proximity::Inside) => "inside",
+            Some(Proximity::Near) => "near",
+            Some(Proximity::Far) => "far",
+            None => "unknown",
+        }
+        .into()
+    }
+
+    /// Presence rules (home Wi-Fi, car) turn counting off and on.
+    pub fn set_counting(&self, on: bool) {
+        self.with_game(|g| g.set_counting(on));
+    }
+
+    /// Record a presence change ("Home Wi-Fi connected, paused") in the activity log.
+    pub fn log_presence(&self, text: String, t_ms: i64) {
+        let Some(id) = self.game_id() else { return };
+        self.journal_do(|j| j.log(&id, &JournalEvent { t_ms, kind: kind::PRESENCE.into(), detail: text, at: None }));
     }
 
     /// When the app was last sent to the background in the open game: the start of "while you were out".
