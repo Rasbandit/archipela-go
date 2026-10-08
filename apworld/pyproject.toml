@@ -11,6 +11,7 @@ dev = [
     "pyright>=1.1.390",
     "jsonschema>=4.23",
     "pytest-cov>=7.1.0",
+    "mutmut>=3.8.0",
 ]
 
 [tool.uv]

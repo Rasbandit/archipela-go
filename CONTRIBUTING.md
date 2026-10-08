@@ -12,6 +12,7 @@ Also needed, outside mise:
 
 - rustup: `core/rust-toolchain.toml` pins Rust 1.99.0 plus the Android targets; rustup installs them on first use.
 - Android SDK with `ANDROID_HOME` set (default `~/Android/Sdk`), and JDK 25 with `JAVA_HOME` (mise installs the JDK).
+- Only for `just mutate-rust`: `cargo install --locked cargo-mutants@27.1.0` (not in mise, so CI jobs do not compile it).
 - `just check` includes `check-android`, which needs the SDK. `just check-py` and `just check-rust` work without it.
 
 Without mise, install the pinned versions yourself: lefthook, typos, gitleaks, committed, actionlint, shellcheck
@@ -39,6 +40,10 @@ npm install -g --prefix ~/.local markdownlint-cli2@0.23.3
 - `just check-android`: host-built bindings, Spotless/ktlint, detekt, Android Lint (warnings are errors), unit tests,
   Kover floor of 17.
 - Coverage floors only go up (see `docs/context/working-in-this-repo.md`).
+- Mutation testing (slow, not part of `check`): `just mutate-py` (mutmut over `apworld/ap_go2`, staged in `.mutate-py/`)
+  and `just mutate-rust` (cargo-mutants over `apgo-core`, in place; `-f src/goal.rs` for one file, all of it takes hours).
+  Before a PR that touches `core/`, `just mutate-rust-diff` mutates only the lines the branch changed.
+  A surviving mutant is a change no test notices: add the test that kills it.
 
 ## Hooks
 
