@@ -237,6 +237,8 @@ pub struct Game {
     odo_anchor: Option<Point>,
     #[serde(skip)]
     last_block: Option<String>,
+    #[serde(skip_serializing, default = "yes")]
+    counting: bool,
 }
 
 pub struct NewGame<'a> {
@@ -350,6 +352,7 @@ impl Game {
             last_speed: None,
             odo_anchor: None,
             last_block: None,
+            counting: true,
         })
     }
 
@@ -550,8 +553,24 @@ impl Game {
 
     /// A step-counter reading outside a fix (the sensor reports on its own).
     pub fn on_steps(&mut self, total: i64, t_ms: i64) -> Vec<Event> {
+        if !self.counting {
+            self.counters.steps_last = Some(total);
+            return Vec::new();
+        }
         self.credit_steps(total);
         self.complete_reached(t_ms, self.last_pos())
+    }
+
+    /// Presence rules (at home, in the car) switch counting off: nothing is checked, credited or added while it is off.
+    pub fn set_counting(&mut self, on: bool) {
+        if self.counting == on {
+            return;
+        }
+        self.counting = on;
+        // Whatever the player did while it was off must not be compared with what they do next.
+        self.last_fix = None;
+        self.odo_anchor = None;
+        self.outlier_streak = 0;
     }
 
     /// The engine tells the game whether the player is inside the area of one of its zones.
@@ -596,6 +615,12 @@ impl Game {
     /// Feed a GPS fix (and the cumulative step counter if the phone has one).
     pub fn on_fix(&mut self, fix: Fix, steps_total: Option<i64>) -> Vec<Event> {
         let mut ev = Vec::new();
+        if !self.counting {
+            if let Some(t) = steps_total {
+                self.counters.steps_last = Some(t);
+            }
+            return ev;
+        }
         if let Some(total) = steps_total {
             self.credit_steps(total);
         }
@@ -1441,6 +1466,51 @@ mod tests {
         let p0 = destination(target, 0.0, 200.0);
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(p0, 1000) }, None);
         (g, q.location_id, p0)
+    }
+
+    #[test]
+    fn nothing_counts_while_counting_is_off_and_no_steps_are_credited_for_that_time() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.on_steps(1_000, 1);
+        g.set_counting(false);
+        assert!(g.on_steps(5_000, 2).is_empty(), "4,000 steps at home");
+        assert_eq!(g.counters.progress.get("1:step_up").copied().unwrap_or(0.0), 0.0);
+        g.set_counting(true);
+        assert!(g.on_steps(5_100, 3).is_empty(), "only the 100 steps since counting resumed");
+        assert_eq!(g.counters.progress["1:step_up"], 100.0);
+    }
+
+    #[test]
+    fn a_reach_quest_does_not_complete_while_counting_is_off() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let q = g.quest_views().remove(0);
+        g.set_counting(false);
+        assert!(g.on_fix(Fix { accuracy_m: 5.0, ..fixat(q.anchor.unwrap(), 100) }, None).is_empty());
+        assert!(!g.done.contains(&q.location_id));
+        g.set_counting(true);
+        assert!(!g.on_fix(Fix { accuracy_m: 5.0, ..fixat(q.anchor.unwrap(), 200) }, None).is_empty());
+    }
+
+    #[test]
+    fn the_first_fix_after_resuming_is_not_judged_against_a_stale_one() {
+        let (mut g, id, p0) = start_near_a_quest();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| crate::fog::anchor(&a.target)).unwrap();
+        g.set_counting(false);
+        g.set_counting(true);
+        // 200 m from the last fix 3 s later would be dropped as a jump if the old fix were kept
+        let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(target, 1003) }, None);
+        assert!(ev.iter().any(|e| matches!(e, Event::QuestDone { location_id, .. } if *location_id == id)), "{ev:?} from {p0:?}");
+    }
+
+    #[test]
+    fn distance_is_not_added_while_counting_is_off() {
+        let (mut g, _, p0) = start_near_a_quest();
+        let before = g.stats.distance_m;
+        g.set_counting(false);
+        for i in 1..=10 {
+            g.on_fix(Fix { accuracy_m: 5.0, ..fixat(destination(p0, 90.0, 30.0 * f64::from(i)), 1000 + i64::from(i) * 10) }, None);
+        }
+        assert_eq!(g.stats.distance_m, before);
     }
 
     #[test]
