@@ -107,26 +107,33 @@ impl Atlas {
         retain_runs(&mut self.streets_rough, &mut self.rough_runs, keep);
     }
 
-    /// The pieces of street between consecutive samples of one way, for the paved (`rough` false) or rough points. A scan without runs
-    /// (older ones, test fixtures) links neighbours in the list that are no farther apart than two samples can be.
+    /// The pieces of street between consecutive samples of one way, for the paved (`rough` false) or rough points. Only a straight
+    /// piece is linked: samples lie a fixed distance apart along the street, so a much shorter straight line between two of them cuts a
+    /// corner (and a longer one jumps a gap), and those spots are left to the points. A scan without runs (made before they were
+    /// recorded) has no links at all, see [`Self::needs_rescan`].
     #[must_use]
     pub fn street_links(&self, rough: bool) -> Vec<(Point, Point)> {
         let (pts, runs) = if rough { (&self.streets_rough, &self.rough_runs) } else { (&self.streets, &self.street_runs) };
-        // A straight line between two samples is never longer than the street between them.
-        let max_m = STREET_SPACING_M * f64::from(self.street_stride.max(1)) * 1.05;
-        let close = |w: &[Point]| distance_m(w[0], w[1]) <= max_m;
-        if runs_fit(pts, runs) {
-            let mut out = Vec::new();
-            let mut at = 0;
-            for n in runs {
-                let end = at + *n as usize;
-                out.extend(pts[at..end].windows(2).filter(|w| close(w)).map(|w| (w[0], w[1])));
-                at = end;
-            }
-            out
-        } else {
-            pts.windows(2).filter(|w| close(w)).map(|w| (w[0], w[1])).collect()
+        if !runs_fit(pts, runs) {
+            return vec![];
         }
+        let step = STREET_SPACING_M * f64::from(self.street_stride.max(1));
+        let straight = |w: &[Point]| (step * 0.95..=step * 1.05).contains(&distance_m(w[0], w[1]));
+        let mut out = Vec::new();
+        let mut at = 0;
+        for n in runs {
+            let end = at + *n as usize;
+            out.extend(pts[at..end].windows(2).filter(|w| straight(w)).map(|w| (w[0], w[1])));
+            at = end;
+        }
+        out
+    }
+
+    /// Whether this atlas comes from a scan made before runs of street samples were recorded: it knows only the points, not the
+    /// streets between them, so quests near it are placed more strictly until the realm is scanned again.
+    #[must_use]
+    pub fn needs_rescan(&self) -> bool {
+        (self.street_runs.is_empty() && !self.streets.is_empty()) || (self.rough_runs.is_empty() && !self.streets_rough.is_empty())
     }
 
     /// Walkable street length in metres. Atlases scanned before real lengths were recorded fall back to an estimate from their street points.
@@ -1013,17 +1020,16 @@ mod tests {
     }
 
     #[test]
-    fn restricting_splits_street_runs_and_old_atlases_link_close_neighbours() {
+    fn restricting_splits_street_runs_and_an_old_atlas_has_no_links_and_needs_a_rescan() {
         let cat = Catalog::builtin();
         let o = Point::new(40.0, -111.0);
         let line: Vec<Point> = (0..5).map(|i| destination(o, 90.0, 60.0 * f64::from(i))).collect();
         let mut a = build_atlas("r", 0, vec![], line.clone(), &cat);
-        assert!(a.street_runs.is_empty());
-        assert_eq!(a.street_links(false).len(), 4, "an atlas without runs links consecutive points a sample apart");
-        a.streets.push(destination(o, 0.0, 500.0));
-        assert_eq!(a.street_links(false).len(), 4, "but never a far jump");
-        a.streets.pop();
+        assert!(a.street_runs.is_empty() && a.needs_rescan(), "a scan from before runs were recorded asks for a rescan");
+        assert!(a.street_links(false).is_empty(), "without runs nothing is linked: only the points count");
         a.street_runs = vec![5];
+        assert!(!a.needs_rescan());
+        assert_eq!(a.street_links(false).len(), 4);
         // a zone that leaves out the middle point: the run splits and nothing links across the gap
         a.restrict_to(&Zone::Circle { center: line[2], radius_m: 10_000.0 });
         assert_eq!(a.street_runs, vec![5], "nothing dropped, nothing split");
@@ -1032,6 +1038,45 @@ mod tests {
         assert_eq!(a.street_links(false), vec![(line[0], line[1]), (line[3], line[4])]);
         assert_eq!(thin_runs(&line, &[5], 2), (vec![line[0], line[2], line[4]], vec![3]));
         assert_eq!(thin_runs(&line, &[2, 3], 2), (vec![line[0], line[2], line[4]], vec![1, 2]));
+        assert!(!Atlas::default().needs_rescan(), "nothing to link, nothing to rescan");
+        let rough_only = Atlas { streets_rough: vec![o], ..Atlas::default() };
+        assert!(rough_only.needs_rescan());
+    }
+
+    /// `north_m` north and `east_m` east of `o`.
+    fn ne(o: Point, north_m: f64, east_m: f64) -> Point {
+        destination(destination(o, 0.0, north_m), 90.0, east_m)
+    }
+
+    #[test]
+    fn two_parallel_streets_in_an_old_atlas_do_not_vouch_for_the_backyard_between_them() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        // street A runs east, street B 55 m north of it runs back west: in scan order A's last sample sits next to B's first
+        let mut pts: Vec<Point> = (0..6).map(|i| ne(o, 0.0, 60.0 * f64::from(i))).collect();
+        pts.extend((0..6).rev().map(|i| ne(o, 55.0, 60.0 * f64::from(i))));
+        let a = build_atlas("r", 0, vec![], pts.clone(), &cat);
+        let backyard = ne(o, 27.5, 320.0); // 34 m from both streets' ends, 20 m from the line joining them
+        let idx = crate::near_path::PathIndex::with_segments(&a.streets, &a.street_links(false));
+        assert!(!idx.near_path(backyard), "no runs: the gap between the streets is not a street");
+    }
+
+    #[test]
+    fn a_link_that_cuts_a_corner_is_dropped_at_stride_one_and_two() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        // a street east then north, round a 90 degree corner; samples every 60 m (stride 1) or 120 m (stride 2) along it
+        for (stride, samples, inside) in [
+            (1, vec![ne(o, 0.0, 0.0), ne(o, 0.0, 60.0), ne(o, 30.0, 90.0), ne(o, 90.0, 90.0)], ne(o, 35.0, 55.0)),
+            (2, vec![ne(o, 0.0, 0.0), ne(o, 0.0, 120.0), ne(o, 90.0, 150.0)], ne(o, 45.0, 118.0)),
+        ] {
+            let mut a = build_atlas("r", 0, vec![], samples.clone(), &cat);
+            (a.street_runs, a.street_stride) = (vec![count_u32(samples.len())], stride);
+            let links = a.street_links(false);
+            assert_eq!(links.len(), samples.len() - 2, "stride {stride}: only the straight pieces are linked");
+            let idx = crate::near_path::PathIndex::with_segments(&a.streets, &links);
+            assert!(!idx.near_path(inside), "stride {stride}: a spot inside the corner, over 30 m from the street, is not near it");
+        }
     }
 
     fn way(id: &str, name: Option<&str>, tags: &[(&str, &str)], pts: Vec<Point>) -> Feature {

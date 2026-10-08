@@ -6,6 +6,7 @@ use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
 use crate::geo::{destination, distance_m, Point};
+use crate::near_path::PathIndex;
 
 const MIN: i64 = 60_000;
 const THAW_RADIUS_M: f64 = 40.0;
@@ -71,29 +72,29 @@ pub struct Traps {
     pub active: Vec<Trap>,
 }
 
-fn pool_point(pool: &[Point], from: Point, min: f64, max: f64, rng: &mut StdRng) -> Point {
-    let near: Vec<&Point> = pool.iter().filter(|p| (min..=max).contains(&distance_m(from, **p))).collect();
-    let want = f64::midpoint(min, max);
-    // No street at the usual distance: the street point closest to it, if it is no more than twice as far as usual (#51: a point to reach
-    // is never made up off the streets). With no street that near (no map data around the player) a spot at the usual distance is used.
-    let closest = pool
-        .iter()
-        .filter(|p| distance_m(from, **p) <= 2.0 * max)
-        .min_by(|a, b| (distance_m(from, **a) - want).abs().total_cmp(&(distance_m(from, **b) - want).abs()))
-        .copied();
-    match near.choose(rng) {
-        Some(p) => **p,
-        None => closest.unwrap_or_else(|| destination(from, rng.random_range(0.0..360.0), want)),
+/// A spot on a street or path `min`..`max` metres from `from` (#51: a point to reach is never made up off the streets). With none in that
+/// ring, the street spot closest to the usual distance if it is no more than twice as far; only with no street that near at all (no map
+/// data around the player, who is then outside every zone) is a spot made up at the usual distance.
+fn pool_point(paths: &PathIndex, from: Point, min: f64, max: f64, rng: &mut StdRng) -> Point {
+    if let Some(p) = paths.spots_between(from, min, max).choose(rng) {
+        return *p;
     }
+    let want = f64::midpoint(min, max);
+    let off = |p: &Point| (distance_m(from, *p) - want).abs();
+    paths
+        .spots_between(from, 0.0, 2.0 * max)
+        .into_iter()
+        .min_by(|a, b| off(a).total_cmp(&off(b)))
+        .unwrap_or_else(|| destination(from, rng.random_range(0.0..360.0), want))
 }
 
 impl Traps {
     /// Start the effect of a trap item. Returns a player-facing message (also for honor traps).
-    pub fn trigger(&mut self, item: &str, now_ms: i64, pos: Option<Point>, home: Point, pool: &[Point], rng: &mut StdRng) -> Option<String> {
+    pub fn trigger(&mut self, item: &str, now_ms: i64, pos: Option<Point>, home: Point, paths: &PathIndex, rng: &mut StdRng) -> Option<String> {
         let at = pos.unwrap_or(home);
         let (trap, msg) = match item {
             "Freeze Trap" => {
-                let thaw = pool_point(pool, at, 300.0, 800.0, rng);
+                let thaw = pool_point(paths, at, 300.0, 800.0, rng);
                 (Trap::Freeze { thaw, until_ms: now_ms + 30 * MIN }, "Frozen! Reach the glowing thaw point to move again.".to_string())
             }
             "Fog Of War Trap" => (Trap::Fog { until_ms: now_ms + 15 * MIN }, "Fog rolls in: the map is hidden for 15 minutes.".into()),
@@ -103,7 +104,7 @@ impl Traps {
                 "Leashed! Checks only count within 800 m of home for 30 minutes.".into(),
             ),
             "Detour Trap" => {
-                let waypoint = pool_point(pool, at, 300.0, 700.0, rng);
+                let waypoint = pool_point(paths, at, 300.0, 700.0, rng);
                 (Trap::Detour { waypoint, visited: false, until_ms: now_ms + 20 * MIN }, "Detour! Visit the marked waypoint before any check counts.".into())
             }
             "Toll Trap" => (Trap::Toll { need_m: 400.0, moved_m: 0.0, until_ms: now_ms + 20 * MIN }, "Toll! Cover 400 m before any check counts.".into()),
@@ -227,14 +228,14 @@ mod tests {
     #[test]
     fn freeze_blocks_until_thawed_or_timed_out() {
         let mut t = Traps::default();
-        t.trigger("Freeze Trap", 0, Some(home()), home(), &pool(), &mut rng()).unwrap();
+        t.trigger("Freeze Trap", 0, Some(home()), home(), &PathIndex::new(&pool()), &mut rng()).unwrap();
         let thaw = t.thaw_point().unwrap();
         assert!((300.0..=800.0).contains(&distance_m(home(), thaw)));
         assert!(t.blocks_checks(home()).is_some());
         assert!(t.tick(1000, home(), 0.0).is_empty() && t.blocks_checks(home()).is_some());
         assert_eq!(t.tick(2000, thaw, 0.0).len(), 1);
         assert!(t.blocks_checks(home()).is_none());
-        t.trigger("Freeze Trap", 0, Some(home()), home(), &pool(), &mut rng());
+        t.trigger("Freeze Trap", 0, Some(home()), home(), &PathIndex::new(&pool()), &mut rng());
         assert_eq!(t.tick(31 * 60_000, home(), 0.0).len(), 1, "the 30 minute safety valve frees you");
     }
 
@@ -243,36 +244,50 @@ mod tests {
         // #51: a point the player must reach is a street point, never a made-up spot in a backyard.
         let farther: Vec<Point> = (0..5).map(|i| destination(home(), 72.0 * f64::from(i), 1000.0 + 50.0 * f64::from(i))).collect();
         let mut t = Traps::default();
-        t.trigger("Freeze Trap", 0, Some(home()), home(), &farther, &mut rng());
+        t.trigger("Freeze Trap", 0, Some(home()), home(), &PathIndex::new(&farther), &mut rng());
         let thaw = t.thaw_point().unwrap();
         assert!(distance_m(farther[0], thaw) < 1e-6, "the street point closest to the usual distance, got {thaw:?}");
         // the only streets are 20 km away (the player is outside every zone): never send them there
         let remote: Vec<Point> = (0..5).map(|i| destination(home(), 72.0 * f64::from(i), 20_000.0)).collect();
         let mut t = Traps::default();
-        t.trigger("Freeze Trap", 0, Some(home()), home(), &remote, &mut rng());
+        t.trigger("Freeze Trap", 0, Some(home()), home(), &PathIndex::new(&remote), &mut rng());
         let d = distance_m(home(), t.thaw_point().unwrap());
         assert!((300.0..=800.0).contains(&d), "thaw point {d:.0} m away");
     }
 
     #[test]
+    fn a_thaw_point_can_lie_on_the_street_between_two_far_samples() {
+        // one long street passes 550 m east of the player; its only samples are over 1.1 km away, yet the street itself crosses the ring
+        let (a, b) = (destination(destination(home(), 180.0, 1000.0), 90.0, 550.0), destination(destination(home(), 0.0, 1000.0), 90.0, 550.0));
+        let paths = PathIndex::with_segments(&[a, b], &[(a, b)]);
+        for seed in 1..=5 {
+            let mut t = Traps::default();
+            t.trigger("Detour Trap", 0, Some(home()), home(), &paths, &mut StdRng::seed_from_u64(seed));
+            let wp = t.waypoint().unwrap();
+            let d = distance_m(home(), wp);
+            assert!((300.0..=800.0).contains(&d) && crate::geo::distance_to_segment_m(wp, a, b) < 1.0, "seed {seed}: {d:.0} m away, off the street");
+        }
+    }
+
+    #[test]
     fn leash_detour_toll_slow_fog_silence() {
         let mut t = Traps::default();
-        t.trigger("Leash Trap", 0, None, home(), &pool(), &mut rng());
+        t.trigger("Leash Trap", 0, None, home(), &PathIndex::new(&pool()), &mut rng());
         assert!(t.blocks_checks(destination(home(), 0.0, 1500.0)).is_some());
         assert!(t.blocks_checks(destination(home(), 0.0, 300.0)).is_none());
-        t.trigger("Detour Trap", 0, Some(home()), home(), &pool(), &mut rng());
+        t.trigger("Detour Trap", 0, Some(home()), home(), &PathIndex::new(&pool()), &mut rng());
         let wp = t.waypoint().unwrap();
         assert!(t.blocks_checks(home()).is_some());
         t.tick(10, wp, 0.0);
         assert!(t.waypoint().is_none());
-        t.trigger("Toll Trap", 0, Some(home()), home(), &pool(), &mut rng());
+        t.trigger("Toll Trap", 0, Some(home()), home(), &PathIndex::new(&pool()), &mut rng());
         assert!(t.blocks_checks(home()).unwrap().contains("Toll"));
         t.tick(10, home(), 250.0);
         t.tick(20, home(), 200.0);
         assert!(t.blocks_checks(home()).is_none());
-        t.trigger("Slow Trap", 0, None, home(), &pool(), &mut rng());
-        t.trigger("Fog Of War Trap", 0, None, home(), &pool(), &mut rng());
-        t.trigger("Silence Trap", 0, None, home(), &pool(), &mut rng());
+        t.trigger("Slow Trap", 0, None, home(), &PathIndex::new(&pool()), &mut rng());
+        t.trigger("Fog Of War Trap", 0, None, home(), &PathIndex::new(&pool()), &mut rng());
+        t.trigger("Silence Trap", 0, None, home(), &PathIndex::new(&pool()), &mut rng());
         assert_eq!(t.dwell_multiplier(), 2.0);
         assert!(t.fog_active() && t.silenced());
         t.tick(40 * 60_000, home(), 0.0);
@@ -282,12 +297,12 @@ mod tests {
     #[test]
     fn honor_and_shuffle_traps_only_message_and_unknown_items_are_ignored() {
         let mut t = Traps::default();
-        assert!(t.trigger("Push Up Trap", 0, None, home(), &[], &mut rng()).unwrap().contains("honor"));
-        assert!(t.trigger("Shuffle Trap", 0, None, home(), &[], &mut rng()).is_some());
-        assert!(t.trigger("Bike", 0, None, home(), &[], &mut rng()).is_none());
+        assert!(t.trigger("Push Up Trap", 0, None, home(), &PathIndex::default(), &mut rng()).unwrap().contains("honor"));
+        assert!(t.trigger("Shuffle Trap", 0, None, home(), &PathIndex::default(), &mut rng()).is_some());
+        assert!(t.trigger("Bike", 0, None, home(), &PathIndex::default(), &mut rng()).is_none());
         assert!(t.active.is_empty());
         // an empty pool still produces a reachable thaw point
-        t.trigger("Freeze Trap", 0, None, home(), &[], &mut rng());
+        t.trigger("Freeze Trap", 0, None, home(), &PathIndex::default(), &mut rng());
         assert!(t.thaw_point().is_some());
     }
 }

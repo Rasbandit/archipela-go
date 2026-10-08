@@ -16,6 +16,7 @@ use crate::fog::{anchor, reveal_radius, Fog};
 use crate::geo::{distance_m, Point};
 use crate::goal::{evaluate, evaluate_each, GoalCtx, GoalStatus};
 use crate::journal::JournalEvent;
+use crate::near_path::PathIndex;
 use crate::num::{count_f64, count_u32, i64_to_f64, to_f32};
 use crate::realm::{Realm, Shape};
 use crate::scan::Atlas;
@@ -326,8 +327,11 @@ pub struct Game {
     pub stats: Stats,
     /// Whether the win has been reported to the server.
     pub goal_reported: bool,
-    /// Street points used to place trap targets.
+    /// A thinned sample of street points, the fallback for placing trap targets when no street index is attached.
     pub trap_pool: Vec<Point>,
+    /// Every street and path of the game's zones, indexed to place trap targets; attached when the game is made or opened, never saved.
+    #[serde(skip)]
+    street_index: Option<PathIndex>,
     /// Seed for random choices, so shuffles can be reproduced.
     pub seed: u64,
     /// How much rough going the player accepts.
@@ -426,6 +430,17 @@ fn streak(days: &BTreeSet<i64>, today: i64) -> u32 {
     n
 }
 
+/// Every street point and the streets between them, of all `atlases` (the game's zones), as one index.
+fn street_index(atlases: &[&Atlas]) -> PathIndex {
+    let mut points = Vec::new();
+    let mut links = Vec::new();
+    for a in atlases {
+        points.extend(a.streets.iter().chain(&a.streets_rough).copied());
+        links.extend(a.street_links(false).into_iter().chain(a.street_links(true)));
+    }
+    PathIndex::with_segments(&points, &links)
+}
+
 /// About how many street points of each realm the trap pool keeps.
 const TRAP_POOL_PER_ZONE: usize = 600;
 
@@ -495,6 +510,7 @@ impl Game {
             stats: Stats::default(),
             goal_reported: false,
             trap_pool: pool,
+            street_index: Some(street_index(&zones.iter().map(|z| z.atlas).collect::<Vec<_>>())),
             seed: n.seed,
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
@@ -940,6 +956,24 @@ impl Game {
         vec![]
     }
 
+    /// Index every street and path of `atlases` (the game's zones, as scanned) for placing trap targets. The index is not saved: call
+    /// this when a saved game is opened.
+    pub fn attach_streets(&mut self, atlases: &[&Atlas]) {
+        self.street_index = Some(street_index(atlases));
+    }
+
+    /// Whether [`Self::attach_streets`] has been done for this game.
+    #[must_use]
+    pub fn streets_attached(&self) -> bool {
+        self.street_index.is_some()
+    }
+
+    /// The streets trap targets are placed on: the attached index, or the saved thin sample when none is attached.
+    #[must_use]
+    pub fn trap_paths(&self) -> PathIndex {
+        self.street_index.clone().unwrap_or_else(|| PathIndex::new(&self.trap_pool))
+    }
+
     /// An item arrived (solo reward or server). Applies unlocks and trap effects.
     pub fn receive_item(&mut self, name: &str, now_ms: i64, pos: Option<Point>) -> Vec<Event> {
         let before = self.unlocked_set();
@@ -951,7 +985,14 @@ impl Game {
         }
         if name.ends_with("Trap") {
             let mut rng = StdRng::seed_from_u64(self.seed ^ (self.items.len() as u64).wrapping_mul(0x9E37_79B9));
-            if let Some(message) = self.traps.trigger(name, now_ms, pos, self.home, &self.trap_pool, &mut rng) {
+            let thin;
+            let paths = if let Some(i) = &self.street_index {
+                i
+            } else {
+                thin = PathIndex::new(&self.trap_pool);
+                &thin
+            };
+            if let Some(message) = self.traps.trigger(name, now_ms, pos, self.home, paths, &mut rng) {
                 ev.push(Event::Trap { item: name.to_string(), message });
             }
             if name == "Shuffle Trap" {
@@ -1300,6 +1341,26 @@ mod tests {
         assert!(pool.len() <= 2 * TRAP_POOL_PER_ZONE + 2, "kept small: {}", pool.len());
     }
 
+    #[test]
+    fn a_trap_finds_its_point_among_every_street_of_the_zones_not_only_the_saved_sample() {
+        let o = reach_only(&[Mode::Walk], 6, "all_trips");
+        let mut g = game(&o, Backend::Solo, 3);
+        let (_, a) = realm("r0", Mode::Walk);
+        let on_street = |p: Point| a.streets.iter().any(|s| distance_m(*s, p) < 1e-6);
+        // an old save's thin pool has nothing near; the streets attached when the game is opened do
+        g.trap_pool = vec![destination(home(), 0.0, 50_000.0)];
+        let mut saved: Game = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        assert!(!saved.streets_attached(), "the street index is never saved");
+        saved.attach_streets(&[&a]);
+        assert!(saved.streets_attached());
+        for i in 0..5 {
+            saved.receive_item("Freeze Trap", i64::from(i), Some(home()));
+            let thaw = saved.traps.thaw_point().unwrap();
+            assert!(on_street(thaw) && (300.0..=800.0).contains(&distance_m(home(), thaw)), "thaw {thaw:?}");
+            saved.traps.active.clear();
+        }
+    }
+
     /// A solo game whose quests are replaced by the given targets (all in zone 1, kind `kind`), each rewarding "Hydrate!".
     fn chain_game(kind: &str, targets: Vec<Target>) -> Game {
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
@@ -1593,7 +1654,7 @@ mod tests {
     }
 
     fn freeze(g: &mut Game) {
-        g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_pool.clone(), &mut SeedableRng::seed_from_u64(1));
+        g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_paths(), &mut SeedableRng::seed_from_u64(1));
         assert!(!g.traps.active.is_empty(), "the freeze trap is active");
     }
 
@@ -1637,7 +1698,7 @@ mod tests {
     fn time_away_pauses_while_a_trap_blocks_checks() {
         let mut g = away_game(&[10.0], false, 1000.0);
         away_for(&mut g, 1500.0, 0, 1);
-        g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_pool.clone(), &mut SeedableRng::seed_from_u64(1));
+        g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_paths(), &mut SeedableRng::seed_from_u64(1));
         away_for(&mut g, 1500.0, 60, 5);
         assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "frozen: no minutes count");
         g.traps.active.clear();
@@ -1649,7 +1710,7 @@ mod tests {
     fn marks_wait_while_a_trap_blocks_checks_and_pay_when_it_ends() {
         let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 1) }, Some(1_000));
-        g.traps.trigger("Freeze Trap", 0, Some(home()), home(), &g.trap_pool.clone(), &mut SeedableRng::seed_from_u64(1));
+        g.traps.trigger("Freeze Trap", 0, Some(home()), home(), &g.trap_paths(), &mut SeedableRng::seed_from_u64(1));
         assert!(g.on_steps(1_600, 2).is_empty(), "frozen: no check counts");
         g.traps.active.clear();
         assert_eq!(done_ids(&g.on_steps(1_601, 3)), vec![1000], "the counter kept the steps");

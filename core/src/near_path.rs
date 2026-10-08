@@ -5,7 +5,7 @@
 //! [`NEAR_PATH_M`] cells, so "is this near a path" looks at a handful of cells instead of the whole zone. Distances are to the street
 //! itself, not only to its samples (60 m apart, or more when a big scan is thinned).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::geo::{densify, distance_m, distance_to_segment_m, point_in_polygon, Point};
 use crate::num::{ceil_usize, count_f64, round_i64};
@@ -23,12 +23,19 @@ type Cell = (i64, i64);
 type Seg = (Point, Point);
 
 /// A grid index over the walkable streets and paths of a zone: their sample points and the pieces of street between them.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone)]
 pub struct PathIndex {
     cells: HashMap<Cell, Vec<Point>>,
     segs: HashMap<Cell, Vec<Seg>>,
     dlat: f64,
     dlon: f64,
+}
+
+impl Default for PathIndex {
+    /// An index with no streets at all.
+    fn default() -> Self {
+        Self::new(&[])
+    }
 }
 
 impl PathIndex {
@@ -86,6 +93,24 @@ impl PathIndex {
     /// Pieces of street in the cells around the box (one may come up more than once).
     fn segs_around(&self, sw: Point, ne: Point, margin_m: f64) -> impl Iterator<Item = Seg> + '_ {
         self.keys(sw, ne, margin_m).filter_map(|k| self.segs.get(&k)).flatten().copied()
+    }
+
+    /// Each piece of street in the cells around the box once, in a fixed order.
+    fn unique_segs(&self, sw: Point, ne: Point, margin_m: f64) -> Vec<Seg> {
+        let mut seen = HashSet::new();
+        self.segs_around(sw, ne, margin_m).filter(|(a, b)| seen.insert((a.lat.to_bits(), a.lon.to_bits(), b.lat.to_bits(), b.lon.to_bits()))).collect()
+    }
+
+    /// Spots on the streets and paths between `min_m` and `max_m` from `p`: the sample points, and spots every few metres along the
+    /// street between them.
+    #[must_use]
+    pub fn spots_between(&self, p: Point, min_m: f64, max_m: f64) -> Vec<Point> {
+        let ring = |q: &Point| (min_m..=max_m).contains(&distance_m(p, *q));
+        let mut out: Vec<Point> = self.around(p, p, max_m).filter(ring).collect();
+        for (a, b) in self.unique_segs(p, p, max_m) {
+            out.extend(along(a, b).filter(ring));
+        }
+        out
     }
 
     /// The sample point nearest to `p` within `max_m`, with its distance.
@@ -155,10 +180,7 @@ impl PathIndex {
                 .iter()
                 .any(|((a, b), s, n)| (s.lat..=n.lat).contains(&q.lat) && (s.lon..=n.lon).contains(&q.lon) && distance_to_segment_m(q, *a, *b) <= NEAR_PATH_M)
         };
-        let on_segs = self.segs_around(sw, ne, NEAR_PATH_M).flat_map(|(a, b)| {
-            let n = ceil_usize(distance_m(a, b) / SNAP_STEP_M).max(1);
-            (0..=n).map(move |i| lerp(a, b, count_f64(i) / count_f64(n))).chain(std::iter::once(closest_on_segment(prefer, a, b)))
-        });
+        let on_segs = self.unique_segs(sw, ne, NEAR_PATH_M).into_iter().flat_map(|(a, b)| along(a, b).chain(std::iter::once(closest_on_segment(prefer, a, b))));
         // Inside beats next-to-the-edge; then the nearest to `prefer` wins.
         self.around(sw, ne, NEAR_PATH_M)
             .chain(on_segs)
@@ -209,6 +231,12 @@ impl PathIndex {
 
 fn lerp(a: Point, b: Point, t: f64) -> Point {
     Point::new(a.lat + (b.lat - a.lat) * t, a.lon + (b.lon - a.lon) * t)
+}
+
+/// Spots every [`SNAP_STEP_M`] along the segment `a`-`b`, both ends included.
+fn along(a: Point, b: Point) -> impl Iterator<Item = Point> {
+    let n = ceil_usize(distance_m(a, b) / SNAP_STEP_M).max(1);
+    (0..=n).map(move |i| lerp(a, b, count_f64(i) / count_f64(n)))
 }
 
 fn sw_of(a: Point, b: Point) -> Point {

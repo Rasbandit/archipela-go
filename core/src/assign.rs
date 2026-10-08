@@ -793,9 +793,9 @@ mod tests {
         };
         let make = |len: f64| {
             // the trail is a path itself, so a scan has its samples among the street points too
-            let mut streets = atlas(&cat, false).streets;
-            streets.extend((0..=(len / 60.0) as i32).map(|i| destination(destination(home(), 90.0, 300.0), 90.0, 60.0 * f64::from(i))));
-            let a = crate::scan::build_atlas("r", 0, vec![trail("Long Ridge", len)], streets, &cat);
+            let mut ways: Vec<Vec<Point>> = atlas(&cat, false).streets.into_iter().map(|p| vec![p]).collect();
+            ways.push((0..=(len / 60.0) as i32).map(|i| destination(destination(home(), 90.0, 300.0), 90.0, 60.0 * f64::from(i))).collect());
+            let a = atlas_of(vec![trail("Long Ridge", len)], ways, &cat);
             let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
             assign(&[slot(1, "trail", 3, Mode::Walk)], &z, &cat, &params(1)).remove(0)
         };
@@ -948,16 +948,23 @@ mod tests {
         destination(destination(from, 0.0, north_m), 90.0, east_m)
     }
 
-    /// Street points every 60 m (like a scan) along a grid of streets 240 m apart, out to `half_m` from home.
-    fn town_streets(half_m: f64) -> Vec<Point> {
+    /// An atlas whose streets are `ways`, each a run of consecutive samples as a scan records them.
+    fn atlas_of(features: Vec<Feature>, ways: Vec<Vec<Point>>, cat: &Catalog) -> Atlas {
+        let runs = ways.iter().map(|w| crate::num::count_u32(w.len())).collect();
+        let mut a = crate::scan::build_atlas("r", 0, features, ways.into_iter().flatten().collect(), cat);
+        a.street_runs = runs;
+        a
+    }
+
+    /// Streets sampled every 60 m (like a scan) on a grid 240 m apart, out to `half_m` from home: one way per street.
+    fn town_streets(half_m: f64) -> Vec<Vec<Point>> {
         let (lines, steps) = ((half_m / 240.0) as i32, (half_m / 60.0) as i32);
         let mut out = Vec::new();
         for l in -lines..=lines {
-            for s in -steps..=steps {
-                let (a, b) = (f64::from(l) * 240.0, f64::from(s) * 60.0);
-                out.push(at(home(), a, b)); // an east-west street
-                out.push(at(home(), b, a)); // a north-south street
-            }
+            let a = f64::from(l) * 240.0;
+            out.push((-steps..=steps).map(|s| at(home(), a, f64::from(s) * 60.0)).collect()); // an east-west street
+            out.push((-steps..=steps).map(|s| at(home(), f64::from(s) * 60.0, a)).collect());
+            // a north-south street
         }
         out
     }
@@ -995,29 +1002,23 @@ mod tests {
         }
     }
 
-    /// A square park of `half_m` around `c`, with the town's streets taken out of it (and `clear_m` around its centre).
-    fn park_hole(c: Point, half_m: f64, clear_m: f64, streets: Vec<Point>) -> (Feature, Vec<Point>) {
+    /// A square park of `half_m` around `c`, and a filter that takes the town's streets out of it (and `clear_m` around its centre).
+    fn park_hole(c: Point, half_m: f64, clear_m: f64) -> (Feature, impl Fn(Point) -> bool) {
         let (sw, ne) = (at(c, -clear_m, -clear_m), at(c, clear_m, clear_m));
-        let kept = streets.into_iter().filter(|p| !(sw.lat..=ne.lat).contains(&p.lat) || !(sw.lon..=ne.lon).contains(&p.lon)).collect();
+        let keep = move |p: Point| !(sw.lat..=ne.lat).contains(&p.lat) || !(sw.lon..=ne.lon).contains(&p.lon);
         let ring = vec![at(c, -half_m, -half_m), at(c, -half_m, half_m), at(c, half_m, half_m), at(c, half_m, -half_m), at(c, -half_m, -half_m)];
-        (feature("wpark", &[("leisure", "park"), ("name", "Big Park")], c, ring), kept)
+        (feature("wpark", &[("leisure", "park"), ("name", "Big Park")], c, ring), keep)
     }
 
     /// A town with on-street and backyard places, a big park whose centre is far from any path but with a footpath around it,
     /// a river that starts in backyards and a trail.
     fn town(cat: &Catalog) -> Atlas {
         let c = at(home(), 1320.0, 1320.0); // the middle of a block
-        let (park, mut streets) = park_hole(c, 250.0, 250.0, town_streets(6000.0));
-        for i in 0..36 {
-            // a footpath 10 m outside the park, sampled every 60 m along each side
-            let s = f64::from(i % 9) * 60.0 - 260.0;
-            streets.push(match i / 9 {
-                0 => at(c, -260.0, s),
-                1 => at(c, 260.0, s),
-                2 => at(c, s, -260.0),
-                _ => at(c, s, 260.0),
-            });
-        }
+        let (park, keep) = park_hole(c, 250.0, 250.0);
+        let ways = town_streets(6000.0);
+        // a footpath 10 m outside the park, sampled every 60 m along each side
+        let side = |f: &dyn Fn(f64) -> Point| (0..9).map(|i| f(f64::from(i) * 60.0 - 260.0)).collect::<Vec<_>>();
+        let footpath = [side(&|s| at(c, -260.0, s)), side(&|s| at(c, 260.0, s)), side(&|s| at(c, s, -260.0)), side(&|s| at(c, s, 260.0))];
         let mut features = vec![park];
         for i in 0..40 {
             let (n, e) = (f64::from(i % 8) * 240.0 - 960.0, f64::from(i / 8) * 240.0 - 480.0);
@@ -1031,7 +1032,12 @@ mod tests {
         features.push(feature("wriver", &[("waterway", "river"), ("name", "Long River")], r0, (0..20).map(|i| at(r0, 120.0, f64::from(i) * 100.0)).collect()));
         let t0 = at(home(), -720.0, 0.0);
         features.push(feature("wtrail", &[("highway", "path"), ("name", "Ridge Trail")], t0, (0..15).map(|i| at(t0, 0.0, f64::from(i) * 100.0)).collect()));
-        crate::scan::build_atlas("r", 0, features, streets, cat)
+        let mut a = atlas_of(features, ways, cat);
+        a.retain_streets(&keep);
+        let mut fp = atlas_of(vec![], Vec::from(footpath), cat);
+        a.streets.append(&mut fp.streets);
+        a.street_runs.append(&mut fp.street_runs);
+        a
     }
 
     fn every_slot() -> Vec<SlotIn> {
@@ -1079,7 +1085,7 @@ mod tests {
         let r = realm(Mode::Walk);
         // only 8 street points (fewer than the old 20-point threshold), along one short street 600 m east of home
         let streets: Vec<Point> = (0..8).map(|i| at(home(), 0.0, 600.0 + 60.0 * f64::from(i))).collect();
-        let a = crate::scan::build_atlas("r", 0, vec![], streets, &cat);
+        let a = atlas_of(vec![], vec![streets], &cat);
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=12).map(|i| slot(i, ["reach", "dwell", "courier"][(i % 3) as usize], 2 + (i % 5) as u8, Mode::Walk)).collect();
         let out = assign(&slots, &z, &cat, &params(4));
@@ -1097,9 +1103,11 @@ mod tests {
         let slots: Vec<SlotIn> = (1..=6).map(|i| slot(i, "park", 1 + i as u8, Mode::Walk)).collect();
 
         // A footpath runs around the park: the quest is snapped onto it (or into the park next to it), never the far-away centre.
-        let (park, mut streets) = park_hole(c, 250.0, 250.0, town_streets(4000.0));
-        streets.extend((0..9).map(|i| at(c, -260.0, f64::from(i) * 60.0 - 240.0)));
-        let a = crate::scan::build_atlas("r", 0, vec![park], streets, &cat);
+        let (park, keep) = park_hole(c, 250.0, 250.0);
+        let mut ways = town_streets(4000.0);
+        ways.push((0..9).map(|i| at(c, -260.0, f64::from(i) * 60.0 - 240.0)).collect());
+        let mut a = atlas_of(vec![park], ways, &cat);
+        a.retain_streets(&keep);
         assert!(gap_to_paths(c, &a) > 200.0, "the fixture centre is far from any path");
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
         let mut used = 0;
@@ -1112,8 +1120,9 @@ mod tests {
         assert!(used > 0, "a park with a path along it is still used");
 
         // Nothing walkable within 30 m of the park at all: it is never a quest.
-        let (park, streets) = park_hole(c, 250.0, 320.0, town_streets(4000.0));
-        let a = crate::scan::build_atlas("r", 0, vec![park], streets, &cat);
+        let (park, keep) = park_hole(c, 250.0, 320.0);
+        let mut a = atlas_of(vec![park], town_streets(4000.0), &cat);
+        a.retain_streets(&keep);
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
         for seed in 1..=6 {
             assert!(assign(&slots, &z, &cat, &params(seed)).iter().all(|o| o.place != "Big Park"), "seed {seed} used an unreachable park");
@@ -1132,7 +1141,7 @@ mod tests {
         for (gap, stride) in [(60.0, 1), (120.0, 2)] {
             // 20 m off the street, halfway between two samples: 36 m (stride 1) or 63 m (stride 2) from the nearest sample
             let spot = at(home(), 20.0, 300.0 + gap * 10.5);
-            let mut a = crate::scan::build_atlas("r", 0, vec![feature("n1", &[("amenity", "bench")], spot, vec![])], street_east(gap, 40), &cat);
+            let mut a = atlas_of(vec![feature("n1", &[("amenity", "bench")], spot, vec![])], vec![street_east(gap, 40)], &cat);
             a.street_stride = stride;
             let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
             let used = (1..=10).any(|seed| {
@@ -1155,12 +1164,12 @@ mod tests {
             feature("wriver", &[("waterway", "river"), ("name", "Back River")], s, vec![s, e, at(e, 400.0, 0.0), at(e, 400.0, 1200.0)])
         };
         let slots: Vec<SlotIn> = (1..=3).map(|i| slot(i, "water", 2 + i as u8, Mode::Walk)).collect();
-        let a = crate::scan::build_atlas("r", 0, vec![river(100.0)], street_east(60.0, 60), &cat);
+        let a = atlas_of(vec![river(100.0)], vec![street_east(60.0, 60)], &cat);
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
         for seed in 1..=4 {
             assert!(assign(&slots, &z, &cat, &params(seed)).iter().all(|o| o.place != "Back River"), "a river barely beside a path is not a quest");
         }
-        let a = crate::scan::build_atlas("r", 0, vec![river(900.0)], street_east(60.0, 60), &cat);
+        let a = atlas_of(vec![river(900.0)], vec![street_east(60.0, 60)], &cat);
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
         let mut used = 0;
         for seed in 1..=4 {
@@ -1179,9 +1188,9 @@ mod tests {
         // home sits on the park's south edge; a path runs just south of it (by the house) and one 25 m north of it
         let ring = vec![at(home(), 0.0, -200.0), at(home(), 0.0, 200.0), at(home(), 400.0, 200.0), at(home(), 400.0, -200.0), at(home(), 0.0, -200.0)];
         let park = feature("wpark", &[("leisure", "park"), ("name", "Home Park")], at(home(), 200.0, 0.0), ring);
-        let mut streets: Vec<Point> = (0..7).map(|i| at(home(), -10.0, f64::from(i) * 60.0 - 180.0)).collect();
-        streets.extend((0..7).map(|i| at(home(), 425.0, f64::from(i) * 60.0 - 180.0)));
-        let a = crate::scan::build_atlas("r", 0, vec![park], streets, &cat);
+        let south: Vec<Point> = (0..7).map(|i| at(home(), -10.0, f64::from(i) * 60.0 - 180.0)).collect();
+        let north: Vec<Point> = (0..7).map(|i| at(home(), 425.0, f64::from(i) * 60.0 - 180.0)).collect();
+        let a = atlas_of(vec![park], vec![south, north], &cat);
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=3).map(|i| slot(i, "park", 2 + i as u8, Mode::Walk)).collect();
         let mut used = 0;
@@ -1209,7 +1218,7 @@ mod tests {
             feature("wb", &[("leisure", "park"), ("name", "Park B")], at(home(), 1150.0, 450.0), square(300.0)),
         ];
         let streets: Vec<Point> = (0..6).map(|i| at(home(), 1000.0 + 60.0 * f64::from(i), 300.0)).collect();
-        let a = crate::scan::build_atlas("r", 0, parks, streets, &cat);
+        let a = atlas_of(parks, vec![streets], &cat);
         let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=2).map(|i| slot(i, "park", 3, Mode::Walk)).collect();
         let mut both = 0;
