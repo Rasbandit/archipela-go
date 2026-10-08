@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original artwork: a map pin carrying a four-point star, landing on three small islands.
+     Content stays inside the 66 dp adaptive-icon safe zone (centre 54,54, radius 33). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="@color/ic_launcher_pin"
+        android:pathData="M54,78 L39.12,56.13 A18,18 0 1,1 68.88,56.13 Z" />
+    <path
+        android:fillColor="@color/ic_launcher_star"
+        android:pathData="M54,36 L56.47,43.53 L64,46 L56.47,48.47 L54,56 L51.53,48.47 L44,46 L51.53,43.53 Z" />
+    <path
+        android:fillColor="@color/ic_launcher_islands"
+        android:pathData="M48,83 a6,2.5 0 1,0 12,0 a6,2.5 0 1,0 -12,0 Z M38,81 a4,2 0 1,0 8,0 a4,2 0 1,0 -8,0 Z M62,81 a4,2 0 1,0 8,0 a4,2 0 1,0 -8,0 Z" />
+</vector>

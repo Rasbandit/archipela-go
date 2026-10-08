@@ -61,6 +61,13 @@ Archipelago's web theme, ArchipelagoMW/Archipelago `WebHostLib/static/styles` (M
 The old React Native app's item colours (`styles/Colors.tsx`): `#00D168` green, `#00BDBD` cyan, `#6D8BE8` blue, `#AF99EF` purple,
 `#FA8072` salmon. Colours are facts, so using them is fine.
 
+## Launcher icon
+
+Our own original artwork (no Archipelago logo shapes): a sky map pin with a navy four-point star, landing on three butter island dots,
+on a navy background. Adaptive icon (minSdk 26, so `mipmap-anydpi` with no `-v26` qualifier and no PNG fallbacks): `res/mipmap-anydpi/ic_launcher{,_round}.xml` with
+`res/drawable/ic_launcher_foreground.xml` (inside the 66 dp safe zone) and `ic_launcher_monochrome.xml` (themed icons, star cut out).
+Colours are in `res/values/colors.xml`, each commented with the `ApgoPalette` entry it mirrors; change both together.
+
 ## Icons and the Archipelago logo: do NOT bundle it
 
 - The logo is (c) 2022 Krista Corkos and Christopher Wilson, **CC BY-NC 4.0** (stated in the old app's `assets/LICENSE.txt`). The old
