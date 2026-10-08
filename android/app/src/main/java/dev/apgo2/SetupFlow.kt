@@ -13,8 +13,19 @@ import dev.apgo2.ui.SetupText
 fun SetupFlow(m: AppModel) {
     var step by rememberSaveable { mutableStateOf(m.setupStart) }
     when (step) {
-        SetupStep.Home -> HomePicker(m, title = "${SetupText.homeBaseName} · step 1 of 3", onBack = { m.leaveSetup() }, onNext = { step = SetupStep.Wifi })
-        SetupStep.Wifi -> WifiStep(m, onBack = { step = SetupStep.Home }, onNext = { step = SetupStep.Car })
-        SetupStep.Car -> CarStep(m, onBack = { step = SetupStep.Wifi }, onDone = { m.finishSetup() })
+        SetupStep.Home -> {
+            HomePicker(m, title = "${SetupText.homeBaseName} · step 1 of 3", onBack = { m.leaveSetup() }, onNext = {
+                step =
+                    SetupStep.Wifi
+            })
+        }
+
+        SetupStep.Wifi -> {
+            WifiStep(m, onBack = { step = SetupStep.Home }, onNext = { step = SetupStep.Car })
+        }
+
+        SetupStep.Car -> {
+            CarStep(m, onBack = { step = SetupStep.Wifi }, onDone = { m.finishSetup() })
+        }
     }
 }

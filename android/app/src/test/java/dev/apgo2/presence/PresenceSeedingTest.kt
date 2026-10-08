@@ -40,7 +40,11 @@ class PresenceSeedingTest {
         s.restart(10_000)
         assertEquals("waiting again", true, s.waiting)
         assertEquals("not complete", false, s.complete)
-        assertEquals("timeout counts from the restart", SeedPlan(false, false), s.poll(12_999, wifiReported = false, bluetoothReady = false))
+        assertEquals(
+            "timeout counts from the restart",
+            SeedPlan(false, false),
+            s.poll(12_999, wifiReported = false, bluetoothReady = false),
+        )
         assertEquals(SeedPlan(true, true), s.poll(13_000, wifiReported = false, bluetoothReady = false))
     }
 

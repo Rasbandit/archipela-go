@@ -7,12 +7,13 @@ import org.junit.Test
 
 class MapMarkersTest {
     @Test fun everyMarkerSurvivesAKeyRoundTrip() {
-        val specs = listOf(
-            MarkerSpec.Find("bench_warmer", "dwell", "none"),
-            MarkerSpec.Find("hydrant_hunter", "landmark", "favorite"),
-            MarkerSpec.Quest("street_smarts", "reach", "progress"),
-            MarkerSpec.Quest("touch_grass", "park", "done"),
-        )
+        val specs =
+            listOf(
+                MarkerSpec.Find("bench_warmer", "dwell", "none"),
+                MarkerSpec.Find("hydrant_hunter", "landmark", "favorite"),
+                MarkerSpec.Quest("street_smarts", "reach", "progress"),
+                MarkerSpec.Quest("touch_grass", "park", "done"),
+            )
         specs.forEach { assertEquals(it, MapMarkers.parse(it.key)) }
         assertEquals("keys are distinct", specs.size, specs.map { it.key }.toSet().size)
     }

@@ -16,7 +16,13 @@ class ApgoApp : Application() {
             Diag.e("crash", "uncaught exception on ${t.name}", e)
             previous?.uncaughtException(t, e)
         }
-        Diag.i("app", "start", "device" to "${Build.MANUFACTURER} ${Build.MODEL}", "sdk" to Build.VERSION.SDK_INT, "abi" to Build.SUPPORTED_ABIS.firstOrNull())
+        Diag.i(
+            "app",
+            "start",
+            "device" to "${Build.MANUFACTURER} ${Build.MODEL}",
+            "sdk" to Build.VERSION.SDK_INT,
+            "abi" to Build.SUPPORTED_ABIS.firstOrNull(),
+        )
     }
 
     val model: AppModel by lazy {

@@ -1,28 +1,44 @@
 package dev.apgo2
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 class DiagLogTest {
     @get:Rule val tmp = TemporaryFolder()
 
-    private fun log(maxFileBytes: Long = 1_000_000, keep: Int = 5, clock: () -> Long = { 1_000L }) = DiagLog(tmp.newFolder(), maxFileBytes, keep, clock)
+    private fun log(
+        maxFileBytes: Long = 1_000_000,
+        keep: Int = 5,
+        clock: () -> Long = {
+            1_000L
+        },
+    ) = DiagLog(tmp.newFolder(), maxFileBytes, keep, clock)
 
     @Test fun writesOneJsonLinePerEntryWithFields() {
         val l = log()
         l.write("I", "sensors", "start", mapOf("interval_ms" to 5000, "ok" to true, "name" to "gps"))
-        val line = l.files().single().readLines().single()
+        val line =
+            l
+                .files()
+                .single()
+                .readLines()
+                .single()
         assertEquals("""{"t":1000,"lvl":"I","tag":"sensors","msg":"start","interval_ms":5000,"ok":true,"name":"gps"}""", line)
     }
 
     @Test fun escapesQuotesNewlinesAndControlCharacters() {
         val l = log()
         l.write("E", "x", "he said \"hi\"\nnext\ttab\\ \u0001")
-        val line = l.files().single().readLines().single() // a newline in a message must not break the line format
+        val line =
+            l
+                .files()
+                .single()
+                .readLines()
+                .single() // a newline in a message must not break the line format
         assertTrue(line, line.contains("""he said \"hi\"\nnext\ttab\\ \u0001"""))
     }
 

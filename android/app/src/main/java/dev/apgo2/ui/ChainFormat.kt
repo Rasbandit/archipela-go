@@ -7,18 +7,26 @@ object ChainFormat {
     fun thousands(n: Long): String = "%,d".format(java.util.Locale.US, n)
 
     /** The number with its unit word left off: "5,100", "1 h 30 min", "40". */
-    private fun bare(unit: String, value: Double): String = when (unit) {
-        "steps" -> thousands(value.toLong())
-        "minutes" -> minutes(value)
-        else -> value.toLong().toString()
-    }
+    private fun bare(
+        unit: String,
+        value: Double,
+    ): String =
+        when (unit) {
+            "steps" -> thousands(value.toLong())
+            "minutes" -> minutes(value)
+            else -> value.toLong().toString()
+        }
 
     /** "8,500 steps", "1 h 30 min", "40 squares". */
-    fun amount(unit: String, value: Double): String = when (unit) {
-        "steps" -> "${bare(unit, value)} steps"
-        "minutes" -> bare(unit, value)
-        else -> "${bare(unit, value)} squares"
-    }
+    fun amount(
+        unit: String,
+        value: Double,
+    ): String =
+        when (unit) {
+            "steps" -> "${bare(unit, value)} steps"
+            "minutes" -> bare(unit, value)
+            else -> "${bare(unit, value)} squares"
+        }
 
     private fun minutes(m: Double): String {
         val total = m.coerceAtLeast(0.0).toLong()
@@ -38,8 +46,13 @@ object ChainFormat {
     }
 
     /** Each mark's position along the bar, 0..1. */
-    fun fractions(marks: List<Double>, total: Double): List<Float> =
-        marks.map { if (total <= 0.0) 0f else (it / total).toFloat().coerceIn(0f, 1f) }
+    fun fractions(
+        marks: List<Double>,
+        total: Double,
+    ): List<Float> = marks.map { if (total <= 0.0) 0f else (it / total).toFloat().coerceIn(0f, 1f) }
 
-    fun fill(counter: Double, total: Double): Float = if (total <= 0.0) 0f else (counter / total).toFloat().coerceIn(0f, 1f)
+    fun fill(
+        counter: Double,
+        total: Double,
+    ): Float = if (total <= 0.0) 0f else (counter / total).toFloat().coerceIn(0f, 1f)
 }

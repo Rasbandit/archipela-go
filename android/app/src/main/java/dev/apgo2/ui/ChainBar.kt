@@ -13,7 +13,12 @@ import androidx.compose.ui.unit.dp
 
 /** One bar with a mark at each check it unlocks: filled up to [fill], reached marks solid green, the others hollow. */
 @Composable
-fun ChainBar(fill: Float, fractions: List<Float>, reached: List<Boolean>, modifier: Modifier = Modifier) {
+fun ChainBar(
+    fill: Float,
+    fractions: List<Float>,
+    reached: List<Boolean>,
+    modifier: Modifier = Modifier,
+) {
     val track = ApgoPalette.mint
     val filled = ApgoPalette.teal
     val done = ApgoPalette.questDone
@@ -27,7 +32,18 @@ fun ChainBar(fill: Float, fractions: List<Float>, reached: List<Boolean>, modifi
             val x = (size.width * f).coerceIn(r, size.width - r)
             val c = Offset(x, size.height / 2)
             drawCircle(ApgoPalette.onMap, r, c)
-            if (reached.getOrElse(i) { false }) drawCircle(done, r - 1.5.dp.toPx(), c) else drawCircle(ApgoPalette.muted, r - 1.5.dp.toPx(), c, style = Stroke(1.5.dp.toPx()))
+            if (reached.getOrElse(i) {
+                    false
+                }
+            ) {
+                drawCircle(
+                    done,
+                    r - 1.5.dp.toPx(),
+                    c,
+                )
+            } else {
+                drawCircle(ApgoPalette.muted, r - 1.5.dp.toPx(), c, style = Stroke(1.5.dp.toPx()))
+            }
         }
     }
 }

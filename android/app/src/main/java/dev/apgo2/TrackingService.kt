@@ -27,20 +27,34 @@ class TrackingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Quest tracking", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val n = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentTitle("Archipela-Go 2 is tracking your quests")
-            .setContentText("Tap to open. Close the game to stop.")
-            .setOngoing(true)
-            .setContentIntent(open)
-            .build()
+        val n =
+            Notification
+                .Builder(this, CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                .setContentTitle("Archipela-Go 2 is tracking your quests")
+                .setContentText("Tap to open. Close the game to stop.")
+                .setOngoing(true)
+                .setContentIntent(open)
+                .build()
         startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         Diag.i("service", "started", "restart" to (intent == null))
-        if (beat?.isActive != true) beat = scope.launch { while (true) { delay(HEARTBEAT_MS); (application as ApgoApp).model.heartbeat() } }
+        if (beat?.isActive != true) {
+            beat =
+                scope.launch {
+                    while (true) {
+                        delay(HEARTBEAT_MS)
+                        (application as ApgoApp).model.heartbeat()
+                    }
+                }
+        }
         return START_STICKY
     }
 
@@ -56,6 +70,9 @@ class TrackingService : Service() {
         private const val HEARTBEAT_MS = 60_000L
 
         fun start(ctx: Context) = ctx.startForegroundService(Intent(ctx, TrackingService::class.java))
-        fun stop(ctx: Context) { ctx.stopService(Intent(ctx, TrackingService::class.java)) }
+
+        fun stop(ctx: Context) {
+            ctx.stopService(Intent(ctx, TrackingService::class.java))
+        }
     }
 }

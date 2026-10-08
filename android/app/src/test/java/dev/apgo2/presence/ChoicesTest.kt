@@ -6,7 +6,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChoicesTest {
-    private fun home(ssid: String, bssid: String? = null) = HomeNetwork(ssid, bssid)
+    private fun home(
+        ssid: String,
+        bssid: String? = null,
+    ) = HomeNetwork(ssid, bssid)
+
     private fun ssids(l: List<WifiChoice>) = l.map { it.ssid }
 
     @Test fun connectedFirstThenSavedThenNearbyAlphabetical() {
@@ -63,7 +67,10 @@ class ChoicesTest {
         assertEquals("new:bb", r[0].bssid)
     }
 
-    private fun car(name: String, addr: String) = CarDevice(name, addr)
+    private fun car(
+        name: String,
+        addr: String,
+    ) = CarDevice(name, addr)
 
     @Test fun pairedCarsComeFirstAndSavedUnpairedStayListed() {
         val r = CarChoices.merge(listOf(car("Buds", "A1")), listOf(car("Old car", "B2"), car("Buds", "a1")), "")

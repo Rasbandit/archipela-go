@@ -8,14 +8,18 @@ object PlayLayout {
     private val OFF_MAP = setOf("steps", "cells", "away")
     private val STATE_ORDER = listOf("progress", "open", "locked", "done", "hidden")
 
-    data class Split(val progress: List<QuestOut>, val places: List<QuestOut>)
+    data class Split(
+        val progress: List<QuestOut>,
+        val places: List<QuestOut>,
+    )
 
     fun split(all: List<QuestOut>): Split {
         // Members of a progressive quest are shown by its chain row, not on their own.
         val quests = all.filter { it.chainId == null }
-        val (top, rest) = quests.partition { q ->
-            q.state == "progress" || (q.shape in OFF_MAP && q.state == "open")
-        }
+        val (top, rest) =
+            quests.partition { q ->
+                q.state == "progress" || (q.shape in OFF_MAP && q.state == "open")
+            }
         return Split(
             progress = top.sortedByDescending { it.progress },
             places = rest.sortedBy { STATE_ORDER.indexOf(it.state) },

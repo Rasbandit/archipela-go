@@ -1,8 +1,19 @@
 package dev.apgo2.presence
 
-data class WifiId(val ssid: String?, val bssid: String?)
-data class HomeNetwork(val ssid: String, val bssid: String?)
-data class CarDevice(val name: String, val address: String)
+data class WifiId(
+    val ssid: String?,
+    val bssid: String?,
+)
+
+data class HomeNetwork(
+    val ssid: String,
+    val bssid: String?,
+)
+
+data class CarDevice(
+    val name: String,
+    val address: String,
+)
 
 /** Turning what Android reports into the `Boolean?` signals the policy reads. Pure. */
 object PresenceSignals {
@@ -19,7 +30,10 @@ object PresenceSignals {
     }
 
     /** `true` at home, `false` on another network, `null` when unknown (not connected, name hidden, or no home network saved). */
-    fun isHome(current: WifiId?, saved: List<HomeNetwork>): Boolean? {
+    fun isHome(
+        current: WifiId?,
+        saved: List<HomeNetwork>,
+    ): Boolean? {
         if (saved.isEmpty()) return null
         val ssid = cleanSsid(current?.ssid)
         val bssid = current?.bssid?.lowercase()?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }
@@ -27,7 +41,10 @@ object PresenceSignals {
         return saved.any { h -> (bssid != null && h.bssid?.lowercase() == bssid) || (ssid != null && h.ssid == ssid) }
     }
 
-    fun carConnected(connectedAddresses: Set<String>?, saved: List<CarDevice>): Boolean? {
+    fun carConnected(
+        connectedAddresses: Set<String>?,
+        saved: List<CarDevice>,
+    ): Boolean? {
         if (saved.isEmpty() || connectedAddresses == null) return null
         val connected = connectedAddresses.map { it.lowercase() }.toSet()
         return saved.any { it.address.lowercase() in connected }
@@ -37,11 +54,19 @@ object PresenceSignals {
 /** Words for the Play screen's presence chip. Pure. */
 object PresenceText {
     /** "Protection off" when no home network or car is saved, since nothing can pause the game then (the Home card offers the setup). */
-    fun chip(state: PresenceState, configured: Boolean): String = if (!configured) "Protection off" else when (state) {
-        PresenceState.InZone -> "Tracking"
-        PresenceState.AtHome -> "At home, paused"
-        PresenceState.InCar -> "In car, not counting"
-        PresenceState.OutsideZones -> "Outside zones, saving battery"
-        PresenceState.Stopped -> "Not playing"
-    }
+    fun chip(
+        state: PresenceState,
+        configured: Boolean,
+    ): String =
+        if (!configured) {
+            "Protection off"
+        } else {
+            when (state) {
+                PresenceState.InZone -> "Tracking"
+                PresenceState.AtHome -> "At home, paused"
+                PresenceState.InCar -> "In car, not counting"
+                PresenceState.OutsideZones -> "Outside zones, saving battery"
+                PresenceState.Stopped -> "Not playing"
+            }
+        }
 }

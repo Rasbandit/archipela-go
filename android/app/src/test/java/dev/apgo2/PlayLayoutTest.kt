@@ -5,10 +5,36 @@ import org.junit.Test
 import uniffi.apgo_ffi.QuestOut
 
 class PlayLayoutTest {
-    private fun q(id: Long, shape: String, state: String = "open", progress: Float = 0f, chainId: String? = null) = QuestOut(
-        locationId = id, zone = 1u, name = "q$id", place = "", family = "", kindId = "", difficulty = "Easy", tier = 1u, effortMin = 10.0,
-        mode = "walk", state = state, progress = progress, shape = shape, anchor = null, anchorB = null, radiusM = 0.0, path = emptyList(),
-        detail = "", fallback = false, boss = false, blurb = "", reward = null, chainId = chainId,
+    private fun q(
+        id: Long,
+        shape: String,
+        state: String = "open",
+        progress: Float = 0f,
+        chainId: String? = null,
+    ) = QuestOut(
+        locationId = id,
+        zone = 1u,
+        name = "q$id",
+        place = "",
+        family = "",
+        kindId = "",
+        difficulty = "Easy",
+        tier = 1u,
+        effortMin = 10.0,
+        mode = "walk",
+        state = state,
+        progress = progress,
+        shape = shape,
+        anchor = null,
+        anchorB = null,
+        radiusM = 0.0,
+        path = emptyList(),
+        detail = "",
+        fallback = false,
+        boss = false,
+        blurb = "",
+        reward = null,
+        chainId = chainId,
     )
 
     private fun ids(l: List<QuestOut>) = l.map { it.locationId }
@@ -32,7 +58,15 @@ class PlayLayoutTest {
     }
 
     @Test fun chainMembersAreInNeitherListBecauseTheChainRowShowsThem() {
-        val s = PlayLayout.split(listOf(q(1, "steps", chainId = "1:step_up"), q(2, "away", "progress", 0.4f, chainId = "1:wanderlust"), q(3, "point"), q(4, "steps")))
+        val s =
+            PlayLayout.split(
+                listOf(
+                    q(1, "steps", chainId = "1:step_up"),
+                    q(2, "away", "progress", 0.4f, chainId = "1:wanderlust"),
+                    q(3, "point"),
+                    q(4, "steps"),
+                ),
+            )
         assertEquals(listOf(4L), ids(s.progress))
         assertEquals(listOf(3L), ids(s.places))
     }

@@ -14,14 +14,29 @@ class DiagLog(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     @Synchronized
-    fun write(level: String, tag: String, msg: String, fields: Map<String, Any?> = emptyMap()) {
+    fun write(
+        level: String,
+        tag: String,
+        msg: String,
+        fields: Map<String, Any?> = emptyMap(),
+    ) {
         runCatching {
             dir.mkdirs()
-            val line = buildString {
-                append("{\"t\":").append(clock()).append(",\"lvl\":").append(quote(level)).append(",\"tag\":").append(quote(tag)).append(",\"msg\":").append(quote(msg))
-                fields.forEach { (k, v) -> append(',').append(quote(k)).append(':').append(value(v)) }
-                append("}\n")
-            }
+            val line =
+                buildString {
+                    append(
+                        "{\"t\":",
+                    ).append(
+                        clock(),
+                    ).append(",\"lvl\":")
+                        .append(quote(level))
+                        .append(",\"tag\":")
+                        .append(quote(tag))
+                        .append(",\"msg\":")
+                        .append(quote(msg))
+                    fields.forEach { (k, v) -> append(',').append(quote(k)).append(':').append(value(v)) }
+                    append("}\n")
+                }
             val bytes = line.toByteArray()
             var target = files().lastOrNull() ?: File(dir, name(1))
             if (target.length() > 0 && target.length() + bytes.size > maxFileBytes) {
@@ -32,11 +47,24 @@ class DiagLog(
         }
     }
 
-    fun info(tag: String, msg: String, fields: Map<String, Any?> = emptyMap()) = write("I", tag, msg, fields)
-    fun warn(tag: String, msg: String, fields: Map<String, Any?> = emptyMap()) = write("W", tag, msg, fields)
+    fun info(
+        tag: String,
+        msg: String,
+        fields: Map<String, Any?> = emptyMap(),
+    ) = write("I", tag, msg, fields)
 
-    fun error(tag: String, msg: String, t: Throwable? = null, fields: Map<String, Any?> = emptyMap()) =
-        write("E", tag, msg, if (t == null) fields else fields + ("stack" to t.stackTraceToString()))
+    fun warn(
+        tag: String,
+        msg: String,
+        fields: Map<String, Any?> = emptyMap(),
+    ) = write("W", tag, msg, fields)
+
+    fun error(
+        tag: String,
+        msg: String,
+        t: Throwable? = null,
+        fields: Map<String, Any?> = emptyMap(),
+    ) = write("E", tag, msg, if (t == null) fields else fields + ("stack" to t.stackTraceToString()))
 
     /** Log files, oldest first. */
     fun files(): List<File> = dir.listFiles { f -> f.isFile && PATTERN.matches(f.name) }?.sortedBy { seq(it) } ?: emptyList()
@@ -45,27 +73,31 @@ class DiagLog(
 
     private fun name(n: Int) = "diag-%04d.jsonl".format(n)
 
-    private fun value(v: Any?): String = when (v) {
-        null -> "null"
-        is Boolean, is Int, is Long -> v.toString()
-        is Double -> if (v.isFinite()) v.toString() else "null"
-        is Float -> if (v.isFinite()) v.toString() else "null"
-        else -> quote(v.toString())
-    }
-
-    private fun quote(s: String): String = buildString {
-        append('"')
-        for (c in s) when {
-            c == '"' -> append("\\\"")
-            c == '\\' -> append("\\\\")
-            c == '\n' -> append("\\n")
-            c == '\r' -> append("\\r")
-            c == '\t' -> append("\\t")
-            c < ' ' -> append("\\u%04x".format(c.code))
-            else -> append(c)
+    private fun value(v: Any?): String =
+        when (v) {
+            null -> "null"
+            is Boolean, is Int, is Long -> v.toString()
+            is Double -> if (v.isFinite()) v.toString() else "null"
+            is Float -> if (v.isFinite()) v.toString() else "null"
+            else -> quote(v.toString())
         }
-        append('"')
-    }
+
+    private fun quote(s: String): String =
+        buildString {
+            append('"')
+            for (c in s) {
+                when {
+                    c == '"' -> append("\\\"")
+                    c == '\\' -> append("\\\\")
+                    c == '\n' -> append("\\n")
+                    c == '\r' -> append("\\r")
+                    c == '\t' -> append("\\t")
+                    c < ' ' -> append("\\u%04x".format(c.code))
+                    else -> append(c)
+                }
+            }
+            append('"')
+        }
 
     companion object {
         private val PATTERN = Regex("diag-(\\d{4})\\.jsonl")
@@ -81,7 +113,28 @@ object Diag {
         log = DiagLog(java.io.File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "diag"))
     }
 
-    fun i(tag: String, msg: String, vararg fields: Pair<String, Any?>) { log?.info(tag, msg, mapOf(*fields)) }
-    fun w(tag: String, msg: String, vararg fields: Pair<String, Any?>) { log?.warn(tag, msg, mapOf(*fields)) }
-    fun e(tag: String, msg: String, t: Throwable? = null, vararg fields: Pair<String, Any?>) { log?.error(tag, msg, t, mapOf(*fields)) }
+    fun i(
+        tag: String,
+        msg: String,
+        vararg fields: Pair<String, Any?>,
+    ) {
+        log?.info(tag, msg, mapOf(*fields))
+    }
+
+    fun w(
+        tag: String,
+        msg: String,
+        vararg fields: Pair<String, Any?>,
+    ) {
+        log?.warn(tag, msg, mapOf(*fields))
+    }
+
+    fun e(
+        tag: String,
+        msg: String,
+        t: Throwable? = null,
+        vararg fields: Pair<String, Any?>,
+    ) {
+        log?.error(tag, msg, t, mapOf(*fields))
+    }
 }

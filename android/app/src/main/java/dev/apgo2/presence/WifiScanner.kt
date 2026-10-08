@@ -5,7 +5,9 @@ import android.content.Context
 import android.net.wifi.WifiManager
 
 /** Reads the Wi-Fi networks in range, to offer as home networks. Needs the location permission the app already asks for. */
-class WifiScanner(ctx: Context) {
+class WifiScanner(
+    ctx: Context,
+) {
     private val wifi = ctx.applicationContext.getSystemService(WifiManager::class.java)
 
     /** Names from the last scan, raw (blank for hidden networks); empty without permission or with Wi-Fi off. Feed to [WifiChoices.merge]. */

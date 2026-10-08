@@ -11,10 +11,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.core.content.ContextCompat
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -30,12 +30,14 @@ import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private fun hasBackgroundLocation() =
-        Build.VERSION.SDK_INT < 29 || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        Build.VERSION.SDK_INT < 29 ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     private fun has(permission: String) = ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     private fun hasBluetoothConnect() =
-        Build.VERSION.SDK_INT < 31 || ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        Build.VERSION.SDK_INT < 31 ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,13 +55,25 @@ class MainActivity : ComponentActivity() {
                     var btGranted by remember { mutableStateOf(hasBluetoothConnect()) }
                     var visible by remember { mutableStateOf(true) }
                     DisposableEffect(owner) {
-                        val obs = LifecycleEventObserver { _, e ->
-                            when (e) {
-                                Lifecycle.Event.ON_START -> { visible = true; bgGranted = hasBackgroundLocation(); btGranted = hasBluetoothConnect(); model.onForeground() }
-                                Lifecycle.Event.ON_STOP -> { visible = false; model.onBackground() }
-                                else -> {}
+                        val obs =
+                            LifecycleEventObserver { _, e ->
+                                when (e) {
+                                    Lifecycle.Event.ON_START -> {
+                                        visible = true
+                                        bgGranted = hasBackgroundLocation()
+                                        btGranted =
+                                            hasBluetoothConnect()
+                                        model.onForeground()
+                                    }
+
+                                    Lifecycle.Event.ON_STOP -> {
+                                        visible = false
+                                        model.onBackground()
+                                    }
+
+                                    else -> {}
+                                }
                             }
-                        }
                         owner.lifecycle.addObserver(obs)
                         onDispose { owner.lifecycle.removeObserver(obs) }
                     }
@@ -67,28 +81,57 @@ class MainActivity : ComponentActivity() {
                     // Permissions, one after another: location, then step counter, then notifications (the tracking notification).
                     // Start from the real state: on an activity recreate "false" would stop tracking until the launcher answers.
                     var permitted by remember { mutableStateOf(has(Manifest.permission.ACCESS_FINE_LOCATION)) }
-                    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { Diag.i("permission", "notifications", "granted" to it) }
+                    val askNotifications =
+                        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                            Diag.i(
+                                "permission",
+                                "notifications",
+                                "granted" to it,
+                            )
+                        }
                     var stepsOk by remember { mutableStateOf(has(Manifest.permission.ACTIVITY_RECOGNITION)) }
-                    val askSteps = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-                        stepsOk = it
-        Diag.i("permission", "activity_recognition", "granted" to it)
-                        if (Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permitted = it; Diag.i("permission", "fine_location", "granted" to it) }
+                    val askSteps =
+                        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                            stepsOk = it
+                            Diag.i("permission", "activity_recognition", "granted" to it)
+                            if (Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    val ask =
+                        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                            permitted = it
+                            Diag.i(
+                                "permission",
+                                "fine_location",
+                                "granted" to it,
+                            )
+                        }
                     LaunchedEffect(Unit) { ask.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
                     LaunchedEffect(permitted) { if (permitted) askSteps.launch(Manifest.permission.ACTIVITY_RECOGNITION) }
 
-                    val askBackground = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-                        bgGranted = it || hasBackgroundLocation()
-                        Diag.i("permission", "background_location", "granted" to bgGranted)
+                    val askBackground =
+                        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                            bgGranted = it || hasBackgroundLocation()
+                            Diag.i("permission", "background_location", "granted" to bgGranted)
+                        }
+                    var bgDeclined by remember {
+                        mutableStateOf(
+                            getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("bg_declined", false),
+                        )
                     }
-                    var bgDeclined by remember { mutableStateOf(getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("bg_declined", false)) }
                     if (permitted && !bgGranted && !bgDeclined && Build.VERSION.SDK_INT >= 29) {
                         AlertDialog(
                             onDismissRequest = {},
                             title = { Text("Track with the screen off") },
-                            text = { Text("To keep recording your route and completing quests while the phone is in your pocket, choose \"Allow all the time\" for location on the next screen. Your location stays on this phone.") },
-                            confirmButton = { TextButton(onClick = { askBackground.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }) { Text("Continue") } },
+                            text = {
+                                Text(
+                                    "To keep recording your route and completing quests while the phone is in your pocket, choose \"Allow all the time\" for location on the next screen. Your location stays on this phone.",
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = { askBackground.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) },
+                                ) { Text("Continue") }
+                            },
                             dismissButton = {
                                 TextButton(onClick = {
                                     bgDeclined = true
@@ -112,9 +155,20 @@ class MainActivity : ComponentActivity() {
                     // A game that is open is tracked in the foreground service, so fixes keep coming with the screen off.
                     val playing = model.hud != null
                     LaunchedEffect(permitted, playing) {
-                        if (permitted && playing) runCatching { TrackingService.start(applicationContext) } else TrackingService.stop(applicationContext)
+                        if (permitted &&
+                            playing
+                        ) {
+                            runCatching { TrackingService.start(applicationContext) }
+                        } else {
+                            TrackingService.stop(applicationContext)
+                        }
                     }
-                    LaunchedEffect(model.session) { while (model.session != null) { model.apTick(); delay(300) } }
+                    LaunchedEffect(model.session) {
+                        while (model.session != null) {
+                            model.apTick()
+                            delay(300)
+                        }
+                    }
                     AppRoot(model)
                 }
             }

@@ -7,12 +7,20 @@ sealed interface MarkerSpec {
     val key: String
 
     /** A scanned place in the realm editor: family colour, with a ring for favorites and grey for banned. [mark] is none | favorite | banned. */
-    data class Find(val kindId: String, val family: String, val mark: String) : MarkerSpec {
+    data class Find(
+        val kindId: String,
+        val family: String,
+        val mark: String,
+    ) : MarkerSpec {
         override val key get() = "pin|$kindId|$family|$mark"
     }
 
     /** A quest on the Play map: family colour, and its state as a corner badge. [state] is open | progress | done | locked. */
-    data class Quest(val kindId: String, val family: String, val state: String) : MarkerSpec {
+    data class Quest(
+        val kindId: String,
+        val family: String,
+        val state: String,
+    ) : MarkerSpec {
         override val key get() = "quest|$kindId|$family|$state"
     }
 }
@@ -37,32 +45,38 @@ object MapMarkers {
         }
     }
 
-    fun badge(state: String): Badge = when (state) {
-        "progress" -> Badge.Progress
-        "done" -> Badge.Done
-        "locked" -> Badge.Locked
-        else -> Badge.None
-    }
+    fun badge(state: String): Badge =
+        when (state) {
+            "progress" -> Badge.Progress
+            "done" -> Badge.Done
+            "locked" -> Badge.Locked
+            else -> Badge.None
+        }
 
     /** Easy < medium < hard < boss. */
-    fun iconScale(difficulty: String, boss: Boolean): Float = when {
-        boss -> 0.85f
-        difficulty.equals("easy", ignoreCase = true) -> 0.55f
-        difficulty.equals("hard", ignoreCase = true) -> 0.7f
-        else -> 0.62f
-    }
+    fun iconScale(
+        difficulty: String,
+        boss: Boolean,
+    ): Float =
+        when {
+            boss -> 0.85f
+            difficulty.equals("easy", ignoreCase = true) -> 0.55f
+            difficulty.equals("hard", ignoreCase = true) -> 0.7f
+            else -> 0.62f
+        }
 
     /** Lower draws and claims space first: what you can act on beats what is done or out of reach. */
-    fun drawOrder(state: String): Int = when (state) {
-        "progress" -> 0
-        "open" -> 1
-        "locked" -> 2
-        "done" -> 3
-        else -> 4
-    }
+    fun drawOrder(state: String): Int =
+        when (state) {
+            "progress" -> 0
+            "open" -> 1
+            "locked" -> 2
+            "done" -> 3
+            else -> 4
+        }
 
-    fun render(spec: MarkerSpec): Bitmap {
-        return when (spec) {
+    fun render(spec: MarkerSpec): Bitmap =
+        when (spec) {
             is MarkerSpec.Find -> {
                 val icon = ApgoIcons.forKind(spec.kindId, spec.family)
                 val fill = ApgoPalette.kind(spec.kindId, spec.family)
@@ -72,13 +86,15 @@ object MapMarkers {
                     else -> renderPin(icon, 96, fill = fill)
                 }
             }
+
             is MarkerSpec.Quest -> {
                 val locked = spec.state == "locked"
                 renderQuestPin(
-                    ApgoIcons.forKind(spec.kindId, spec.family), QUEST_PIN_PX,
-                    fill = if (locked) ApgoPalette.muted else ApgoPalette.kind(spec.kindId, spec.family), badge = badge(spec.state),
+                    ApgoIcons.forKind(spec.kindId, spec.family),
+                    QUEST_PIN_PX,
+                    fill = if (locked) ApgoPalette.muted else ApgoPalette.kind(spec.kindId, spec.family),
+                    badge = badge(spec.state),
                 )
             }
         }
-    }
 }

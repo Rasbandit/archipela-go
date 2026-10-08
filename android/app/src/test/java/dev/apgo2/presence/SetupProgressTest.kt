@@ -7,7 +7,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SetupProgressTest {
-    private fun p(home: Boolean = false, wifi: Int = 0, car: Int = 0, done: Boolean = false) = SetupProgress(home, wifi, car, done)
+    private fun p(
+        home: Boolean = false,
+        wifi: Int = 0,
+        car: Int = 0,
+        done: Boolean = false,
+    ) = SetupProgress(home, wifi, car, done)
 
     @Test fun emptyStartsAtHomeAndNeedsAttention() {
         assertEquals(SetupStep.Home, p().nextStep())

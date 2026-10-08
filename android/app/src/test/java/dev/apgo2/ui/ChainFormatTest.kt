@@ -6,8 +6,20 @@ import uniffi.apgo_ffi.ChainOut
 import uniffi.apgo_ffi.MarkOut
 
 class ChainFormatTest {
-    private fun chain(unit: String, counter: Double, vararg marks: Pair<Double, Boolean>) = ChainOut(
-        id = "1:x", zone = 1u, kindId = "x", name = "X", family = "steps", unit = unit, counter = counter, total = marks.last().first, rule = "r",
+    private fun chain(
+        unit: String,
+        counter: Double,
+        vararg marks: Pair<Double, Boolean>,
+    ) = ChainOut(
+        id = "1:x",
+        zone = 1u,
+        kindId = "x",
+        name = "X",
+        family = "steps",
+        unit = unit,
+        counter = counter,
+        total = marks.last().first,
+        rule = "r",
         marks = marks.mapIndexed { i, (at, reached) -> MarkOut(at = at, locationId = i.toLong(), reached = reached, reward = null) },
     )
 

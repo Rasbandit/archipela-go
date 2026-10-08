@@ -5,7 +5,12 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PresencePolicyTest {
-    private fun s(playing: Boolean = true, home: Boolean? = false, car: Boolean? = false, zone: Zone = Zone.Inside) = Signals(playing, home, car, zone)
+    private fun s(
+        playing: Boolean = true,
+        home: Boolean? = false,
+        car: Boolean? = false,
+        zone: Zone = Zone.Inside,
+    ) = Signals(playing, home, car, zone)
 
     @Test fun notPlayingIsStoppedAndNothingCounts() {
         val d = PresencePolicy.decide(s(playing = false))
@@ -19,7 +24,10 @@ class PresencePolicyTest {
     }
 
     @Test fun notPlayingBeatsCarAndHome() {
-        assertEquals(Decision(PresenceState.Stopped, GpsMode.Off, counting = false), PresencePolicy.decide(s(playing = false, car = true, home = true)))
+        assertEquals(
+            Decision(PresenceState.Stopped, GpsMode.Off, counting = false),
+            PresencePolicy.decide(s(playing = false, car = true, home = true)),
+        )
     }
 
     @Test fun theCoarseIntervalIsNinetySeconds() = assertEquals(90_000L, PresencePolicy.COARSE_MS)
@@ -30,12 +38,19 @@ class PresencePolicyTest {
 
     @Test fun insideNearOrUnknownZoneIsPreciseAndCounts() {
         for (z in listOf(Zone.Inside, Zone.Near, Zone.Unknown)) {
-            assertEquals("$z", Decision(PresenceState.InZone, GpsMode.Rate(5_000L, 0f), counting = true), PresencePolicy.decide(s(zone = z)))
+            assertEquals(
+                "$z",
+                Decision(PresenceState.InZone, GpsMode.Rate(5_000L, 0f), counting = true),
+                PresencePolicy.decide(s(zone = z)),
+            )
         }
     }
 
     @Test fun farFromEveryZoneIsCoarseButStillCounts() {
-        assertEquals(Decision(PresenceState.OutsideZones, GpsMode.Rate(PresencePolicy.COARSE_MS, 0f), counting = true), PresencePolicy.decide(s(zone = Zone.Far)))
+        assertEquals(
+            Decision(PresenceState.OutsideZones, GpsMode.Rate(PresencePolicy.COARSE_MS, 0f), counting = true),
+            PresencePolicy.decide(s(zone = Zone.Far)),
+        )
     }
 
     @Test fun unknownSignalsAreTreatedAsNotPresent() {
