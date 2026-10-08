@@ -37,9 +37,11 @@ import dev.apgo2.presence.PresenceText
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.FeedbackText
+import dev.apgo2.ui.METERS_PER_KM
 import dev.apgo2.ui.MapBubble
 import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.Tone
+import dev.apgo2.ui.Units
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.GameInfo
 import uniffi.apgo_ffi.GoalLineOut
@@ -195,7 +197,7 @@ private fun BoxScope.QuestPopup(
     onBubbleSize: (Int) -> Unit,
 ) {
     val details: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
-        QuestDetails(q, { m.library.reroll(q.locationId) }, { m.selected = null })
+        QuestDetails(q) { m.selected = null }
     }
     if (q.anchor == null) {
         MapOverlayCard(Modifier.align(Alignment.BottomCenter), content = details)
@@ -295,7 +297,7 @@ private fun GoalLine(g: GoalLineOut) {
 private fun summaryLine(hud: HudOut): String {
     val tools = hud.tools.joinToString().ifBlank { "no tools" }
     return "Quests ${hud.done}/${hud.total} · keys ${hud.keys} · $tools · letters ${hud.letters.ifBlank { "-" }} · " +
-        "${"%.1f".format(hud.distanceKm)} km · streak ${hud.streakDays}d"
+        "${Units.distance(hud.distanceKm * METERS_PER_KM)} · streak ${hud.streakDays}d"
 }
 
 @Composable

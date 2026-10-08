@@ -19,6 +19,8 @@ widgets or write colours themselves.
   corner badge for state: none = open, amber dot = in progress, green check = done, lock = locked; locked pins are grey). Size by difficulty (`iconScale`), collision order by state (`drawOrder`).
 - A callout attached to a pin is a `MapBubble` (placement in `BubblePlacement`, unit-tested): the realm editor's find callout and the Play quest popup both use it. Quests with no pin
   (steps, new squares, time away) show the same content in a `MapOverlayCard` at the bottom of the map.
+- Every distance, area and percentage the player sees goes through `ui/Units.kt` (`distance`, `area`, `percent`): km or mi by
+  region, and always `Locale.US` digits and decimal point. Never `"%.1f".format(...)` a shown number. Dates and times stay localized.
 - Compose text colours come from `MaterialTheme.colorScheme` roles or `FeedbackText(Tone.*)`.
 - A pattern used twice becomes a component in `Components.kt`. Selected chips are a solid `primary` fill because the Material default
   (`secondaryContainer`) blended into the card behind it.

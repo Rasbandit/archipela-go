@@ -6,6 +6,8 @@ import kotlin.math.sin
 
 /** Metres in one degree of latitude (and of longitude at the equator). */
 internal const val METERS_PER_DEGREE = 111_195.0
+
+internal const val METERS_PER_KM = 1000
 private const val RING_POINTS = 48
 private const val DEGREES_PER_RING_POINT = 360.0 / RING_POINTS
 
@@ -21,6 +23,57 @@ internal fun circleRing(
         val dLon = radiusM * sin(a) / (METERS_PER_DEGREE * cos(Math.toRadians(lat)))
         lat + dLat to lon + dLon
     }
+
+/** A polygon needs this many corners to be an area. */
+internal const val MIN_POLYGON_CORNERS = 3
+
+/**
+ * Whether a point lies inside the shape being edited: the circle, or the polygon. A shape not drawn yet (a polygon with fewer than
+ * [MIN_POLYGON_CORNERS] corners, a circle with no centre) contains everything, so nothing is hidden before there is an outline.
+ */
+internal fun insideShape(
+    lat: Double,
+    lon: Double,
+    polygon: Boolean,
+    center: LatLng?,
+    radiusM: Double,
+    corners: List<LatLng>,
+): Boolean =
+    when {
+        polygon && corners.size < MIN_POLYGON_CORNERS -> true
+        polygon -> insidePolygon(lat, lon, corners)
+        center == null -> true
+        else -> insideCircle(lat, lon, center, radiusM)
+    }
+
+// Ray casting.
+private fun insidePolygon(
+    lat: Double,
+    lon: Double,
+    corners: List<LatLng>,
+): Boolean {
+    var inside = false
+    var j = corners.lastIndex
+    for (i in corners.indices) {
+        val a = corners[i]
+        val b = corners[j]
+        val crosses = a.latitude > lat != b.latitude > lat
+        if (crosses && lon < (b.longitude - a.longitude) * (lat - a.latitude) / (b.latitude - a.latitude) + a.longitude) inside = !inside
+        j = i
+    }
+    return inside
+}
+
+private fun insideCircle(
+    lat: Double,
+    lon: Double,
+    c: LatLng,
+    radiusM: Double,
+): Boolean {
+    val dy = (lat - c.latitude) * METERS_PER_DEGREE
+    val dx = (lon - c.longitude) * METERS_PER_DEGREE * cos(Math.toRadians(c.latitude))
+    return dx * dx + dy * dy <= radiusM * radiusM
+}
 
 /** The four points a circle reaches due north, south, east and west, to fit it in view. */
 internal fun circleExtremes(

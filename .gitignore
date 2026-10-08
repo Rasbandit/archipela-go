@@ -19,3 +19,6 @@ android/app/src/main/kotlin/uniffi/
 diag/
 .coverage
 .claude/worktrees/
+.mutate-py/
+core/mutants.out*/
+core/mutants.diff

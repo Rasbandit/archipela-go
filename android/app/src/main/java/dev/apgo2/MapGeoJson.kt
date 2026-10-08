@@ -4,6 +4,7 @@ import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MarkerSpec
+import dev.apgo2.ui.Units
 import dev.apgo2.ui.circleRing
 import dev.apgo2.ui.hex
 import org.json.JSONArray
@@ -14,7 +15,6 @@ import uniffi.apgo_ffi.RealmOut
 import kotlin.math.cos
 
 private const val MIN_POLYGON_POINTS = 3
-private const val METERS_PER_KM = 1000
 private const val BANNED_OPACITY = 0.55
 private const val HIDDEN = "hidden"
 
@@ -199,7 +199,7 @@ internal object MapFeatures {
     ): RadiusFeatures? =
         circle?.takeIf { editable }?.let { (c, r) ->
             val dLon = r / (METERS_PER_DEGREE * cos(Math.toRadians(c.latitude)))
-            val text = if (r < METERS_PER_KM) "${r.toInt()} m" else "%.1f km".format(r / METERS_PER_KM)
+            val text = Units.distance(r)
             val ring = c.longitude + dLon
             RadiusFeatures(
                 line = listOf(GeoJson.feature(GeoJson.lineString(listOf(c.latitude to c.longitude, c.latitude to ring)))),

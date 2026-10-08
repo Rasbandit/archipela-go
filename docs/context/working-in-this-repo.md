@@ -61,6 +61,10 @@ owner: never switch branches or edit files there. A `git switch` by one session 
 - Raising a coverage floor: python `fail_under` in `apworld/pyproject.toml`, rust `--fail-under-lines` in the `check-rust` justfile recipe, kotlin `minBound` in `android/app/build.gradle.kts`.
   Set it to the measured line coverage rounded down. Floors only go up.
 - Every `allow` / `ignore` / `@Suppress` / `noqa` must be as local as possible and carry a reason comment.
+- Mutation testing: mutmut must see the world as `worlds.ap_go2` (its keys come from the file path), hence the staging in
+  `scripts/mutate_py.sh`. cargo-mutants runs in place (`yaml.rs`, `slot.rs` include files outside `core/`); a stopped run can leave a
+  `~ changed by cargo-mutants ~` line in `core/src` (check and Android recipes refuse it; `git restore core/src`). A killed
+  `just mutate-py run` can leave `.ap/worlds/ap_go2` on the mutants (`check-py` refuses it; `just setup-ap`).
 - rustfmt width is 160; after `cargo fmt` literals may be reformatted, so re-read before scripted edits.
 
 ## Where things are decided (pointers, do not duplicate)
