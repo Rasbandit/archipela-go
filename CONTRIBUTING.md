@@ -4,7 +4,7 @@
 
 ```bash
 mise install      # every pinned tool in mise.toml (python, uv, just, lefthook, gitleaks, typos, committed,
-                  # actionlint, shellcheck, cargo-deny, cargo-llvm-cov, markdownlint-cli2, node, java)
+                  # actionlint, shellcheck, cargo-deny, cargo-llvm-cov, cargo-mutants, markdownlint-cli2, node, java)
 just setup        # python env, pinned Archipelago checkout in .ap/, git hooks
 ```
 
@@ -18,7 +18,7 @@ Without mise, install the pinned versions yourself: lefthook, typos, gitleaks, c
 (versions in `mise.toml`), then:
 
 ```bash
-cargo install --locked cargo-deny@0.20.2 cargo-llvm-cov@0.9.1
+cargo install --locked cargo-deny@0.20.2 cargo-llvm-cov@0.9.1 cargo-mutants@27.1.0
 npm install -g --prefix ~/.local markdownlint-cli2@0.23.3
 ```
 
@@ -39,6 +39,9 @@ npm install -g --prefix ~/.local markdownlint-cli2@0.23.3
 - `just check-android`: host-built bindings, Spotless/ktlint, detekt, Android Lint (warnings are errors), unit tests,
   Kover floor of 17.
 - Coverage floors only go up (see `docs/context/working-in-this-repo.md`).
+- Mutation testing (slow, not part of `check`): `just mutate-py` (mutmut over `apworld/ap_go2`, staged in `.mutate-py/`)
+  and `just mutate-rust` (cargo-mutants over `apgo-core`, in place, about an hour; `-f src/goal.rs` for one file).
+  A surviving mutant is a change no test notices: add the test that kills it.
 
 ## Hooks
 

@@ -43,7 +43,7 @@ check-py: ap-present lint typecheck test
 check-hygiene: spell secrets
     actionlint
     shellcheck scripts/*.sh scripts/tests/*.sh
-    markdownlint-cli2 "**/*.md" "#**/node_modules" "#.ap" "#core/vendor" "#core/target"
+    markdownlint-cli2 "**/*.md" "#**/node_modules" "#.ap" "#.mutate-py" "#core/vendor" "#core/target"
     bash scripts/tests/prepush_test.sh
     bash scripts/tests/git_env_test.sh
     bash scripts/tests/java_home_test.sh
@@ -60,6 +60,16 @@ check-rust:
     cd core && RUSTDOCFLAGS="-D warnings" cargo doc -p apgo-core -p apgo-ffi --no-deps -q
     cd core && cargo deny check
     cd core && cargo llvm-cov -p apgo-core -p apgo-ffi --fail-under-lines 80
+
+# --- Mutation testing (slow, not in `check`): a surviving mutant is logic no test pins down ---
+# Python: `just mutate-py` (all), `just mutate-py run "worlds.ap_go2.zones*"`, `just mutate-py results`
+mutate-py *args: ap-present
+    bash scripts/mutate_py.sh {{args}}
+
+# Rust core: `just mutate-rust` (all, ~1 h), `just mutate-rust -f src/goal.rs`. In place (yaml.rs includes a file outside core/,
+# so the default copy cannot build): do not edit core/ while it runs.
+mutate-rust *args:
+    cd core && cargo mutants -p apgo-core --in-place {{args}}
 
 # --- Android dev loop (phone paired over adb) ---
 export JAVA_HOME := shell('bash "$1"', justfile_directory() / "scripts/java_home.sh")
