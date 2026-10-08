@@ -106,16 +106,15 @@ pub struct Stats {
 pub const DEFAULT_AWAY_M: f64 = 1000.0;
 const AUTO_AWAY_SHARE: f64 = 0.4;
 const AUTO_AWAY_MIN_M: f64 = 300.0;
+const AUTO_AWAY_MAX_M: f64 = 3000.0;
+const CUSTOM_AWAY_MIN_M: f64 = 100.0;
+const CUSTOM_AWAY_MAX_M: f64 = 20_000.0;
 /// Longest gap between two fixes that still counts as time spent away.
 const AWAY_MAX_GAP_MS: i64 = 5 * 60_000;
 
 fn yes() -> bool {
     true
 }
-
-const AUTO_AWAY_MAX_M: f64 = 3000.0;
-const CUSTOM_AWAY_MIN_M: f64 = 100.0;
-const CUSTOM_AWAY_MAX_M: f64 = 20_000.0;
 
 /// What the player chose in New Game for time-away quests.
 #[derive(Debug, Clone, PartialEq)]
@@ -598,7 +597,7 @@ impl Game {
         for id in finished {
             ev.extend(self.complete(id, fix.t_ms, Some(pos)));
         }
-        if let Some(prev) = self.last_fix {
+        if let (Some(prev), None) = (self.last_fix, &blocked) {
             self.accrue_away(&prev, &fix);
         }
         ev.extend(self.complete_reached(fix.t_ms, Some(pos)));
@@ -1017,6 +1016,18 @@ mod tests {
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 1) }, Some(5_000));
         let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 20) }, Some(5_600));
         assert_eq!(done_ids(&ev), vec![1000]);
+    }
+
+    #[test]
+    fn time_away_pauses_while_a_trap_blocks_checks() {
+        let mut g = away_game(&[10.0], false, 1000.0);
+        away_for(&mut g, 1500.0, 0, 1);
+        g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_pool.clone(), &mut rand::SeedableRng::seed_from_u64(1));
+        away_for(&mut g, 1500.0, 60, 5);
+        assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "frozen: no minutes count");
+        g.traps.active.clear();
+        away_for(&mut g, 1500.0, 400, 4);
+        assert!(g.counters.progress["1:wanderlust"] > 2.0, "minutes count again once the trap ends");
     }
 
     #[test]
