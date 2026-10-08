@@ -18,3 +18,4 @@ android/local.properties
 android/app/src/main/kotlin/uniffi/
 diag/
 .coverage
+.claude/worktrees/

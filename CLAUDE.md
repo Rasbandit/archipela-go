@@ -45,6 +45,7 @@ via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monore
 - Life OS / work-log tagging is intentionally skipped in this project (owner decision).
 - apworld package code uses relative imports (Archipelago loads it as `worlds.ap_go2`); tests import `worlds.ap_go2`.
 - Parallel agents must not edit this file concurrently (two agents once overwrote each other's index lines).
+- Every session works in its own git worktree under `.claude/worktrees/`; never switch branches in the main checkout (see `working-in-this-repo.md`).
 
 ## Context Docs
 

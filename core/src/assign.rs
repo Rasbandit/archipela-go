@@ -11,6 +11,7 @@ use crate::catalog::{Catalog, Geom, Kind, Mode, Verify};
 use crate::effort::{cadence_steps_per_min, mid, travel_min};
 use crate::fill::lattice;
 use crate::geo::{bearing_deg, distance_m, point_inside, polyline_len_m, Point};
+use crate::num::round_u32;
 use crate::realm::Realm;
 use crate::scan::{Atlas, Feature};
 
@@ -286,7 +287,6 @@ fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point, want: f64) -> 
 
 #[allow(clippy::too_many_arguments)] // pre-existing: flat argument lists keep the exported/geometry call sites explicit
 #[allow(clippy::many_single_char_names)] // short names for zone/pool/params mirror the geometry vocabulary used across this module
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // counts are rounded then clamped to a small range before the cast
 fn free_candidate(
     k: &Kind,
     z: &ZoneCtx<'_>,
@@ -329,11 +329,11 @@ fn free_candidate(
             Some((Target::RoundTrip { far, r: 50.0 }, one_way * 2.0, "Out and back".into()))
         }
         Verify::CoverCells { cell_m, .. } => {
-            let n = ((want * mode.m_per_min() * 0.7 / cell_m).round() as u32).clamp(3, 60);
+            let n = round_u32(want * mode.m_per_min() * 0.7 / cell_m).clamp(3, 60);
             Some((Target::Cells { n, cell_m: *cell_m }, f64::from(n) * cell_m / (mode.m_per_min() * 0.7), "New map cells".into()))
         }
         Verify::Steps { .. } => {
-            let n = ((want * cadence_steps_per_min(mode)).round() as u32).clamp(500, 40_000);
+            let n = round_u32(want * cadence_steps_per_min(mode)).clamp(500, 40_000);
             Some((Target::Steps { n }, f64::from(n) / cadence_steps_per_min(mode), "Anywhere".into()))
         }
         Verify::Away { .. } => {

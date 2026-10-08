@@ -1,5 +1,5 @@
 //! End-to-end check on REAL map data: scan a realm, generate a solo game, autoplay every quest to the goal.
-//! Usage: cargo run --release --example `play_sim` -- <lat> <lon> <`radius_m`> <trips> <goal> [mode]
+//! Usage: `cargo run --release --example play_sim -- <lat> <lon> <radius_m> <trips> <goal> [mode]`
 #![allow(
     clippy::print_stdout,
     clippy::expect_used,
