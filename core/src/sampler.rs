@@ -1,7 +1,7 @@
 //! Pick a real-world candidate for each trip, honoring its distance tier.
 
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 
 use crate::geo::{distance_m, Point};
 use crate::overpass::Candidate;

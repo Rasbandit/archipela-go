@@ -2,7 +2,7 @@
 
 use rand::rngs::StdRng;
 use rand::seq::IndexedRandom;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
 use crate::geo::{destination, distance_m, Point};
