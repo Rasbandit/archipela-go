@@ -1,6 +1,8 @@
-# Progressive quests (chains): Step Up, Wanderlust, Cartographer
+# Progressive quests (chains) and presence
 
-_Status: design approved in chat 2026-10-07, spec awaiting owner review. Next step after approval: implementation plan (`writing-plans`)._
+_Status: design approved in chat 2026-10-07; spec awaiting owner review. Next step after approval: implementation plan (`writing-plans`)._
+
+**Part A** (sections 1-7): progressive quest chains: Step Up, Wanderlust, Cartographer. **Part B** (after section 7): presence: home Wi-Fi, car Bluetooth and a zone-based GPS duty cycle (GitHub issue #6). Build order: A first, then B. A takes a single "counts now" input so B plugs in without redesign.
 
 ## Goal
 Replace "several separate quests that each count from zero" with **one bar per kind**, with a mark for each check it unlocks:
@@ -70,7 +72,7 @@ Existing games load with the defaults.
 Rust unit tests: chain building (grouping, ordering, running totals, ties); counters (steps first reading, normal delta, reboot reset, away accumulation, 5-minute gap rule, inside-zone vs anywhere, automatic and custom distance, clamps); milestone completion order and rewards; reroll leaves counters alone; old save loads and gets initial counters from done members; progress survives save/load. Kotlin unit tests: tick layout, row text.
 Emulator: drive a game, check bars fill, marks check off, restart the app and confirm progress stays.
 
-## 7. Out of scope
+## 7. Out of scope for Part A
 - Dwell, park, trail, courier and round-trip quests; a chain editor; per-day bars; changing generation to emit chains; any apworld or `slot_data` change.
 - The collect-and-bank quest (GitHub issue #5) could reuse chains later.
 
@@ -78,4 +80,73 @@ Emulator: drive a game, check bars fill, marks check off, restart the app and co
 - Running totals make Wanderlust long: members of 30, 45, 60, 75 and 90 minutes give a 5 h bar. The first outdoor tests decide whether to cap or rescale it.
 - Step totals above ~30,000 depend on the tier mix of the game; the title always shows the real total.
 - "Stop playing" pauses all three chains: nothing counts while no game is open.
-- A later "presence" feature (home Wi-Fi, car Bluetooth, zone-based GPS duty cycle; GitHub issue) will add flags that suppress counting. Chain counters should take a single "counts now" input so it can plug in without a redesign.
+- Part B (presence) adds flags that suppress counting. The chain counters, and every other quest check, take a single `counting: bool` state on the game (`Game::set_counting`) so B plugs in without redesign. Until B exists it is always true while a game is open.
+
+---
+
+# Part B: presence (home Wi-Fi, car Bluetooth, zone-based GPS)
+
+## B.1 Goal
+Progress should only count when the player is really out playing, and the phone should not burn battery when GPS is pointless:
+- **At home** (connected to a home Wi-Fi network): nothing counts and GPS is off.
+- **In the car** (a tagged car Bluetooth device is connected): nothing counts and GPS is off, even inside a zone (no pickups while driving).
+- **Outside every zone:** GPS runs at a low rate; steps still count (they need no GPS); time-away in "anywhere" mode still accrues.
+- **Inside or near a zone:** precise GPS as today.
+
+Decisions (owner, 2026-10-07): the three rules above; steps count outside a zone but not at home; being at home does **not** auto-"Stop playing" (it only suppresses counting and shows a status chip).
+
+## B.2 The state machine (pure, unit-tested, Kotlin: `PresencePolicy`)
+Inputs (each `Boolean?` or enum, with "unknown" meaning the signal is unavailable or not permitted):
+
+| Signal | Source |
+|--|--|
+| `playing` | a game is open |
+| `homeWifi` | connected Wi-Fi matches a saved home network |
+| `carBluetooth` | a tagged device is connected |
+| `zone` | `Inside` / `Near` (within 300 m of a zone realm) / `Far` / `Unknown` (no fix yet) |
+
+Decision, first match wins:
+
+| # | Condition | State | GPS | Counts |
+|--|--|--|--|--|
+| 1 | not `playing` | Stopped | existing idle rule (only while the app is on screen) | no |
+| 2 | `carBluetooth` | InCar | off | no |
+| 3 | `homeWifi` | AtHome | off | no |
+| 4 | `zone` is `Inside`, `Near` or `Unknown` | InZone | precise (5 s, no distance filter) | yes |
+| 5 | `zone` is `Far` | OutsideZones | coarse (every 90 s, network/fused) | yes |
+
+- **Debounce:** a change into AtHome or out of it, and into or out of InCar, only takes effect after the signal has been stable for 45 s (Wi-Fi reaches past the front door; Bluetooth flaps). Entering InZone from Far is immediate.
+- Unknown signals (permission missing, no Bluetooth device tagged, no home network saved) are treated as "not present": the feature degrades to today's behaviour.
+- The policy returns a `Decision(state, gpsRate?, counting)`; `Sensors` applies the rate, `AppModel` calls `Game::set_counting` (via FFI) and shows the chip.
+
+## B.3 Signals (Kotlin, `Presence` classes)
+- **Home Wi-Fi:** a `ConnectivityManager.NetworkCallback` for the Wi-Fi transport. On Android 12+ it is created with `FLAG_INCLUDE_LOCATION_INFO` so the SSID/BSSID are visible; below that, `WifiManager.connectionInfo`. SSID quoting is stripped; `<unknown ssid>` means "unknown". A saved network matches on the **BSSID or the SSID** (multi-access-point homes, and a changed router, both work). Needs location permission and location on (the app already asks for both); `ACCESS_WIFI_STATE` and `ACCESS_NETWORK_STATE` are normal permissions.
+- **Car Bluetooth:** a dynamic `BroadcastReceiver` for `ACTION_ACL_CONNECTED` / `ACTION_ACL_DISCONNECTED` (registered while the service runs) plus an initial read of connected A2DP and headset devices. Android 12+ needs the runtime permission `BLUETOOTH_CONNECT` (below Android 12, the legacy `BLUETOOTH` permission with `maxSdkVersion=30`). Only devices the player **tagged as "my car"** count (earbuds and watches must not suppress progress).
+- **Zone proximity:** `Engine.zone_proximity(lat, lon)` in the core: the distance to each of the open game's zone realms' shapes (circle or polygon), `Inside` at 0, `Near` within 300 m, else `Far`. Computed on every fix from the coarse or precise location.
+
+## B.4 Core changes
+- `Game::set_counting(bool)`. When it turns `false`, per-session fix state is cleared (`last_fix`, odometer anchor, outlier streak, step baseline `steps_last`) so the first fix or reading after a suppression is never judged against stale ones (no false jump, no steps credited for the suppressed period).
+- While `counting` is false, `on_fix` and `on_steps` do nothing except keep the step baseline current. Quest checks, distance, chain counters and fog discovery are all skipped.
+- Counting is not saved: a game always opens with `counting = true` until the presence layer says otherwise.
+- The journal gets presence events (`presence_changed`: "Home Wi-Fi connected, paused", "Car Bluetooth connected, not counting", "Left the zone area: saving battery") for the activity log.
+
+## B.5 Settings and UI
+App-level settings (not per game), stored in Kotlin `SharedPreferences` because the identifiers are platform specific: `homeNetworks: [{ssid, bssid?}]`, `carDevices: [{name, address}]`.
+- **Home Wi-Fi networks:** in the Home area of the Realms screen (the home settings): a list with a remove button and "Add current network" (reads the connected SSID/BSSID; asks to connect first if none).
+- **Car Bluetooth:** a list of paired devices with a tick for "this is my car" (requests `BLUETOOTH_CONNECT` on first use). Explains why in a sentence.
+- **Status chip** on Play next to the game name: "Tracking", "At home, paused", "In car, not counting", "Outside zones, saving battery".
+- The Activity tab shows the presence events.
+- No settings saved means the feature is inert and the chip reads "Tracking".
+
+## B.6 Testing
+- Kotlin unit tests: `PresencePolicy` as a table (every row of B.2, priority between car and home, unknown signals), the debouncer, SSID/BSSID matching and quote stripping.
+- Rust unit tests: `set_counting(false)` skips checks, distance and chain counters; the first fix and step reading after resuming are not judged against stale state; zone proximity (inside, near, far, circle and polygon).
+- Emulator: it reports the Wi-Fi name `AndroidWifi`, so add it as the home network and check the chip and that GPS stops; the car Bluetooth and the outside-zone duty cycle need an outdoor test (log lines for each state change and GPS rate).
+
+## B.7 Out of scope for Part B
+Per-game presence settings; learning home automatically; using Play Services geofencing or Activity Recognition (not used by the app today); an "in the car" rule for Drive-mode zones (they are hidden in the UI today); auto "Stop playing"; Wi-Fi networks beyond home (work, cafe).
+
+## B.8 Risks
+- Wi-Fi reaches outside the house, so a quest within about 50 m of home cannot be completed from home. Check the "minimum distance from home" default against it.
+- At 90 s per fix outside zones, a fast cyclist covers about 400 m between fixes; the 300 m "near" buffer is a starting value to tune in the outdoor test.
+- Android may throttle Bluetooth and network callbacks if the foreground service is killed; the heartbeat log records the presence state to make this visible.
