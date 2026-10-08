@@ -10,7 +10,9 @@ object PlayLayout {
 
     data class Split(val progress: List<QuestOut>, val places: List<QuestOut>)
 
-    fun split(quests: List<QuestOut>): Split {
+    fun split(all: List<QuestOut>): Split {
+        // Members of a progressive quest are shown by its chain row, not on their own.
+        val quests = all.filter { it.chainId == null }
         val (top, rest) = quests.partition { q ->
             q.state == "progress" || (q.shape in OFF_MAP && q.state == "open")
         }

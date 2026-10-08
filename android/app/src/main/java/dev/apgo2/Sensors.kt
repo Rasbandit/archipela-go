@@ -56,7 +56,7 @@ class Sensors(private val ctx: Context, private val model: AppModel) {
         if (stepListener != null) return
         val sensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return Diag.w("sensors", "no step counter on this device")
         val l = object : SensorEventListener {
-            override fun onSensorChanged(e: SensorEvent) { model.stepsTotal = e.values[0].toLong() }
+            override fun onSensorChanged(e: SensorEvent) { model.onSteps(e.values[0].toLong()) }
             override fun onAccuracyChanged(s: Sensor?, a: Int) {}
         }
         sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL)

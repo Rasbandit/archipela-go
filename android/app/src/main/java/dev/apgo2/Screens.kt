@@ -3,6 +3,8 @@ package dev.apgo2
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import dev.apgo2.ui.ApgoChip
+import dev.apgo2.ui.ChainBar
+import dev.apgo2.ui.ChainFormat
 import dev.apgo2.ui.PLAY_MODES
 import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.ApgoPalette
@@ -816,13 +818,16 @@ fun PlayScreen(m: AppModel) {
                 if (q.anchor != null && at != null) MapBubble(at, onSize = { bubblePx = it.height }) { QuestDetails(q, { m.reroll(q.locationId) }, { m.selected = null }) }
                 else if (q.anchor == null) MapOverlayCard(Modifier.align(Alignment.BottomCenter)) { QuestDetails(q, { m.reroll(q.locationId) }, { m.selected = null }) }
             }
+            m.chains.firstOrNull { it.id == m.selectedChain }?.let { c ->
+                MapOverlayCard(Modifier.align(Alignment.BottomCenter)) { ChainDetails(c) { m.selectedChain = null } }
+            }
         }
         Column(Modifier.fillMaxWidth().weight(0.45f).verticalScroll(rememberScrollState()).padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (layout.progress.isNotEmpty()) {
-            Text("Progress", style = MaterialTheme.typography.titleSmall)
-            (if (allProgress) layout.progress else layout.progress.take(PROGRESS_ROWS)).forEach { q -> ProgressRow(q) { m.selected = q.locationId } }
-            if (layout.progress.size > PROGRESS_ROWS) TextButton(onClick = { allProgress = !allProgress }) { Text(if (allProgress) "Show fewer" else "Show all ${layout.progress.size}", fontSize = 11.sp) }
-        }
+        val chainRows = m.chains.sortedBy { c -> c.marks.all { it.reached } }
+        if (chainRows.isNotEmpty() || layout.progress.isNotEmpty()) Text("Progress", style = MaterialTheme.typography.titleSmall)
+        chainRows.forEach { c -> ChainRow(c) { m.selectedChain = c.id; m.selected = null } }
+        (if (allProgress) layout.progress else layout.progress.take(PROGRESS_ROWS)).forEach { q -> ProgressRow(q) { m.selected = q.locationId; m.selectedChain = null } }
+        if (layout.progress.size > PROGRESS_ROWS) TextButton(onClick = { allProgress = !allProgress }) { Text(if (allProgress) "Show fewer" else "Show all ${layout.progress.size}", fontSize = 11.sp) }
         if (hud.goals.size > 1) {
             // Several goals: the rule and overall progress, then each goal with its own bar.
             Text(hud.goalLabel.substringBefore(":"), style = MaterialTheme.typography.titleSmall)
@@ -922,5 +927,40 @@ private fun ColumnScope.QuestDetails(q: uniffi.apgo_ffi.QuestOut, onReroll: () -
     if (q.state == "progress") LinearProgressIndicator(progress = { q.progress }, Modifier.fillMaxWidth().padding(end = 8.dp))
     Text(q.blurb, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
     q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
-    if (q.state != "done") OutlinedButton(onClick = onReroll) { Text("Reroll", fontSize = 11.sp) }
+    if (q.state != "done" && q.chainId == null) OutlinedButton(onClick = onReroll) { Text("Reroll", fontSize = 11.sp) }
+}
+
+/** One progressive quest: name and rule, a bar with a mark per check, and what is next. Tap for the list of marks. */
+@Composable
+private fun ChainRow(c: uniffi.apgo_ffi.ChainOut, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(ApgoIcons.forKind(c.kindId, c.family), contentDescription = null, tint = ApgoPalette.family(c.family), modifier = Modifier.size(16.dp))
+            Text(c.name, fontSize = 13.sp, maxLines = 1)
+            Text(c.rule, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        }
+        ChainBar(ChainFormat.fill(c.counter, c.total), ChainFormat.fractions(c.marks.map { it.at }, c.total), c.marks.map { it.reached })
+        Text(ChainFormat.next(c), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** The popup for a progressive quest: every mark with its amount and reward, then what is next. */
+@Composable
+private fun ColumnScope.ChainDetails(c: uniffi.apgo_ffi.ChainOut, onClose: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(ApgoIcons.forKind(c.kindId, c.family), contentDescription = null, tint = ApgoPalette.family(c.family), modifier = Modifier.size(24.dp))
+        Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+            Text(c.name, style = MaterialTheme.typography.titleSmall)
+            Text(c.rule, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = "Close") }
+    }
+    c.marks.forEachIndexed { i, mk ->
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(if (mk.reached) ApgoIcons.Check else ApgoIcons.Locked, contentDescription = null, tint = if (mk.reached) ApgoPalette.questDone else ApgoPalette.muted, modifier = Modifier.size(14.dp))
+            Text("${i + 1}.  ${ChainFormat.amount(c.unit, mk.at)}", fontSize = 12.sp, modifier = Modifier.weight(1f))
+            mk.reward?.let { Text(it, fontSize = 11.sp, color = ApgoPalette.success) }
+        }
+    }
+    Text(ChainFormat.next(c), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

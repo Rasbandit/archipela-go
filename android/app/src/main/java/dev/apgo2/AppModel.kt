@@ -22,6 +22,7 @@ import uniffi.apgo_ffi.ApEvent
 import uniffi.apgo_ffi.ApSession
 import uniffi.apgo_ffi.AuditEventOut
 import uniffi.apgo_ffi.AwayReportOut
+import uniffi.apgo_ffi.ChainOut
 import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.Engine
 import uniffi.apgo_ffi.EventOut
@@ -67,6 +68,8 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     var home by mutableStateOf<GeoPoint?>(null)
     val draft = mutableStateListOf<LatLng>()
     var selected by mutableStateOf<Long?>(null)
+    var chains by mutableStateOf<List<ChainOut>>(emptyList())
+    var selectedChain by mutableStateOf<String?>(null)
     var yamlText by mutableStateOf<String?>(null)
     /** Cumulative steps since boot from the phone's step counter (null when unavailable or not permitted). */
     var stepsTotal by mutableStateOf<Long?>(null)
@@ -107,11 +110,20 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         if (engine.hasGame()) {
             quests = engine.quests()
             zones = engine.zones()
+            chains = engine.chains()
             hud = engine.hud(now())
             if (withTrace) trace = engine.track(0L, Long.MAX_VALUE).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
         } else {
-            quests = emptyList(); zones = emptyList(); hud = null; trace = emptyList()
+            quests = emptyList(); zones = emptyList(); chains = emptyList(); selectedChain = null; hud = null; trace = emptyList()
         }
+    }
+
+    /** The phone's step counter changed: credit it to the open game (the engine ignores it when no game is open). */
+    fun onSteps(total: Long) {
+        stepsTotal = total
+        if (!engine.hasGame()) return
+        handle(engine.onSteps(total, now()))
+        refreshPlay(withTrace = false)
     }
 
     /** Log quest progress each time it crosses a 10% step, so a quest that never moves shows up in the log. */
