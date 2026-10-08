@@ -49,6 +49,16 @@ class UnitsTest {
         assertEquals("1.5 mi", Units.distance(1.5 * M_PER_MILE))
     }
 
+    @Test fun roundingUpToAHundredDropsTheFraction() {
+        metric()
+        assertEquals("100 km", Units.distance(99_960.0))
+    }
+
+    @Test fun roundingUpToTenDropsTheFraction() {
+        metric()
+        assertEquals("10 km", Units.distance(9_996.0))
+    }
+
     @Test fun zeroReadsInTheSmallUnit() {
         metric()
         assertEquals("0 m", Units.distance(0.0))

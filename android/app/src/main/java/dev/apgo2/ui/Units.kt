@@ -4,7 +4,7 @@ import java.util.Locale
 
 /**
  * Distances and areas in the units the player's region uses: miles in the US, UK and a few others, kilometres elsewhere.
- * Numbers always use Locale.US (a decimal point), like the rest of the app (ChainFormat.thousands).
+ * Numbers are always formatted with Locale.US (a decimal point), whatever the phone's locale.
  */
 internal object Units {
     private const val M_PER_MILE = 1609.344
