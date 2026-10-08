@@ -12,7 +12,7 @@ jobs:
   apworld:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: jdx/mise-action@v2
       - run: just setup-ap
       - run: just check
@@ -24,7 +24,7 @@ jobs:
   hygiene:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: jdx/mise-action@v2
