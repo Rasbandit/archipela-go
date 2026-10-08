@@ -70,8 +70,8 @@ internal object ChainFormat {
 
     /**
      * Each mark's position along the bar, 0..1, at its share of the total but at least [MIN_TICK_GAP] from its
-     * neighbours (marks are in order). Crowded ticks are pushed right, then back left from the end; when there are
-     * too many for the gap they are spread evenly.
+     * neighbours. Crowded ticks are pushed right, then back left from the end; when there are too many for the gap
+     * they are spread evenly. Precondition: [marks] are sorted ascending (`chain::derive` in core sorts them).
      */
     fun fractions(
         marks: List<Double>,
@@ -90,4 +90,35 @@ internal object ChainFormat {
         counter: Double,
         total: Double,
     ): Float = if (total <= 0.0) 0f else (counter / total).toFloat().coerceIn(0f, 1f)
+
+    /**
+     * The fill drawn under ticks moved by [fractions]: piecewise linear through (0, 0), each (mark, its tick) and
+     * (total, 1), so the fill reaches a tick exactly when the counter reaches its mark. Without marks it is the plain share.
+     */
+    fun fill(
+        counter: Double,
+        total: Double,
+        marks: List<Double>,
+        fractions: List<Float>,
+    ): Float {
+        if (marks.isEmpty() || marks.size != fractions.size) return fill(counter, total)
+        val xs = listOf(0.0) + marks + total
+        val ys = listOf(0f) + fractions + 1f
+        // The first knot strictly past the counter, so equal marks are all passed together when the counter reaches them.
+        val k = xs.indexOfFirst { it > counter }
+        return when {
+            k < 0 -> {
+                1f
+            }
+
+            k == 0 -> {
+                0f
+            }
+
+            else -> {
+                val t = ((counter - xs[k - 1]) / (xs[k] - xs[k - 1])).toFloat()
+                (ys[k - 1] + t * (ys[k] - ys[k - 1])).coerceIn(0f, 1f)
+            }
+        }
+    }
 }

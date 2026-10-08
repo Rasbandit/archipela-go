@@ -97,6 +97,38 @@ class ChainFormatTest {
         assertFalse(ChainFormat.done(chain("steps", 600.0, 500.0 to true, 8_500.0 to false)))
     }
 
+    @Test fun theFillReachesEachMovedTickExactlyAtItsMark() {
+        val marks = listOf(500.0, 1_000.0, 30_000.0)
+        val f = ChainFormat.fractions(marks, 30_000.0)
+        marks.forEachIndexed { i, at -> assertEquals("mark $i", f[i], ChainFormat.fill(at, 30_000.0, marks, f), EPS) }
+        assertTrue("just short of a moved tick stays behind it", ChainFormat.fill(999.0, 30_000.0, marks, f) < f[1])
+    }
+
+    @Test fun theWarpedFillIsMonotonicAndClamped() {
+        val marks = listOf(500.0, 1_000.0, 16_000.0, 30_000.0)
+        val f = ChainFormat.fractions(marks, 30_000.0)
+        val fills = (0..31_000 step 250).map { ChainFormat.fill(it.toDouble(), 30_000.0, marks, f) }
+        fills.zipWithNext().forEach { (a, b) -> assertTrue("$a -> $b", b >= a) }
+        assertEquals(0f, ChainFormat.fill(-5.0, 30_000.0, marks, f))
+        assertEquals(0f, ChainFormat.fill(0.0, 30_000.0, marks, f))
+        assertEquals(1f, ChainFormat.fill(99_999.0, 30_000.0, marks, f))
+    }
+
+    @Test fun equalMarksAreAllReachedTogetherAndNoneIsInsideTheFillBefore() {
+        val marks = List(20) { 100.0 }
+        val f = ChainFormat.fractions(marks, 100.0)
+        assertEquals(0f, ChainFormat.fill(50.0, 100.0, marks, f), EPS)
+        assertEquals(1f, ChainFormat.fill(100.0, 100.0, marks, f), EPS)
+    }
+
+    @Test fun aTotalBeyondTheLastMarkFillsTheRestProportionally() {
+        val marks = listOf(50.0)
+        val f = ChainFormat.fractions(marks, 100.0)
+        assertEquals(0.5f, ChainFormat.fill(50.0, 100.0, marks, f), EPS)
+        assertEquals(0.75f, ChainFormat.fill(75.0, 100.0, marks, f), EPS)
+        assertEquals("no marks: the plain share", 0.25f, ChainFormat.fill(25.0, 100.0, emptyList(), emptyList()), EPS)
+    }
+
     @Test fun theFillIsTheCounterShareClamped() {
         assertEquals(0.25f, ChainFormat.fill(25.0, 100.0))
         assertEquals(1f, ChainFormat.fill(500.0, 100.0))

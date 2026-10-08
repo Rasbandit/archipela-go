@@ -121,10 +121,12 @@ internal fun ChainRow(
                 modifier = Modifier.weight(1f),
             )
         }
-        ChainBar(ChainFormat.fill(c.counter, c.total), ChainFormat.fractions(c.marks.map { it.at }, c.total), c.marks.map { it.reached })
+        val marks = c.marks.map { it.at }
+        val ticks = ChainFormat.fractions(marks, c.total)
+        ChainBar(ChainFormat.fill(c.counter, c.total, marks, ticks), ticks, c.marks.map { it.reached })
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (ChainFormat.done(c)) {
-                Icon(ApgoIcons.Check, contentDescription = "Done", tint = ApgoPalette.questDone, modifier = Modifier.size(12.dp))
+                Icon(ApgoIcons.Check, contentDescription = "Done", tint = ApgoPalette.quest("done"), modifier = Modifier.size(12.dp))
             }
             Text(ChainFormat.next(c), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
