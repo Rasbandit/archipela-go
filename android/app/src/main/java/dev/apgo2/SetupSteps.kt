@@ -52,20 +52,40 @@ import dev.apgo2.ui.Tone
 import kotlinx.coroutines.delay
 
 /**
- * The frame every text step shares: title, why it matters, a fixed [header] (search), a list that scrolls in the space left over, a fixed [footer]
+ * The frame every text step shares: title, why it matters, a fixed [header] (search), a list that scrolls in the space left over,
+ * a fixed [footer]
  * (always just above the buttons and the keyboard), and Back / Skip / Next.
  */
 @Composable
 internal fun StepPage(
-    title: String, why: String, next: String, skip: String?, onBack: () -> Unit, onNext: () -> Unit,
-    header: @Composable ColumnScope.() -> Unit = {}, footer: @Composable ColumnScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit,
+    title: String,
+    why: String,
+    next: String,
+    skip: String?,
+    onBack: () -> Unit,
+    onNext: () -> Unit,
+    header: @Composable ColumnScope.() -> Unit = {},
+    footer: @Composable ColumnScope.() -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     BackHandler { onBack() }
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         Text(title, style = MaterialTheme.typography.titleLarge)
         Text(why, style = MaterialTheme.typography.bodyMedium)
         header()
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            content = content,
+        )
         footer()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("Back") }
@@ -78,7 +98,11 @@ internal fun StepPage(
 
 /** Step 2: tick every Wi-Fi network your home uses. Saving a name covers every access point on it. */
 @Composable
-internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
+internal fun WifiStep(
+    m: AppModel,
+    onBack: () -> Unit,
+    onNext: () -> Unit,
+) {
     val ctx = LocalContext.current
     val scanner = remember { WifiScanner(ctx) }
     var saved by remember { mutableStateOf(m.settings.homeNetworks) }
@@ -90,7 +114,13 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
     var note by remember { mutableStateOf<String?>(null) }
     var scanning by remember { mutableStateOf(false) }
     // The scan answers a moment later; read it then.
-    LaunchedEffect(scanning) { if (scanning) { delay(3_000); nearby = scanner.nearby(); scanning = false } }
+    LaunchedEffect(scanning) {
+        if (scanning) {
+            delay(3_000)
+            nearby = scanner.nearby()
+            scanning = false
+        }
+    }
     LaunchedEffect(m.locationPermitted) {
         if (m.locationPermitted) {
             nearby = scanner.nearby() // the last results are readable now
@@ -100,11 +130,21 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
 
     val inRange = nearby.mapNotNull { PresenceSignals.cleanSsid(it) }.toSet()
     val choices = WifiChoices.merge(saved, m.monitor.currentNetwork(), nearby + removed, query)
-    fun toggle(c: WifiChoice, on: Boolean) {
-        if (on) m.settings.addHome(HomeNetwork(c.ssid, c.bssid)) else { m.settings.removeHome(c.ssid); removed = removed + c.ssid }
+
+    fun toggle(
+        c: WifiChoice,
+        on: Boolean,
+    ) {
+        if (on) {
+            m.settings.addHome(HomeNetwork(c.ssid, c.bssid))
+        } else {
+            m.settings.removeHome(c.ssid)
+            removed = removed + c.ssid
+        }
         saved = m.settings.homeNetworks
         m.evaluatePresence()
     }
+
     fun addTyped() {
         val ssid = PresenceSignals.cleanSsid(typed) ?: return
         m.settings.addHome(HomeNetwork(ssid, null))
@@ -117,20 +157,37 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
 
     StepPage(
         title = "Home Wi-Fi · step 2 of 3",
-        why = SetupText.wifiWhy,
-        next = "Next", skip = if (saved.isEmpty()) "Skip, I'll do this at home" else null, onBack = onBack, onNext = onNext,
+        why = SetupText.WIFI_WHY,
+        next = "Next",
+        skip = if (saved.isEmpty()) "Skip, I'll do this at home" else null,
+        onBack = onBack,
+        onNext = onNext,
         header = {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 OutlinedTextField(query, { query = it }, Modifier.weight(1f), label = { Text("Search networks") }, singleLine = true)
                 OutlinedButton(enabled = !scanning, onClick = {
-                    if (scanner.rescan()) { scanning = true; note = null } else note = "Android limits how often Wi-Fi can be scanned. Showing the last results."
+                    if (scanner.rescan()) {
+                        scanning = true
+                        note = null
+                    } else {
+                        note =
+                            "Android limits how often Wi-Fi can be scanned. Showing the last results."
+                    }
                 }) { Text(if (scanning) "Scanning…" else "Rescan") }
             }
-            if (!m.locationPermitted) FeedbackText(SetupText.wifiNeedsLocation, Tone.Warning)
+            if (!m.locationPermitted) FeedbackText(SetupText.WIFI_NEEDS_LOCATION, Tone.Warning)
             note?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         },
         footer = {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 OutlinedTextField(typed, { typed = it }, Modifier.weight(1f), label = { Text("Add a network by name") }, singleLine = true)
                 OutlinedButton(enabled = PresenceSignals.cleanSsid(typed) != null, onClick = { addTyped() }) { Text("Add") }
             }
@@ -138,8 +195,9 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
     ) {
         if (choices.isEmpty()) {
             Text(
-                if (query.isBlank()) SetupText.wifiNoneFound else "Nothing matches \"$query\".",
-                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (query.isBlank()) SetupText.WIFI_NONE_FOUND else "Nothing matches \"$query\".",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         choices.forEach { c ->
@@ -147,7 +205,12 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
                 Checkbox(c.saved, { toggle(c, it) })
                 Column {
                     Text(c.ssid)
-                    val tag = when { c.connected -> "Connected now"; c.saved && nearby.isNotEmpty() && c.ssid !in inRange -> "Saved, not in range"; else -> null }
+                    val tag =
+                        when {
+                            c.connected -> "Connected now"
+                            c.saved && nearby.isNotEmpty() && c.ssid !in inRange -> "Saved, not in range"
+                            else -> null
+                        }
                     tag?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
@@ -157,18 +220,48 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
 
 /** Step 3: tick the Bluetooth device that is your car. Optional. */
 @Composable
-internal fun CarStep(m: AppModel, onBack: () -> Unit, onDone: () -> Unit) {
+internal fun CarStep(
+    m: AppModel,
+    onBack: () -> Unit,
+    onDone: () -> Unit,
+) {
     val ctx = LocalContext.current
     var car by remember { mutableStateOf(m.settings.carDevices) }
     var query by remember { mutableStateOf("") }
-    var btOk by remember { mutableStateOf(Build.VERSION.SDK_INT < 31 || ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) }
-    // Tell the model too: it restarts the monitor so car detection works without leaving the app.
-    val askBt = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { btOk = it; m.ensureMonitor(it) }
-    val paired = remember(btOk) {
-        if (!btOk) emptyList()
-        else runCatching { ctx.getSystemService(BluetoothManager::class.java)?.adapter?.bondedDevices?.map { CarDevice(it.name ?: it.address, it.address) } ?: emptyList() }.getOrDefault(emptyList())
+    var btOk by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < 31 || ctx.checkSelfPermission(
+                Manifest.permission.BLUETOOTH_CONNECT,
+            ) == PackageManager.PERMISSION_GRANTED,
+        )
     }
-    fun toggle(d: CarDevice, on: Boolean) {
+    // Tell the model too: it restarts the monitor so car detection works without leaving the app.
+    val askBt =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+            btOk = it
+            m.ensureMonitor(it)
+        }
+    val paired =
+        remember(btOk) {
+            if (!btOk) {
+                emptyList()
+            } else {
+                runCatching {
+                    ctx
+                        .getSystemService(
+                            BluetoothManager::class.java,
+                        )?.adapter
+                        ?.bondedDevices
+                        ?.map { CarDevice(it.name ?: it.address, it.address) }
+                        ?: emptyList()
+                }.getOrDefault(emptyList())
+            }
+        }
+
+    fun toggle(
+        d: CarDevice,
+        on: Boolean,
+    ) {
         val now = m.settings.carDevices.filterNot { it.address == d.address }
         m.settings.setCar(if (on) now + d else now)
         car = m.settings.carDevices
@@ -176,15 +269,29 @@ internal fun CarStep(m: AppModel, onBack: () -> Unit, onDone: () -> Unit) {
     }
     StepPage(
         title = "Car Bluetooth · step 3 of 3",
-        why = SetupText.carWhy,
-        next = "Finish", skip = if (car.isEmpty()) "Skip" else null, onBack = onBack, onNext = onDone,
-        header = { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Search devices") }, singleLine = true) },
+        why = SetupText.CAR_WHY,
+        next = "Finish",
+        skip = if (car.isEmpty()) "Skip" else null,
+        onBack = onBack,
+        onNext = onDone,
+        header = {
+            OutlinedTextField(
+                query,
+                { query = it },
+                Modifier.fillMaxWidth(),
+                label = { Text("Search devices") },
+                singleLine = true,
+            )
+        },
     ) {
         if (!btOk) {
             OutlinedButton(onClick = { askBt.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("Allow Bluetooth to pick your car") }
-            Text(SetupText.carNeedsBluetooth, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(SetupText.CAR_NEEDS_BLUETOOTH, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else if (paired.isEmpty() &&
+            car.isEmpty()
+        ) {
+            Text(SetupText.CAR_NONE_PAIRED, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        else if (paired.isEmpty() && car.isEmpty()) Text(SetupText.carNonePaired, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         CarChoices.merge(paired, car, query).forEach { d ->
             val on = car.any { it.address == d.address }
             Row(Modifier.fillMaxWidth().clickable { toggle(d, !on) }, verticalAlignment = Alignment.CenterVertically) {

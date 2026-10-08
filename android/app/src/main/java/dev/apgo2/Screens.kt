@@ -1,206 +1,262 @@
 package dev.apgo2
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import dev.apgo2.ui.ApgoChip
-import dev.apgo2.ui.ChainBar
-import dev.apgo2.ui.ChainFormat
-import dev.apgo2.ui.PLAY_MODES
-import dev.apgo2.ui.IconChoices
-import dev.apgo2.ui.ApgoPalette
-import dev.apgo2.ui.FeedbackText
-import dev.apgo2.ui.SetupText
-import dev.apgo2.ui.MapBubble
-import dev.apgo2.ui.MapOverlayCard
-import dev.apgo2.ui.Tone
-import dev.apgo2.ui.modeLabel
-import org.maplibre.android.geometry.LatLng
-import androidx.activity.compose.BackHandler
-import dev.apgo2.presence.PresenceText
 import androidx.compose.foundation.layout.Arrangement
-import dev.apgo2.ui.PreviewFrame
-import dev.apgo2.ui.HOME_PREVIEW_ZOOM
-import dev.apgo2.ui.HomePreview
-import uniffi.apgo_ffi.RealmStatsOut
-import dev.apgo2.ui.RealmStatsBox
-import dev.apgo2.ui.ScanFigures
-import androidx.compose.ui.platform.LocalContext
-import dev.apgo2.ui.mapSnapshot
-import dev.apgo2.ui.frameFor
-import dev.apgo2.ui.PREVIEW_DP
-import androidx.compose.runtime.rememberUpdatedState
-import dev.apgo2.ui.ToolPillRow
-import dev.apgo2.ui.ToolPill
-import dev.apgo2.ui.History
-import androidx.compose.ui.draw.clip
-import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.DropdownMenu
-import dev.apgo2.ui.ToolButton
-import androidx.compose.foundation.shape.RoundedCornerShape
-import uniffi.apgo_ffi.RealmOut
-import dev.apgo2.ui.circleRing
-import dev.apgo2.ui.RealmPreview
-import dev.apgo2.ui.PreviewDot
-import androidx.compose.runtime.produceState
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.ui.layout.layout
-import androidx.compose.material3.CardDefaults
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.material3.IconButton
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.layout.fillMaxHeight
-import dev.apgo2.ui.IconLabel
-import dev.apgo2.ui.ApgoIcons
-import androidx.compose.material3.Icon
-import uniffi.apgo_ffi.CircleOut
-import uniffi.apgo_ffi.FindOut
-import uniffi.apgo_ffi.GeoPoint
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
-import dev.apgo2.ui.MarkToggle
-import dev.apgo2.ui.ChoiceChips
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.draw.alpha
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.apgo2.presence.PresenceText
+import dev.apgo2.ui.ApgoChip
+import dev.apgo2.ui.ApgoIcons
+import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.ChainBar
+import dev.apgo2.ui.ChainFormat
+import dev.apgo2.ui.ChoiceChips
+import dev.apgo2.ui.FeedbackText
+import dev.apgo2.ui.HOME_PREVIEW_ZOOM
+import dev.apgo2.ui.History
+import dev.apgo2.ui.HomePreview
+import dev.apgo2.ui.IconChoices
+import dev.apgo2.ui.IconLabel
+import dev.apgo2.ui.MapBubble
+import dev.apgo2.ui.MapOverlayCard
+import dev.apgo2.ui.MarkToggle
+import dev.apgo2.ui.PLAY_MODES
+import dev.apgo2.ui.PREVIEW_DP
+import dev.apgo2.ui.PreviewDot
+import dev.apgo2.ui.PreviewFrame
+import dev.apgo2.ui.RealmPreview
+import dev.apgo2.ui.RealmStatsBox
+import dev.apgo2.ui.ScanFigures
+import dev.apgo2.ui.SetupText
+import dev.apgo2.ui.Tone
+import dev.apgo2.ui.ToolButton
+import dev.apgo2.ui.ToolPill
+import dev.apgo2.ui.ToolPillRow
+import dev.apgo2.ui.circleRing
+import dev.apgo2.ui.frameFor
+import dev.apgo2.ui.mapSnapshot
+import dev.apgo2.ui.modeLabel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.maplibre.android.geometry.LatLng
+import uniffi.apgo_ffi.CircleOut
+import uniffi.apgo_ffi.FindOut
+import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.QuestOut
+import uniffi.apgo_ffi.RealmOut
+import uniffi.apgo_ffi.RealmStatsOut
 import uniffi.apgo_ffi.SoloOptionsIn
 
 @Composable
-fun AppRoot(m: AppModel) {
-    if (m.showSetup) { Surface(Modifier.fillMaxSize()) { SetupFlow(m) }; return }
-    m.away?.let { AwayDialog(it) { m.away = null } }
-    // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves the app as usual.
-    BackHandler(enabled = m.tab != 0) { m.tab = 0 }
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                listOf("Realms", "New Game", "Play", "Activity").forEachIndexed { i, t ->
-                    NavigationBarItem(selected = m.tab == i, onClick = { m.tab = i; if (i == 0) m.editing = null }, // tapping Realms again leaves the editor
-                         icon = { Icon(listOf(ApgoIcons.Realms, ApgoIcons.NewGame, ApgoIcons.Play, ApgoIcons.Activity)[i], contentDescription = t) }, label = { Text(t) })
+fun AppRoot(
+    m: AppModel,
+    modifier: Modifier = Modifier,
+) {
+    if (m.showSetup) {
+        Surface(modifier.fillMaxSize()) { SetupFlow(m) }
+        return
+    }
+    // One root for the screen and its dialogs (dialogs open their own windows, so this adds nothing visible).
+    Box(modifier) {
+        m.away?.let { AwayDialog(it) { m.away = null } }
+        // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves the
+        // app as usual.
+        BackHandler(enabled = m.tab != 0) { m.tab = 0 }
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    listOf("Realms", "New Game", "Play", "Activity").forEachIndexed { i, t ->
+                        NavigationBarItem(
+                            selected = m.tab == i,
+                            onClick = {
+                                m.tab = i
+                                if (i == 0) m.editing = null
+                            }, // tapping Realms again leaves the editor
+                            icon = {
+                                Icon(
+                                    listOf(ApgoIcons.Realms, ApgoIcons.NewGame, ApgoIcons.Play, ApgoIcons.Activity)[i],
+                                    contentDescription = t,
+                                )
+                            },
+                            label = { Text(t) },
+                        )
+                    }
                 }
-            }
-        },
-    ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
-            m.busy?.let {
-                Text(it, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), fontSize = 12.sp)
-                m.busyFraction?.let { f -> LinearProgressIndicator(progress = { f }, modifier = Modifier.fillMaxWidth()) } ?: LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
-            if (m.status.isNotBlank()) Text(m.status, Modifier.padding(horizontal = 12.dp, vertical = 2.dp), fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-            Box(Modifier.weight(1f)) {
-                when (m.tab) {
-                    0 -> RealmsScreen(m)
-                    1 -> NewGameScreen(m)
-                    3 -> ActivityScreen(m)
-                    else -> PlayScreen(m)
+            },
+        ) { pad ->
+            Column(Modifier.fillMaxSize().padding(pad)) {
+                m.busy?.let {
+                    Text(it, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), fontSize = 12.sp)
+                    m.busyFraction?.let { f -> LinearProgressIndicator(progress = { f }, modifier = Modifier.fillMaxWidth()) }
+                        ?: LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+                if (m.status.isNotBlank()) {
+                    Text(
+                        m.status,
+                        Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Box(Modifier.weight(1f)) {
+                    when (m.tab) {
+                        0 -> RealmsScreen(m)
+                        1 -> NewGameScreen(m)
+                        3 -> ActivityScreen(m)
+                        else -> PlayScreen(m)
+                    }
                 }
             }
         }
-    }
-    m.scanAsk?.let { ask ->
-        AlertDialog(
-            onDismissRequest = { m.scanAsk = null },
-            title = { Text("A big area") },
-            text = { Text("Finding places here needs about ${ask.requests} downloads (${ask.tiles} map areas) and may take a few minutes. It only has to be done once for each area.") },
-            confirmButton = { TextButton(onClick = { m.scanAsk = null; m.scan(ask.id, confirmed = true) }) { Text("Continue") } },
-            dismissButton = { TextButton(onClick = { m.scanAsk = null }) { Text("Not now") } },
-        )
-    }
-    m.yamlText?.let { y ->
-        val clip = LocalClipboardManager.current
-        AlertDialog(
-            onDismissRequest = { m.yamlText = null },
-            title = { Text("Archipelago YAML") },
-            text = { Text(y, fontSize = 11.sp, modifier = Modifier.verticalScroll(rememberScrollState())) },
-            confirmButton = { TextButton(onClick = { clip.setText(AnnotatedString(y)); m.status = "YAML copied" ; m.yamlText = null }) { Text("Copy") } },
-            dismissButton = { TextButton(onClick = { m.yamlText = null }) { Text("Close") } },
-        )
+        m.scanAsk?.let { ask ->
+            AlertDialog(
+                onDismissRequest = { m.scanAsk = null },
+                title = { Text("A big area") },
+                text = {
+                    Text(
+                        "Finding places here needs about ${ask.requests} downloads (${ask.tiles} map areas) and may take a few minutes. It only has to be done once for each area.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        m.scanAsk = null
+                        m.scan(ask.id, confirmed = true)
+                    }) { Text("Continue") }
+                },
+                dismissButton = { TextButton(onClick = { m.scanAsk = null }) { Text("Not now") } },
+            )
+        }
+        m.yamlText?.let { y ->
+            val clip = LocalClipboardManager.current
+            AlertDialog(
+                onDismissRequest = { m.yamlText = null },
+                title = { Text("Archipelago YAML") },
+                text = { Text(y, fontSize = 11.sp, modifier = Modifier.verticalScroll(rememberScrollState())) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        clip.setText(AnnotatedString(y))
+                        m.status = "YAML copied"
+                        m.yamlText = null
+                    }) { Text("Copy") }
+                },
+                dismissButton = { TextButton(onClick = { m.yamlText = null }) { Text("Close") } },
+            )
+        }
     }
 }
 
 // ------------------------------------------------------------------ realms
+
 /** Two views: the list of realms, and a full-page map editor for a new one. */
 @Composable
 fun RealmsScreen(m: AppModel) {
-    m.editing?.let { id -> RealmEditor(m, id.ifEmpty { null }) { m.editing = null } } ?: RealmList(m, onNew = { m.editing = "" }, onEdit = { m.editing = it })
+    m.editing?.let { id -> RealmEditor(m, id.ifEmpty { null }) { m.editing = null } }
+        ?: RealmList(m, onNew = { m.editing = "" }, onEdit = { m.editing = it })
 }
 
 @Composable
-private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) {
+private fun RealmList(
+    m: AppModel,
+    onNew: () -> Unit,
+    onEdit: (String) -> Unit,
+) {
     val snackbar = remember { SnackbarHostState() }
     var asking by remember { mutableStateOf<RealmOut?>(null) }
-    ConfirmDelete(asking, onConfirm = { r -> asking = null; m.deleteWithUndo(r.id) }, onDismiss = { asking = null })
+    ConfirmDelete(asking, onConfirm = { r ->
+        asking = null
+        m.deleteWithUndo(r.id)
+    }, onDismiss = { asking = null })
     // Show an Undo bar for each delete; when it goes away without Undo (or the screen is left) the realm is really deleted.
     LaunchedEffect(m.undo) {
         val u = m.undo ?: return@LaunchedEffect
         var undone = false
         try {
-            undone = snackbar.showSnackbar("Deleted ${u.name}", actionLabel = "Undo", duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed
+            undone =
+                snackbar.showSnackbar("Deleted ${u.name}", actionLabel = "Undo", duration = SnackbarDuration.Short) ==
+                SnackbarResult.ActionPerformed
         } finally {
             if (undone) m.undoDelete(u.id) else m.commitDelete(u.id)
         }
@@ -208,19 +264,38 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             HomeCard(m)
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text("Realms", style = MaterialTheme.typography.titleMedium)
                 Button(onClick = onNew) { IconLabel("New realm", ApgoIcons.Add) }
             }
             if (m.shownRealms.isEmpty()) Text("No realms yet. Tap New realm to draw one.", fontSize = 13.sp)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(m.shownRealms, key = { it.id }) { r ->
-                    val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { if (it == SwipeToDismissBoxValue.EndToStart) asking = r; false })
+                    val dismiss =
+                        rememberSwipeToDismissBoxState(confirmValueChange = {
+                            if (it ==
+                                SwipeToDismissBoxValue.EndToStart
+                            ) {
+                                asking = r
+                            }
+                            ; false
+                        })
                     SwipeToDismissBox(
                         state = dismiss,
                         enableDismissFromStartToEnd = false,
                         backgroundContent = {
-                            Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(ApgoPalette.danger).padding(end = 20.dp), contentAlignment = Alignment.CenterEnd) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(ApgoPalette.danger)
+                                    .padding(end = 20.dp),
+                                contentAlignment = Alignment.CenterEnd,
+                            ) {
                                 Icon(ApgoIcons.Delete, contentDescription = "Delete", tint = Color.White)
                             }
                         },
@@ -233,8 +308,10 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
 }
 
 /**
- * Home Base: where distances are measured from, plus the home Wi-Fi and car that pause the game. It looks different from a realm on purpose (a green
- * outline and a house), so it is never mistaken for one. Tapping it opens the setup flow, at the first missing step when something is missing.
+ * Home Base: where distances are measured from, plus the home Wi-Fi and car that pause the game. It looks different from a realm
+ * on purpose (a green
+ * outline and a house), so it is never mistaken for one. Tapping it opens the setup flow, at the first missing step when
+ * something is missing.
  */
 @Composable
 private fun HomeCard(m: AppModel) {
@@ -254,10 +331,10 @@ private fun HomeCard(m: AppModel) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(ApgoIcons.Home, contentDescription = null, tint = ApgoPalette.home, modifier = Modifier.size(26.dp))
-                    Text(SetupText.homeBaseName, style = MaterialTheme.typography.titleMedium)
+                    Text(SetupText.HOME_BASE_NAME, style = MaterialTheme.typography.titleMedium)
                 }
-                Text(if (home == null) SetupText.homeBaseUnset else SetupText.homeBaseCard, style = MaterialTheme.typography.bodyMedium)
-                if (progress.missingWifi) FeedbackText(SetupText.homeNeedsWifi, Tone.Warning)
+                Text(if (home == null) SetupText.HOME_BASE_UNSET else SetupText.HOME_BASE_CARD, style = MaterialTheme.typography.bodyMedium)
+                if (progress.missingWifi) FeedbackText(SetupText.HOME_NEEDS_WIFI, Tone.Warning)
             }
             if (home != null) HomePreview(map, Modifier.size(PREVIEW_DP.dp))
         }
@@ -266,17 +343,34 @@ private fun HomeCard(m: AppModel) {
 
 /** A realm at a glance: its icon and name, how many finds and quest types it offers, and a small preview of the region. */
 @Composable
-private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
+private fun RealmCard(
+    m: AppModel,
+    r: RealmOut,
+    onClick: () -> Unit,
+) {
     val types = m.offers[r.id].orEmpty().size
     val dots by produceState(emptyList<PreviewDot>(), r.id, r.scannedAtMs, types) {
-        value = if (r.scannedAtMs == null) emptyList() else withContext(Dispatchers.IO) {
-            m.engine.realmDots(r.id, 90u).map { PreviewDot(it.at.lat, it.at.lon, ApgoPalette.kind(it.kindId, it.family)) }
-        }
+        value =
+            if (r.scannedAtMs == null) {
+                emptyList()
+            } else {
+                withContext(Dispatchers.IO) {
+                    m.engine.realmDots(r.id, 90u).map { PreviewDot(it.at.lat, it.at.lon, ApgoPalette.kind(it.kindId, it.family)) }
+                }
+            }
     }
-    val outline = if (r.polygonActive) r.polygon.map { it.lat to it.lon } else r.circle?.let { circleRing(it.center.lat, it.center.lon, it.radiusM) }.orEmpty()
+    val outline =
+        if (r.polygonActive) {
+            r.polygon.map {
+                it.lat to it.lon
+            }
+        } else {
+            r.circle?.let { circleRing(it.center.lat, it.center.lon, it.radiusM) }.orEmpty()
+        }
     val context = LocalContext.current
     val frame = frameFor(outline)
-    // The picture belongs to one frame: when the shape changes it is dropped at once (never shown under a different outline) and drawn again.
+    // The picture belongs to one frame: when the shape changes it is dropped at once (never shown under a different outline) and
+    // drawn again.
     val map by produceState<android.graphics.Bitmap?>(null, frame?.key) {
         value = null
         value = frame?.let { runCatching { mapSnapshot(context, it) }.getOrNull() }
@@ -285,7 +379,12 @@ private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(ApgoIcons.realm(r.icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
+                    Icon(
+                        ApgoIcons.realm(r.icon),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(26.dp),
+                    )
                     Text(r.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (r.scannedAtMs == null) {
@@ -301,47 +400,124 @@ private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
 }
 
 /**
- * Setup step 1: choose home on a map. The pin can be dragged, the map tapped to put it there, or "My location" pressed. Each placement is saved at
+ * Setup step 1: choose home on a map. The pin can be dragged, the map tapped to put it there, or "My location" pressed. Each
+ * placement is saved at
  * once; Next stays disabled until home is saved.
  */
 @Composable
-internal fun HomePicker(m: AppModel, title: String, onBack: () -> Unit, onNext: () -> Unit) {
-    val start = remember { m.home?.let { LatLng(it.lat, it.lon) } ?: m.me ?: m.shownRealms.firstOrNull()?.let { r -> r.circle?.let { LatLng(it.center.lat, it.center.lon) } ?: r.polygon.firstOrNull()?.let { LatLng(it.lat, it.lon) } } }
+internal fun HomePicker(
+    m: AppModel,
+    title: String,
+    onBack: () -> Unit,
+    onNext: () -> Unit,
+) {
+    val start =
+        remember {
+            m.home?.let { LatLng(it.lat, it.lon) } ?: m.me
+                ?: m.shownRealms.firstOrNull()?.let { r ->
+                    r.circle?.let { LatLng(it.center.lat, it.center.lon) }
+                        ?: r.polygon.firstOrNull()?.let { LatLng(it.lat, it.lon) }
+                }
+        }
     var pin by remember { mutableStateOf(start) }
     var saved by remember { mutableStateOf(m.home != null) }
     var focus by remember { mutableStateOf<MapFocus?>(null) }
     var nonce by remember { mutableIntStateOf(0) }
     // Open showing your realms and the pin together, so the pin can be judged against the places you play.
-    val framing = remember {
-        val pts = m.shownRealms.flatMap { r ->
-            if (r.polygonActive) r.polygon.map { LatLng(it.lat, it.lon) }
-            else r.circle?.let { c ->
-                val dLat = c.radiusM / 111_195.0
-                val dLon = dLat / kotlin.math.cos(Math.toRadians(c.center.lat))
-                listOf(LatLng(c.center.lat + dLat, c.center.lon), LatLng(c.center.lat - dLat, c.center.lon), LatLng(c.center.lat, c.center.lon + dLon), LatLng(c.center.lat, c.center.lon - dLon))
-            }.orEmpty()
-        } + listOfNotNull(start)
-        if (pts.size >= 2) MapFit(pts, 1) else null
+    val framing =
+        remember {
+            val pts =
+                m.shownRealms.flatMap { r ->
+                    if (r.polygonActive) {
+                        r.polygon.map { LatLng(it.lat, it.lon) }
+                    } else {
+                        r.circle
+                            ?.let { c ->
+                                val dLat = c.radiusM / 111_195.0
+                                val dLon = dLat / kotlin.math.cos(Math.toRadians(c.center.lat))
+                                listOf(
+                                    LatLng(c.center.lat + dLat, c.center.lon),
+                                    LatLng(c.center.lat - dLat, c.center.lon),
+                                    LatLng(
+                                        c.center.lat,
+                                        c.center.lon + dLon,
+                                    ),
+                                    LatLng(c.center.lat, c.center.lon - dLon),
+                                )
+                            }.orEmpty()
+                    }
+                } + listOfNotNull(start)
+            if (pts.size >= 2) MapFit(pts, 1) else null
+        }
+
+    fun place(to: LatLng) {
+        pin = to
+        m.setHome(to, announce = false)
+        saved = true
     }
-    fun place(to: LatLng) { pin = to; m.setHome(to, announce = false); saved = true }
     BackHandler { onBack() }
 
     Box(Modifier.fillMaxSize()) {
         QuestMap(
-            emptyList(), m.shownRealms, emptyList(), m.me, null, null, null, { place(it) },
+            emptyList(),
+            m.shownRealms,
+            emptyList(),
+            m.me,
+            null,
+            null,
+            null,
+            { place(it) },
             Modifier.fillMaxSize(),
             home = pin,
-            handles = listOfNotNull(pin), handlesVisible = false, onHandleMove = { _, to -> pin = to }, onHandleRelease = { pin?.let { place(it) } },
-            focus = focus, fit = framing,
-            overlayTopDp = 16, overlayBottomDp = 150,
+            handles = listOfNotNull(pin),
+            handlesVisible = false,
+            onHandleMove = {
+                _,
+                to,
+                ->
+                pin = to
+            },
+            onHandleRelease = { pin?.let { place(it) } },
+            focus = focus,
+            fit = framing,
+            overlayTopDp = 16,
+            overlayBottomDp = 150,
         )
-        Row(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)).padding(top = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onNext, enabled = saved, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)) { IconLabel("Next", ApgoIcons.Done, 14.sp) }
+        Row(
+            Modifier
+                .align(
+                    Alignment.TopEnd,
+                ).windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End),
+                ).padding(top = 12.dp, end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = onNext,
+                enabled = saved,
+                contentPadding =
+                    androidx.compose.foundation.layout
+                        .PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                IconLabel("Next", ApgoIcons.Done, textSize = 14.sp)
+            }
         }
         if (saved) {
             Row(
-                Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)).padding(top = 72.dp, end = 16.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End),
+                    ).padding(
+                        top = 72.dp,
+                        end = 16.dp,
+                    ).background(
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        RoundedCornerShape(12.dp),
+                    ).padding(horizontal = 8.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Icon(ApgoIcons.Saved, contentDescription = null, tint = ApgoPalette.success, modifier = Modifier.size(14.dp))
                 Text("Home saved", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -350,26 +526,51 @@ internal fun HomePicker(m: AppModel, title: String, onBack: () -> Unit, onNext: 
         MapOverlayCard(Modifier.align(Alignment.BottomCenter)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             Text(
-                if (pin == null) "Tap the map to put your home there." else "Drag the pin or tap the map to move it. Distances in your games are measured from here.",
+                if (pin ==
+                    null
+                ) {
+                    "Tap the map to put your home there."
+                } else {
+                    "Drag the pin or tap the map to move it. Distances in your games are measured from here."
+                },
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Button(onClick = { m.me?.let { place(it); focus = MapFocus(it, ++nonce) } }, enabled = m.me != null, modifier = Modifier.fillMaxWidth()) {
-                IconLabel(if (m.me == null) "Waiting for your location…" else "Use my location", ApgoIcons.Me, 14.sp)
+            Button(onClick = {
+                m.me?.let {
+                    place(it)
+                    focus = MapFocus(it, ++nonce)
+                }
+            }, enabled = m.me != null, modifier = Modifier.fillMaxWidth()) {
+                IconLabel(if (m.me == null) "Waiting for your location…" else "Use my location", ApgoIcons.Me, textSize = 14.sp)
             }
         }
     }
 }
 
 /** Everything the editor can change, so a step of Undo/Redo can restore it whole. */
-private data class EditSnap(val polygon: Boolean, val radius: Float, val center: LatLng?, val corners: List<LatLng>, val name: String, val icon: String?)
+private data class EditSnap(
+    val polygon: Boolean,
+    val radius: Float,
+    val center: LatLng?,
+    val corners: List<LatLng>,
+    val name: String,
+    val icon: String?,
+)
 
 /**
- * The realm editor. The map is the whole screen. A toolbar on the left switches between editing the area (Circle or Polygon, one or the other)
- * and Details (name, icon and the finds the scan found); Undo, Redo and a close button sit on the right. Every finished edit is saved at once,
- * so there is no Save or Cancel: Undo goes back. A new realm is created by its first edit and named "Realm N". [realmId] null starts a new realm.
+ * The realm editor. The map is the whole screen. A toolbar on the left switches between editing the area (Circle or Polygon, one
+ * or the other)
+ * and Details (name, icon and the finds the scan found); Undo, Redo and a close button sit on the right. Every finished edit is
+ * saved at once,
+ * so there is no Save or Cancel: Undo goes back. A new realm is created by its first edit and named "Realm N". [realmId] null
+ * starts a new realm.
  */
 @Composable
-private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
+private fun RealmEditor(
+    m: AppModel,
+    realmId: String?,
+    onClose: () -> Unit,
+) {
     val original = remember(realmId) { m.realms.firstOrNull { it.id == realmId } }
     var id by remember(realmId) { mutableStateOf(realmId) } // set when a new realm is first saved
     val current = m.realms.firstOrNull { it.id == id }
@@ -382,23 +583,49 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     var polygon by remember(realmId) { mutableStateOf(original?.polygonActive == true) }
     var radius by remember(realmId) { mutableFloatStateOf(original?.circle?.radiusM?.toFloat() ?: 1500f) }
     var center by remember(realmId) { mutableStateOf(original?.circle?.let { LatLng(it.center.lat, it.center.lon) }) }
-    remember(realmId) { m.draft.clear(); original?.polygon?.forEach { m.draft.add(LatLng(it.lat, it.lon)) } }
+    remember(realmId) {
+        m.draft.clear()
+        original?.polygon?.forEach { m.draft.add(LatLng(it.lat, it.lon)) }
+    }
     val circleCenter = center ?: m.me // a new circle follows your GPS until it is edited
 
     // ---- history and autosave
     fun snap() = EditSnap(polygon, radius, center, m.draft.toList(), name, icon)
     val history = remember(realmId) { History(snap()) }
     var savedAt by remember(realmId) { mutableStateOf<Long?>(null) } // when the realm was last written to disk
-    // The outline the finds were last fetched for. The shape counts as changed only while it differs from that one, so undoing back to it is not a change.
+
+    // The outline the finds were last fetched for. The shape counts as changed only while it differs from that one, so undoing
+    // back to it is not a change.
     fun outlineKey() = EditSnap(polygon, radius, center, m.draft.toList(), "", null)
-    var scannedKey by remember(realmId) { mutableStateOf(if (original?.scannedAtMs != null) EditSnap(original.polygonActive, original.circle?.radiusM?.toFloat() ?: 1500f, original.circle?.let { LatLng(it.center.lat, it.center.lon) }, original.polygon.map { LatLng(it.lat, it.lon) }, "", null) else null) }
+    var scannedKey by remember(realmId) {
+        mutableStateOf(
+            if (original?.scannedAtMs !=
+                null
+            ) {
+                EditSnap(
+                    original.polygonActive,
+                    original.circle?.radiusM?.toFloat() ?: 1500f,
+                    original.circle?.let {
+                        LatLng(it.center.lat, it.center.lon)
+                    },
+                    original.polygon.map { LatLng(it.lat, it.lon) },
+                    "",
+                    null,
+                )
+            } else {
+                null
+            },
+        )
+    }
     val shapeDirty = outlineKey() != scannedKey
 
     /** Save what is on screen. Returns false when there is nothing to save yet (no location, or a polygon is not drawn). */
     fun persist(): Boolean {
         if (deleted) return false
         val c = center ?: m.me // read now: the value captured when the screen was last drawn may be older than this edit
-        val rid = m.saveRealm(id, name, icon, c?.let { it to radius.toDouble() }, m.draft.toList(), polygonActive = polygon && m.draft.size >= 3) ?: return false
+        val rid =
+            m.saveRealm(id, name, icon, c?.let { it to radius.toDouble() }, m.draft.toList(), polygonActive = polygon && m.draft.size >= 3)
+                ?: return false
         if (id == null) {
             id = rid
             name = m.realms.firstOrNull { it.id == rid }?.name ?: name // the default "Realm N"
@@ -414,8 +641,13 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     }
 
     fun apply(s: EditSnap) {
-        polygon = s.polygon; radius = s.radius; center = s.center; name = s.name.ifBlank { name }; icon = s.icon // the first state has no name yet: keep the default
-        m.draft.clear(); m.draft.addAll(s.corners)
+        polygon = s.polygon
+        radius = s.radius
+        center = s.center
+        name = s.name.ifBlank { name }
+        icon = s.icon // the first state has no name yet: keep the default
+        m.draft.clear()
+        m.draft.addAll(s.corners)
         persist()
     }
 
@@ -452,27 +684,55 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
         val rid = id
         if (rid != null && current?.scannedAtMs != null) {
             val all = withContext(Dispatchers.IO) { m.engine.realmFinds(rid) }
-            finds.clear(); finds.addAll(all); findsVersion++
+            finds.clear()
+            finds.addAll(all)
+            findsVersion++
         }
     }
     // Only finds inside the shape being drawn count. What was scanned for an earlier shape can lie outside the new one.
     val draftKey = m.draft.toList()
-    val visible = remember(findsVersion, polygon, radius, circleCenter, draftKey) {
-        finds.filter { f -> insideShape(f.at.lat, f.at.lon, polygon, circleCenter, radius.toDouble(), draftKey) }
-    }
-    val mapFinds = remember(visible, selectedFind) { visible.map { MapFind(it.id, LatLng(it.at.lat, it.at.lon), it.kindId, it.family, it.mark, it.id == selectedFind) } }
-    val shown = remember(visible, query, filter) {
-        visible.filter { f -> (filter == ALL || f.mark == filter) && (query.isBlank() || f.name.contains(query, true) || f.kinds.any { it.name.contains(query, true) }) }
-    }
-    fun mark(f: FindOut, to: String) {
+    val visible =
+        remember(findsVersion, polygon, radius, circleCenter, draftKey) {
+            finds.filter { f -> insideShape(f.at.lat, f.at.lon, polygon, circleCenter, radius.toDouble(), draftKey) }
+        }
+    val mapFinds =
+        remember(visible, selectedFind) {
+            visible.map {
+                MapFind(
+                    it.id,
+                    LatLng(it.at.lat, it.at.lon),
+                    it.kindId,
+                    it.family,
+                    it.mark,
+                    it.id == selectedFind,
+                )
+            }
+        }
+    val shown =
+        remember(visible, query, filter) {
+            visible.filter { f ->
+                (filter == ALL || f.mark == filter) &&
+                    (query.isBlank() || f.name.contains(query, true) || f.kinds.any { it.name.contains(query, true) })
+            }
+        }
+
+    fun mark(
+        f: FindOut,
+        to: String,
+    ) {
         val next = if (f.mark == to) "none" else to // tapping a lit toggle clears it
         val rid = id ?: return
-        if (m.setFindMark(rid, f.id, next)) { finds[finds.indexOfFirst { it.id == f.id }] = f.copy(mark = next); findsVersion++ }
+        if (m.setFindMark(rid, f.id, next)) {
+            finds[finds.indexOfFirst { it.id == f.id }] = f.copy(mark = next)
+            findsVersion++
+        }
     }
     // Selecting a find brings it into view together with its callout. The callout's real height is measured once it is shown.
     val screenDensity = LocalDensity.current.density
     var bubblePx by remember { mutableIntStateOf(0) }
+
     fun roomAbove() = (if (bubblePx > 0) bubblePx else (230 * screenDensity).toInt()) + (26 * screenDensity).toInt()
+
     fun show(f: FindOut) {
         selectedFind = f.id
         focus = MapFocus(LatLng(f.at.lat, f.at.lon), ++focusNonce, roomAbove())
@@ -483,12 +743,25 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     }
 
     // A circle has a handle at its center (moves it); its whole ring is an invisible handle (resizes it). A polygon has one per corner.
-    val handles = if (tab == AREA) { if (polygon) m.draft.toList() else listOfNotNull(circleCenter) } else emptyList()
-    fun moveHandle(i: Int, to: LatLng) {
-        if (polygon) { if (i in m.draft.indices) m.draft[i] = to; return }
+    val handles =
+        if (tab == AREA) {
+            if (polygon) m.draft.toList() else listOfNotNull(circleCenter)
+        } else {
+            emptyList()
+        }
+
+    fun moveHandle(
+        i: Int,
+        to: LatLng,
+    ) {
+        if (polygon) {
+            if (i in m.draft.indices) m.draft[i] = to
+            return
+        }
         val c = circleCenter ?: return
-        if (i == 0) center = to
-        else {
+        if (i == 0) {
+            center = to
+        } else {
             val d = floatArrayOf(0f)
             android.location.Location.distanceBetween(c.latitude, c.longitude, to.latitude, to.longitude, d)
             radius = d[0].coerceIn(300f, 8000f)
@@ -500,23 +773,37 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
     val panelDp = (panelPx / LocalDensity.current.density).toInt()
     var fit by remember(realmId) { mutableStateOf<MapFit?>(null) }
     var fitNonce by remember { mutableIntStateOf(0) }
+
     fun shapePoints(): List<LatLng> {
         if (polygon) return m.draft.toList()
         val c = circleCenter ?: return emptyList()
         val dLat = radius / 111_195.0
         val dLon = radius / (111_195.0 * kotlin.math.cos(Math.toRadians(c.latitude)))
-        return listOf(LatLng(c.latitude + dLat, c.longitude), LatLng(c.latitude - dLat, c.longitude), LatLng(c.latitude, c.longitude + dLon), LatLng(c.latitude, c.longitude - dLon))
+        return listOf(
+            LatLng(c.latitude + dLat, c.longitude),
+            LatLng(c.latitude - dLat, c.longitude),
+            LatLng(c.latitude, c.longitude + dLon),
+            LatLng(
+                c.latitude,
+                c.longitude - dLon,
+            ),
+        )
     }
+
     fun goTab(to: Int) {
         if (to == tab) return
         if (to == DETAILS) {
             // Opening Details creates a new realm if need be, and fetches finds for an outline that is new or changed.
             if (id == null) commit(true)
             val rid = id
-            if (rid != null && (outlineKey() != scannedKey || current?.scannedAtMs == null)) { m.scan(rid); scannedKey = outlineKey() }
+            if (rid != null && (outlineKey() != scannedKey || current?.scannedAtMs == null)) {
+                m.scan(rid)
+                scannedKey = outlineKey()
+            }
         } else {
             // Back to the area: after the map settles, fit the whole shape in the view.
-            fit = MapFit(shapePoints(), ++fitNonce); selectedFind = null
+            fit = MapFit(shapePoints(), ++fitNonce)
+            selectedFind = null
         }
         tab = to
     }
@@ -529,14 +816,36 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
 
     Box(Modifier.fillMaxSize()) {
         QuestMap(
-            emptyList(), emptyList(), if (polygon) m.draft.toList() else emptyList(), m.me, null, null, null,
-            { if (polygon && tab == AREA) { m.draft.add(it); commit(true) } },
+            emptyList(),
+            emptyList(),
+            if (polygon) m.draft.toList() else emptyList(),
+            m.me,
+            null,
+            null,
+            null,
+            {
+                if (polygon && tab == AREA) {
+                    m.draft.add(it)
+                    commit(true)
+                }
+            },
             Modifier.fillMaxSize(),
             home = m.home?.let { LatLng(it.lat, it.lon) },
             onMapLongClick = { m.setHome(it) },
             circle = if (polygon) null else circleCenter?.let { it to radius.toDouble() },
-            overlayTopDp = 16, overlayBottomDp = panelDp,
-            handles = handles, onHandleMove = if (tab == AREA) ::moveHandle else null, onHandleRelease = { commit(true) }, editable = tab == AREA,
+            overlayTopDp = 16,
+            overlayBottomDp = panelDp,
+            handles = handles,
+            onHandleMove =
+                if (tab ==
+                    AREA
+                ) {
+                    ::moveHandle
+                } else {
+                    null
+                },
+            onHandleRelease = { commit(true) },
+            editable = tab == AREA,
             finds = mapFinds,
             onFindClick = if (tab == DETAILS) { fid -> visible.firstOrNull { it.id == fid }?.let(::show) } else null,
             focus = focus,
@@ -544,41 +853,85 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             anchor = visible.firstOrNull { it.id == selectedFind }?.let { LatLng(it.at.lat, it.at.lon) },
             onAnchor = { anchor = it },
         )
-        RealmEditorDialogs(pickingIcon, icon, { icon = it; commit(false) }, { pickingIcon = false })
-        ConfirmDelete(confirmDelete, onConfirm = { r -> confirmDelete = null; deleted = true; m.deleteWithUndo(r.id); onClose() }, onDismiss = { confirmDelete = null })
+        RealmEditorDialogs(pickingIcon, icon, {
+            icon = it
+            commit(false)
+        }, { pickingIcon = false })
+        ConfirmDelete(confirmDelete, onConfirm = { r ->
+            confirmDelete = null
+            deleted = true
+            m.deleteWithUndo(r.id)
+            onClose()
+        }, onDismiss = {
+            confirmDelete =
+                null
+        })
         visible.firstOrNull { it.id == selectedFind }?.let { f ->
-            anchor?.let { at -> FindBubble(f, at, onSize = { bubblePx = it.height }, onMark = { mark(f, it) }, onClose = { selectedFind = null }) }
+            anchor?.let { at ->
+                FindBubble(f, at, onSize = { bubblePx = it.height }, onMark = { mark(f, it) }, onClose = {
+                    selectedFind =
+                        null
+                })
+            }
         }
 
         // Left: the three modes. Circle and Polygon share a pill (one or the other); Details is its own.
         Column(Modifier.align(Alignment.TopStart).padding(top = 12.dp, start = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ToolPill {
-                ToolButton(ApgoIcons.Circle, "Circle", selected = tab == AREA && !polygon) {
+                ToolButton(ApgoIcons.Circle, "Circle", selected = tab == AREA && !polygon, onClick = {
                     val changed = polygon
-                    polygon = false; goTab(AREA); if (changed) commit(true)
-                }
-                ToolButton(ApgoIcons.Polygon, "Polygon", selected = tab == AREA && polygon) {
+                    polygon = false
+                    goTab(AREA)
+                    if (changed) commit(true)
+                })
+                ToolButton(ApgoIcons.Polygon, "Polygon", selected = tab == AREA && polygon, onClick = {
                     val changed = !polygon
-                    polygon = true; goTab(AREA); if (changed) commit(true)
+                    polygon = true
+                    goTab(AREA)
+                    if (changed) commit(true)
+                })
+                if (tab == AREA &&
+                    polygon
+                ) {
+                    ToolButton(ApgoIcons.ClearAll, "Clear corners", enabled = m.draft.isNotEmpty(), onClick = {
+                        m.draft.clear()
+                        commit(true)
+                    })
                 }
-                if (tab == AREA && polygon) ToolButton(ApgoIcons.ClearAll, "Clear corners", enabled = m.draft.isNotEmpty()) { m.draft.clear(); commit(true) }
             }
-            ToolPill { ToolButton(ApgoIcons.Finds, "Details", selected = tab == DETAILS) { goTab(DETAILS) } }
+            ToolPill { ToolButton(ApgoIcons.Finds, "Details", selected = tab == DETAILS, onClick = { goTab(DETAILS) }) }
         }
         // Right: history and the way out.
         Row(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ToolPillRow {
-                ToolButton(ApgoIcons.Undo, "Undo", enabled = history.canUndo) { history.undo()?.let(::apply) }
-                ToolButton(ApgoIcons.Redo, "Redo", enabled = history.canRedo) { history.redo()?.let(::apply) }
+                ToolButton(ApgoIcons.Undo, "Undo", enabled = history.canUndo, onClick = { history.undo()?.let(::apply) })
+                ToolButton(ApgoIcons.Redo, "Redo", enabled = history.canRedo, onClick = { history.redo()?.let(::apply) })
             }
             // Done is a real button, not an X: nothing is lost by pressing it, and the cue beside it says so.
-            Button(onClick = onClose, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)) { IconLabel("Done", ApgoIcons.Done, 14.sp) }
+            Button(
+                onClick = onClose,
+                contentPadding =
+                    androidx.compose.foundation.layout
+                        .PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                IconLabel("Done", ApgoIcons.Done, textSize = 14.sp)
+            }
         }
 
         savedAt?.let {
             Row(
-                Modifier.align(Alignment.TopEnd).padding(top = 72.dp, end = 16.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+                Modifier
+                    .align(
+                        Alignment.TopEnd,
+                    ).padding(
+                        top = 72.dp,
+                        end = 16.dp,
+                    ).background(
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        RoundedCornerShape(12.dp),
+                    ).padding(horizontal = 8.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Icon(ApgoIcons.Saved, contentDescription = null, tint = ApgoPalette.success, modifier = Modifier.size(14.dp))
                 Text("All changes saved", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -588,40 +941,119 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
             // Area is just the map and a box of numbers about what is chosen.
             MapOverlayCard(Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }) {
                 if (polygon && m.draft.size < 3) {
-                    Text("Tap the map to add corners (${m.draft.size} of at least 3).", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "Tap the map to add corners (${m.draft.size} of at least 3).",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 } else {
                     val circleOut = circleCenter?.let { CircleOut(GeoPoint(it.latitude, it.longitude), radius.toDouble()) }
                     val corners = m.draft.toList()
-                    val shape = remember(polygon, radius, circleCenter, corners, m.home) {
-                        m.engine.shapeStats(circleOut, corners.map { GeoPoint(it.latitude, it.longitude) }, polygon && corners.size >= 3, m.home)
-                    }
-                    // Figures from the last scan. After the outline changes they are the old ones, marked as such until Details refreshes them.
+                    val shape =
+                        remember(polygon, radius, circleCenter, corners, m.home) {
+                            m.engine.shapeStats(
+                                circleOut,
+                                corners.map { GeoPoint(it.latitude, it.longitude) },
+                                polygon && corners.size >= 3,
+                                m.home,
+                            )
+                        }
+                    // Figures from the last scan. After the outline changes they are the old ones, marked as such until Details
+                    // refreshes them.
                     var found by remember(id) { mutableStateOf<RealmStatsOut?>(null) }
                     LaunchedEffect(id, current?.scannedAtMs) {
                         val rid = id
-                        found = if (rid != null && current?.scannedAtMs != null) withContext(Dispatchers.IO) { m.engine.realmStats(rid) } else null
+                        found =
+                            if (rid != null &&
+                                current?.scannedAtMs != null
+                            ) {
+                                withContext(Dispatchers.IO) { m.engine.realmStats(rid) }
+                            } else {
+                                null
+                            }
                     }
                     val waiting = if (m.busy != null) "looking…" else "after scan"
-                    RealmStatsBox(shape.areaM2, shape.farthestM, found?.let { ScanFigures(it.walkableM, it.streets.toInt(), it.trailM, it.finds.toInt(), it.parks.toInt(), it.roughShare, stale = shapeDirty) }, waiting)
+                    RealmStatsBox(
+                        shape.areaM2,
+                        shape.farthestM,
+                        found?.let {
+                            ScanFigures(
+                                it.walkableM,
+                                it.streets.toInt(),
+                                it.trailM,
+                                it.finds.toInt(),
+                                it.parks.toInt(),
+                                it.roughShare,
+                                stale = shapeDirty,
+                            )
+                        },
+                        waiting,
+                    )
                 }
             }
         } else {
-            MapOverlayCard(Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }.fillMaxHeight(0.5f), fillHeight = true) {
+            MapOverlayCard(
+                Modifier.align(Alignment.BottomCenter).onSizeChanged { panelPx = it.height }.fillMaxHeight(0.5f),
+                fillHeight = true,
+            ) {
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState) {
                     // A compact header so the finds get most of the half-height panel: icon + name, search + filters, then the count.
                     item(key = "name") {
-                        Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            IconButton(onClick = { pickingIcon = true }) { Icon(ApgoIcons.realm(icon), contentDescription = "Choose an icon", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp)) }
-                            OutlinedTextField(name, { name = it }, label = { Text("Realm name") }, singleLine = true, modifier = Modifier.weight(1f))
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            IconButton(onClick = {
+                                pickingIcon = true
+                            }) {
+                                Icon(
+                                    ApgoIcons.realm(icon),
+                                    contentDescription = "Choose an icon",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(28.dp),
+                                )
+                            }
+                            OutlinedTextField(
+                                name,
+                                { name = it },
+                                label = { Text("Realm name") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                     }
                     item(key = "search") {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            OutlinedTextField(query, { query = it }, label = { Text("Search finds") }, singleLine = true, modifier = Modifier.weight(1f))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            OutlinedTextField(
+                                query,
+                                { query = it },
+                                label = { Text("Search finds") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
                             IconChoices(
-                                listOf(ALL, FAVORITE, BANNED), filter, { filter = it },
-                                { when (it) { FAVORITE -> ApgoIcons.Favorite; BANNED -> ApgoIcons.Banned; else -> ApgoIcons.All } },
-                                { when (it) { ALL -> "Show all finds"; FAVORITE -> "Show favorites"; else -> "Show banned" } },
+                                listOf(ALL, FAVORITE, BANNED),
+                                filter,
+                                { filter = it },
+                                {
+                                    when (it) {
+                                        FAVORITE -> ApgoIcons.Favorite
+                                        BANNED -> ApgoIcons.Banned
+                                        else -> ApgoIcons.All
+                                    }
+                                },
+                                {
+                                    when (it) {
+                                        ALL -> "Show all finds"
+                                        FAVORITE -> "Show favorites"
+                                        else -> "Show banned"
+                                    }
+                                },
                             )
                         }
                     }
@@ -629,41 +1061,86 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
                         Text(
                             when {
                                 m.busy != null -> "Looking for finds…"
+
                                 current?.scannedAtMs == null -> "No finds yet."
+
                                 findsVersion == 0 -> "Loading finds…"
-                                else -> "${shown.size} of ${visible.size} finds · ${visible.count { it.mark == FAVORITE }} favorites · ${visible.count { it.mark == BANNED }} banned"
+
+                                else -> "${shown.size} of ${visible.size} finds · ${visible.count {
+                                    it.mark == FAVORITE
+                                }} favorites · ${visible.count { it.mark == BANNED }} banned"
                             },
-                            Modifier.padding(vertical = 4.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            Modifier.padding(vertical = 4.dp),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         current?.let { r ->
                             TextButton(onClick = { confirmDelete = r }) {
-                                Icon(ApgoIcons.Delete, contentDescription = null, tint = ApgoPalette.danger, modifier = Modifier.size(16.dp))
+                                Icon(
+                                    ApgoIcons.Delete,
+                                    contentDescription = null,
+                                    tint = ApgoPalette.danger,
+                                    modifier = Modifier.size(16.dp),
+                                )
                                 Text("  Delete realm", fontSize = 12.sp, color = ApgoPalette.danger)
                             }
                         }
                     }
                     items(shown, key = { it.id }) { f ->
                         Row(
-                            Modifier.fillMaxWidth().background(if (f.id == selectedFind) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent).clickable { show(f) },
+                            Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (f.id ==
+                                        selectedFind
+                                    ) {
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    } else {
+                                        Color.Transparent
+                                    },
+                                ).clickable { show(f) },
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                ApgoIcons.forKind(f.kindId, f.family), contentDescription = null, modifier = Modifier.padding(horizontal = 8.dp).size(22.dp),
+                                ApgoIcons.forKind(f.kindId, f.family),
+                                contentDescription = null,
+                                modifier = Modifier.padding(horizontal = 8.dp).size(22.dp),
                                 tint = if (f.mark == BANNED) ApgoPalette.muted else ApgoPalette.kind(f.kindId, f.family),
                             )
                             Column(Modifier.weight(1f).alpha(if (f.mark == BANNED) 0.5f else 1f)) {
                                 Text(
-                                    f.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium,
+                                    f.name,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     textDecoration = if (f.mark == BANNED) TextDecoration.LineThrough else null,
                                 )
                                 // An unnamed find is titled by its first quest kind, so the subtitle must not repeat it.
                                 Text(
-                                    (if (f.named) f.kinds.map { it.name } else listOf("unnamed") + f.kinds.drop(1).map { it.name }).joinToString(", ") + " · ${distanceLabel(f.distanceM)}",
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    (
+                                        if (f.named) {
+                                            f.kinds.map { it.name }
+                                        } else {
+                                            listOf(
+                                                "unnamed",
+                                            ) + f.kinds.drop(1).map { it.name }
+                                        }
+                                    ).joinToString(", ") +
+                                        " · ${distanceLabel(f.distanceM)}",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            MarkToggle(ApgoIcons.Favorite, "Favorite", f.mark == FAVORITE, ApgoPalette.favorite) { mark(f, FAVORITE) }
-                            MarkToggle(ApgoIcons.Banned, "Ban", f.mark == BANNED, ApgoPalette.banned) { mark(f, BANNED) }
+                            MarkToggle(
+                                ApgoIcons.Favorite,
+                                "Favorite",
+                                f.mark == FAVORITE,
+                                ApgoPalette.favorite,
+                                onClick = { mark(f, FAVORITE) },
+                            )
+                            MarkToggle(ApgoIcons.Banned, "Ban", f.mark == BANNED, ApgoPalette.banned, onClick = { mark(f, BANNED) })
                         }
                         HorizontalDivider()
                     }
@@ -675,7 +1152,11 @@ private fun RealmEditor(m: AppModel, realmId: String?, onClose: () -> Unit) {
 
 /** Asks before a realm is deleted (swipe or editor). [realm] null shows nothing. */
 @Composable
-private fun ConfirmDelete(realm: RealmOut?, onConfirm: (RealmOut) -> Unit, onDismiss: () -> Unit) {
+private fun ConfirmDelete(
+    realm: RealmOut?,
+    onConfirm: (RealmOut) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val r = realm ?: return
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -689,7 +1170,10 @@ private fun ConfirmDelete(realm: RealmOut?, onConfirm: (RealmOut) -> Unit, onDis
 /** The dialogs of the realm editor: pick an icon. */
 @Composable
 private fun RealmEditorDialogs(
-    picking: Boolean, current: String?, onPick: (String) -> Unit, onDismissPicker: () -> Unit,
+    picking: Boolean,
+    current: String?,
+    onPick: (String) -> Unit,
+    onDismissPicker: () -> Unit,
 ) {
     if (picking) {
         AlertDialog(
@@ -702,7 +1186,11 @@ private fun RealmEditorDialogs(
                         val chosen = key == (current ?: "pin")
                         IconButton(
                             onClick = { onPick(key) },
-                            colors = IconButtonDefaults.iconButtonColors(containerColor = if (chosen) MaterialTheme.colorScheme.primary else Color.Transparent, contentColor = if (chosen) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface),
+                            colors =
+                                IconButtonDefaults.iconButtonColors(
+                                    containerColor = if (chosen) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    contentColor = if (chosen) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                ),
                         ) { Icon(vector, contentDescription = key) }
                     }
                 }
@@ -714,16 +1202,31 @@ private fun RealmEditorDialogs(
 
 /** A callout over the map for the selected find: what it is, what the quests mean, and how to complete them. */
 @Composable
-private fun FindBubble(f: FindOut, at: androidx.compose.ui.geometry.Offset, onSize: (androidx.compose.ui.unit.IntSize) -> Unit, onMark: (String) -> Unit, onClose: () -> Unit) {
+private fun FindBubble(
+    f: FindOut,
+    at: androidx.compose.ui.geometry.Offset,
+    onSize: (androidx.compose.ui.unit.IntSize) -> Unit,
+    onMark: (String) -> Unit,
+    onClose: () -> Unit,
+) {
     MapBubble(at, onSize) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(ApgoIcons.forKind(f.kindId, f.family), contentDescription = null, tint = ApgoPalette.kind(f.kindId, f.family), modifier = Modifier.size(24.dp))
+            Icon(
+                ApgoIcons.forKind(f.kindId, f.family),
+                contentDescription = null,
+                tint = ApgoPalette.kind(f.kindId, f.family),
+                modifier = Modifier.size(24.dp),
+            )
             Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                 Text(f.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("${distanceLabel(f.distanceM)} from home" + if (f.named) "" else " · unnamed", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "${distanceLabel(f.distanceM)} from home" + if (f.named) "" else " · unnamed",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            MarkToggle(ApgoIcons.Favorite, "Favorite", f.mark == FAVORITE, ApgoPalette.favorite) { onMark(FAVORITE) }
-            MarkToggle(ApgoIcons.Banned, "Ban", f.mark == BANNED, ApgoPalette.banned) { onMark(BANNED) }
+            MarkToggle(ApgoIcons.Favorite, "Favorite", f.mark == FAVORITE, ApgoPalette.favorite, onClick = { onMark(FAVORITE) })
+            MarkToggle(ApgoIcons.Banned, "Ban", f.mark == BANNED, ApgoPalette.banned, onClick = { onMark(BANNED) })
             IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = "Close") }
         }
         f.kinds.take(2).forEach { k ->
@@ -732,20 +1235,42 @@ private fun FindBubble(f: FindOut, at: androidx.compose.ui.geometry.Offset, onSi
                 Text("${k.blurb} ${k.how}", fontSize = 12.sp, lineHeight = 16.sp)
             }
         }
-        if (f.kinds.size > 2) Text("+ ${f.kinds.size - 2} more quest types", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (f.tags.isNotEmpty()) Text("Mapped as ${f.tags.joinToString(" · ")}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
+        if (f.kinds.size >
+            2
+        ) {
+            Text("+ ${f.kinds.size - 2} more quest types", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (f.tags.isNotEmpty()) {
+            Text(
+                "Mapped as ${f.tags.joinToString(" · ")}",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+        }
     }
 }
 
 /** Whether a point lies inside the shape being edited: the circle, or the polygon when it has 3 or more corners. */
-private fun insideShape(lat: Double, lon: Double, polygon: Boolean, center: LatLng?, radiusM: Double, corners: List<LatLng>): Boolean {
+private fun insideShape(
+    lat: Double,
+    lon: Double,
+    polygon: Boolean,
+    center: LatLng?,
+    radiusM: Double,
+    corners: List<LatLng>,
+): Boolean {
     if (polygon) {
         if (corners.size < 3) return true // nothing drawn yet: do not hide everything
         var inside = false
         var j = corners.lastIndex
         for (i in corners.indices) { // ray casting
             val (a, b) = corners[i] to corners[j]
-            if ((a.latitude > lat) != (b.latitude > lat) && lon < (b.longitude - a.longitude) * (lat - a.latitude) / (b.latitude - a.latitude) + a.longitude) inside = !inside
+            if ((a.latitude > lat) != (b.latitude > lat) &&
+                lon < (b.longitude - a.longitude) * (lat - a.latitude) / (b.latitude - a.latitude) + a.longitude
+            ) {
+                inside = !inside
+            }
             j = i
         }
         return inside
@@ -768,10 +1293,16 @@ private fun distanceLabel(m: Double) = if (m < 1000) "${m.toInt()} m" else "%.1f
 
 // -------------------------------------------------------------------- play
 @Composable
-fun PlayScreen(m: AppModel) {
+fun PlayScreen(
+    m: AppModel,
+    modifier: Modifier = Modifier,
+) {
     val hud = m.hud
     if (hud == null) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(
+            modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             Text("Play", style = MaterialTheme.typography.titleLarge)
             Text("No game is open, so nothing is being tracked.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             GamesList(m)
@@ -794,12 +1325,20 @@ fun PlayScreen(m: AppModel) {
     val layout = remember(m.quests) { PlayLayout.split(m.quests) }
     var allProgress by remember { mutableStateOf(false) }
     var showPlaces by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // The map is the top of the screen; goals and progress-bar quests sit under it in a scrolling panel.
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Column {
                 Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
-                Text(PresenceText.chip(m.presence.state, m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty()), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    PresenceText.chip(m.presence.state, m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty()),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
             OutlinedButton(onClick = { m.pause() }) {
                 Icon(ApgoIcons.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -808,13 +1347,28 @@ fun PlayScreen(m: AppModel) {
         }
         Box(Modifier.fillMaxWidth().weight(0.55f)) {
             QuestMap(
-                m.quests, m.realms.filter { r -> m.zones.any { it.realmId == r.id } }, emptyList(), m.me,
-                hud.thaw?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) }, hud.waypoint?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) },
-                m.selected, { ll ->
-                    m.quests.filter { it.anchor != null && it.state != "hidden" }.minByOrNull { q ->
-                        val a = q.anchor!!; val d = floatArrayOf(0f)
-                        android.location.Location.distanceBetween(ll.latitude, ll.longitude, a.lat, a.lon, d); d[0]
-                    }?.let { m.selected = it.locationId }
+                m.quests,
+                m.realms.filter { r -> m.zones.any { it.realmId == r.id } },
+                emptyList(),
+                m.me,
+                hud.thaw?.let {
+                    org.maplibre.android.geometry
+                        .LatLng(it.lat, it.lon)
+                },
+                hud.waypoint?.let {
+                    org.maplibre.android.geometry
+                        .LatLng(it.lat, it.lon)
+                },
+                m.selected,
+                { ll ->
+                    m.quests
+                        .filter { it.anchor != null && it.state != "hidden" }
+                        .minByOrNull { q ->
+                            val a = q.anchor!!
+                            val d = floatArrayOf(0f)
+                            android.location.Location.distanceBetween(ll.latitude, ll.longitude, a.lat, a.lon, d)
+                            d[0]
+                        }?.let { m.selected = it.locationId }
                 },
                 Modifier.fillMaxSize(),
                 home = m.home?.let { LatLng(it.lat, it.lon) },
@@ -825,82 +1379,175 @@ fun PlayScreen(m: AppModel) {
             )
             selected?.let { q ->
                 val at = anchorPx
-                // A quest with a pin gets a callout on it; one with no spot on the map (steps, squares, time away) gets the same card at the bottom.
-                if (q.anchor != null && at != null) MapBubble(at, onSize = { bubblePx = it.height }) { QuestDetails(q, { m.reroll(q.locationId) }, { m.selected = null }) }
-                else if (q.anchor == null) MapOverlayCard(Modifier.align(Alignment.BottomCenter)) { QuestDetails(q, { m.reroll(q.locationId) }, { m.selected = null }) }
+                // A quest with a pin gets a callout on it; one with no spot on the map (steps, squares, time away) gets the same
+                // card at the bottom.
+                if (q.anchor != null &&
+                    at != null
+                ) {
+                    MapBubble(at, onSize = { bubblePx = it.height }) {
+                        QuestDetails(q, { m.reroll(q.locationId) }, {
+                            m.selected =
+                                null
+                        })
+                    }
+                } else if (q.anchor ==
+                    null
+                ) {
+                    MapOverlayCard(Modifier.align(Alignment.BottomCenter)) {
+                        QuestDetails(q, { m.reroll(q.locationId) }, {
+                            m.selected =
+                                null
+                        })
+                    }
+                }
             }
             m.chains.firstOrNull { it.id == m.selectedChain }?.let { c ->
                 MapOverlayCard(Modifier.align(Alignment.BottomCenter)) { ChainDetails(c) { m.selectedChain = null } }
             }
         }
-        Column(Modifier.fillMaxWidth().weight(0.45f).verticalScroll(rememberScrollState()).padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        val chainRows = m.chains.sortedBy { c -> c.marks.all { it.reached } }
-        if (chainRows.isNotEmpty() || layout.progress.isNotEmpty()) Text("Progress", style = MaterialTheme.typography.titleSmall)
-        chainRows.forEach { c -> ChainRow(c) { m.selectedChain = c.id; m.selected = null } }
-        (if (allProgress) layout.progress else layout.progress.take(PROGRESS_ROWS)).forEach { q -> ProgressRow(q) { m.selected = q.locationId; m.selectedChain = null } }
-        if (layout.progress.size > PROGRESS_ROWS) TextButton(onClick = { allProgress = !allProgress }) { Text(if (allProgress) "Show fewer" else "Show all ${layout.progress.size}", fontSize = 11.sp) }
-        if (hud.goals.size > 1) {
-            // Several goals: the rule and overall progress, then each goal with its own bar.
-            Text(hud.goalLabel.substringBefore(":"), style = MaterialTheme.typography.titleSmall)
-            LinearProgressIndicator(progress = { hud.goalProgress }, Modifier.fillMaxWidth())
-            hud.goals.forEach { g ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(if (g.achieved) ApgoIcons.Check else ApgoIcons.Play, contentDescription = if (g.achieved) "Done" else "Not done", tint = if (g.achieved) ApgoPalette.success else ApgoPalette.muted, modifier = Modifier.size(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(g.label, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        LinearProgressIndicator(progress = { g.progress }, Modifier.fillMaxWidth())
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(0.45f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            val chainRows = m.chains.sortedBy { c -> c.marks.all { it.reached } }
+            if (chainRows.isNotEmpty() || layout.progress.isNotEmpty()) Text("Progress", style = MaterialTheme.typography.titleSmall)
+            chainRows.forEach { c ->
+                ChainRow(c) {
+                    m.selectedChain = c.id
+                    m.selected = null
+                }
+            }
+            (if (allProgress) layout.progress else layout.progress.take(PROGRESS_ROWS)).forEach { q ->
+                ProgressRow(q) {
+                    m.selected =
+                        q.locationId
+                    ; m.selectedChain = null
+                }
+            }
+            if (layout.progress.size >
+                PROGRESS_ROWS
+            ) {
+                TextButton(onClick = {
+                    allProgress = !allProgress
+                }) { Text(if (allProgress) "Show fewer" else "Show all ${layout.progress.size}", fontSize = 11.sp) }
+            }
+            if (hud.goals.size > 1) {
+                // Several goals: the rule and overall progress, then each goal with its own bar.
+                Text(hud.goalLabel.substringBefore(":"), style = MaterialTheme.typography.titleSmall)
+                LinearProgressIndicator(progress = { hud.goalProgress }, Modifier.fillMaxWidth())
+                hud.goals.forEach { g ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            if (g.achieved) ApgoIcons.Check else ApgoIcons.Play,
+                            contentDescription = if (g.achieved) "Done" else "Not done",
+                            tint = if (g.achieved) ApgoPalette.success else ApgoPalette.muted,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(g.label, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            LinearProgressIndicator(progress = { g.progress }, Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            } else {
+                Text(hud.goalLabel, style = MaterialTheme.typography.titleSmall)
+                LinearProgressIndicator(progress = { hud.goalProgress }, Modifier.fillMaxWidth())
+            }
+            Text(
+                "Quests ${hud.done}/${hud.total} · keys ${hud.keys} · ${hud.tools.joinToString().ifBlank {
+                    "no tools"
+                }} · letters ${hud.letters.ifBlank { "-" }} · ${"%.1f".format(
+                    hud.distanceKm,
+                )} km · streak ${hud.streakDays}d",
+                fontSize = 11.sp,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                m.zones.forEach { z ->
+                    val tint = if (z.unlocked) ApgoPalette.success else ApgoPalette.muted
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Icon(ApgoIcons.mode(z.mode), contentDescription = null, tint = tint, modifier = Modifier.size(13.dp))
+                        Text("Z${z.id}", fontSize = 11.sp, color = tint)
+                        Icon(
+                            if (z.unlocked) ApgoIcons.Unlocked else ApgoIcons.Locked,
+                            contentDescription = if (z.unlocked) "Unlocked" else "Locked",
+                            tint = tint,
+                            modifier = Modifier.size(13.dp),
+                        )
+                        if (!z.unlocked) {
+                            Text(
+                                "${if (z.keysNeeded > 0u) "${z.keysNeeded}key" else ""}${z.tool?.let { "+$it" } ?: ""}",
+                                fontSize = 11.sp,
+                                color = tint,
+                            )
+                        }
                     }
                 }
             }
-        } else {
-            Text(hud.goalLabel, style = MaterialTheme.typography.titleSmall)
-            LinearProgressIndicator(progress = { hud.goalProgress }, Modifier.fillMaxWidth())
-        }
-        Text(
-            "Quests ${hud.done}/${hud.total} · keys ${hud.keys} · ${hud.tools.joinToString().ifBlank { "no tools" }} · letters ${hud.letters.ifBlank { "-" }} · ${"%.1f".format(hud.distanceKm)} km · streak ${hud.streakDays}d",
-            fontSize = 11.sp,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            m.zones.forEach { z ->
-                val tint = if (z.unlocked) ApgoPalette.success else ApgoPalette.muted
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Icon(ApgoIcons.mode(z.mode), contentDescription = null, tint = tint, modifier = Modifier.size(13.dp))
-                    Text("Z${z.id}", fontSize = 11.sp, color = tint)
-                    Icon(if (z.unlocked) ApgoIcons.Unlocked else ApgoIcons.Locked, contentDescription = if (z.unlocked) "Unlocked" else "Locked", tint = tint, modifier = Modifier.size(13.dp))
-                    if (!z.unlocked) Text("${if (z.keysNeeded > 0u) "${z.keysNeeded}key" else ""}${z.tool?.let { "+$it" } ?: ""}", fontSize = 11.sp, color = tint)
-                }
-            }
-        }
-        (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let { FeedbackText(it.joinToString("  ·  "), Tone.Danger) }
-        TextButton(onClick = { showPlaces = !showPlaces }) { Text("${if (showPlaces) "Hide" else "Show"} places on the map (${layout.places.size})", fontSize = 12.sp) }
-        if (showPlaces) {
-            layout.places.forEach { q ->
-                Row(Modifier.fillMaxWidth().clickable { m.selected = q.locationId }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(ApgoIcons.forKind(q.kindId, q.family), contentDescription = null, tint = ApgoPalette.quest(q.state), modifier = Modifier.size(20.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(if (q.state == "hidden") "??? (undiscovered)" else q.name, fontSize = 13.sp)
-                        if (q.state != "hidden") Text("${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min", fontSize = 10.sp)
+            (
+                hud.traps +
+                    listOfNotNull(
+                        hud.blocked,
+                    )
+            ).distinct().takeIf { it.isNotEmpty() }?.let { FeedbackText(it.joinToString("  ·  "), Tone.Danger) }
+            TextButton(onClick = {
+                showPlaces = !showPlaces
+            }) { Text("${if (showPlaces) "Hide" else "Show"} places on the map (${layout.places.size})", fontSize = 12.sp) }
+            if (showPlaces) {
+                layout.places.forEach { q ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                m.selected = q.locationId
+                            }.padding(
+                                vertical = 3.dp,
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            ApgoIcons.forKind(q.kindId, q.family),
+                            contentDescription = null,
+                            tint = ApgoPalette.quest(q.state),
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(if (q.state == "hidden") "??? (undiscovered)" else q.name, fontSize = 13.sp)
+                            if (q.state != "hidden") Text("${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min", fontSize = 10.sp)
+                        }
+                        Text(q.state, fontSize = 10.sp)
                     }
-                    Text(q.state, fontSize = 10.sp)
                 }
             }
-        }
-        if (m.log.isNotEmpty()) Text(m.log.take(3).joinToString("\n"), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+            if (m.log.isNotEmpty()) Text(m.log.take(3).joinToString("\n"), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
         }
     }
 }
 
 /** The saved games: open one to start (or resume) tracking, or delete it (its recorded data is kept for diagnosis). */
 @Composable
-private fun GamesList(m: AppModel) {
-    Text("Continue a game", style = MaterialTheme.typography.titleMedium)
-    if (m.games.isEmpty()) Text("No saved games yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    m.games.forEach { g ->
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(g.name)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(onClick = { m.openGame(g.id) }) { Text("Open", fontSize = 12.sp) }
-                OutlinedButton(onClick = { m.deleteGame(g.id) }) { Text("Delete", fontSize = 12.sp) }
+private fun GamesList(
+    m: AppModel,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Continue a game", style = MaterialTheme.typography.titleMedium)
+        if (m.games.isEmpty()) Text("No saved games yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        m.games.forEach { g ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(g.name)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = { m.openGame(g.id) }) { Text("Open", fontSize = 12.sp) }
+                    OutlinedButton(onClick = { m.deleteGame(g.id) }) { Text("Delete", fontSize = 12.sp) }
+                }
             }
         }
     }
@@ -909,14 +1556,32 @@ private fun GamesList(m: AppModel) {
 /** Quests shown in the Progress section before "Show all". */
 private const val PROGRESS_ROWS = 3
 
-/** A quest you complete by accumulating something (steps, new squares, minutes away, ground covered): name, rule and a thin progress bar on two lines. */
+/**
+ * A quest you complete by accumulating something (steps, new squares, minutes away, ground covered): name, rule and a thin
+ * progress bar on two lines.
+ */
 @Composable
-private fun ProgressRow(q: uniffi.apgo_ffi.QuestOut, onClick: () -> Unit) {
+private fun ProgressRow(
+    q: uniffi.apgo_ffi.QuestOut,
+    onClick: () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 1.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(ApgoIcons.forKind(q.kindId, q.family), contentDescription = null, tint = ApgoPalette.quest(q.state), modifier = Modifier.size(16.dp))
+            Icon(
+                ApgoIcons.forKind(q.kindId, q.family),
+                contentDescription = null,
+                tint = ApgoPalette.quest(q.state),
+                modifier = Modifier.size(16.dp),
+            )
             Text(q.name, fontSize = 13.sp, maxLines = 1)
-            Text(q.detail, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(
+                q.detail,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
             Text("${(q.progress * 100).toInt()}%", fontSize = 11.sp)
         }
         LinearProgressIndicator(progress = { q.progress }, Modifier.fillMaxWidth())
@@ -925,12 +1590,30 @@ private fun ProgressRow(q: uniffi.apgo_ffi.QuestOut, onClick: () -> Unit) {
 
 /** What a quest asks of you and what it pays: the content of the Play popup (a callout on the pin, or a card for quests with no pin). */
 @Composable
-private fun ColumnScope.QuestDetails(q: uniffi.apgo_ffi.QuestOut, onReroll: () -> Unit, onClose: () -> Unit) {
+private fun ColumnScope.QuestDetails(
+    q: uniffi.apgo_ffi.QuestOut,
+    onReroll: () -> Unit,
+    onClose: () -> Unit,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(ApgoIcons.forKind(q.kindId, q.family), contentDescription = null, tint = ApgoPalette.kind(q.kindId, q.family), modifier = Modifier.size(24.dp))
+        Icon(
+            ApgoIcons.forKind(q.kindId, q.family),
+            contentDescription = null,
+            tint = ApgoPalette.kind(q.kindId, q.family),
+            modifier = Modifier.size(24.dp),
+        )
         Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-            Text("${q.name}${if (q.boss) "  (BOSS)" else ""}", style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min · ${q.mode}${if (q.fallback) " · fallback" else ""}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "${q.name}${if (q.boss) "  (BOSS)" else ""}",
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min · ${q.mode}${if (q.fallback) " · fallback" else ""}",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = "Close") }
     }
@@ -943,12 +1626,27 @@ private fun ColumnScope.QuestDetails(q: uniffi.apgo_ffi.QuestOut, onReroll: () -
 
 /** One progressive quest: name and rule, a bar with a mark per check, and what is next. Tap for the list of marks. */
 @Composable
-private fun ChainRow(c: uniffi.apgo_ffi.ChainOut, onClick: () -> Unit) {
+private fun ChainRow(
+    c: uniffi.apgo_ffi.ChainOut,
+    onClick: () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(ApgoIcons.forKind(c.kindId, c.family), contentDescription = null, tint = ApgoPalette.family(c.family), modifier = Modifier.size(16.dp))
+            Icon(
+                ApgoIcons.forKind(c.kindId, c.family),
+                contentDescription = null,
+                tint = ApgoPalette.family(c.family),
+                modifier = Modifier.size(16.dp),
+            )
             Text(c.name, fontSize = 13.sp, maxLines = 1)
-            Text(c.rule, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(
+                c.rule,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
         }
         ChainBar(ChainFormat.fill(c.counter, c.total), ChainFormat.fractions(c.marks.map { it.at }, c.total), c.marks.map { it.reached })
         Text(ChainFormat.next(c), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -957,9 +1655,17 @@ private fun ChainRow(c: uniffi.apgo_ffi.ChainOut, onClick: () -> Unit) {
 
 /** The popup for a progressive quest: every mark with its amount and reward, then what is next. */
 @Composable
-private fun ColumnScope.ChainDetails(c: uniffi.apgo_ffi.ChainOut, onClose: () -> Unit) {
+private fun ColumnScope.ChainDetails(
+    c: uniffi.apgo_ffi.ChainOut,
+    onClose: () -> Unit,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(ApgoIcons.forKind(c.kindId, c.family), contentDescription = null, tint = ApgoPalette.family(c.family), modifier = Modifier.size(24.dp))
+        Icon(
+            ApgoIcons.forKind(c.kindId, c.family),
+            contentDescription = null,
+            tint = ApgoPalette.family(c.family),
+            modifier = Modifier.size(24.dp),
+        )
         Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
             Text(c.name, style = MaterialTheme.typography.titleSmall)
             Text(c.rule, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -968,7 +1674,12 @@ private fun ColumnScope.ChainDetails(c: uniffi.apgo_ffi.ChainOut, onClose: () ->
     }
     c.marks.forEachIndexed { i, mk ->
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(if (mk.reached) ApgoIcons.Check else ApgoIcons.Locked, contentDescription = null, tint = if (mk.reached) ApgoPalette.questDone else ApgoPalette.muted, modifier = Modifier.size(14.dp))
+            Icon(
+                if (mk.reached) ApgoIcons.Check else ApgoIcons.Locked,
+                contentDescription = null,
+                tint = if (mk.reached) ApgoPalette.questDone else ApgoPalette.muted,
+                modifier = Modifier.size(14.dp),
+            )
             Text("${i + 1}.  ${ChainFormat.amount(c.unit, mk.at)}", fontSize = 12.sp, modifier = Modifier.weight(1f))
             mk.reward?.let { Text(it, fontSize = 11.sp, color = ApgoPalette.success) }
         }

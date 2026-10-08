@@ -6,7 +6,10 @@ import android.graphics.Bitmap
 sealed interface MarkerSpec {
     val key: String
 
-    /** A scanned place in the realm editor: family colour, with a ring for favorites and grey for banned. [mark] is none | favorite | banned. */
+    /**
+     * A scanned place in the realm editor: family colour, with a ring for favorites and grey for banned. [mark] is none |
+     * favorite | banned.
+     */
     data class Find(
         val kindId: String,
         val family: String,
@@ -27,7 +30,8 @@ sealed interface MarkerSpec {
 
 /**
  * The one definition of a map pin, used by the realm editor and the Play map so they cannot drift apart: what it looks like
- * ([render]), what each quest state looks like ([badge]), how big it is ([iconScale]) and in which order pins win a collision ([drawOrder]).
+ * ([render]), what each quest state looks like ([badge]), how big it is ([iconScale]) and in which order pins win a collision
+ * ([drawOrder]).
  */
 object MapMarkers {
     enum class Badge { None, Progress, Done, Locked }

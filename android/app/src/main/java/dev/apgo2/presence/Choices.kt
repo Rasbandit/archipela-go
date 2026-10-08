@@ -1,6 +1,9 @@
 package dev.apgo2.presence
 
-/** One row in the home Wi-Fi list. [saved] means it is ticked (a home network); [bssid] is only known for the connected or an already saved one. */
+/**
+ * One row in the home Wi-Fi list. [saved] means it is ticked (a home network); [bssid] is only known for the connected or an
+ * already saved one.
+ */
 data class WifiChoice(
     val ssid: String,
     val bssid: String?,
@@ -10,7 +13,10 @@ data class WifiChoice(
 
 /** What the setup wizard lists for home Wi-Fi. Pure. */
 object WifiChoices {
-    /** Connected network first, then saved, then nearby A-Z; one row per name; unusable names dropped; [query] filters by name, ignoring case. */
+    /**
+     * Connected network first, then saved, then nearby A-Z; one row per name; unusable names dropped; [query] filters by name,
+     * ignoring case.
+     */
     fun merge(
         saved: List<HomeNetwork>,
         current: WifiId?,

@@ -89,7 +89,8 @@ private val snapshotLock = Mutex()
 private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 
 /**
- * The map behind a realm preview: a saved picture if there is one, otherwise rendered now (needs the network once) and saved. Returns null when
+ * The map behind a realm preview: a saved picture if there is one, otherwise rendered now (needs the network once) and saved.
+ * Returns null when
  * it cannot be rendered (offline), in which case the card keeps its drawn background.
  */
 suspend fun mapSnapshot(

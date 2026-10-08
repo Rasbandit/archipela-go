@@ -1,6 +1,8 @@
 package dev.apgo2
 
-import dev.apgo2.presence.*
+import dev.apgo2.presence.Decision
+import dev.apgo2.presence.GpsMode
+import dev.apgo2.presence.PresenceState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

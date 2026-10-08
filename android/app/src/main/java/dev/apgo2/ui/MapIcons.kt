@@ -21,7 +21,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 
 /*
- * MapLibre symbols are bitmaps, so the Lucide icons the UI uses are drawn into bitmaps here. Lucide icons are stroked paths on a 24x24 grid.
+ * MapLibre symbols are bitmaps, so the Lucide icons the UI uses are drawn into bitmaps here. Lucide icons are stroked paths on a
+ * 24x24 grid.
  */
 
 private fun DrawScope.strokeIcon(
@@ -92,7 +93,10 @@ fun renderGlyph(
     color: Color = Color.White,
 ): Bitmap = render(sizePx) { icon(icon, 0f, sizePx.toFloat(), color) }
 
-/** The icon itself, bold and with a light outline so it reads on any map: a marker that is the shape (a house) rather than a badge around it. */
+/**
+ * The icon itself, bold and with a light outline so it reads on any map: a marker that is the shape (a house) rather than a
+ * badge around it.
+ */
 fun renderMarker(
     icon: ImageVector,
     sizePx: Int,
@@ -106,7 +110,10 @@ fun renderMarker(
         icon(icon, inset, s - 2 * inset, color, width = 2.4f)
     }
 
-/** A find pin with the quest's state as a badge in the bottom-right corner: a check when done, an amber dot in progress, a lock when locked. */
+/**
+ * A find pin with the quest's state as a badge in the bottom-right corner: a check when done, an amber dot in progress, a lock
+ * when locked.
+ */
 fun renderQuestPin(
     icon: ImageVector,
     sizePx: Int,

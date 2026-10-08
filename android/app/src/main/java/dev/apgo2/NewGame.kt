@@ -28,12 +28,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,37 +61,71 @@ private val FAMILIES = listOf("reach", "dwell", "landmark", "trail", "park", "wa
 private val NEEDS_NO_FINDS = setOf("reach", "courier", "explore", "steps", "away")
 
 /** The win conditions, in the game's own order: id, title. */
-private val GOALS = listOf(
-    "macguffin_short" to "Letter Hunt", "macguffin_long" to "Letter Hunt XL", "all_trips" to "Completionist", "boss" to "The Big One",
-    "treasure_hunt" to "Treasure Hunt", "zone_conqueror" to "Zone Conqueror", "well_rounded" to "Well Rounded", "quest_dex" to "Quest-dex",
-    "marathon" to "Marathon", "explorer" to "Explorer", "streak" to "Daily Habit", "boss_rush" to "Boss Rush",
-)
+private val GOALS =
+    listOf(
+        "macguffin_short" to "Letter Hunt",
+        "macguffin_long" to "Letter Hunt XL",
+        "all_trips" to "Completionist",
+        "boss" to "The Big One",
+        "treasure_hunt" to "Treasure Hunt",
+        "zone_conqueror" to "Zone Conqueror",
+        "well_rounded" to "Well Rounded",
+        "quest_dex" to "Quest-dex",
+        "marathon" to "Marathon",
+        "explorer" to "Explorer",
+        "streak" to "Daily Habit",
+        "boss_rush" to "Boss Rush",
+    )
 
 /** A goal that counts something: what it counts and the usual number. */
-private data class GoalNumber(val unit: String, val default: Int)
-
-private val GOAL_NUMBERS = mapOf(
-    "zone_conqueror" to GoalNumber("percent of every zone", 60), "quest_dex" to GoalNumber("kinds of quest", 15), "marathon" to GoalNumber("kilometers", 42),
-    "explorer" to GoalNumber("map cells", 300), "streak" to GoalNumber("days in a row", 7), "boss_rush" to GoalNumber("hard quests", 5),
+private data class GoalNumber(
+    val unit: String,
+    val default: Int,
 )
+
+private val GOAL_NUMBERS =
+    mapOf(
+        "zone_conqueror" to GoalNumber("percent of every zone", 60),
+        "quest_dex" to GoalNumber("kinds of quest", 15),
+        "marathon" to GoalNumber("kilometers", 42),
+        "explorer" to GoalNumber("map cells", 300),
+        "streak" to GoalNumber("days in a row", 7),
+        "boss_rush" to GoalNumber("hard quests", 5),
+    )
 
 private val TRAPS = listOf("freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor")
 
 /** A zone being set up: a realm, how you travel there, and the quest types it uses. */
-private data class ZoneDraft(val realmId: String, val mode: String, val types: Set<String>)
+private data class ZoneDraft(
+    val realmId: String,
+    val mode: String,
+    val types: Set<String>,
+)
 
 /** Quest types a realm can serve, with how many places were found for each. */
-private fun findsByFamily(m: AppModel, realmId: String): Map<String, Int> =
-    m.offers[realmId].orEmpty().groupBy { it.family }.mapValues { (_, kinds) -> kinds.sumOf { it.count.toInt() } }
+private fun findsByFamily(
+    m: AppModel,
+    realmId: String,
+): Map<String, Int> =
+    m.offers[realmId]
+        .orEmpty()
+        .groupBy { it.family }
+        .mapValues { (_, kinds) -> kinds.sumOf { it.count.toInt() } }
 
-private fun availableTypes(m: AppModel, realmId: String): Set<String> {
+private fun availableTypes(
+    m: AppModel,
+    realmId: String,
+): Set<String> {
     val found = findsByFamily(m, realmId)
     return FAMILIES.filter { it in NEEDS_NO_FINDS || (found[it] ?: 0) > 0 }.toSet()
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun NewGameScreen(m: AppModel) {
+fun NewGameScreen(
+    m: AppModel,
+    modifier: Modifier = Modifier,
+) {
     var name by remember { mutableStateOf("My game") }
     val zones = remember { mutableStateListOf<ZoneDraft>() }
     val goals = remember { mutableStateListOf("macguffin_short") }
@@ -118,20 +152,58 @@ fun NewGameScreen(m: AppModel) {
             goals = goals.map { GoalPickIn(it, targets[it]?.toUIntOrNull() ?: 0u) },
             goalRequirement = if (goals.size == 1) "any" else requirement,
             goalNeed = need.coerceIn(1, goals.size).toUInt(),
-            numberOfTrips = trips.toInt().toUInt(), zoneModes = zones.map { it.mode },
-            easyShare = e.toUInt(), mediumShare = md.toUInt(), hardShare = h.toUInt(), minutesPerTier = mpt.toInt().toUInt(), minDistanceM = 150u,
-            questTypes = FAMILIES, zoneQuestTypes = zones.map { z -> FAMILIES.filter { it in z.types } },
-            enabledTraps = if (trapsOn) TRAPS else emptyList(), trapRate = if (trapsOn) 30u else 0u,
-            enableEffortReductions = bonus, enableScouting = bonus || fog, enableCollection = bonus, reductionPercent = 8u, fogOfWar = fog, returnHome = false,
+            numberOfTrips = trips.toInt().toUInt(),
+            zoneModes = zones.map { it.mode },
+            easyShare = e.toUInt(),
+            mediumShare = md.toUInt(),
+            hardShare = h.toUInt(),
+            minutesPerTier = mpt.toInt().toUInt(),
+            minDistanceM = 150u,
+            questTypes = FAMILIES,
+            zoneQuestTypes = zones.map { z -> FAMILIES.filter { it in z.types } },
+            enabledTraps = if (trapsOn) TRAPS else emptyList(),
+            trapRate = if (trapsOn) 30u else 0u,
+            enableEffortReductions = bonus,
+            enableScouting = bonus || fog,
+            enableCollection = bonus,
+            reductionPercent = 8u,
+            fogOfWar = fog,
+            returnHome = false,
         )
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         Text("New game", style = MaterialTheme.typography.titleLarge)
         OutlinedTextField(name, { name = it }, label = { Text("Game name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
-        ZonesSection(m, zones)
-        GoalsSection(goals, targets, requirement, { requirement = it }, need, { need = it })
+        ZonesSection(
+            m,
+            zones,
+            onChange = { i, z -> zones[i] = z },
+            onAdd = { zones.add(it) },
+            onRemove = { zones.removeAt(it) },
+        )
+        GoalsSection(
+            goals,
+            targets,
+            onToggle = { id ->
+                // There is always at least one goal.
+                if (id in goals) {
+                    if (goals.size > 1) goals.remove(id)
+                } else {
+                    goals.add(id)
+                    goals.sortBy { g -> GOALS.indexOfFirst { it.first == g } }
+                }
+            },
+            onTarget = { id, v -> targets[id] = v },
+            requirement = requirement,
+            onRequirement = { requirement = it },
+            need = need,
+            onNeed = { need = it },
+        )
 
         // ---- how the game plays
         LabelWithHelp("Number of quests: ${trips.toInt()}", Help.questCount)
@@ -144,29 +216,77 @@ fun NewGameScreen(m: AppModel) {
         SwitchRow("Traps", Help.traps, trapsOn) { trapsOn = it }
         SwitchRow("Bonus items", Help.bonus, bonus) { bonus = it }
         LabelWithHelp("Terrain", Help.terrain)
-        ChoiceChips(listOf("any", "prefer_paved", "paved_only"), m.surfacePref, { m.surfacePref = it }, { mapOf("any" to "Any", "prefer_paved" to "Prefer paved", "paved_only" to "Paved only")[it] ?: it })
+        ChoiceChips(listOf("any", "prefer_paved", "paved_only"), m.surfacePref, { m.surfacePref = it }, {
+            mapOf(
+                "any" to "Any",
+                "prefer_paved" to "Prefer paved",
+                "paved_only" to "Paved only",
+            )[it]
+                ?: it
+        })
         SwitchRow("Avoid stairs", Help.stairs, m.avoidStairs) { m.avoidStairs = it }
 
         Text("Time away", style = MaterialTheme.typography.titleMedium)
         SwitchRow("Only count time inside a zone", Help.awayZone, awayZoneOnly) { awayZoneOnly = it }
         SwitchRow("Pick the distance automatically", Help.awayDistance, awayAuto) { awayAuto = it }
-        if (!awayAuto) OutlinedTextField(awayMeters, { awayMeters = it.filter(Char::isDigit).take(5) }, label = { Text("Away distance (metres)") }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+        if (!awayAuto) {
+            OutlinedTextField(
+                awayMeters,
+                {
+                    awayMeters = it.filter(Char::isDigit).take(5)
+                },
+                label = {
+                    Text("Away distance (metres)")
+                },
+                singleLine = true,
+                keyboardOptions =
+                    androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                    ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         val ready = zones.isNotEmpty()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(enabled = ready, onClick = { m.startSolo(opts(), zones.map { it.realmId }, name, awayZoneOnly, AwaySettings.distance(awayAuto, awayMeters)) }) { Text("Play solo") }
+            Button(enabled = ready, onClick = {
+                m.startSolo(opts(), zones.map { it.realmId }, name, awayZoneOnly, AwaySettings.distance(awayAuto, awayMeters))
+            }) { Text("Play solo") }
             OutlinedButton(enabled = ready, onClick = { m.exportYaml(opts()) }) { Text("Export YAML") }
         }
         if (!ready) Text("Add at least one zone to continue.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         HorizontalDivider()
-        ArchipelagoSection(m, url, { url = it }, slot, { slot = it }, apZoneRealms, awayZoneOnly, AwaySettings.distance(awayAuto, awayMeters))
+        ArchipelagoSection(
+            m,
+            url,
+            { url = it },
+            slot,
+            { slot = it },
+            apZoneRealms,
+            onPickRealm = { i, id ->
+                while (apZoneRealms.size <= i) apZoneRealms.add("")
+                apZoneRealms[i] = id
+            },
+            onConnect = {
+                apZoneRealms.clear()
+                m.connectAp(url, slot)
+            },
+            awayZoneOnly = awayZoneOnly,
+            awayDistanceM =
+                AwaySettings.distance(awayAuto, awayMeters),
+        )
         Box(Modifier.height(24.dp))
     }
 }
 
 @Composable
-private fun SwitchRow(label: String, help: dev.apgo2.ui.HelpTopic, on: Boolean, onChange: (Boolean) -> Unit) {
+private fun SwitchRow(
+    label: String,
+    help: dev.apgo2.ui.HelpTopic,
+    on: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         LabelWithHelp(label, help)
         Switch(on, onChange)
@@ -177,19 +297,37 @@ private fun SwitchRow(label: String, help: dev.apgo2.ui.HelpTopic, on: Boolean, 
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ZonesSection(m: AppModel, zones: MutableList<ZoneDraft>) {
-    LabelWithHelp("Zones", Help.zones, style = MaterialTheme.typography.titleMedium)
-    Text("Zone 1 is where you start. Later zones open as you find keys.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    zones.forEachIndexed { i, z ->
-        val realm = m.shownRealms.firstOrNull { it.id == z.realmId }
-        ZoneCard(m, i, z, realm, onChange = { zones[i] = it }, onRemove = { zones.removeAt(i) })
-    }
-    val scanned = m.shownRealms.filter { it.scannedAtMs != null }
-    if (zones.size < 6) {
-        Text(if (scanned.isEmpty()) "Scan a realm on the Realms tab to use it here." else "Add a zone from one of your realms:", fontSize = 12.sp)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            scanned.forEach { r ->
-                OutlinedButton(onClick = { zones.add(ZoneDraft(r.id, "walk", availableTypes(m, r.id))) }) { IconLabel(r.name, ApgoIcons.realm(r.icon)) }
+private fun ZonesSection(
+    m: AppModel,
+    zones: List<ZoneDraft>,
+    onChange: (Int, ZoneDraft) -> Unit,
+    onAdd: (ZoneDraft) -> Unit,
+    onRemove: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LabelWithHelp("Zones", Help.zones, style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Zone 1 is where you start. Later zones open as you find keys.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        zones.forEachIndexed { i, z ->
+            val realm = m.shownRealms.firstOrNull { it.id == z.realmId }
+            ZoneCard(m, i, z, realm, onChange = { onChange(i, it) }, onRemove = { onRemove(i) })
+        }
+        val scanned = m.shownRealms.filter { it.scannedAtMs != null }
+        if (zones.size < 6) {
+            Text(
+                if (scanned.isEmpty()) "Scan a realm on the Realms tab to use it here." else "Add a zone from one of your realms:",
+                fontSize = 12.sp,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                scanned.forEach { r ->
+                    OutlinedButton(
+                        onClick = { onAdd(ZoneDraft(r.id, "walk", availableTypes(m, r.id))) },
+                    ) { IconLabel(r.name, ApgoIcons.realm(r.icon)) }
+                }
             }
         }
     }
@@ -197,20 +335,52 @@ private fun ZonesSection(m: AppModel, zones: MutableList<ZoneDraft>) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ZoneCard(m: AppModel, index: Int, zone: ZoneDraft, realm: RealmOut?, onChange: (ZoneDraft) -> Unit, onRemove: () -> Unit) {
+private fun ZoneCard(
+    m: AppModel,
+    index: Int,
+    zone: ZoneDraft,
+    realm: RealmOut?,
+    onChange: (ZoneDraft) -> Unit,
+    onRemove: () -> Unit,
+) {
     val found = findsByFamily(m, zone.realmId)
     val available = availableTypes(m, zone.realmId)
-    Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(
+        Modifier.fillMaxWidth(),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(ApgoIcons.realm(realm?.icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                Icon(
+                    ApgoIcons.realm(realm?.icon),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
                 Column(Modifier.weight(1f)) {
                     Text("Zone ${index + 1}: ${realm?.name ?: "realm removed"}", style = MaterialTheme.typography.titleSmall)
-                    Text(if (index == 0) "You start here" else "Opens with keys", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (index ==
+                            0
+                        ) {
+                            "You start here"
+                        } else {
+                            "Opens with keys"
+                        },
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                IconButton(onClick = onRemove) { Icon(ApgoIcons.Remove, contentDescription = "Remove zone ${index + 1}", tint = ApgoPalette.danger) }
+                IconButton(
+                    onClick = onRemove,
+                ) { Icon(ApgoIcons.Remove, contentDescription = "Remove zone ${index + 1}", tint = ApgoPalette.danger) }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 LabelWithHelp("Travel by ${modeLabel(zone.mode)}", Help.travelMode)
                 IconChoices(PLAY_MODES, zone.mode, { onChange(zone.copy(mode = it)) }, ApgoIcons::mode, ::modeLabel)
             }
@@ -220,12 +390,38 @@ private fun ZoneCard(m: AppModel, index: Int, zone: ZoneDraft, realm: RealmOut?,
                     val here = f in available
                     val label = if (f in NEEDS_NO_FINDS) f else "$f ${found[f] ?: 0}"
                     ApgoChip(
-                        label, f in zone.types && here, { onChange(zone.copy(types = if (f in zone.types) zone.types - f else zone.types + f)) },
-                        textSize = 11.sp, enabled = here || f in zone.types, icon = ApgoIcons.familyIcons[f],
+                        label,
+                        f in zone.types && here,
+                        {
+                            onChange(
+                                zone.copy(
+                                    types =
+                                        if (f in
+                                            zone.types
+                                        ) {
+                                            zone.types - f
+                                        } else {
+                                            zone.types + f
+                                        },
+                                ),
+                            )
+                        },
+                        textSize = 11.sp,
+                        enabled = here || f in zone.types,
+                        icon = ApgoIcons.familyIcons[f],
                     )
                 }
             }
-            if (zone.types.none { it in available }) Text("Pick at least one type, or walking-to-a-point quests are used.", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+            if (zone.types.none {
+                    it in available
+                }
+            ) {
+                Text(
+                    "Pick at least one type, or walking-to-a-point quests are used.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 }
@@ -235,55 +431,77 @@ private fun ZoneCard(m: AppModel, index: Int, zone: ZoneDraft, realm: RealmOut?,
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GoalsSection(
-    goals: MutableList<String>, targets: MutableMap<String, String>, requirement: String, onRequirement: (String) -> Unit, need: Int, onNeed: (Int) -> Unit,
+    goals: List<String>,
+    targets: Map<String, String>,
+    onToggle: (String) -> Unit,
+    onTarget: (String, String) -> Unit,
+    requirement: String,
+    onRequirement: (String) -> Unit,
+    need: Int,
+    onNeed: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    LabelWithHelp("Win conditions", Help.goals, style = MaterialTheme.typography.titleMedium)
-    Text("Choose one or more.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        GOALS.forEach { (id, title) ->
-            ApgoChip(
-                title, id in goals,
-                { if (id in goals) { if (goals.size > 1) goals.remove(id) } else goals.add(id) }, // there is always at least one goal
-                textSize = 12.sp, icon = if (id in goals) ApgoIcons.Check else null,
-            )
-        }
-    }
-    goals.sortBy { id -> GOALS.indexOfFirst { it.first == id } }
-    // What each chosen goal means, and its number if it counts something.
-    goals.forEach { id ->
-        val title = GOALS.first { it.first == id }.second
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                Help.goalDescriptions[id]?.let { HelpTip(it) }
-            }
-            GOAL_NUMBERS[id]?.let { n ->
-                OutlinedTextField(
-                    targets[id] ?: "", { targets[id] = it.filter(Char::isDigit).take(4) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                    label = { Text("${n.unit} (usually ${n.default})") },
-                    trailingIcon = { HelpTip(Help.goalTarget) },
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LabelWithHelp("Win conditions", Help.goals, style = MaterialTheme.typography.titleMedium)
+        Text("Choose one or more.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            GOALS.forEach { (id, title) ->
+                ApgoChip(
+                    title,
+                    id in goals,
+                    { onToggle(id) },
+                    textSize = 12.sp,
+                    icon = if (id in goals) ApgoIcons.Check else null,
                 )
             }
         }
-    }
-    if (goals.size >= 2) {
-        LabelWithHelp("You win when you finish", Help.goalRule)
-        ChoiceChips(listOf("any", "all", "at_least"), requirement, onRequirement, { mapOf("any" to "Any one", "all" to "All of them", "at_least" to "At least…")[it] ?: it })
-        if (requirement == "at_least") {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onNeed((need - 1).coerceAtLeast(1)) }) { Text("−") }
-                Text("${need.coerceIn(1, goals.size)} of ${goals.size} goals", style = MaterialTheme.typography.titleSmall)
-                OutlinedButton(onClick = { onNeed((need + 1).coerceAtMost(goals.size)) }) { Text("+") }
+        // What each chosen goal means, and its number if it counts something.
+        goals.forEach { id ->
+            val title = GOALS.first { it.first == id }.second
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    Help.goalDescriptions[id]?.let { HelpTip(it) }
+                }
+                GOAL_NUMBERS[id]?.let { n ->
+                    OutlinedTextField(
+                        targets[id] ?: "",
+                        { onTarget(id, it.filter(Char::isDigit).take(4)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("${n.unit} (usually ${n.default})") },
+                        trailingIcon = { HelpTip(Help.goalTarget) },
+                    )
+                }
             }
         }
-        Text(
-            when (requirement) {
-                "any" -> "The first of these ${goals.size} goals you finish wins."
-                "all" -> "You must finish all ${goals.size} goals."
-                else -> "Finish ${need.coerceIn(1, goals.size)} of the ${goals.size} goals to win."
-            },
-            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (goals.size >= 2) {
+            LabelWithHelp("You win when you finish", Help.goalRule)
+            ChoiceChips(listOf("any", "all", "at_least"), requirement, onRequirement, {
+                mapOf(
+                    "any" to "Any one",
+                    "all" to "All of them",
+                    "at_least" to "At least…",
+                )[it]
+                    ?: it
+            })
+            if (requirement == "at_least") {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onNeed((need - 1).coerceAtLeast(1)) }) { Text("−") }
+                    Text("${need.coerceIn(1, goals.size)} of ${goals.size} goals", style = MaterialTheme.typography.titleSmall)
+                    OutlinedButton(onClick = { onNeed((need + 1).coerceAtMost(goals.size)) }) { Text("+") }
+                }
+            }
+            Text(
+                when (requirement) {
+                    "any" -> "The first of these ${goals.size} goals you finish wins."
+                    "all" -> "You must finish all ${goals.size} goals."
+                    else -> "Finish ${need.coerceIn(1, goals.size)} of the ${goals.size} goals to win."
+                },
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -291,30 +509,43 @@ private fun GoalsSection(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ArchipelagoSection(m: AppModel, url: String, onUrl: (String) -> Unit, slot: String, onSlot: (String) -> Unit, apZoneRealms: MutableList<String>, awayZoneOnly: Boolean, awayDistanceM: UInt) {
-    LabelWithHelp("Join an Archipelago game", Help.archipelago, style = MaterialTheme.typography.titleMedium)
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        OutlinedTextField(url, onUrl, label = { Text("Server") }, singleLine = true, modifier = Modifier.weight(1f))
-        OutlinedTextField(slot, onSlot, label = { Text("Slot") }, singleLine = true, modifier = Modifier.weight(1f))
-    }
-    Button(onClick = { apZoneRealms.clear(); m.connectAp(url, slot) }) { Text("Connect") }
-    Text("Status: ${m.apStatus}${m.apGoalSummary()?.let { "  ·  goal: $it" } ?: ""}", fontSize = 12.sp)
-    if (m.apZoneModes.isNotEmpty()) {
-        Text("This game needs ${m.apZoneModes.size} zone(s). Pick a realm for each:", fontSize = 12.sp)
-        m.apZoneModes.forEachIndexed { i, mode ->
-            val options = m.shownRealms.filter { it.scannedAtMs != null }
-            Text("Zone ${i + 1} (${modeLabel(mode)})", style = MaterialTheme.typography.titleSmall)
-            if (options.isEmpty()) Text("No scanned realm yet: create one first.", fontSize = 12.sp)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                options.forEach { r ->
-                    ApgoChip(r.name, apZoneRealms.getOrNull(i) == r.id, {
-                        while (apZoneRealms.size <= i) apZoneRealms.add("")
-                        apZoneRealms[i] = r.id
-                    })
+private fun ArchipelagoSection(
+    m: AppModel,
+    url: String,
+    onUrl: (String) -> Unit,
+    slot: String,
+    onSlot: (String) -> Unit,
+    apZoneRealms: List<String>,
+    onPickRealm: (Int, String) -> Unit,
+    onConnect: () -> Unit,
+    awayZoneOnly: Boolean,
+    awayDistanceM: UInt,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LabelWithHelp("Join an Archipelago game", Help.archipelago, style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(url, onUrl, label = { Text("Server") }, singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedTextField(slot, onSlot, label = { Text("Slot") }, singleLine = true, modifier = Modifier.weight(1f))
+        }
+        Button(onClick = onConnect) { Text("Connect") }
+        Text("Status: ${m.apStatus}${m.apGoalSummary()?.let { "  ·  goal: $it" } ?: ""}", fontSize = 12.sp)
+        if (m.apZoneModes.isNotEmpty()) {
+            Text("This game needs ${m.apZoneModes.size} zone(s). Pick a realm for each:", fontSize = 12.sp)
+            m.apZoneModes.forEachIndexed { i, mode ->
+                val options = m.shownRealms.filter { it.scannedAtMs != null }
+                Text("Zone ${i + 1} (${modeLabel(mode)})", style = MaterialTheme.typography.titleSmall)
+                if (options.isEmpty()) Text("No scanned realm yet: create one first.", fontSize = 12.sp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    options.forEach { r ->
+                        ApgoChip(r.name, apZoneRealms.getOrNull(i) == r.id, { onPickRealm(i, r.id) })
+                    }
                 }
             }
+            val complete = apZoneRealms.size == m.apZoneModes.size && apZoneRealms.none { it.isBlank() }
+            Button(enabled = complete, onClick = {
+                m.startApGame(apZoneRealms.toList(), "Archipelago: $slot", awayZoneOnly, awayDistanceM)
+            }) { Text("Start this game") }
         }
-        val complete = apZoneRealms.size == m.apZoneModes.size && apZoneRealms.none { it.isBlank() }
-        Button(enabled = complete, onClick = { m.startApGame(apZoneRealms.toList(), "Archipelago: $slot", awayZoneOnly, awayDistanceM) }) { Text("Start this game") }
     }
 }

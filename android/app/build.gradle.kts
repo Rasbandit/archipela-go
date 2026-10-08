@@ -18,7 +18,6 @@ android {
     }
 
     buildFeatures { compose = true }
-
 }
 
 spotless {

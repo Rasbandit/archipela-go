@@ -41,7 +41,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Transparent system bars, with dark or light icons chosen from the system theme (the app theme follows the same setting, so they agree).
+        // Transparent system bars, with dark or light icons chosen from the system theme (the app theme follows the same setting,
+        // so they agree).
         enableEdgeToEdge()
         // The model lives in the Application: sensors and the game keep going if this activity is recreated or destroyed.
         val model = (application as ApgoApp).model
@@ -143,14 +144,17 @@ class MainActivity : ComponentActivity() {
                     }
 
                     LaunchedEffect(stepsOk) { if (stepsOk) model.sensors.startSteps() }
-                    // The presence decision picks the rate: precise in a zone, coarse outside, off at home or in the car. Stopped (no game) keeps the map marker while the app is on screen.
+                    // The presence decision picks the rate: precise in a zone, coarse outside, off at home or in the car. Stopped
+                    // (no game) keeps the map marker while the app is on screen.
                     LaunchedEffect(permitted, model.hud != null, visible, model.presence) {
                         model.appVisible = visible
                         model.locationPermitted = permitted
                         if (permitted) model.applyLocation() else model.sensors.stopLocation()
                     }
-                    // Wi-Fi names need location permission; Bluetooth devices need BLUETOOTH_CONNECT (re-read on every start, restarting the monitor when it appears).
-                    // The model owns the monitor for the whole process; this only tells it when it may start or the Bluetooth grant changed.
+                    // Wi-Fi names need location permission; Bluetooth devices need BLUETOOTH_CONNECT (re-read on every start,
+                    // restarting the monitor when it appears).
+                    // The model owns the monitor for the whole process; this only tells it when it may start or the Bluetooth
+                    // grant changed.
                     LaunchedEffect(permitted, btGranted) { if (permitted) model.ensureMonitor(btGranted) }
                     // A game that is open is tracked in the foreground service, so fixes keep coming with the screen off.
                     val playing = model.hud != null

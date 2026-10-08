@@ -15,7 +15,11 @@ import androidx.compose.ui.unit.sp
 
 /** One figure with its label under it. */
 @Composable
-private fun RowScope.Stat(label: String, value: String, modifier: Modifier = Modifier) {
+private fun RowScope.Stat(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier.weight(1f)) {
         Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
         Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
@@ -27,9 +31,23 @@ private fun RowScope.Stat(label: String, value: String, modifier: Modifier = Mod
  * A figure that is not known yet is null and shows [waiting] ("after scan" or "looking…") in its place.
  */
 @Composable
-fun RealmStatsBox(area: Double, farthest: Double, scan: ScanFigures?, waiting: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (scan?.stale == true) Text("Places and streets are from the last scan of the old shape. Open Details to update them.", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+fun RealmStatsBox(
+    area: Double,
+    farthest: Double,
+    scan: ScanFigures?,
+    waiting: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (scan?.stale ==
+            true
+        ) {
+            Text(
+                "Places and streets are from the last scan of the old shape. Open Details to update them.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Stat("area", Units.area(area))
             Stat("farthest from home", Units.distance(farthest))
@@ -49,4 +67,12 @@ fun RealmStatsBox(area: Double, farthest: Double, scan: ScanFigures?, waiting: S
 }
 
 /** The figures a scan gives (plain values, so this file does not depend on the generated bindings). */
-data class ScanFigures(val walkableM: Double, val streets: Int, val trailM: Double, val finds: Int, val parks: Int, val roughShare: Double, val stale: Boolean = false)
+data class ScanFigures(
+    val walkableM: Double,
+    val streets: Int,
+    val trailM: Double,
+    val finds: Int,
+    val parks: Int,
+    val roughShare: Double,
+    val stale: Boolean = false,
+)
