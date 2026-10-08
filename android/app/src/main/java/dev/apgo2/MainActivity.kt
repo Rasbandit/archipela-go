@@ -67,14 +67,15 @@ class MainActivity : ComponentActivity() {
                         onDispose { sm.unregisterListener(l) }
                     }
 
-                    DisposableEffect(permitted) {
+                    val rate = GpsPolicy.forState(playing = model.quests.isNotEmpty())
+                    DisposableEffect(permitted, rate) {
                         if (!permitted) return@DisposableEffect onDispose {}
                         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
                         val listener = LocationListener { loc -> model.realLoc = loc; model.onFix(loc) }
                         // Listen on every enabled provider: whichever has a fix wins (emulators only feed GPS).
                         providers(lm).forEach { provider ->
                             @SuppressLint("MissingPermission")
-                            lm.requestLocationUpdates(provider, 1000L, 0f, listener)
+                            lm.requestLocationUpdates(provider, rate.intervalMs, rate.minDistanceM, listener)
                             @SuppressLint("MissingPermission")
                             lm.getLastKnownLocation(provider)?.let { model.realLoc = it }
                         }

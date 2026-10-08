@@ -31,4 +31,5 @@ dependencies {
     implementation("${libs.jna.get()}@aar")
     implementation(libs.maplibre)
     implementation(libs.lucide)
+    testImplementation("junit:junit:4.13.2")
 }
