@@ -108,6 +108,17 @@ pub enum Target {
         /// How long to be away from home, in minutes.
         minutes: f64,
     },
+    /// Pick up items around home and bring enough of them home (forager).
+    Collect {
+        /// Where the items lie: nearest home first. Indexes are stable (saved progress refers to them).
+        pts: Vec<Point>,
+        /// How many items must be brought home.
+        need: u32,
+        /// How close counts as picked up, in metres.
+        r: f64,
+        /// What the items are ("pinecones"), flavour only.
+        theme: String,
+    },
 }
 
 impl Target {
@@ -124,6 +135,7 @@ impl Target {
             Self::Cells { n, .. } => format!("Visit {n} new map cells"),
             Self::Steps { n } => format!("Take {n} steps"),
             Self::Away { minutes } => format!("Spend {minutes:.0} min away from home"),
+            Self::Collect { need, r, theme, .. } => format!("Bring home {need} {theme} (pick up within {})", distance_rounded(*r, units, Round::Down)),
         }
     }
 }
@@ -351,7 +363,7 @@ fn anchor(t: &Target) -> Option<Point> {
     match t {
         Target::Point { p, .. } | Target::Dwell { p, .. } => Some(*p),
         Target::DwellArea { center, .. } => Some(*center),
-        Target::Line { pts, .. } => pts.first().copied(),
+        Target::Line { pts, .. } | Target::Collect { pts, .. } => pts.first().copied(),
         Target::Courier { a, .. } => Some(*a),
         Target::RoundTrip { far, .. } => Some(*far),
         Target::Cells { .. } | Target::Steps { .. } | Target::Away { .. } => None,
@@ -980,6 +992,7 @@ mod tests {
             Target::Line { pts, .. } => pts.first().copied().into_iter().collect(),
             Target::Courier { a, b, .. } => vec![*a, *b],
             Target::RoundTrip { far, .. } => vec![*far],
+            Target::Collect { pts, .. } => pts.clone(),
             Target::Cells { .. } | Target::Steps { .. } | Target::Away { .. } => vec![],
         }
     }
@@ -1313,6 +1326,7 @@ mod goal_text_tests {
             (Target::Cells { n: 12, cell_m: 100.0 }, "Visit 12 new map cells"),
             (Target::Steps { n: 500 }, "Take 500 steps"),
             (Target::Away { minutes: 20.0 }, "Spend 20 min away from home"),
+            (Target::Collect { pts: vec![p], need: 5, r: 25.0, theme: "acorns".into() }, "Bring home 5 acorns (pick up within 25 m)"),
         ];
         for (t, want) in cases {
             assert_eq!(t.goal_text(UnitSystem::Metric), want);

@@ -149,6 +149,12 @@ fn main() {
                     at(far, 240, None);
                 }
             }
+            Target::Collect { pts, need, .. } => {
+                for q in pts.iter().take(*need as usize) {
+                    at(*q, 700, None);
+                }
+                at(home, 900, None);
+            }
         }
         for (p, ts, st) in fixes {
             for e in g.on_fix(Fix { lat: p.lat, lon: p.lon, t_ms: ts, accuracy_m: 5.0 }, st) {

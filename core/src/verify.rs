@@ -61,8 +61,33 @@ pub fn implied_speed_kmh(prev: &Fix, cur: &Fix) -> Option<f64> {
 
 /// Spacing of the samples a line quest is covered by, in metres.
 pub const LINE_SAMPLE_M: f64 = 20.0;
-const HOME_RADIUS_M: f64 = 100.0;
+/// How close to home counts as home: for round trips, and where a forager banks what it carries, in metres.
+pub const HOME_RADIUS_M: f64 = 100.0;
 const MAX_GAP_MS: i64 = 5 * 60_000;
+
+/// Saved progress of a collect (forager) quest.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Collected {
+    /// Indexes (into the quest's items) of the items picked up so far.
+    pub picked: BTreeSet<u16>,
+    /// Items picked up and not yet brought home.
+    pub carried: u32,
+    /// Items brought home so far.
+    pub banked: u32,
+}
+
+impl Collected {
+    /// The one banking rule: everything carried is brought home and counts as banked.
+    pub fn bank(&mut self) {
+        self.banked += std::mem::take(&mut self.carried);
+    }
+}
+
+/// Progress of a collect quest: what is banked, plus half of what is carried, out of `need` (at most 1).
+#[must_use]
+pub fn collect_progress(c: &Collected, need: u32) -> f32 {
+    to_f32(((f64::from(c.banked) + 0.5 * f64::from(c.carried)) / f64::from(need.max(1))).min(1.0))
+}
 
 // Saved with the game (#76), so an in-progress quest survives an app restart. A line's samples are not saved: they come
 // from the target again (see `Tracker::reattach`).
@@ -96,6 +121,7 @@ enum State {
         accum_ms: i64,
         last_t: Option<i64>,
     },
+    Collect(Collected),
 }
 
 /// Watches phone signals and decides whether one quest has been completed.
@@ -145,8 +171,30 @@ impl Tracker {
             Target::Cells { .. } => State::Cells { seen: BTreeSet::new() },
             Target::Steps { .. } => State::Steps { baseline: None, now: 0 },
             Target::Away { .. } => State::Away { accum_ms: 0, last_t: None },
+            Target::Collect { .. } => State::Collect(Collected::default()),
         };
         Self { target, home, state, done: false, progress: 0.0 }
+    }
+
+    /// A tracker for a collect quest that carries on from saved progress (a reopened game or a moved quest).
+    #[must_use]
+    pub fn with_collected(target: Target, home: Point, saved: Collected) -> Self {
+        let mut t = Self::new(target, home);
+        if let (Target::Collect { need, .. }, State::Collect(c)) = (&t.target, &mut t.state) {
+            *c = saved;
+            t.progress = collect_progress(c, *need);
+            t.done = c.banked >= *need;
+        }
+        t
+    }
+
+    /// The progress of a collect quest (`None` for any other quest).
+    #[must_use]
+    pub fn collected(&self) -> Option<&Collected> {
+        match &self.state {
+            State::Collect(c) => Some(c),
+            _ => None,
+        }
     }
 
     /// The quest's current status.
@@ -266,6 +314,19 @@ impl Tracker {
                 self.progress = to_f32((i64_to_f64(*accum_ms) / (*minutes * 60_000.0)).min(1.0));
                 self.done = i64_to_f64(*accum_ms) >= *minutes * 60_000.0;
             }
+            (Target::Collect { pts, need, r, .. }, State::Collect(c)) => {
+                for (i, q) in pts.iter().enumerate() {
+                    let Ok(i) = u16::try_from(i) else { break };
+                    if distance_m(p, *q) <= *r && c.picked.insert(i) {
+                        c.carried += 1;
+                    }
+                }
+                if distance_m(p, self.home) <= HOME_RADIUS_M {
+                    c.bank();
+                }
+                self.progress = collect_progress(c, *need);
+                self.done = c.banked >= *need;
+            }
             _ => {}
         }
         if self.done {
@@ -361,6 +422,81 @@ mod tests {
 
     fn fix(p: Point, t_s: i64) -> Fix {
         Fix { lat: p.lat, lon: p.lon, t_ms: t_s * 1000, accuracy_m: 10.0 }
+    }
+
+    /// A forager target: `n` items 100 m apart going north from 500 m.
+    fn collect(need: u32, n: u32) -> Target {
+        let pts = (0..n).map(|i| destination(home(), 0.0, 500.0 + 100.0 * f64::from(i))).collect();
+        Target::Collect { pts, need, r: 25.0, theme: "acorns".into() }
+    }
+
+    fn items(t: &Target) -> Vec<Point> {
+        let Target::Collect { pts, .. } = t else { panic!("not a collect target") };
+        pts.clone()
+    }
+
+    #[test]
+    fn collect_picks_each_item_once_within_its_radius_and_ignores_blurry_fixes() {
+        let t = collect(3, 6);
+        let pts = items(&t);
+        let mut tr = Tracker::new(t, home());
+        tr.update(&Fix { accuracy_m: 50.0, ..fix(pts[0], 0) }, None);
+        assert_eq!(tr.collected().unwrap().carried, 0, "a blurry fix picks nothing");
+        tr.update(&fix(destination(pts[0], 90.0, 26.0), 10), None);
+        assert_eq!(tr.collected().unwrap().carried, 0, "26 m is outside the 25 m pickup radius");
+        tr.update(&fix(destination(pts[0], 90.0, 24.0), 20), None);
+        tr.update(&fix(pts[0], 30), None);
+        let c = tr.collected().unwrap();
+        assert_eq!((c.carried, c.banked), (1, 0), "one pickup per item");
+        assert_eq!(c.picked, BTreeSet::from([0]));
+        assert!(matches!(tr.status(), Status::Active(p) if (p - 0.5 / 3.0).abs() < 1e-6), "carried counts half: {:?}", tr.status());
+    }
+
+    #[test]
+    fn collect_banks_on_each_arrival_home_and_is_done_exactly_at_the_need() {
+        let t = collect(3, 6);
+        let pts = items(&t);
+        let mut tr = Tracker::new(t, home());
+        tr.update(&fix(pts[0], 0), None);
+        tr.update(&fix(pts[1], 60), None);
+        tr.update(&fix(destination(home(), 0.0, 150.0), 120), None);
+        assert_eq!(tr.collected().unwrap().banked, 0, "nothing is banked away from home");
+        tr.update(&fix(destination(home(), 0.0, 90.0), 180), None);
+        let c = tr.collected().unwrap();
+        assert_eq!((c.carried, c.banked), (0, 2), "partial banking");
+        tr.update(&fix(home(), 240), None);
+        assert_eq!(tr.collected().unwrap().banked, 2, "being home again banks nothing new");
+        // second outing: banked 2 + carried 1 reaches the need, but only banking finishes it
+        assert_ne!(tr.update(&fix(pts[2], 300), None), Status::Done, "carrying enough is not done");
+        tr.update(&fix(pts[3], 360), None);
+        assert_eq!(tr.update(&fix(home(), 420), None), Status::Done);
+        assert_eq!(tr.collected().unwrap().banked, 4);
+    }
+
+    #[test]
+    fn collect_keeps_what_it_carries_through_a_pause_and_resumes_from_a_save() {
+        let t = collect(3, 6);
+        let pts = items(&t);
+        let mut tr = Tracker::new(t.clone(), home());
+        tr.update(&fix(pts[0], 0), None);
+        tr.pause();
+        assert_eq!(tr.collected().unwrap().carried, 1, "a pause (home Wi-Fi, car) keeps what you carry");
+        let saved = Collected { picked: BTreeSet::from([0, 1]), carried: 1, banked: 1 };
+        let back = Tracker::with_collected(t, home(), saved.clone());
+        assert_eq!(back.collected(), Some(&saved));
+        assert!(matches!(back.status(), Status::Active(p) if (p - 0.5).abs() < 1e-6), "(1 + 0.5) / 3");
+        assert!(Tracker::new(Target::Point { p: home(), r: 40.0 }, home()).collected().is_none());
+        assert!((collect_progress(&Collected { banked: 9, ..Collected::default() }, 3) - 1.0).abs() < f32::EPSILON, "capped at 1");
+    }
+
+    #[test]
+    fn banking_moves_everything_carried_into_banked_and_is_idempotent() {
+        let mut c = Collected { picked: BTreeSet::from([0, 1, 2]), carried: 2, banked: 1 };
+        c.bank();
+        assert_eq!((c.carried, c.banked), (0, 3));
+        assert_eq!(c.picked, BTreeSet::from([0, 1, 2]), "banking keeps the picked set");
+        c.bank();
+        assert_eq!((c.carried, c.banked), (0, 3), "banking twice adds nothing");
     }
 
     #[test]

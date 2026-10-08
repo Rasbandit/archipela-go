@@ -361,7 +361,7 @@ pub struct QuestOut {
     pub state: String,
     /// Progress from 0 to 1.
     pub progress: f32,
-    /// point | dwell | area | line | courier | roundtrip | cells | steps | away
+    /// point | dwell | area | line | courier | roundtrip | collect | cells | steps | away
     pub shape: String,
     /// Where the quest is on the map, if it has a place.
     pub anchor: Option<GeoPoint>,
@@ -526,6 +526,7 @@ fn describe(t: &Target, units: UnitSystem) -> (&'static str, Option<Point>, Opti
         Target::Cells { cell_m, .. } => ("cells", None, None, *cell_m, vec![], text),
         Target::Steps { .. } => ("steps", None, None, 0.0, vec![], text),
         Target::Away { .. } => ("away", None, None, 0.0, vec![], text),
+        Target::Collect { pts, r, .. } => ("collect", pts.first().copied(), None, *r, vec![], text),
     }
 }
 
