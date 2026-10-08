@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::assign::{assign, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx};
 use crate::catalog::{Catalog, Mode};
+use crate::chain::{self, is_chain_target, Chain, ChainUnit};
 use crate::fog::{anchor, reveal_radius, Fog};
 use crate::geo::{distance_m, Point};
 use crate::goal::{evaluate, evaluate_each, GoalCtx, GoalStatus};
@@ -420,9 +421,66 @@ impl Game {
         }
     }
 
+    pub fn chains(&self) -> Vec<Chain> {
+        chain::derive(&self.assignments)
+    }
+
+    fn counter_of(&self, c: &Chain) -> f64 {
+        match c.unit {
+            ChainUnit::Cells => self.fog.cells.len() as f64,
+            _ => self.counters.progress.get(&c.id).copied().unwrap_or(0.0),
+        }
+    }
+
+    /// Credit the steps since the last reading of the phone's cumulative step counter. The first reading of a session only sets the baseline;
+    /// a reading below the last one means the phone restarted its counter.
+    fn credit_steps(&mut self, total: i64) {
+        let gained = match self.counters.steps_last {
+            None => 0,
+            Some(last) if total >= last => total - last,
+            Some(_) => total,
+        };
+        self.counters.steps_last = Some(total);
+        if gained == 0 {
+            return;
+        }
+        for c in self.chains().into_iter().filter(|c| c.unit == ChainUnit::Steps) {
+            *self.counters.progress.entry(c.id).or_insert(0.0) += gained as f64;
+        }
+    }
+
+    /// A step-counter reading outside a fix (the sensor reports on its own).
+    pub fn on_steps(&mut self, total: i64, t_ms: i64) -> Vec<Event> {
+        self.credit_steps(total);
+        self.complete_reached(t_ms, self.last_pos())
+    }
+
+    /// Complete every chain member whose mark the counter has passed (in unlocked zones, and not while a trap blocks checks).
+    fn complete_reached(&mut self, t_ms: i64, pos: Option<Point>) -> Vec<Event> {
+        if pos.is_some_and(|p| self.traps.blocks_checks(p).is_some()) {
+            return Vec::new();
+        }
+        let mut ev = Vec::new();
+        for c in self.chains() {
+            if !self.zone_unlocked(c.zone) {
+                continue;
+            }
+            let counter = self.counter_of(&c);
+            for id in c.reached(counter) {
+                if !self.done.contains(&id) {
+                    ev.extend(self.complete(id, t_ms, pos));
+                }
+            }
+        }
+        ev
+    }
+
     /// Feed a GPS fix (and the cumulative step counter if the phone has one).
     pub fn on_fix(&mut self, fix: Fix, steps_total: Option<i64>) -> Vec<Event> {
         let mut ev = Vec::new();
+        if let Some(total) = steps_total {
+            self.credit_steps(total);
+        }
         if fix.accuracy_m > MAX_ACCURACY_M {
             self.last_verdict = Verdict::Blurry(fix.accuracy_m);
             return ev;
@@ -479,11 +537,15 @@ impl Game {
             self.last_block = blocked.clone();
         }
 
+        let in_chain: BTreeSet<i64> = self.assignments.iter().filter(|a| is_chain_target(&a.target)).map(|a| a.location_id).collect();
         let mut finished = Vec::new();
         if blocked.is_none() {
             let ids: Vec<(i64, Mode, u32)> = self.assignments.iter().map(|a| (a.location_id, a.mode, a.zone)).collect();
             for (id, mode, zone) in ids {
                 if self.done.contains(&id) || !self.zone_unlocked(zone) {
+                    continue;
+                }
+                if in_chain.contains(&id) {
                     continue;
                 }
                 if self.fog_on() && !self.fog.discovered.contains(&id) {
@@ -507,6 +569,7 @@ impl Game {
         for id in finished {
             ev.extend(self.complete(id, fix.t_ms, Some(pos)));
         }
+        ev.extend(self.complete_reached(fix.t_ms, Some(pos)));
         self.last_fix = Some(fix);
         ev
     }
@@ -726,7 +789,9 @@ impl Game {
 
     pub fn load(dir: &Path, id: &str) -> Result<Game, String> {
         let s = std::fs::read_to_string(Self::path_for(dir, id)).map_err(|e| e.to_string())?;
-        serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))
+        let mut g: Game = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
+        g.counters.steps_last = None; // steps taken while the game was closed are never credited
+        Ok(g)
     }
 
     pub fn list_ids(dir: &Path) -> Vec<(String, String)> {
@@ -809,6 +874,74 @@ mod tests {
 
     fn fixat(p: Point, t_s: i64) -> Fix {
         Fix { lat: p.lat, lon: p.lon, t_ms: t_s * 1000, accuracy_m: 8.0 }
+    }
+
+    /// A solo game whose quests are replaced by the given targets (all in zone 1, kind `kind`), each rewarding "Hydrate!".
+    fn chain_game(kind: &str, targets: Vec<Target>) -> Game {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        g.assignments = targets.into_iter().enumerate().map(|(i, t)| crate::chain::tests_support::member(1000 + i as i64, 1, kind, t)).collect();
+        g.done.clear();
+        g.solo_rewards = g.assignments.iter().map(|a| (a.location_id, "Hydrate!".to_string())).collect();
+        g
+    }
+
+    fn done_ids(ev: &[Event]) -> Vec<i64> {
+        ev.iter().filter_map(|e| if let Event::QuestDone { location_id, .. } = e { Some(*location_id) } else { None }).collect()
+    }
+
+    #[test]
+    fn steps_count_from_the_first_reading_and_unlock_marks_in_order() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]); // marks at 500 and 1500
+        assert!(g.on_steps(10_000, 1).is_empty(), "the first reading only sets the baseline");
+        assert!(g.on_steps(10_400, 2).is_empty());
+        assert_eq!(done_ids(&g.on_steps(10_520, 3)), vec![1000]);
+        assert_eq!(done_ids(&g.on_steps(11_600, 4)), vec![1001]);
+        assert!(g.on_steps(20_000, 5).is_empty(), "nothing is paid twice");
+        assert_eq!(g.counters.progress["1:step_up"], 10_000.0);
+    }
+
+    #[test]
+    fn a_reboot_that_resets_the_counter_credits_the_new_reading_and_never_goes_negative() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 100_000 }]);
+        g.on_steps(50_000, 1);
+        g.on_steps(50_200, 2);
+        g.on_steps(300, 3); // rebooted: the counter started again from zero
+        assert_eq!(g.counters.progress["1:step_up"], 500.0);
+        assert_eq!(g.counters.steps_last, Some(300));
+    }
+
+    #[test]
+    fn steps_taken_while_the_game_is_closed_are_not_credited() {
+        let dir = std::env::temp_dir().join(format!("apgo-steps-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 100_000 }]);
+        g.on_steps(1_000, 1);
+        g.on_steps(1_300, 2);
+        g.save(&dir).unwrap();
+        let mut back = Game::load(&dir, "g1").unwrap();
+        assert_eq!(back.counters.progress["1:step_up"], 300.0, "progress is kept");
+        assert_eq!(back.counters.steps_last, None, "the session baseline is not");
+        back.on_steps(90_000, 3); // a whole day of walking with the game closed
+        assert_eq!(back.counters.progress["1:step_up"], 300.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_fix_with_a_step_reading_also_credits_steps() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 1) }, Some(5_000));
+        let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 20) }, Some(5_600));
+        assert_eq!(done_ids(&ev), vec![1000]);
+    }
+
+    #[test]
+    fn marks_wait_while_a_trap_blocks_checks_and_pay_when_it_ends() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 1) }, Some(1_000));
+        g.traps.trigger("Freeze Trap", 0, Some(home()), home(), &g.trap_pool.clone(), &mut rand::SeedableRng::seed_from_u64(1));
+        assert!(g.on_steps(1_600, 2).is_empty(), "frozen: no check counts");
+        g.traps.active.clear();
+        assert_eq!(done_ids(&g.on_steps(1_601, 3)), vec![1000], "the counter kept the steps");
     }
 
     /// Teleport (long gaps so speed gating does not apply) to every open quest until none remain.

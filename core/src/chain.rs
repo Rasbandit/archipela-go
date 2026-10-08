@@ -140,9 +140,8 @@ pub fn derive(assignments: &[Assignment]) -> Vec<Chain> {
         .collect()
 }
 
-// Used by the tests of later modules (Task 4).
+// Used by the tests of other modules.
 #[cfg(test)]
-#[allow(unused_imports)]
 pub(crate) mod tests_support {
     pub(crate) use super::tests::member;
 }
