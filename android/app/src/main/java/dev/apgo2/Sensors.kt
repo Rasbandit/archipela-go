@@ -10,6 +10,9 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 
+/** How long the step counter may hold readings back before delivering them (microseconds). */
+private const val STEP_BATCH_US = 10_000_000
+
 /**
  * Location and step-counter listeners. They belong to the app model, not to the activity, so they keep running
  * (with [TrackingService] holding the process in the foreground) when the screen is off or the activity is gone.
@@ -63,7 +66,8 @@ class Sensors(private val ctx: Context, private val model: AppModel) {
             override fun onSensorChanged(e: SensorEvent) { model.onSteps(e.values[0].toLong()) }
             override fun onAccuracyChanged(s: Sensor?, a: Int) {}
         }
-        sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+        // Let the hardware batch readings for up to 10 s: nothing here needs a step the moment it happens.
+        sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL, STEP_BATCH_US)
         stepListener = l
         Diag.i("sensors", "steps started")
     }

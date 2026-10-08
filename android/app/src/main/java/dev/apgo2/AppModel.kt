@@ -65,6 +65,8 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     private var zone = Zone.Unknown
     /** Reloading the whole trace on every fix gets slower as it grows; every 10 s is plenty for a line on a map. */
     private val traceThrottle = Throttle(10_000)
+    /** Step readings without events only refresh the Play screen this often. */
+    private val stepRefreshThrottle = Throttle(5_000)
 
     var tab by mutableIntStateOf(0) // 0 Realms, 1 New Game, 2 Play
     /** The realm editor: null shows the realm list, "" a new realm, otherwise the id of the realm being edited. */
@@ -147,8 +149,10 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     fun onSteps(total: Long) {
         stepsTotal = total
         if (!engine.hasGame()) return
-        handle(engine.onSteps(total, now()))
-        refreshPlay(withTrace = false)
+        val events = engine.onSteps(total, now())
+        handle(events)
+        // The counter reports about twice a second: refresh the screen when something happened, otherwise only now and then.
+        if (events.isNotEmpty() || stepRefreshThrottle.due(now())) refreshPlay(withTrace = false)
     }
 
     /** Log quest progress each time it crosses a 10% step, so a quest that never moves shows up in the log. */
