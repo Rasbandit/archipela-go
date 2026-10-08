@@ -61,6 +61,31 @@ pub struct QuestView {
     pub blurb: String,
     /// Solo only: what the quest gave you (shown after it is done).
     pub reward: Option<String>,
+    /// The chain this quest is a milestone of, if any.
+    pub chain_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkView {
+    pub at: f64,
+    pub location_id: i64,
+    pub reached: bool,
+    /// Solo only: what the milestone gave you, once reached.
+    pub reward: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChainView {
+    pub id: String,
+    pub zone: u32,
+    pub kind_id: String,
+    pub name: String,
+    pub family: String,
+    pub unit: ChainUnit,
+    pub counter: f64,
+    pub total: f64,
+    pub rule: String,
+    pub marks: Vec<MarkView>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -375,16 +400,23 @@ impl Game {
     }
 
     pub fn quest_views(&self) -> Vec<QuestView> {
+        let chains = self.chains();
         self.assignments
             .iter()
             .map(|a| {
                 let done = self.done.contains(&a.location_id);
                 let hidden = (self.fog_on() && !self.fog.discovered.contains(&a.location_id)) || (self.traps.fog_active() && !done);
-                let progress = self.trackers.get(&a.location_id).map_or(0.0, |t| match t.status() {
-                    Status::Active(p) => p,
-                    Status::Done => 1.0,
-                    Status::Idle => 0.0,
-                });
+                let member = self.member_progress(&chains, a.location_id);
+                let progress = member.as_ref().map_or_else(
+                    || {
+                        self.trackers.get(&a.location_id).map_or(0.0, |t| match t.status() {
+                            Status::Active(p) => p,
+                            Status::Done => 1.0,
+                            Status::Idle => 0.0,
+                        })
+                    },
+                    |(_, p)| *p,
+                );
                 let state = if done {
                     QuestState::Done
                 } else if !self.zone_unlocked(a.zone) {
@@ -416,9 +448,67 @@ impl Game {
                     boss: a.boss,
                     blurb: a.blurb.clone(),
                     reward: if done { self.solo_rewards.get(&a.location_id).cloned() } else { None },
+                    chain_id: member.map(|(id, _)| id),
                 }
             })
             .collect()
+    }
+
+    pub fn chain_views(&self) -> Vec<ChainView> {
+        self.chains()
+            .into_iter()
+            .map(|c| {
+                let counter = self.counter_of(&c);
+                let family = self
+                    .assignments
+                    .iter()
+                    .find(|a| c.marks.first().is_some_and(|m| m.location_id == a.location_id))
+                    .map(|a| a.family.clone())
+                    .unwrap_or_default();
+                let marks = c
+                    .marks
+                    .iter()
+                    .map(|m| {
+                        let reached = self.done.contains(&m.location_id);
+                        MarkView {
+                            at: m.at,
+                            location_id: m.location_id,
+                            reached,
+                            reward: if reached { self.solo_rewards.get(&m.location_id).cloned() } else { None },
+                        }
+                    })
+                    .collect();
+                ChainView {
+                    rule: c.rule_text(self.away.distance_for(c.zone)),
+                    total: c.total(),
+                    id: c.id,
+                    zone: c.zone,
+                    kind_id: c.kind_id,
+                    name: c.name,
+                    family,
+                    unit: c.unit,
+                    counter,
+                    marks,
+                }
+            })
+            .collect()
+    }
+
+    /// Progress of a chain member toward its own mark (0..1): done = 1, the next unreached mark = how far through its stretch, later ones 0.
+    fn member_progress(&self, chains: &[Chain], location_id: i64) -> Option<(String, f32)> {
+        let c = chains.iter().find(|c| c.position_of(location_id).is_some())?;
+        let i = c.position_of(location_id)? - 1;
+        let counter = self.counter_of(c);
+        let at = c.marks[i].at;
+        let prev = if i == 0 { 0.0 } else { c.marks[i - 1].at };
+        let p = if counter >= at {
+            1.0
+        } else if counter <= prev {
+            0.0
+        } else {
+            (counter - prev) / (at - prev)
+        };
+        Some((c.id.clone(), p as f32))
     }
 
     fn adjusted(&self, t: &Target) -> Target {
@@ -725,12 +815,16 @@ impl Game {
     /// Journal entries for events, with the reason attached: how a quest was completed, where a reward came from, what an item does.
     pub fn journal_events(&self, ev: &[Event], t_ms: i64, at: Option<(f64, f64)>) -> Vec<JournalEvent> {
         let quest = |id: &i64| self.assignments.iter().find(|a| a.location_id == *id);
+        let chains = self.chains();
         ev.iter()
             .map(|e| {
                 let mut j = JournalEvent::from_game_event(e, t_ms, at);
                 match e {
                     Event::QuestDone { location_id, name } => {
-                        if let Some(a) = quest(location_id) {
+                        if let Some(c) = chains.iter().find(|c| c.position_of(*location_id).is_some()) {
+                            let i = c.position_of(*location_id).unwrap_or(1);
+                            j.detail = format!("{name} milestone {i} of {}: {}", c.marks.len(), c.amount_text(c.marks[i - 1].at));
+                        } else if let Some(a) = quest(location_id) {
                             j.detail = format!("{name} ({}): {}", a.place, a.target.goal_text());
                         }
                     }
@@ -918,6 +1012,45 @@ mod tests {
 
     fn done_ids(ev: &[Event]) -> Vec<i64> {
         ev.iter().filter_map(|e| if let Event::QuestDone { location_id, .. } = e { Some(*location_id) } else { None }).collect()
+    }
+
+    #[test]
+    fn chain_views_report_counter_marks_rewards_and_the_rule() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]);
+        g.on_steps(0, 1);
+        g.on_steps(600, 2); // first mark reached
+        let v = &g.chain_views()[0];
+        assert_eq!((v.id.as_str(), v.total, v.counter), ("1:step_up", 1500.0, 600.0));
+        assert_eq!(v.rule, "Take 1,500 steps");
+        assert_eq!(v.marks.iter().map(|m| (m.at, m.reached, m.reward.is_some())).collect::<Vec<_>>(), vec![(500.0, true, true), (1500.0, false, false)]);
+    }
+
+    #[test]
+    fn chain_members_carry_their_chain_id_and_their_own_progress() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]);
+        g.on_steps(0, 1);
+        g.on_steps(1000, 2); // mark 1 done, 500 of the next 1000
+        let views = g.quest_views();
+        assert!(views.iter().all(|q| q.chain_id.as_deref() == Some("1:step_up")));
+        let (a, b) = (&views[0], &views[1]);
+        assert_eq!((a.state, a.progress), (QuestState::Done, 1.0));
+        assert!((b.progress - 0.5).abs() < 0.01 && b.state == QuestState::InProgress, "{} {:?}", b.progress, b.state);
+    }
+
+    #[test]
+    fn other_quests_have_no_chain_id() {
+        let g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        assert!(g.quest_views().iter().all(|q| q.chain_id.is_none()));
+    }
+
+    #[test]
+    fn a_milestone_is_logged_with_its_place_in_the_chain() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]);
+        g.on_steps(0, 1);
+        let ev = g.on_steps(1600, 2);
+        let log = g.journal_events(&ev, 2000, None);
+        let done: Vec<&str> = log.iter().filter(|e| e.kind == "quest_done").map(|e| e.detail.as_str()).collect();
+        assert_eq!(done, vec!["step up milestone 1 of 2: 500 steps", "step up milestone 2 of 2: 1,500 steps"]);
     }
 
     fn away_game(minutes: &[f64], zone_only: bool, distance_m: f64) -> Game {
