@@ -1,11 +1,13 @@
 //! `UniFFI` facade over the game engine: realms, scanning, game setup, play. Blocking calls; call from a background thread.
 
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use apgo_core::assign::SurfacePref;
 use apgo_core::assign::Target;
-use apgo_core::catalog::{Catalog, Mode};
+use apgo_core::catalog::{Catalog, Kind, Mode};
 use apgo_core::chain::ChainUnit;
 use apgo_core::game::{AwayOptions, Backend, Event, Game, NearMiss, NewGame, QuestState};
 use apgo_core::geo::{distance_m, Point};
@@ -19,8 +21,9 @@ use apgo_core::solo::{generate, SoloOptions};
 use apgo_core::verify::{Fix, MAX_ACCURACY_M};
 use apgo_core::yaml::build_yaml;
 
-use crate::{CoreError, GeoPoint};
+use crate::{count, CoreError, GeoPoint};
 
+#[allow(clippy::needless_pass_by_value)] // used as a `map_err` callback, which hands over the error by value
 fn err<E: ToString>(e: E) -> CoreError {
     CoreError::Failed { detail: e.to_string() }
 }
@@ -33,15 +36,21 @@ fn pt(p: &GeoPoint) -> Point {
     Point::new(p.lat, p.lon)
 }
 
+/// A circle: a middle and a radius.
 #[derive(Debug, uniffi::Record)]
 pub struct CircleOut {
+    /// Middle of the circle.
     pub center: GeoPoint,
+    /// Radius in metres.
     pub radius_m: f64,
 }
 
+/// A realm as the UI shows it.
 #[derive(Debug, uniffi::Record)]
 pub struct RealmOut {
+    /// Realm id.
     pub id: String,
+    /// Realm name.
     pub name: String,
     /// The icon picked for the realm, if any.
     pub icon: Option<String>,
@@ -51,7 +60,9 @@ pub struct RealmOut {
     pub polygon: Vec<GeoPoint>,
     /// Which of the two is the realm's real outline.
     pub polygon_active: bool,
+    /// When the realm was last scanned, in Unix milliseconds.
     pub scanned_at_ms: Option<u64>,
+    /// Number of scanned places that can serve quests.
     pub places: u32,
     /// Set when a scan stopped early (slow public map servers); Rescan continues from the cache.
     pub warning: Option<String>,
@@ -60,17 +71,24 @@ pub struct RealmOut {
 /// A find reduced to what a small map preview needs.
 #[derive(Debug, uniffi::Record)]
 pub struct DotOut {
+    /// Where the find is.
     pub at: GeoPoint,
+    /// Catalog id of the first quest kind.
     pub kind_id: String,
+    /// Family of the first quest kind.
     pub family: String,
 }
 
 /// A quest kind a find can serve, with what it means and how it is completed.
 #[derive(Debug, uniffi::Record)]
 pub struct KindOut {
+    /// Catalog id of the quest kind.
     pub id: String,
+    /// Display name of the quest kind.
     pub name: String,
+    /// Quest family.
     pub family: String,
+    /// Short description.
     pub blurb: String,
     /// What the player has to do ("Get within 40 m.").
     pub how: String,
@@ -79,9 +97,11 @@ pub struct KindOut {
 /// One find: a scanned spot a realm can use for quests, with the player's mark on it.
 #[derive(Debug, uniffi::Record)]
 pub struct FindOut {
+    /// Stable id of the find (the OpenStreetMap feature).
     pub id: String,
     /// The find's own name, or the name of its first quest kind when it has none ("Bench Warmer").
     pub name: String,
+    /// Whether the find has a name of its own.
     pub named: bool,
     /// The quest kinds this find can serve.
     pub kinds: Vec<KindOut>,
@@ -89,8 +109,11 @@ pub struct FindOut {
     pub tags: Vec<String>,
     /// The first quest kind's id and family, for choosing an icon.
     pub kind_id: String,
+    /// Quest family.
     pub family: String,
+    /// Where the find is.
     pub at: GeoPoint,
+    /// Distance from home in metres.
     pub distance_m: f64,
     /// "none" | "favorite" | "banned"
     pub mark: String,
@@ -99,7 +122,9 @@ pub struct FindOut {
 /// Measurements of a shape that need no scan: they can follow a drag live.
 #[derive(Debug, uniffi::Record)]
 pub struct ShapeStatsOut {
+    /// Area in square metres.
     pub area_m2: f64,
+    /// Length of the outline in metres.
     pub perimeter_m: f64,
     /// How far the farthest part of the shape is from home in a straight line.
     pub farthest_m: f64,
@@ -114,53 +139,76 @@ pub struct RealmStatsOut {
     pub rough_share: f64,
     /// Total length of the trails (named paths and the like) that can serve quests.
     pub trail_m: f64,
+    /// Number of parks.
     pub parks: u32,
     /// How many differently named streets there are.
     pub streets: u32,
+    /// Number of scanned places that can serve quests.
     pub finds: u32,
+    /// How many quest kinds the realm can offer.
     pub quest_types: u32,
 }
 
+/// What a scan would cost.
 #[derive(Debug, uniffi::Record)]
 pub struct ScanPlanOut {
+    /// Number of map tiles.
     pub tiles: u32,
+    /// Number of map requests in all.
     pub requests: u32,
     /// Requests that are not in the cache and would go to the network.
     pub missing: u32,
 }
 
+/// How far a running scan has got.
 #[derive(Debug, uniffi::Record)]
 pub struct ScanProgressOut {
+    /// Requests finished so far.
     pub done: u32,
+    /// Requests in all.
     pub total: u32,
 }
 
+/// A quest kind a realm can offer, with how many places serve it.
 #[derive(Debug, uniffi::Record)]
 pub struct OfferOut {
+    /// Catalog id of the quest kind.
     pub kind_id: String,
+    /// Display name of the quest kind.
     pub name: String,
+    /// Quest family.
     pub family: String,
+    /// Short description.
     pub blurb: String,
+    /// How many places in the realm can serve the kind.
     pub count: u32,
 }
 
 /// One chosen win condition and its parameter (0 means that goal's default).
 #[derive(Debug, uniffi::Record)]
 pub struct GoalPickIn {
+    /// Goal id.
     pub id: String,
+    /// Parameter of the goal; 0 means its default.
     pub target: u32,
 }
 
 /// One goal's progress, for the Play screen.
 #[derive(Debug, uniffi::Record)]
 pub struct GoalLineOut {
+    /// Goal id.
     pub id: String,
+    /// Text describing the goal.
     pub label: String,
+    /// Progress from 0 to 1.
     pub progress: f32,
+    /// Whether the goal is met.
     pub achieved: bool,
 }
 
+/// The options of a solo game, as chosen in New Game.
 #[derive(Debug, uniffi::Record)]
+#[allow(clippy::struct_excessive_bools)] // mirrors the YAML options the UI sends, each an independent switch
 pub struct SoloOptionsIn {
     /// The win conditions (at least one).
     pub goals: Vec<GoalPickIn>,
@@ -168,23 +216,39 @@ pub struct SoloOptionsIn {
     pub goal_requirement: String,
     /// For "`at_least"`: how many of the goals must be finished.
     pub goal_need: u32,
+    /// How many quest locations the game has.
     pub number_of_trips: u32,
+    /// Travel mode of each zone, in zone order.
     pub zone_modes: Vec<String>,
+    /// Weight of easy quests.
     pub easy_share: u32,
+    /// Weight of medium quests.
     pub medium_share: u32,
+    /// Weight of hard quests.
     pub hard_share: u32,
+    /// Minutes of effort one tier covers.
     pub minutes_per_tier: u32,
+    /// Quests must be at least this far from home, in metres.
     pub min_distance_m: u32,
+    /// Quest families the game may use.
     pub quest_types: Vec<String>,
     /// Quest types for each zone, in zone order; an empty list uses `quest_types`.
     pub zone_quest_types: Vec<Vec<String>>,
+    /// Keys of the traps in the item pool.
     pub enabled_traps: Vec<String>,
+    /// Share of filler items that are traps.
     pub trap_rate: u32,
+    /// Whether effort-reduction items are in the pool.
     pub enable_effort_reductions: bool,
+    /// Whether scout items are in the pool.
     pub enable_scouting: bool,
+    /// Whether collection items are in the pool.
     pub enable_collection: bool,
+    /// Percent of effort each reduction item removes.
     pub reduction_percent: u32,
+    /// Whether quests stay hidden until the player is near.
     pub fog_of_war: bool,
+    /// Whether the player must return home to finish a quest.
     pub return_home: bool,
 }
 
@@ -222,110 +286,215 @@ fn to_core(o: SoloOptionsIn) -> Result<SoloOptions, CoreError> {
     })
 }
 
+/// A saved game in the list.
 #[derive(Debug, uniffi::Record)]
 pub struct GameInfo {
+    /// Unique id of the game.
     pub id: String,
+    /// Display name of the game.
     pub name: String,
 }
 
+/// One milestone of a progressive chain.
 #[derive(Debug, uniffi::Record)]
 pub struct MarkOut {
+    /// Counter value at which the milestone is reached.
     pub at: f64,
+    /// Archipelago location id of the check it unlocks.
     pub location_id: i64,
+    /// Whether the counter has reached it.
     pub reached: bool,
+    /// Solo only: what the milestone gave, once reached.
     pub reward: Option<String>,
 }
 
+/// A progressive quest chain: one counter with a check at each milestone.
 #[derive(Debug, uniffi::Record)]
 pub struct ChainOut {
+    /// Chain id.
     pub id: String,
+    /// Zone number the chain is in.
     pub zone: u32,
+    /// Catalog id of the quest kind.
     pub kind_id: String,
+    /// Display name of the chain.
     pub name: String,
+    /// Quest family.
     pub family: String,
     /// steps | minutes | cells
     pub unit: String,
+    /// Current counter value.
     pub counter: f64,
+    /// Counter value at the last milestone.
     pub total: f64,
+    /// Short rule text for the chain.
     pub rule: String,
+    /// The milestones in order.
     pub marks: Vec<MarkOut>,
 }
 
+/// A quest as the UI shows it.
 #[derive(Debug, uniffi::Record)]
 pub struct QuestOut {
+    /// Archipelago location id of the check.
     pub location_id: i64,
+    /// Zone number the quest is in.
     pub zone: u32,
+    /// Display name of the quest.
     pub name: String,
+    /// Name of the place the quest uses.
     pub place: String,
+    /// Quest family.
     pub family: String,
+    /// Catalog id of the quest kind.
     pub kind_id: String,
+    /// Difficulty band: easy, medium or hard.
     pub difficulty: String,
+    /// Effort tier, starting at 1.
     pub tier: u8,
+    /// Expected effort in minutes.
     pub effort_min: f64,
+    /// How the player travels there: walk, run, bike or drive.
     pub mode: String,
     /// locked | hidden | open | progress | done
     pub state: String,
+    /// Progress from 0 to 1.
     pub progress: f32,
     /// point | dwell | area | line | courier | roundtrip | cells | steps | away
     pub shape: String,
+    /// Where the quest is on the map, if it has a place.
     pub anchor: Option<GeoPoint>,
+    /// The second place of a two-place quest (the courier drop-off).
     pub anchor_b: Option<GeoPoint>,
+    /// Radius or corridor width of the target, in metres.
     pub radius_m: f64,
+    /// The path to follow, or the area outline.
     pub path: Vec<GeoPoint>,
+    /// One-line description of what to do.
     pub detail: String,
+    /// True when a street quest stands in for a family the realm could not offer.
     pub fallback: bool,
+    /// Whether this is the realm's boss quest.
     pub boss: bool,
+    /// Short description.
     pub blurb: String,
+    /// Solo only: what the quest gave, once done.
     pub reward: Option<String>,
+    /// Id of the progressive chain this quest is a milestone of, if any.
     pub chain_id: Option<String>,
 }
 
+/// A zone of the open game.
 #[derive(Debug, uniffi::Record)]
 pub struct ZoneOut {
+    /// Zone number.
     pub id: u32,
+    /// How the player travels in the zone: walk, run, bike or drive.
     pub mode: String,
+    /// Whether the player can enter the zone.
     pub unlocked: bool,
+    /// Zone keys needed to open the zone.
     pub keys_needed: u32,
+    /// Name of the tool item the zone needs, if any.
     pub tool: Option<String>,
+    /// Name of the realm the zone is played in.
     pub realm_name: String,
     /// The realm this zone is played in (the Play map shows only the realms of the open game).
     pub realm_id: String,
 }
 
+/// Everything the Play screen shows besides the quest list.
 #[derive(Debug, uniffi::Record)]
 pub struct HudOut {
     /// Each goal with its own progress (one entry for a single-goal game).
     pub goals: Vec<GoalLineOut>,
+    /// Short text describing the win condition.
     pub goal_label: String,
+    /// Progress toward the win condition, 0 to 1.
     pub goal_progress: f32,
+    /// Whether the win condition is met.
     pub goal_achieved: bool,
+    /// Quests completed.
     pub done: u32,
+    /// Quests in all.
     pub total: u32,
+    /// Zone keys held.
     pub keys: u32,
+    /// Tool items held.
     pub tools: Vec<String>,
+    /// The letters collected so far for a letter-hunt goal.
     pub letters: String,
+    /// Labels of the active traps.
     pub traps: Vec<String>,
+    /// Where to go to thaw a freeze trap, if one is active.
     pub thaw: Option<GeoPoint>,
+    /// The detour waypoint still to be visited, if any.
     pub waypoint: Option<GeoPoint>,
+    /// Why checks are blocked right now (a trap), if they are.
     pub blocked: Option<String>,
+    /// Distance travelled so far, in kilometres.
     pub distance_km: f64,
+    /// Days in a row on which a quest was completed.
     pub streak_days: u32,
+    /// Whether fog of war is on.
     pub fog: bool,
+    /// `solo` or `archipelago`.
     pub backend: String,
+    /// Display name of the game.
     pub game_name: String,
 }
 
+/// Something that happened that the host should react to.
 #[derive(Debug, uniffi::Enum)]
 pub enum EventOut {
-    QuestDone { location_id: i64, name: String },
-    SendCheck { location_id: i64 },
-    Reward { location_id: i64, item: String },
-    ZoneUnlocked { zone: u32 },
-    Trap { item: String, message: String },
+    /// A quest was completed.
+    QuestDone {
+        /// Archipelago location id of the check.
+        location_id: i64,
+        /// Display name of the quest.
+        name: String,
+    },
+    /// A check must be sent to the server.
+    SendCheck {
+        /// Archipelago location id of the check.
+        location_id: i64,
+    },
+    /// A reward was received for a check.
+    Reward {
+        /// Archipelago location id of the check.
+        location_id: i64,
+        /// Name of the item.
+        item: String,
+    },
+    /// A zone became available.
+    ZoneUnlocked {
+        /// Zone number.
+        zone: u32,
+    },
+    /// A trap started.
+    Trap {
+        /// Name of the trap item.
+        item: String,
+        /// What the trap does, for the player.
+        message: String,
+    },
+    /// The player asked to reshuffle the quests.
     ShuffleRequested,
-    Discovered { location_id: i64 },
-    GoalAchieved { label: String },
-    Info { text: String },
+    /// A hidden quest was revealed.
+    Discovered {
+        /// Archipelago location id of the check.
+        location_id: i64,
+    },
+    /// The win condition was met.
+    GoalAchieved {
+        /// Text describing the goal.
+        label: String,
+    },
+    /// A general message.
+    Info {
+        /// The message.
+        text: String,
+    },
 }
 
 fn ev_out(e: Event) -> EventOut {
@@ -360,32 +529,48 @@ fn describe(t: &Target) -> (&'static str, Option<Point>, Option<Point>, f64, Vec
 /// One unbroken stretch of the trace (the line breaks where the phone was off or the app closed).
 #[derive(Debug, uniffi::Record)]
 pub struct TrackSegmentOut {
+    /// The points of the segment, in order.
     pub points: Vec<GeoPoint>,
 }
 
+/// One line of the activity log.
 #[derive(Debug, uniffi::Record)]
 pub struct AuditEventOut {
+    /// When it happened, in Unix milliseconds.
     pub t_ms: i64,
+    /// Machine name of the event kind.
     pub kind: String,
+    /// Human-readable detail.
     pub detail: String,
+    /// Where the player was when it happened, if known.
     pub at: Option<GeoPoint>,
 }
 
+/// How many events of one kind happened.
 #[derive(Debug, uniffi::Record)]
 pub struct KindCountOut {
+    /// Machine name of the event kind.
     pub kind: String,
+    /// Number of events of that kind.
     pub count: u32,
 }
 
 /// "While you were out": everything recorded between two moments.
 #[derive(Debug, uniffi::Record)]
 pub struct AwayReportOut {
+    /// Start of the period, in Unix milliseconds.
     pub from_ms: i64,
+    /// End of the period, in Unix milliseconds.
     pub to_ms: i64,
+    /// Number of GPS points recorded.
     pub points: u32,
+    /// How many of those points came from the dev simulator.
     pub simulated_points: u32,
+    /// Distance travelled in the period, in metres.
     pub distance_m: f64,
+    /// Number of events of each kind.
     pub counts: Vec<KindCountOut>,
+    /// The events themselves, oldest first.
     pub events: Vec<AuditEventOut>,
 }
 
@@ -394,6 +579,7 @@ const NEAR_MISS_RADIUS_M: f64 = 100.0;
 /// Longest the open game goes unsaved while the player moves without events.
 const SAVE_INTERVAL_MS: i64 = 30_000;
 
+/// The game engine: realms, scanning, game setup and play. One per app, shared by all screens.
 #[derive(uniffi::Object)]
 pub struct Engine {
     dir: PathBuf,
@@ -404,7 +590,7 @@ pub struct Engine {
     /// Messages from the core for the app's diagnostics log (stderr is lost on Android). Capped; drained by `take_diag`.
     diag: Mutex<Vec<String>>,
     /// Per quest: the last near-miss reason logged and when, so a minute standing at a target is a few lines, not hundreds.
-    near_logged: Mutex<std::collections::HashMap<i64, (String, i64)>>,
+    near_logged: Mutex<HashMap<i64, (String, i64)>>,
     /// When a rejected fix was last logged, so a bad-signal stretch is one line, not thousands.
     last_reject_log_ms: std::sync::atomic::AtomicI64,
     catalog: Catalog,
@@ -414,8 +600,8 @@ pub struct Engine {
     /// Shapes of the open game's zone realms, for the "inside a zone" check on each fix.
     zone_shapes: Mutex<Vec<Shape>>,
     /// Requests finished and in all, for the scan in progress.
-    scan_done: std::sync::atomic::AtomicU32,
-    scan_total: std::sync::atomic::AtomicU32,
+    scan_done: AtomicU32,
+    scan_total: AtomicU32,
 }
 
 impl Engine {
@@ -507,8 +693,8 @@ impl Engine {
     }
 
     /// Finds of a (zoned) atlas: place index -> the quest kinds it can serve for this realm's mode.
-    fn kinds_by_place<'a>(&'a self, atlas: &Atlas) -> std::collections::BTreeMap<usize, Vec<&'a apgo_core::catalog::Kind>> {
-        let mut out: std::collections::BTreeMap<usize, Vec<&apgo_core::catalog::Kind>> = std::collections::BTreeMap::new();
+    fn kinds_by_place<'a>(&'a self, atlas: &Atlas) -> BTreeMap<usize, Vec<&'a Kind>> {
+        let mut out: BTreeMap<usize, Vec<&Kind>> = BTreeMap::new();
         for (kind_id, idxs) in &atlas.matches {
             let Some(kind) = self.catalog.kind(kind_id).filter(|k| Mode::PLAY.iter().any(|&m| k.allows(m))) else { continue };
             for &i in idxs {
@@ -548,7 +734,9 @@ impl Engine {
 }
 
 #[uniffi::export]
+#[allow(clippy::needless_pass_by_value)] // uniffi requires owned args
 impl Engine {
+    /// An engine storing its files under `dir`.
     #[uniffi::constructor]
     pub fn new(dir: String) -> Arc<Self> {
         let dir = PathBuf::from(dir);
@@ -559,23 +747,25 @@ impl Engine {
             dir,
             journal,
             diag: Mutex::new(diag),
-            near_logged: Mutex::new(Default::default()),
+            near_logged: Mutex::new(HashMap::default()),
             last_game: Mutex::new(None),
             last_reject_log_ms: std::sync::atomic::AtomicI64::new(i64::MIN),
             catalog: Catalog::builtin(),
             game: Mutex::new(None),
             save_policy: Mutex::new(SavePolicy::new(SAVE_INTERVAL_MS)),
             zone_shapes: Mutex::new(Vec::new()),
-            scan_done: Default::default(),
-            scan_total: Default::default(),
+            scan_done: AtomicU32::default(),
+            scan_total: AtomicU32::default(),
         })
     }
 
+    /// Number of quest kinds in the catalog.
     pub fn catalog_size(&self) -> u32 {
-        self.catalog.kinds.len() as u32
+        count(self.catalog.kinds.len())
     }
 
     // ---------- realms ----------
+    /// Every saved realm.
     pub fn realms(&self) -> Vec<RealmOut> {
         let store = self.store();
         store
@@ -587,7 +777,7 @@ impl Engine {
                 let polygon_active = r.polygon_active();
                 let atlas = store.load_atlas(&r.id);
                 // Count finds (zoned, usable by this realm's mode), the same number the Details list shows.
-                let places = self.zoned_atlas(&r).map_or(0, |a| self.kinds_by_place(&a).len() as u32);
+                let places = self.zoned_atlas(&r).map_or(0, |a| count(self.kinds_by_place(&a).len()));
                 let warning = atlas.and_then(|a| a.warnings.first().cloned());
                 RealmOut { id: r.id, name: r.name, icon: r.icon.clone(), circle, polygon, polygon_active, scanned_at_ms: r.scanned_at_ms, places, warning }
             })
@@ -595,6 +785,10 @@ impl Engine {
     }
 
     /// Saves a realm with both outlines it has; `polygon_active` picks the real one, the other is kept in reserve.
+    /// Save a realm with its outlines.
+    ///
+    /// # Errors
+    /// Returns an error if the active outline is missing or the shape is not valid, or the file cannot be written.
     pub fn save_realm(
         &self,
         id: String,
@@ -615,6 +809,10 @@ impl Engine {
         self.store().save(&Realm { id, name, icon, shape, spare, scanned_at_ms: prev.and_then(|p| p.scanned_at_ms) }).map_err(err)
     }
 
+    /// Delete a realm with its scan and marks.
+    ///
+    /// # Errors
+    /// Returns an error if a file cannot be removed.
     pub fn delete_realm(&self, id: String) -> Result<(), CoreError> {
         self.store().delete(&id).map_err(err)
     }
@@ -650,9 +848,9 @@ impl Engine {
             rough_share: atlas.rough_share(),
             trail_m,
             parks,
-            streets: atlas.street_count() as u32,
-            finds: places.len() as u32,
-            quest_types: self.offers_of(&atlas).len() as u32,
+            streets: count(atlas.street_count()),
+            finds: count(places.len()),
+            quest_types: count(self.offers_of(&atlas).len()),
         })
     }
 
@@ -661,7 +859,7 @@ impl Engine {
         let Some(realm) = self.store().get(&id) else { return ScanPlanOut { tiles: 0, requests: 0, missing: 0 } };
         let cache = self.cache();
         let p = apgo_core::scan::plan(&realm.shape.to_zone(), &self.catalog, &|q| apgo_core::overpass::is_cached(q, &cache));
-        ScanPlanOut { tiles: p.tiles as u32, requests: p.jobs as u32, missing: p.missing() as u32 }
+        ScanPlanOut { tiles: count(p.tiles), requests: count(p.jobs), missing: count(p.missing()) }
     }
 
     /// Progress of the scan in progress: requests finished out of all of them.
@@ -671,6 +869,10 @@ impl Engine {
     }
 
     /// Scan the realm over the network (through the shared tile cache) and save its atlas. Returns what it offers.
+    /// Scan a realm over the network and save its atlas.
+    ///
+    /// # Errors
+    /// Returns an error if the realm does not exist, every map request failed, or the atlas cannot be saved.
     pub fn scan_realm(&self, id: String, now_ms: u64) -> Result<Vec<OfferOut>, CoreError> {
         use std::sync::atomic::Ordering::Relaxed;
         let store = self.store();
@@ -678,8 +880,8 @@ impl Engine {
         self.scan_done.store(0, Relaxed);
         self.scan_total.store(0, Relaxed);
         let atlas = scan_realm(&realm, &self.catalog, Some(&self.cache()), now_ms, &|done, total| {
-            self.scan_done.store(done as u32, Relaxed);
-            self.scan_total.store(total as u32, Relaxed);
+            self.scan_done.store(count(done), Relaxed);
+            self.scan_total.store(count(total), Relaxed);
         })
         .map_err(err)?;
         store.save_atlas(&atlas).map_err(err)?;
@@ -693,6 +895,7 @@ impl Engine {
         Ok(self.offers_of(&zoned))
     }
 
+    /// The quest kinds realm `id` can offer, with counts.
     pub fn realm_offers(&self, id: String) -> Vec<OfferOut> {
         let store = self.store();
         match store.get(&id).and_then(|r| self.zoned_atlas(&r)) {
@@ -761,6 +964,10 @@ impl Engine {
     }
 
     /// `mark` is "none", "favorite" or "banned". Takes effect the next time quests are made or re-rolled.
+    /// Mark a find as none, favorite or banned.
+    ///
+    /// # Errors
+    /// Returns an error if the mark is unknown or the marks file cannot be written.
     pub fn set_find_mark(&self, realm_id: String, find_id: String, mark: String) -> Result<(), CoreError> {
         let mark = match mark.as_str() {
             "none" => Mark::None,
@@ -774,19 +981,32 @@ impl Engine {
         store.save_marks(&realm_id, &marks).map_err(err)
     }
 
+    /// The saved home point, if any.
     pub fn home(&self) -> Option<GeoPoint> {
         self.store().home().map(gp)
     }
 
+    /// Save the home point.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be written.
     pub fn set_home(&self, p: GeoPoint) -> Result<(), CoreError> {
         self.store().set_home(pt(&p)).map_err(err)
     }
 
     // ---------- game setup ----------
+    /// Archipelago player YAML for `player` from the solo options.
+    ///
+    /// # Errors
+    /// Returns an error if a travel mode or the goal requirement is unknown.
     pub fn build_yaml(&self, player: String, o: SoloOptionsIn) -> Result<String, CoreError> {
         Ok(build_yaml(&player, &to_core(o)?))
     }
 
+    /// Create and open a solo game.
+    ///
+    /// # Errors
+    /// Returns an error if the options are invalid, a realm is missing or not scanned, or the game cannot be saved.
     #[allow(clippy::too_many_arguments)]
     pub fn start_solo(
         &self,
@@ -831,6 +1051,10 @@ impl Engine {
         Ok(())
     }
 
+    /// Create and open a game for an Archipelago multiworld from its `slot_data`.
+    ///
+    /// # Errors
+    /// Returns an error if the `slot_data` is invalid, a realm is missing or not scanned, or the game cannot be saved.
     #[allow(clippy::too_many_arguments)]
     pub fn start_archipelago(
         &self,
@@ -859,7 +1083,7 @@ impl Engine {
                 realms: &realms,
                 home,
                 seed,
-                solo_rewards: Default::default(),
+                solo_rewards: BTreeMap::default(),
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
                 away: AwayOptions { zone_only: away_zone_only, custom_m: (away_distance_m > 0).then_some(f64::from(away_distance_m)) },
@@ -873,20 +1097,30 @@ impl Engine {
     }
 
     /// The zone modes a connected Archipelago game needs, so the app can ask for matching realms.
+    /// The travel mode of each zone in `slot_json`.
+    ///
+    /// # Errors
+    /// Returns an error if the `slot_data` is invalid.
     pub fn slot_zone_modes(&self, slot_json: String) -> Result<Vec<String>, CoreError> {
         Ok(SlotData::from_json(&slot_json).map_err(err)?.zones.iter().map(|z| z.mode.name().to_string()).collect())
     }
 
+    /// Every saved game.
     pub fn games(&self) -> Vec<GameInfo> {
         Game::list_ids(&self.dir).into_iter().map(|(id, name)| GameInfo { id, name }).collect()
     }
 
+    /// Open a saved game.
+    ///
+    /// # Errors
+    /// Returns an error if the game file cannot be read or is corrupt.
     pub fn open_game(&self, id: String) -> Result<(), CoreError> {
         let g = Game::load(&self.dir, &id).map_err(err)?;
         self.install(g);
         Ok(())
     }
 
+    /// Close the open game, saving it first.
     pub fn close_game(&self) {
         let mut game = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(g) = game.as_ref() {
@@ -896,27 +1130,40 @@ impl Engine {
             }
         }
         *game = None;
+        drop(game);
         self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
     }
 
+    /// Delete a saved game; its file is archived, not erased.
+    ///
+    /// # Errors
+    /// Never fails today; archiving problems are logged instead.
     pub fn delete_game(&self, id: String) -> Result<(), CoreError> {
         // The save moves to games-archive/ and the journal rows stay: a played game's data is evidence for diagnosing the next test.
         if let Err(e) = Game::archive(&self.dir, &id) {
             self.note(format!("could not archive game {id}: {e}"));
         }
-        let mut g = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if g.as_ref().is_some_and(|x| x.id == id) {
-            *g = None;
+        let was_open = {
+            let mut g = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let hit = g.as_ref().is_some_and(|x| x.id == id);
+            if hit {
+                *g = None;
+            }
+            hit
+        };
+        if was_open {
             self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
         }
         Ok(())
     }
 
+    /// Whether a game is open.
     pub fn has_game(&self) -> bool {
         self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
     }
 
     // ---------- play ----------
+    /// Every quest of the open game.
     pub fn quests(&self) -> Vec<QuestOut> {
         self.with_game(|g| {
             g.quest_views()
@@ -961,6 +1208,7 @@ impl Engine {
         .unwrap_or_default()
     }
 
+    /// The zones of the open game.
     pub fn zones(&self) -> Vec<ZoneOut> {
         let store = self.store();
         self.with_game(|g| {
@@ -982,6 +1230,7 @@ impl Engine {
         .unwrap_or_default()
     }
 
+    /// What the Play screen shows, at `now_ms`; `None` with no game open.
     pub fn hud(&self, now_ms: i64) -> Option<HudOut> {
         self.with_game(|g| {
             let s = g.goal_status(now_ms);
@@ -998,9 +1247,9 @@ impl Engine {
                 goal_label: s.label,
                 goal_progress: s.progress,
                 goal_achieved: s.achieved,
-                done: views.iter().filter(|v| v.state == QuestState::Done).count() as u32,
-                total: views.len() as u32,
-                keys: g.items.iter().filter(|i| *i == "Progressive Zone Key").count() as u32,
+                done: count(views.iter().filter(|v| v.state == QuestState::Done).count()),
+                total: count(views.len()),
+                keys: count(g.items.iter().filter(|i| *i == "Progressive Zone Key").count()),
                 tools,
                 letters: letters.into_iter().collect(),
                 traps: g.trap_labels(),
@@ -1016,6 +1265,7 @@ impl Engine {
         })
     }
 
+    /// Feed a position fix (and the step counter, if any) to the open game; returns what happened.
     pub fn on_fix(&self, lat: f64, lon: f64, t_ms: i64, accuracy_m: f64, steps: Option<i64>, simulated: bool) -> Vec<EventOut> {
         let fix = Fix { lat, lon, t_ms, accuracy_m };
         let at = Some((lat, lon));
@@ -1033,8 +1283,8 @@ impl Engine {
         };
         self.journal_do(|j| {
             if accuracy_m > MAX_ACCURACY_M {
-                let last = self.last_reject_log_ms.load(std::sync::atomic::Ordering::Relaxed);
-                if t_ms.saturating_sub(last) >= 60_000 {
+                let last_ms = self.last_reject_log_ms.load(std::sync::atomic::Ordering::Relaxed);
+                if t_ms.saturating_sub(last_ms) >= 60_000 {
                     self.last_reject_log_ms.store(t_ms, std::sync::atomic::Ordering::Relaxed);
                     j.log(&game_id, &JournalEvent { t_ms, kind: kind::FIX_REJECTED.into(), detail: format!("accuracy {accuracy_m:.0} m"), at })?;
                 }
@@ -1108,6 +1358,7 @@ impl Engine {
         ev.into_iter().map(ev_out).collect()
     }
 
+    /// Record locations the server already has as checked.
     pub fn mark_checked(&self, ids: Vec<i64>, now_ms: i64) {
         let dir = self.dir.clone();
         self.with_game(|g| {
@@ -1148,8 +1399,7 @@ impl Engine {
     /// "inside" | "near" | "far" for the open game's zones, "unknown" with no game or no zones.
     pub fn zone_proximity(&self, lat: f64, lon: f64) -> String {
         let p = Point::new(lat, lon);
-        let shapes = self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let best = closest_proximity(&shapes, p);
+        let best = closest_proximity(&self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner), p);
         match best {
             Some(Proximity::Inside) => "inside",
             Some(Proximity::Near) => "near",
@@ -1190,6 +1440,7 @@ impl Engine {
         let j = self.journal.as_ref()?.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let s = j.summary(&id, from_ms, to_ms).ok()?;
         let events = j.events_since(&id, from_ms).ok()?;
+        drop(j);
         Some(AwayReportOut {
             from_ms,
             to_ms,
@@ -1206,6 +1457,9 @@ impl Engine {
     }
 
     /// Reroll unfinished quests (all if `ids` is empty). Returns how many were re-placed.
+    ///
+    /// # Errors
+    /// Returns an error if no game is open, or a zone has no realm.
     pub fn reroll(&self, ids: Vec<i64>, seed: u64) -> Result<u32, CoreError> {
         let (realm_ids, all): (Vec<String>, Vec<i64>) =
             self.with_game(|g| (g.zone_realms.clone(), g.assignments.iter().map(|a| a.location_id).collect())).ok_or_else(|| err("no game open"))?;
@@ -1216,7 +1470,7 @@ impl Engine {
         self.with_game(|g| {
             g.reroll(&ids, &realms, seed, catalog).map(|n| {
                 let _ = g.save(&dir);
-                n as u32
+                count(n)
             })
         })
         .ok_or_else(|| err("no game open"))?
