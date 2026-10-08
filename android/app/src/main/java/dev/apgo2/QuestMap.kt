@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PointF
 import android.view.MotionEvent
@@ -193,6 +194,8 @@ private class MapHolder(
     }
 
     // Connect to the map once it exists: taps, drags, camera reports and the style.
+    // The touch listener only feeds the handle dragger; the map is not a button, so it has no click to announce to accessibility.
+    @SuppressLint("ClickableViewAccessibility")
     fun attach(m: MapLibreMap) {
         map = m
         m.addOnMapClickListener { ll -> onTap(m, ll) }
@@ -239,7 +242,7 @@ private class MapHolder(
         if (padApplied) {
             m.easeCamera(CameraUpdateFactory.paddingTo(0.0, top.toDouble(), 0.0, bottom.toDouble()), PADDING_EASE_MS)
         } else {
-            m.setPadding(0, top.toInt(), 0, bottom.toInt())
+            m.moveCamera(CameraUpdateFactory.paddingTo(0.0, top.toDouble(), 0.0, bottom.toDouble()))
             padApplied = true
         }
     }

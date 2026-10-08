@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -18,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 
 private const val PREFS = "prefs"
 private const val BG_DECLINED = "bg_declined"
@@ -43,7 +45,8 @@ internal class PermissionState(
 ) {
     // Start from the real state: on an activity recreate "false" would stop tracking until the launcher answers.
     var location by mutableStateOf(ctx.hasPermission(Manifest.permission.ACCESS_FINE_LOCATION))
-    var steps by mutableStateOf(ctx.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION))
+
+    var steps by mutableStateOf(hasActivityRecognition())
 
     // "Allow all the time". Re-read on every start: the user grants it on a system settings page, not in a dialog.
     var background by mutableStateOf(hasBackgroundLocation())
@@ -68,11 +71,15 @@ internal class PermissionState(
     /** Remember that the player said "Not now" to the background prompt. */
     fun declineBackground() {
         backgroundDeclined = true
-        prefs().edit().putBoolean(BG_DECLINED, true).apply()
+        prefs().edit { putBoolean(BG_DECLINED, true) }
         Diag.info(LOG_TAG, BACKGROUND_LOCATION, GRANTED to false, "declined_in_app" to true)
     }
 
     private fun prefs() = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    // The permission is a plain string on older Android, where the check simply reports "not granted".
+    @SuppressLint("InlinedApi")
+    private fun hasActivityRecognition() = ctx.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)
 
     private fun hasBackgroundLocation() =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || ctx.hasPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
@@ -87,6 +94,7 @@ internal fun rememberPermissionState(): PermissionState {
 
 /** Asks for the permissions one after another: location, then step counter, then notifications (the tracking notification). */
 @Composable
+@SuppressLint("InlinedApi") // older Android treats the unknown permission string as denied
 internal fun RequestPermissions(perms: PermissionState) {
     val askNotifications =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -109,6 +117,7 @@ internal fun RequestPermissions(perms: PermissionState) {
 
 /** Explains why "Allow all the time" is wanted, once location is allowed, until the player accepts or declines. */
 @Composable
+@SuppressLint("InlinedApi") // shown only when shouldExplainBackground() is true, which needs Android 10
 internal fun BackgroundLocationPrompt(perms: PermissionState) {
     val askBackground =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), perms::onBackgroundAnswer)

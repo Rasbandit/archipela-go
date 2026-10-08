@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +45,11 @@ class TrackingService : Service() {
                 .setOngoing(true)
                 .setContentIntent(open)
                 .build()
-        startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        } else {
+            startForeground(ID, n) // the foreground service type only exists from Android 10
+        }
         Diag.info("service", "started", "restart" to (intent == null))
         if (beat?.isActive != true) {
             beat =

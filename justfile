@@ -52,6 +52,11 @@ app := "dev.apgo2.app"
 android-core profile="debug":
     bash scripts/android_core.sh {{profile}}
 
+# Android: bindings (host build), format, static analysis, lint, unit tests
+check-android:
+    bash scripts/android_bindings.sh
+    cd android && ./gradlew :app:spotlessCheck :app:detekt :app:lintDebug :app:testDebugUnitTest --console=plain -q
+
 android-build:
     cd android && ./gradlew assembleDebug --console=plain -q
 

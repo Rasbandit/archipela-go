@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import android.content.ClipData
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,12 +20,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.apgo2.ui.ApgoIcons
+import kotlinx.coroutines.launch
 
 // A tab of the bottom bar; its position in the list is its AppTab index.
 private data class NavTab(
@@ -137,14 +140,15 @@ private fun ScanAskDialog(m: AppModel) {
 @Composable
 private fun YamlDialog(m: AppModel) {
     val yaml = m.yamlText ?: return
-    val clip = LocalClipboardManager.current
+    val clip = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     AlertDialog(
         onDismissRequest = { m.yamlText = null },
         title = { Text("Archipelago YAML") },
         text = { Text(yaml, fontSize = 11.sp, modifier = Modifier.verticalScroll(rememberScrollState())) },
         confirmButton = {
             TextButton(onClick = {
-                clip.setText(AnnotatedString(yaml))
+                scope.launch { clip.setClipEntry(ClipEntry(ClipData.newPlainText("Archipelago YAML", yaml))) }
                 m.status = "YAML copied"
                 m.yamlText = null
             }) { Text("Copy") }

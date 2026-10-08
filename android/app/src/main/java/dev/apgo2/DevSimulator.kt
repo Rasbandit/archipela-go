@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import android.annotation.SuppressLint
 import dev.apgo2.ui.METERS_PER_DEGREE
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +59,7 @@ internal class DevSimulator(
     }
 
     /** Complete [q] the way a real player would, then show the events it produced. */
+    @SuppressLint("LogNotTimber") // the app does not use Timber; this is the dev simulator's own log line
     fun complete(q: QuestOut) {
         scope.launch(Dispatchers.Default) {
             val anchor = q.anchor

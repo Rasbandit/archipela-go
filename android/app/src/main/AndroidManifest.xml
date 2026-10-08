@@ -17,6 +17,9 @@
     <application
         android:name=".ApgoApp"
         android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@android:drawable/sym_def_app_icon"
         android:label="Archipela-Go 2"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity

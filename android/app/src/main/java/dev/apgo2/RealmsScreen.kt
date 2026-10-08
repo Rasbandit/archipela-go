@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -136,11 +137,14 @@ private fun SwipeToDelete(
     onAsk: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    val dismiss =
-        rememberSwipeToDismissBoxState(confirmValueChange = {
-            if (it == SwipeToDismissBoxValue.EndToStart) onAsk()
-            false
-        })
+    val dismiss = rememberSwipeToDismissBoxState()
+    val ask by rememberUpdatedState(onAsk)
+    LaunchedEffect(dismiss.currentValue) {
+        if (dismiss.currentValue == SwipeToDismissBoxValue.EndToStart) {
+            ask()
+            dismiss.reset()
+        }
+    }
     SwipeToDismissBox(
         state = dismiss,
         enableDismissFromStartToEnd = false,

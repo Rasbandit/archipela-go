@@ -1,6 +1,7 @@
 package dev.apgo2.presence
 
 import android.content.Context
+import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -18,7 +19,7 @@ internal class PresenceSettings(
         get() = homeCache ?: parseHome().also { homeCache = it }
         private set(v) {
             val json = JSONArray(v.map { JSONObject().put("ssid", it.ssid).put("bssid", it.bssid ?: "") }).toString()
-            prefs.edit().putString("home", json).apply()
+            prefs.edit { putString("home", json) }
             homeCache = v
         }
 
@@ -26,7 +27,7 @@ internal class PresenceSettings(
         get() = carCache ?: parseCar().also { carCache = it }
         private set(v) {
             val json = JSONArray(v.map { JSONObject().put("name", it.name).put("address", it.address) }).toString()
-            prefs.edit().putString("car", json).apply()
+            prefs.edit { putString("car", json) }
             carCache = v
         }
 
@@ -34,7 +35,7 @@ internal class PresenceSettings(
     var setupDone: Boolean
         get() = prefs.getBoolean("setup_done", false)
         set(v) {
-            prefs.edit().putBoolean("setup_done", v).apply()
+            prefs.edit { putBoolean("setup_done", v) }
         }
 
     private fun parseHome(): List<HomeNetwork> =

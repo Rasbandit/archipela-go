@@ -19,7 +19,16 @@ android {
     }
 
     buildFeatures { compose = true }
+
+    lint {
+        warningsAsErrors = true
+        abortOnError = true
+        checkDependencies = true
+        checkReleaseBuilds = true
+    }
 }
+
+kotlin { compilerOptions { allWarningsAsErrors.set(true) } }
 
 spotless {
     kotlin {
@@ -52,10 +61,11 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.tooling.preview)
     debugImplementation(libs.compose.tooling)
+    implementation(libs.core.ktx)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.runtime.compose)
     implementation("${libs.jna.get()}@aar")
     implementation(libs.maplibre)
     implementation(libs.lucide)
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.junit)
 }

@@ -7,6 +7,8 @@ lifecycle = "2.11.0"
 jna = "5.19.1"
 maplibre = "13.6.1"
 lucide = "1.1.0"
+coreKtx = "1.19.1"
+junit = "4.13.2"
 spotless = "8.10.3"
 ktlint = "1.8.0"
 composeRulesKtlint = "0.6.7"
@@ -24,6 +26,8 @@ lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-com
 jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 maplibre = { module = "org.maplibre.gl:android-sdk", version.ref = "maplibre" }
 compose-rules-detekt = { module = "io.nlopez.compose.rules:detekt", version.ref = "composeRulesDetekt" }
+core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+junit = { module = "junit:junit", version.ref = "junit" }
 lucide = { module = "com.composables:icons-lucide-android", version.ref = "lucide" }
 
 [plugins]

@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
@@ -254,6 +255,7 @@ private fun WifiChoiceList(state: WifiStepState) {
 
 /** Step 3: tick the Bluetooth device that is your car. Optional. */
 @Composable
+@SuppressLint("InlinedApi") // only launched when hasBluetoothConnect() is false, which cannot happen before Android 12
 internal fun CarStep(
     m: AppModel,
     onBack: () -> Unit,
@@ -314,6 +316,8 @@ internal fun CarStep(
 }
 
 // The phone's paired Bluetooth devices; empty when the adapter is missing or the system refuses.
+// The caller only offers this once Bluetooth is allowed, and runCatching absorbs a SecurityException if it is revoked meanwhile.
+@SuppressLint("MissingPermission")
 private fun pairedDevices(ctx: Context): List<CarDevice> =
     runCatching {
         ctx

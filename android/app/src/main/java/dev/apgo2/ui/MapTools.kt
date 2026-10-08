@@ -51,7 +51,7 @@ internal fun ToolPill(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(pillModifier(modifier), verticalArrangement = Arrangement.spacedBy(2.dp), content = content)
+    Column(modifier.pill(), verticalArrangement = Arrangement.spacedBy(2.dp), content = content)
 }
 
 /** Like [ToolPill], laid out in a row. */
@@ -60,12 +60,12 @@ internal fun ToolPillRow(
     modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
-    Row(pillModifier(modifier), horizontalArrangement = Arrangement.spacedBy(2.dp), content = content)
+    Row(modifier.pill(), horizontalArrangement = Arrangement.spacedBy(2.dp), content = content)
 }
 
 @Composable
-private fun pillModifier(modifier: Modifier = Modifier) =
-    modifier
+private fun Modifier.pill() =
+    this
         .background(MaterialTheme.colorScheme.surface.copy(alpha = PILL_ALPHA), RoundedCornerShape(PILL_CORNER_DP.dp))
         .padding(4.dp)
 
