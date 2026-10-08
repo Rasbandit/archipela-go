@@ -59,6 +59,8 @@ internal object FindFilter {
 }
 
 private const val DEFAULT_RADIUS_M = 1500f
+private const val MIN_RADIUS_M = 300f
+private const val MAX_RADIUS_M = 8000f
 private const val MIN_CORNERS = 3
 private const val NAME_SAVE_DELAY_MS = 600L
 private const val OVERLAY_TOP_DP = 16
@@ -89,8 +91,11 @@ internal class RealmEditorState(
     var pickingIcon by mutableStateOf(false)
     var confirmDelete by mutableStateOf<RealmOut?>(null)
     var polygon by mutableStateOf(original?.polygonActive == true)
+        private set
     var radius by mutableFloatStateOf(original?.circle?.radiusM?.toFloat() ?: DEFAULT_RADIUS_M)
+        private set
     var center by mutableStateOf(original?.circle?.let { LatLng(it.center.lat, it.center.lon) })
+        private set
     var savedAt by mutableStateOf<Long?>(null) // when the realm was last written to disk
     val finds = mutableStateListOf<FindOut>()
     var findsVersion by mutableIntStateOf(0)
@@ -178,6 +183,40 @@ internal class RealmEditorState(
     fun pickIcon(key: String) {
         icon = key
         commit()
+    }
+
+    // A handle was dragged to [to]: a polygon corner moves, a circle moves (handle 0) or is resized (the ring).
+    fun moveHandle(
+        i: Int,
+        to: LatLng,
+    ) {
+        if (polygon) {
+            if (i in m.draft.indices) m.draft[i] = to
+        } else {
+            moveCircle(i, to)
+        }
+    }
+
+    // Switch to a circle or a polygon, going back to the area tab.
+    fun chooseShape(polygonShape: Boolean) {
+        val changed = polygon != polygonShape
+        polygon = polygonShape
+        goTab(EditorTab.AREA)
+        if (changed) commit()
+    }
+
+    private fun moveCircle(
+        i: Int,
+        to: LatLng,
+    ) {
+        val c = circleCenter ?: return
+        if (i == 0) {
+            center = to
+        } else {
+            val d = floatArrayOf(0f)
+            android.location.Location.distanceBetween(c.latitude, c.longitude, to.latitude, to.longitude, d)
+            radius = d[0].coerceIn(MIN_RADIUS_M, MAX_RADIUS_M)
+        }
     }
 
     // Save what is on screen. Returns false when there is nothing to save yet (no location, or a polygon is not drawn).

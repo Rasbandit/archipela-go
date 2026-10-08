@@ -6,8 +6,6 @@ import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.FindOut
 
 private const val NO_MARK = "none"
-private const val MIN_RADIUS_M = 300f
-private const val MAX_RADIUS_M = 8000f
 private const val DEFAULT_BUBBLE_DP = 230
 private const val BUBBLE_GAP_DP = 26
 
@@ -60,18 +58,6 @@ internal fun RealmEditorState.handles(): List<LatLng> =
         else -> listOfNotNull(circleCenter)
     }
 
-/** A handle was dragged to [to]: a polygon corner moves, a circle moves (handle 0) or is resized (the ring). */
-internal fun RealmEditorState.moveHandle(
-    i: Int,
-    to: LatLng,
-) {
-    if (polygon) {
-        if (i in m.draft.indices) m.draft[i] = to
-    } else {
-        moveCircle(i, to)
-    }
-}
-
 /** A tap on the map adds a polygon corner. */
 internal fun RealmEditorState.onMapTap(at: LatLng) {
     if (polygon && tab == EditorTab.AREA) {
@@ -86,30 +72,8 @@ internal fun RealmEditorState.clearCorners() {
     commit()
 }
 
-/** Switch to a circle or a polygon, going back to the area tab. */
-internal fun RealmEditorState.chooseShape(polygonShape: Boolean) {
-    val changed = polygon != polygonShape
-    polygon = polygonShape
-    goTab(EditorTab.AREA)
-    if (changed) commit()
-}
-
 // Each request to the map carries a new number so the same point can be asked for twice.
 private fun RealmEditorState.nextFocusNonce() = (focus?.nonce ?: 0) + 1
 
 private fun RealmEditorState.roomAbove(density: Float) =
     (if (bubblePx > 0) bubblePx else (DEFAULT_BUBBLE_DP * density).toInt()) + (BUBBLE_GAP_DP * density).toInt()
-
-private fun RealmEditorState.moveCircle(
-    i: Int,
-    to: LatLng,
-) {
-    val c = circleCenter ?: return
-    if (i == 0) {
-        center = to
-    } else {
-        val d = floatArrayOf(0f)
-        android.location.Location.distanceBetween(c.latitude, c.longitude, to.latitude, to.longitude, d)
-        radius = d[0].coerceIn(MIN_RADIUS_M, MAX_RADIUS_M)
-    }
-}
