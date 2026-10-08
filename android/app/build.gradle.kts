@@ -75,6 +75,6 @@ dependencies {
 kover {
     reports {
         filters { excludes { packages("uniffi.*") } } // generated bindings
-        verify { rule { minBound(7) } }
+        verify { rule { minBound(15) } }
     }
 }
