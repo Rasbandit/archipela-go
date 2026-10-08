@@ -228,7 +228,7 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
 
 /**
  * Where distances are measured from. It looks different from a realm on purpose (a green outline and a house), so it is never mistaken for one:
- * a small map of the spot, and a way to move it.
+ * a small map of the spot, and a way to move it. Its button opens the setup flow.
  */
 @Composable
 private fun HomeCard(m: AppModel, onClick: () -> Unit) {
@@ -299,8 +299,8 @@ private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
 }
 
 /**
- * Choose home on a map. The pin can be dragged, the map tapped to put it there, or "My location" pressed. Each placement is saved at once, so
- * Done only closes.
+ * Choose home on a map. The pin can be dragged, the map tapped to put it there, or "My location" pressed. Each placement is saved at once; the
+ * confirm button closes the picker (or moves to the next setup step when used in the setup flow).
  */
 @Composable
 internal fun HomePicker(m: AppModel, onBack: () -> Unit, onConfirm: () -> Unit = onBack, title: String = "Home", confirmLabel: String = "Done", requireHome: Boolean = false) {

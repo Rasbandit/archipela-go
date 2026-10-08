@@ -23,8 +23,8 @@ honest about items not applied yet) and, with "Show GPS and app notes", why a ne
 - Leave the app (Home), come back after more than 1 min: the "While you were out" dialog shows time, distance, points, events.
 
 ## Presence checklist (home Wi-Fi, car, zones)
-Before leaving: Realms > Home card > **Presence**. At home, tap **Add current network** (needs location permission to read the Wi-Fi name). For the car, pair it in
-the phone's Bluetooth settings first, then tick it under **Car Bluetooth** (needs the Nearby devices permission). Open the game and read the chip next to the game name:
+Before leaving: Realms > Home card > **Setup** (or **Finish setup**). At home, tap **Add current network** in step 2 (needs location permission to read the Wi-Fi name). For the car, pair it in
+the phone's Bluetooth settings first, then tick it in step 3 (car) (needs the Nearby devices permission). Open the game and read the chip next to the game name:
 - **Tracking**: inside a zone, GPS every 5 s, progress counts.
 - **At home, paused**: on a home network; GPS is off and nothing counts.
 - **In car, not counting**: a tagged car device is connected; GPS is off and nothing counts.
