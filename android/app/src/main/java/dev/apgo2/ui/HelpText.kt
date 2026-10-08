@@ -156,6 +156,8 @@ internal object SetupText {
     const val WIFI_NONE_FOUND = "No networks found. Connect to your home Wi-Fi, or type its name below."
     const val WIFI_NEEDS_LOCATION = "Allow location to list nearby networks."
     const val CAR_NEEDS_BLUETOOTH = "Bluetooth permission lets the app see your paired devices."
+    const val CAR_BLUETOOTH_BLOCKED =
+        "Android will not ask again. In the app's settings open Permissions, allow Nearby devices, then come back here."
     const val CAR_NONE_PAIRED = "No paired Bluetooth devices found. Pair your car in the phone's Bluetooth settings first."
     const val HOME_NEEDS_WIFI = "Add your home Wi-Fi so the game pauses at home"
 }

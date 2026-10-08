@@ -1,9 +1,13 @@
 package dev.apgo2.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.apgo_ffi.ChainOut
 import uniffi.apgo_ffi.MarkOut
+
+private const val EPS = 1e-4f
 
 class ChainFormatTest {
     private fun chain(
@@ -46,6 +50,83 @@ class ChainFormatTest {
         assertEquals(listOf(1.0f), ChainFormat.fractions(listOf(250.0), 100.0))
         assertEquals(emptyList<Float>(), ChainFormat.fractions(emptyList(), 100.0))
         assertEquals("a zero total must not divide by zero", listOf(0f), ChainFormat.fractions(listOf(5.0), 0.0))
+    }
+
+    @Test fun ticksKeepAMinimumGapSoNeighboursDoNotOverlap() {
+        // 500 and 1,000 on a 30,000 bar sit at 1.7% and 3.3%: too close to tell apart.
+        val f = ChainFormat.fractions(listOf(500.0, 1_000.0, 30_000.0), 30_000.0)
+        assertEquals(3, f.size)
+        f.zipWithNext().forEach { (a, b) -> assertTrue("gap $a -> $b", b - a >= ChainFormat.MIN_TICK_GAP - EPS) }
+        assertEquals("the first tick is not moved", 500f / 30_000f, f[0], EPS)
+        assertEquals("the last tick stays at the end", 1f, f[2], EPS)
+    }
+
+    @Test fun ticksCrowdedAtTheEndArePushedBackInsideTheBar() {
+        val f = ChainFormat.fractions(listOf(98.0, 99.0, 100.0), 100.0)
+        assertEquals(1f, f[2], EPS)
+        f.zipWithNext().forEach { (a, b) -> assertTrue("gap $a -> $b", b - a >= ChainFormat.MIN_TICK_GAP - EPS) }
+        f.forEach { assertTrue("inside the bar: $it", it in 0f..1f) }
+    }
+
+    @Test fun tooManyTicksForTheGapAreSpreadEvenly() {
+        val n = (1 / ChainFormat.MIN_TICK_GAP).toInt() + 5
+        val f = ChainFormat.fractions(List(n) { 100.0 }, 100.0)
+        assertEquals(0f, f.first(), EPS)
+        assertEquals(1f, f.last(), EPS)
+        f.zipWithNext().forEach { (a, b) -> assertEquals(1f / (n - 1), b - a, EPS) }
+    }
+
+    @Test fun theAmountToGoRoundsUpSoAFractionLeftIsNotZero() {
+        val c = chain("minutes", 89.5, 30.0 to true, 90.0 to false)
+        assertEquals("next: 1 h 30 min (1 min to go)", ChainFormat.next(c))
+        val s = chain("steps", 8_499.2, 8_500.0 to false)
+        assertEquals("next: 8,500 steps (1 to go)", ChainFormat.next(s))
+        val noise = chain("steps", 3_400.0000001, 8_500.0 to false)
+        assertEquals("float noise does not add one", "next: 8,500 steps (5,100 to go)", ChainFormat.next(noise))
+    }
+
+    @Test fun markAmountsRoundToTheNearestNotDown() {
+        assertEquals("1 h 30 min", ChainFormat.amount("minutes", 89.99999))
+        assertEquals("8,500 steps", ChainFormat.amount("steps", 8_499.9999))
+        assertEquals("40 squares", ChainFormat.amount("cells", 39.9999))
+        assertEquals("0 min", ChainFormat.amount("minutes", -2.0))
+    }
+
+    @Test fun doneMeansEveryMarkIsReached() {
+        assertTrue(ChainFormat.done(chain("steps", 9_000.0, 500.0 to true, 8_500.0 to true)))
+        assertFalse(ChainFormat.done(chain("steps", 600.0, 500.0 to true, 8_500.0 to false)))
+    }
+
+    @Test fun theFillReachesEachMovedTickExactlyAtItsMark() {
+        val marks = listOf(500.0, 1_000.0, 30_000.0)
+        val f = ChainFormat.fractions(marks, 30_000.0)
+        marks.forEachIndexed { i, at -> assertEquals("mark $i", f[i], ChainFormat.fill(at, 30_000.0, marks, f), EPS) }
+        assertTrue("just short of a moved tick stays behind it", ChainFormat.fill(999.0, 30_000.0, marks, f) < f[1])
+    }
+
+    @Test fun theWarpedFillIsMonotonicAndClamped() {
+        val marks = listOf(500.0, 1_000.0, 16_000.0, 30_000.0)
+        val f = ChainFormat.fractions(marks, 30_000.0)
+        val fills = (0..31_000 step 250).map { ChainFormat.fill(it.toDouble(), 30_000.0, marks, f) }
+        fills.zipWithNext().forEach { (a, b) -> assertTrue("$a -> $b", b >= a) }
+        assertEquals(0f, ChainFormat.fill(-5.0, 30_000.0, marks, f))
+        assertEquals(0f, ChainFormat.fill(0.0, 30_000.0, marks, f))
+        assertEquals(1f, ChainFormat.fill(99_999.0, 30_000.0, marks, f))
+    }
+
+    @Test fun equalMarksAreAllReachedTogetherAndNoneIsInsideTheFillBefore() {
+        val marks = List(20) { 100.0 }
+        val f = ChainFormat.fractions(marks, 100.0)
+        assertEquals(0f, ChainFormat.fill(50.0, 100.0, marks, f), EPS)
+        assertEquals(1f, ChainFormat.fill(100.0, 100.0, marks, f), EPS)
+    }
+
+    @Test fun aTotalBeyondTheLastMarkFillsTheRestProportionally() {
+        val marks = listOf(50.0)
+        val f = ChainFormat.fractions(marks, 100.0)
+        assertEquals(0.5f, ChainFormat.fill(50.0, 100.0, marks, f), EPS)
+        assertEquals(0.75f, ChainFormat.fill(75.0, 100.0, marks, f), EPS)
+        assertEquals("no marks: the plain share", 0.25f, ChainFormat.fill(25.0, 100.0, emptyList(), emptyList()), EPS)
     }
 
     @Test fun theFillIsTheCounterShareClamped() {
