@@ -1,3 +1,5 @@
+"""Item table: ids, classifications and name groups. IDs are stable once released."""
+
 from BaseClasses import ItemClassification  # type: ignore[import-not-found]
 
 from . import names

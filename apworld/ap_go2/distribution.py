@@ -11,6 +11,8 @@ from .effort import tier_range
 
 @dataclass(frozen=True)
 class Quest:
+    """One generated quest location, before it is turned into an Archipelago location."""
+
     name: str
     number: int  # 1-based within its (difficulty, mode) block; 1 for the boss
     zone: int  # 1-based
@@ -22,6 +24,8 @@ class Quest:
 
 @dataclass(frozen=True)
 class QuestPlan:
+    """All quests of a game: the regular trips and the optional boss."""
+
     trips: list[Quest]
     boss: Quest | None
 
@@ -47,10 +51,12 @@ def difficulty_counts(count: int, shares: Sequence[int]) -> dict[str, int]:
 
 
 def compatible_families(mode: str, enabled: Sequence[str]) -> list[str]:
+    """Keep the enabled quest families that can be done in `mode`."""
     return [f for f in enabled if mode in FAMILY_MODES[f]]
 
 
 def pick_family(rng: random.Random, mode: str, enabled: Sequence[str]) -> str:
+    """Pick a family for `mode`; `reach` is weighted up and is the fallback when none fit."""
     pool = compatible_families(mode, enabled)
     if not pool:
         return "reach"

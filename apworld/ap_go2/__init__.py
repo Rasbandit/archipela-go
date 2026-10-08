@@ -32,10 +32,14 @@ from .zones import Zone, build_zones
 
 
 class ApGo2Item(Item):  # type: ignore[misc]
+    """An item of this game; only tags the game name for Archipelago."""
+
     game = GAME_NAME
 
 
 class ApGo2Location(Location):  # type: ignore[misc]
+    """A location of this game; only tags the game name for Archipelago."""
+
     game = GAME_NAME
 
 
@@ -68,6 +72,11 @@ class ApGo2World(World):  # type: ignore[misc]
     goal_need: int
 
     def generate_early(self) -> None:
+        """Validate options, then roll zones, quests and the item plan with the seeded RNG.
+
+        Raises:
+            OptionError: If the chosen settings cannot produce a valid game.
+        """
         opts = self.options
         self.trap_keys = [k for k in names.TRAP_KEYS if k in opts.enabled_traps.value]
         shares = (opts.easy_share.value, opts.medium_share.value, opts.hard_share.value)
@@ -123,6 +132,7 @@ class ApGo2World(World):  # type: ignore[misc]
         )
 
     def create_regions(self) -> None:
+        """Chain one region per zone behind Menu, place quests, and lock Victory on the Goal."""
         menu = Region("Menu", self.player, self.multiworld)
         regions = [Region(names.zone_name(z.id), self.player, self.multiworld) for z in self.zones]
         self.multiworld.regions += [menu, *regions]
@@ -153,17 +163,21 @@ class ApGo2World(World):  # type: ignore[misc]
         )
 
     def create_item(self, name: str) -> Item:
+        """Build the named item with its fixed id and classification."""
         code, classification = ITEM_TABLE[name]
         return ApGo2Item(name, classification, code, self.player)
 
     def create_items(self) -> None:
+        """Add the planned item counts to the multiworld pool."""
         for name, count in self.plan.counts.items():
             self.multiworld.itempool += [self.create_item(name) for _ in range(count)]
 
     def get_filler_item_name(self) -> str:
+        """Return a repeatable filler item, as Archipelago may request unlimited copies."""
         return names.FILLERS[0]
 
     def fill_slot_data(self) -> dict[str, Any]:
+        """Build the slot_data the phone client reads (see the client contract schema)."""
         opts = self.options
         return build_slot_data(
             goals=[

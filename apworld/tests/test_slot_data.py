@@ -1,6 +1,7 @@
 import json
 import random
 from pathlib import Path
+from typing import Any, cast
 
 import jsonschema
 import pytest
@@ -14,7 +15,9 @@ SCHEMA = json.loads(
 )
 
 
-def build(modes: list[str] | None = None, boss: bool = True, **over: object) -> dict[str, object]:
+def build(
+    modes: list[str] | None = None, *, boss: bool = True, **over: object
+) -> dict[str, object]:
     modes = modes or ["walk", "bike"]
     quests = generate_quests(
         rng=random.Random(2),
@@ -79,9 +82,10 @@ def test_boss_is_null_without_boss_goal() -> None:
 def test_trip_ids_unique_and_in_blocks() -> None:
     trips = build()["trips"]
     assert isinstance(trips, list)
-    ids = [t["location_id"] for t in trips]
+    entries = cast("list[dict[str, Any]]", trips)  # JSON-shaped slot_data; list checked above
+    ids = [t["location_id"] for t in entries]
     assert len(set(ids)) == len(ids) == 20
-    for t in trips:
+    for t in entries:
         assert t["location_id"] > ID_OFFSET
 
 
@@ -97,7 +101,8 @@ def test_schema_rejects_bad_data() -> None:
     ):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate({**data, key: value}, SCHEMA)
-    broken = {**data, "trips": [{**data["trips"][0], "effort_tier": 11}]}  # type: ignore[index]
+    first_trip = cast("list[dict[str, Any]]", data["trips"])[0]  # JSON-shaped slot_data
+    broken = {**data, "trips": [{**first_trip, "effort_tier": 11}]}
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(broken, SCHEMA)
 
