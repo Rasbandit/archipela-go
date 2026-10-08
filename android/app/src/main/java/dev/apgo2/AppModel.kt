@@ -20,6 +20,7 @@ import org.json.JSONObject
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.ApEvent
 import uniffi.apgo_ffi.ApSession
+import uniffi.apgo_ffi.AuditEventOut
 import uniffi.apgo_ffi.AwayReportOut
 import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.Engine
@@ -58,6 +59,8 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     /** Set when you come back to the app after being away; shown once. */
     var away by mutableStateOf<AwayReportOut?>(null)
     var games by mutableStateOf<List<GameInfo>>(emptyList())
+    /** What happened in the open (or last paused) game, newest first; see [refreshActivity]. */
+    var activity by mutableStateOf<List<AuditEventOut>>(emptyList())
     val log = mutableStateListOf<String>()
     var realLoc by mutableStateOf<Location?>(null)
     var simPos by mutableStateOf<LatLng?>(null)
@@ -128,13 +131,13 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             "heartbeat", "tracking",
             "fixes" to fixesSinceBeat, "rejected" to rejectedSinceBeat,
             "last_fix_age_s" to if (lastFixMs == 0L) -1L else (now() - lastFixMs) / 1000,
-            "last_acc_m" to lastFixAcc, "last_provider" to lastFixProvider,
+            "last_acc_m" to lastFixAcc, "last_provider" to lastFixProvider, "by_provider" to providerCounts.entries.joinToString(",") { "${it.key}=${it.value}" },
             "steps" to stepsTotal, "battery_pct" to bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY),
             "screen_on" to pm.isInteractive, "power_save" to pm.isPowerSaveMode,
             "doze" to pm.isDeviceIdleMode, "bg_location" to (android.os.Build.VERSION.SDK_INT < 29 || ctx.checkSelfPermission(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED), "unrestricted" to pm.isIgnoringBatteryOptimizations(ctx.packageName),
             "quests" to quests.size, "done" to (hud?.done ?: 0),
         )
-        fixesSinceBeat = 0; rejectedSinceBeat = 0
+        fixesSinceBeat = 0; rejectedSinceBeat = 0; providerCounts.clear()
         drainCoreDiag()
     }
 
@@ -312,8 +315,22 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     }
 
     fun openGame(id: String) {
-        runCatching { engine.openGame(id) }.onSuccess { Diag.i("game", "opened", "id" to id); simClockMs = 0; refreshAll(); tab = 2 }.onFailure { fail("open_game", it); status = "Could not open: ${it.message}" }
+        runCatching { engine.openGame(id) }.onSuccess { Diag.i("game", "opened", "id" to id); engine.logSession(true, now()); simClockMs = 0; refreshAll(); tab = 2 }.onFailure { fail("open_game", it); status = "Could not open: ${it.message}" }
     }
+
+    /** Stop tracking: log it, close the game view and go to the Play tab, which then lists the saved games to continue. */
+    fun pause() {
+        engine.logSession(false, now())
+        Diag.i("game", "paused")
+        engine.closeGame()
+        simPos = null
+        selected = null
+        refreshAll()
+        refreshActivity()
+        tab = 2
+    }
+
+    fun refreshActivity() { activity = engine.activity(300u) }
 
     fun deleteGame(id: String) {
         runCatching { engine.deleteGame(id) }
@@ -346,11 +363,13 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     private var lastFixAcc = 0f
     private var lastFixProvider = ""
     private val progressBuckets = HashMap<Long, Int>()
+    private val providerCounts = HashMap<String, Int>()
 
     fun onFix(loc: Location) {
         if (!engine.hasGame() || simPos != null) return
         lastFixMs = now(); lastFixAcc = loc.accuracy; lastFixProvider = loc.provider ?: ""
-        if (loc.accuracy > 75f) rejectedSinceBeat++ else fixesSinceBeat++
+        if (loc.accuracy > 35f) rejectedSinceBeat++ else fixesSinceBeat++
+        providerCounts.merge(loc.provider ?: "?", 1, Int::plus)
         handle(engine.onFix(loc.latitude, loc.longitude, now(), loc.accuracy.toDouble(), stepsTotal, false))
         refreshPlay(withTrace = traceThrottle.due(now()))
         logProgress()

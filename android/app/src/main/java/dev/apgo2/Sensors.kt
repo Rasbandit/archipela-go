@@ -23,12 +23,8 @@ class Sensors(private val ctx: Context, private val model: AppModel) {
     private var stepListener: SensorEventListener? = null
 
     private fun providers(): List<String> {
-        val all = buildList {
-            if (Build.VERSION.SDK_INT >= 31) add(LocationManager.FUSED_PROVIDER)
-            add(LocationManager.GPS_PROVIDER)
-            add(LocationManager.NETWORK_PROVIDER)
-        }
-        return all.filter { lm.isProviderEnabled(it) }
+        val enabled = lm.allProviders.filter { lm.isProviderEnabled(it) }.toSet()
+        return GpsPolicy.providers(enabled, Build.VERSION.SDK_INT)
     }
 
     /** Start (or re-start with a new [rate]). Calling again with the same rate does nothing. */
@@ -37,7 +33,7 @@ class Sensors(private val ctx: Context, private val model: AppModel) {
         if (locationListener != null && this.rate == rate) return
         stopLocation()
         val l = LocationListener { loc -> model.realLoc = loc; model.onFix(loc) }
-        // Listen on every enabled provider: whichever has a fix wins (emulators only feed GPS).
+        // One provider only: mixing them interleaved 100 m-off network fixes with good GPS fixes and made the position jump streets.
         providers().forEach { p ->
             runCatching {
                 lm.requestLocationUpdates(p, rate.intervalMs, rate.minDistanceM, l)

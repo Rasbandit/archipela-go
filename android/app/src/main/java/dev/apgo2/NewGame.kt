@@ -124,8 +124,6 @@ fun NewGameScreen(m: AppModel) {
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ContinueSection(m)
-        HorizontalDivider()
         Text("New game", style = MaterialTheme.typography.titleLarge)
         OutlinedTextField(name, { name = it }, label = { Text("Game name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
@@ -156,21 +154,6 @@ fun NewGameScreen(m: AppModel) {
         HorizontalDivider()
         ArchipelagoSection(m, url, { url = it }, slot, { slot = it }, apZoneRealms)
         Box(Modifier.height(24.dp))
-    }
-}
-
-@Composable
-private fun ContinueSection(m: AppModel) {
-    Text("Continue a game", style = MaterialTheme.typography.titleLarge)
-    if (m.games.isEmpty()) Text("No saved games yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    m.games.forEach { g ->
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(g.name)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(onClick = { m.openGame(g.id) }) { Text("Open", fontSize = 12.sp) }
-                OutlinedButton(onClick = { m.deleteGame(g.id) }) { Text("Delete", fontSize = 12.sp) }
-            }
-        }
     }
 }
 

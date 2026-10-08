@@ -13,6 +13,11 @@ object AwayFormat {
         "info" to "Notices",
         "item_received" to "Items received",
         "fix_rejected" to "Bad GPS signal",
+        "near_miss" to "Near a quest",
+        "play_paused" to "Paused",
+        "play_resumed" to "Resumed",
+        "app_foreground" to "App opened",
+        "app_background" to "App left the screen",
     )
 
     /** App foreground/background markers explain gaps in the trace but are not news. */
@@ -35,4 +40,11 @@ object AwayFormat {
     fun isVisible(kind: String): Boolean = kind !in HIDDEN
 
     fun visibleKinds(kinds: List<String>): List<String> = kinds.filter(::isVisible)
+}
+
+/** Which journal entries the in-app Activity list shows. */
+object ActivityFormat {
+    private val TECHNICAL = setOf("near_miss", "fix_rejected", "app_foreground", "app_background", "discovered")
+
+    fun shown(kind: String, details: Boolean): Boolean = details || kind !in TECHNICAL
 }

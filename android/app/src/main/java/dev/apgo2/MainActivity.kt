@@ -45,11 +45,12 @@ class MainActivity : ComponentActivity() {
                     val owner = LocalLifecycleOwner.current
                     // "Allow all the time". Re-read on every start: the user grants it on a system settings page, not in a dialog.
                     var bgGranted by remember { mutableStateOf(hasBackgroundLocation()) }
+                    var visible by remember { mutableStateOf(true) }
                     DisposableEffect(owner) {
                         val obs = LifecycleEventObserver { _, e ->
                             when (e) {
-                                Lifecycle.Event.ON_START -> { bgGranted = hasBackgroundLocation(); model.onForeground() }
-                                Lifecycle.Event.ON_STOP -> model.onBackground()
+                                Lifecycle.Event.ON_START -> { visible = true; bgGranted = hasBackgroundLocation(); model.onForeground() }
+                                Lifecycle.Event.ON_STOP -> { visible = false; model.onBackground() }
                                 else -> {}
                             }
                         }
@@ -93,7 +94,11 @@ class MainActivity : ComponentActivity() {
 
                     LaunchedEffect(stepsOk) { if (stepsOk) model.sensors.startSteps() }
                     val rate = GpsPolicy.forState(playing = model.quests.isNotEmpty())
-                    LaunchedEffect(permitted, rate) { if (permitted) model.sensors.startLocation(rate) }
+                    // Location runs while a game is open (tracking) or while the app is on screen (the map's "you" marker). Paused and hidden: off.
+                    val playingNow = model.hud != null
+                    LaunchedEffect(permitted, rate, visible, playingNow) {
+                        if (permitted && (playingNow || visible)) model.sensors.startLocation(rate) else model.sensors.stopLocation()
+                    }
                     // A game that is open is tracked in the foreground service, so fixes keep coming with the screen off.
                     val playing = model.hud != null
                     LaunchedEffect(permitted, playing) {

@@ -58,6 +58,9 @@ pub mod kind {
     pub const FIX_REJECTED: &str = "fix_rejected";
     pub const APP_FOREGROUND: &str = "app_foreground";
     pub const APP_BACKGROUND: &str = "app_background";
+    /// The player paused or resumed play (tracking off or on).
+    pub const PLAY_PAUSED: &str = "play_paused";
+    pub const PLAY_RESUMED: &str = "play_resumed";
     /// Close to a quest that did not count; the detail says why.
     pub const NEAR_MISS: &str = "near_miss";
 }

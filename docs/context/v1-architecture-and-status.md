@@ -34,6 +34,11 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - Gaps: the simulator advances a virtual clock 10 min per jump, so sim points never form a line. Real GPS untested outdoors. The trace is reloaded in full on every
   fix (fine for a few thousand points; page or simplify later). Events are only logged while a game is open. No export/clear UI yet.
 
+- Fix quality (core `Game::on_fix`): accuracy limit 35 m, a fix implying >100 km/h (error radii discounted) is dropped (3 in a row are believed), distance counts only after
+  movement beyond GPS wobble and never across >5 min gaps. `Game::explain_near` says why a quest within 100 m does or does not count; logged as `near_miss` events.
+- Activity tab + `Engine.activity`: journal entries with attribution (`Game::journal_events`, `items::blurb`). Pause tracking = `AppModel.pause()` (closes the game, stops the service).
+  `delete_game` archives the save to `games-archive/` and keeps journal rows. Street snapping is NOT done yet (idea: display/trace only, sticky segment, after the retest).
+
 ## Key design facts
 - Difficulty = active minutes; tier = ceil(minutes / minutes_per_tier); Easy 1-3, Medium 4-7, Hard 8-10. Locations `"{Easy|Medium|Hard} {Walk|Run|Bike|Drive} Quest #n"`.
 - **Travel mode belongs to the zone/game, not the realm.** Any realm can serve any mode. Car is hidden in the UI (core still has `Drive`).

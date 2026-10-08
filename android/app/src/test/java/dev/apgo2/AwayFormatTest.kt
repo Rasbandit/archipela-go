@@ -29,3 +29,21 @@ class AwayFormatTest {
         assertEquals(listOf("quest_done", "trap"), shown)
     }
 }
+
+class ActivityFormatTest {
+    @Test fun storyEventsAlwaysShowAndTechnicalOnesOnlyOnRequest() {
+        listOf("quest_done", "reward", "trap", "zone_unlocked", "goal", "info", "item_received", "check_sent").forEach {
+            assertEquals(it, true, ActivityFormat.shown(it, details = false))
+        }
+        listOf("near_miss", "fix_rejected", "app_foreground", "app_background", "discovered").forEach {
+            assertEquals(it, false, ActivityFormat.shown(it, details = false))
+            assertEquals(it, true, ActivityFormat.shown(it, details = true))
+        }
+    }
+
+    @Test fun technicalKindsAreLabelled() {
+        assertEquals("Near a quest", AwayFormat.kindLabel("near_miss"))
+        assertEquals("App left the screen", AwayFormat.kindLabel("app_background"))
+        assertEquals("App opened", AwayFormat.kindLabel("app_foreground"))
+    }
+}

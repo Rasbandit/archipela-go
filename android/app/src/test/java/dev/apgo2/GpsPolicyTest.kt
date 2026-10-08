@@ -29,3 +29,16 @@ class GpsPolicyTest {
         assertTrue(GpsPolicy.forState(true).intervalMs * 10 < 5 * 60_000L)
     }
 }
+
+class GpsProvidersTest {
+    @Test fun prefersFusedThenGpsAndNeverMixesProviders() {
+        assertEquals(listOf("fused"), GpsPolicy.providers(setOf("fused", "gps", "network"), sdk = 34))
+        assertEquals(listOf("gps"), GpsPolicy.providers(setOf("gps", "network"), sdk = 34))
+        assertEquals(listOf("gps"), GpsPolicy.providers(setOf("fused", "gps", "network"), sdk = 30)) // fused provider needs Android 12
+    }
+
+    @Test fun networkIsTheLastResortAndNothingEnabledMeansNothing() {
+        assertEquals(listOf("network"), GpsPolicy.providers(setOf("network"), sdk = 34))
+        assertEquals(emptyList<String>(), GpsPolicy.providers(emptySet(), sdk = 34))
+    }
+}

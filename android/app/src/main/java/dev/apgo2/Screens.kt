@@ -125,9 +125,9 @@ fun AppRoot(m: AppModel) {
     Scaffold(
         bottomBar = {
             NavigationBar {
-                listOf("Realms", "New Game", "Play").forEachIndexed { i, t ->
+                listOf("Realms", "New Game", "Play", "Activity").forEachIndexed { i, t ->
                     NavigationBarItem(selected = m.tab == i, onClick = { m.tab = i; if (i == 0) { m.editing = null; m.pickingHome = false } }, // tapping Realms again leaves the editor
-                         icon = { Icon(listOf(ApgoIcons.Realms, ApgoIcons.NewGame, ApgoIcons.Play)[i], contentDescription = t) }, label = { Text(t) })
+                         icon = { Icon(listOf(ApgoIcons.Realms, ApgoIcons.NewGame, ApgoIcons.Play, ApgoIcons.Activity)[i], contentDescription = t) }, label = { Text(t) })
                 }
             }
         },
@@ -142,6 +142,7 @@ fun AppRoot(m: AppModel) {
                 when (m.tab) {
                     0 -> RealmsScreen(m)
                     1 -> NewGameScreen(m)
+                    3 -> ActivityScreen(m)
                     else -> PlayScreen(m)
                 }
             }
@@ -775,15 +776,23 @@ private fun distanceLabel(m: Double) = if (m < 1000) "${m.toInt()} m" else "%.1f
 fun PlayScreen(m: AppModel) {
     val hud = m.hud
     if (hud == null) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
-            Text("No game open.", style = MaterialTheme.typography.titleMedium)
-            Text("Create a realm, then start a game on the New Game tab (or open a saved one).")
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Play", style = MaterialTheme.typography.titleLarge)
+            Text("No game is open, so nothing is being tracked.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            GamesList(m)
+            OutlinedButton(onClick = { m.tab = 1 }) { Text("New game") }
         }
         return
     }
     val selected = m.quests.firstOrNull { it.locationId == m.selected }
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
+            OutlinedButton(onClick = { m.pause() }) {
+                Icon(ApgoIcons.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(" Pause tracking", fontSize = 12.sp)
+            }
+        }
         if (hud.goals.size > 1) {
             // Several goals: the rule and overall progress, then each goal with its own bar.
             Text(hud.goalLabel.substringBefore(":"), style = MaterialTheme.typography.titleSmall)
@@ -818,7 +827,7 @@ fun PlayScreen(m: AppModel) {
         }
         (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let { FeedbackText(it.joinToString("  ·  "), Tone.Danger) }
         QuestMap(
-            m.quests, m.realms, emptyList(), m.me,
+            m.quests, m.realms.filter { r -> m.zones.any { it.realmId == r.id } }, emptyList(), m.me,
             hud.thaw?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) }, hud.waypoint?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) },
             m.selected, { ll ->
                 m.quests.filter { it.anchor != null && it.state != "hidden" }.minByOrNull { q ->
@@ -864,5 +873,21 @@ fun PlayScreen(m: AppModel) {
             }
         }
         if (m.log.isNotEmpty()) Text(m.log.take(3).joinToString("\n"), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+/** The saved games: open one to start (or resume) tracking, or delete it (its recorded data is kept for diagnosis). */
+@Composable
+private fun GamesList(m: AppModel) {
+    Text("Continue a game", style = MaterialTheme.typography.titleMedium)
+    if (m.games.isEmpty()) Text("No saved games yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    m.games.forEach { g ->
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(g.name)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(onClick = { m.openGame(g.id) }) { Text("Open", fontSize = 12.sp) }
+                OutlinedButton(onClick = { m.deleteGame(g.id) }) { Text("Delete", fontSize = 12.sp) }
+            }
+        }
     }
 }

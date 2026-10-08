@@ -18,6 +18,8 @@ object ApgoIcons {
     val Realms = Lucide.MapPinned
     val NewGame = Lucide.Sparkles
     val Play = Lucide.Flag
+    val Activity = Lucide.ScrollText
+    val Pause = Lucide.Pause
 
     // Marks on places
     val Favorite = Lucide.Star

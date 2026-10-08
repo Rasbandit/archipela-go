@@ -262,6 +262,8 @@ pub struct ZoneOut {
     pub keys_needed: u32,
     pub tool: Option<String>,
     pub realm_name: String,
+    /// The realm this zone is played in (the Play map shows only the realms of the open game).
+    pub realm_id: String,
 }
 
 #[derive(Debug, uniffi::Record)]
@@ -369,6 +371,8 @@ pub struct Engine {
     dir: PathBuf,
     /// Track and audit log; `None` if the file could not be opened (the game still plays, nothing is recorded).
     journal: Option<Mutex<Journal>>,
+    /// The game that was open most recently (so the activity of a paused game can still be read).
+    last_game: Mutex<Option<String>>,
     /// Messages from the core for the app's diagnostics log (stderr is lost on Android). Capped; drained by `take_diag`.
     diag: Mutex<Vec<String>>,
     /// Per quest: the last near-miss reason logged and when, so a minute standing at a target is a few lines, not hundreds.
@@ -492,6 +496,7 @@ impl Engine {
             journal,
             diag: Mutex::new(diag),
             near_logged: Mutex::new(Default::default()),
+            last_game: Mutex::new(None),
             last_reject_log_ms: std::sync::atomic::AtomicI64::new(i64::MIN),
             catalog: Catalog::builtin(),
             game: Mutex::new(None),
@@ -811,7 +816,11 @@ impl Engine {
     }
 
     pub fn close_game(&self) {
-        *self.game.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let mut game = self.game.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(g) = game.as_ref() {
+            *self.last_game.lock().unwrap_or_else(|e| e.into_inner()) = Some(g.id.clone());
+        }
+        *game = None;
     }
 
     pub fn delete_game(&self, id: String) -> Result<(), CoreError> {
@@ -888,6 +897,7 @@ impl Engine {
                     keys_needed: z.zone_keys_needed,
                     tool: z.tool.clone(),
                     realm_name: g.zone_realms.get(i).and_then(|id| store.get(id)).map(|r| r.name).unwrap_or_default(),
+                    realm_id: g.zone_realms.get(i).cloned().unwrap_or_default(),
                 })
                 .collect()
         })
@@ -1004,9 +1014,17 @@ impl Engine {
     /// The newest `limit` things that happened in the open game, newest first: quests with how they were done, rewards with
     /// where they came from, traps, near misses and notices.
     pub fn activity(&self, limit: u32) -> Vec<AuditEventOut> {
-        let (Some(id), Some(j)) = (self.game_id(), self.journal.as_ref()) else { return Vec::new() };
+        let id = self.game_id().or_else(|| self.last_game.lock().unwrap_or_else(|e| e.into_inner()).clone());
+        let (Some(id), Some(j)) = (id, self.journal.as_ref()) else { return Vec::new() };
         let rows = j.lock().unwrap_or_else(|e| e.into_inner()).recent_events(&id, limit).unwrap_or_default();
         rows.into_iter().map(|e| AuditEventOut { t_ms: e.t_ms, kind: e.kind, detail: e.detail, at: e.at.map(|(lat, lon)| GeoPoint { lat, lon }) }).collect()
+    }
+
+    /// Record that the player paused play (tracking turns off) or resumed it. Call before `close_game` when pausing.
+    pub fn log_session(&self, resumed: bool, t_ms: i64) {
+        let Some(id) = self.game_id() else { return };
+        let k = if resumed { kind::PLAY_RESUMED } else { kind::PLAY_PAUSED };
+        self.journal_do(|j| j.log(&id, &JournalEvent { t_ms, kind: k.into(), detail: String::new(), at: None }));
     }
 
     /// When the app was last sent to the background in the open game: the start of "while you were out".

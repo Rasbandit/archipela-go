@@ -567,7 +567,7 @@ impl Game {
                 match e {
                     Event::QuestDone { location_id, name } => {
                         if let Some(a) = quest(location_id) {
-                            j.detail = format!("{name} at {}: {}", a.place, a.target.goal_text());
+                            j.detail = format!("{name} ({}): {}", a.place, a.target.goal_text());
                         }
                     }
                     Event::Reward { location_id, item } => {

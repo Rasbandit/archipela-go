@@ -2,6 +2,13 @@
 
 _Written 2026-10-07. First outdoor test = SOLO on the device. Archipelago second (its end-to-end flow was not re-tested after the goals rework)._
 
+## Changes after the first outing (2026-10-07)
+First outing findings: location came from three providers at once (network fixes up to 100 m off made the marker jump streets) and fog/shuffle **trap rewards** hit the
+first quests. Now: one provider (fused), fixes over 35 m or implying a >100 km/h jump are dropped, distance ignores GPS wobble, **Pause tracking** button on Play
+(tracking stops; the saved games list now lives on the empty Play screen), an **Activity** tab explains every quest (how it was done), reward (which quest, what it does,
+honest about items not applied yet) and, with "Show GPS and app notes", why a nearby quest did not count. Deleting a game keeps its journal and archives its save.
+**Switch Traps off in New Game for test games.**
+
 ## Before leaving
 1. Phone (Pixel 8 Pro): install the debug APK (`just android-run`, or `adb -s <phone> install -r android/app/build/outputs/apk/debug/app-debug.apk`).
 2. Grant location **"While using the app"/Precise**, Physical activity, Notifications when asked.
