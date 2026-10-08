@@ -27,11 +27,14 @@ class PromptGateTest {
 
     @Test fun backgroundAskedFromAndroid10() = assertTrue(explain(sdk = 29))
 
+    @Test fun backgroundWaitsForTheStepAndNotificationPrompts() = assertFalse(explain(followUpsDone = false))
+
     private fun explain(
         location: Boolean = true,
         background: Boolean = false,
         declined: Boolean = false,
         sdk: Int = 34,
         setupOpen: Boolean = false,
-    ) = explainBackground(location, background, declined, sdk, setupOpen)
+        followUpsDone: Boolean = true,
+    ) = explainBackground(location, background, declined, sdk, setupOpen, followUpsDone)
 }

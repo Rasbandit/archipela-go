@@ -11,11 +11,18 @@ internal fun askFollowUps(
     setupOpen: Boolean,
 ) = location && !setupOpen
 
-/** Explain "Allow all the time": location is allowed, background is not, the player has not said "Not now" and setup is closed. */
+/** Where the step counter and notification prompts are; saved across an activity recreate so a rotation does not ask again. */
+internal enum class FollowUps { NotAsked, Asking, Done }
+
+/**
+ * Explain "Allow all the time": location is allowed, background is not, the player has not said "Not now", setup is closed and the
+ * step counter and notification prompts have been answered ([followUpsDone]), so the dialog does not appear on top of them.
+ */
 internal fun explainBackground(
     location: Boolean,
     background: Boolean,
     declined: Boolean,
     sdk: Int,
     setupOpen: Boolean,
-) = location && !background && !declined && sdk >= ANDROID_10 && !setupOpen
+    followUpsDone: Boolean,
+) = location && !background && !declined && sdk >= ANDROID_10 && !setupOpen && followUpsDone
