@@ -11,7 +11,7 @@ use apgo_core::game::{AwayOptions, Backend, Event, Game, NearMiss, NewGame, Ques
 use apgo_core::geo::{distance_m, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
-use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
+use apgo_core::realm::{closest_proximity, Proximity, Realm, RealmStore, Shape};
 use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_realm, Atlas};
 use apgo_core::slot::SlotData;
@@ -889,6 +889,7 @@ impl Engine {
             }
         }
         *game = None;
+        self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     pub fn delete_game(&self, id: String) -> Result<(), CoreError> {
@@ -899,6 +900,7 @@ impl Engine {
         let mut g = self.game.lock().unwrap_or_else(|e| e.into_inner());
         if g.as_ref().is_some_and(|x| x.id == id) {
             *g = None;
+            self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner()).clear();
         }
         Ok(())
     }
@@ -1140,11 +1142,7 @@ impl Engine {
     pub fn zone_proximity(&self, lat: f64, lon: f64) -> String {
         let p = Point::new(lat, lon);
         let shapes = self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner());
-        let best = shapes.iter().map(|s| s.proximity(p)).min_by_key(|x| match x {
-            Proximity::Inside => 0,
-            Proximity::Near => 1,
-            Proximity::Far => 2,
-        });
+        let best = closest_proximity(&shapes, p);
         match best {
             Some(Proximity::Inside) => "inside",
             Some(Proximity::Near) => "near",

@@ -24,7 +24,7 @@ pub enum Shape {
 }
 
 /// Where a point is relative to a zone area.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Proximity {
     Inside,
     /// Within `NEAR_ZONE_M` of the area: precise GPS starts here so arrival is not missed.
@@ -33,6 +33,11 @@ pub enum Proximity {
 }
 
 pub const NEAR_ZONE_M: f64 = 300.0;
+
+/// The closest classification of `p` across `shapes` (Inside beats Near beats Far); `None` with no shapes.
+pub fn closest_proximity(shapes: &[Shape], p: Point) -> Option<Proximity> {
+    shapes.iter().map(|s| s.proximity(p)).min()
+}
 
 impl Shape {
     pub fn to_zone(&self) -> Zone {
@@ -410,6 +415,28 @@ mod tests {
         assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 100.0)), Proximity::Inside);
         assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 700.0)), Proximity::Near);
         assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 900.0)), Proximity::Far);
+    }
+
+    #[test]
+    fn closest_proximity_takes_the_best_across_shapes() {
+        let c = Point::new(40.0, -111.0);
+        let at = |m| crate::geo::destination(c, 0.0, m);
+        let circle = |center| Shape::Circle { center, radius_m: 500.0 };
+        let near_c = crate::geo::destination(c, 0.0, 1500.0);
+        // From `at(700)`: `circle(c)` is Near, `circle(near_c)` is Far.
+        assert_eq!(closest_proximity(&[circle(near_c), circle(c)], at(700.0)), Some(Proximity::Near));
+        // From `at(100)`: `circle(c)` is Inside, the other is Far, in either order.
+        assert_eq!(closest_proximity(&[circle(near_c), circle(c)], at(100.0)), Some(Proximity::Inside));
+        assert_eq!(closest_proximity(&[circle(c), circle(near_c)], at(100.0)), Some(Proximity::Inside));
+        assert_eq!(closest_proximity(&[], at(100.0)), None);
+    }
+
+    #[test]
+    fn the_near_buffer_ends_at_300_m_from_the_edge() {
+        let c = Point::new(40.0, -111.0);
+        let s = Shape::Circle { center: c, radius_m: 500.0 };
+        assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 799.0)), Proximity::Near);
+        assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 801.0)), Proximity::Far);
     }
 
     #[test]
