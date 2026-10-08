@@ -28,7 +28,20 @@ spell:
 secrets:
     gitleaks detect --no-banner
 
-check: lint typecheck test spell check-rust
+[private]
+ap-present:
+    @test -d .ap || { echo "Archipelago checkout missing: run 'just setup-ap'"; exit 1; }
+
+# apworld: lint, types, tests
+check-py: ap-present lint typecheck test
+
+# Repo-wide hygiene: spelling, secrets, workflows, docs, dispatcher tests
+check-hygiene: spell secrets
+    actionlint
+    markdownlint-cli2 "**/*.md" "#**/node_modules" "#.ap" "#core/vendor" "#core/target"
+    bash scripts/tests/prepush_test.sh
+
+check: check-hygiene check-py check-rust check-android
 
 build:
     bash scripts/build_apworld.sh
