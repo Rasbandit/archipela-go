@@ -311,11 +311,11 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     }
 
     // ------------------------------------------------------------------- games
-    fun startSolo(opts: SoloOptionsIn, zoneRealms: List<String>, name: String) {
+    fun startSolo(opts: SoloOptionsIn, zoneRealms: List<String>, name: String, awayZoneOnly: Boolean, awayDistanceM: UInt) {
         scope.launch {
             busy = "Building your game..."
             val seed = Random.nextLong().toULong() shr 1
-            val r = withContext(Dispatchers.IO) { runCatching { engine.startSolo(UUID.randomUUID().toString(), name, opts, zoneRealms, seed, surfacePref, avoidStairs, true, 0u) } }
+            val r = withContext(Dispatchers.IO) { runCatching { engine.startSolo(UUID.randomUUID().toString(), name, opts, zoneRealms, seed, surfacePref, avoidStairs, awayZoneOnly, awayDistanceM) } }
             busy = null
             r.onSuccess { simClockMs = 0; log.clear(); refreshAll(); tab = 2; status = "Game started!" }
                 .onFailure { fail("start_game", it); status = "Could not start: ${it.message}" }
@@ -507,11 +507,11 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
-    fun startApGame(zoneRealms: List<String>, name: String) {
+    fun startApGame(zoneRealms: List<String>, name: String, awayZoneOnly: Boolean, awayDistanceM: UInt) {
         val json = apSlotJson ?: run { status = "Connect first"; return }
         scope.launch {
             val seed = Random.nextLong().toULong() shr 1
-            val r = withContext(Dispatchers.IO) { runCatching { engine.startArchipelago(UUID.randomUUID().toString(), name, json, "archipelago", zoneRealms, seed, surfacePref, avoidStairs, true, 0u) } }
+            val r = withContext(Dispatchers.IO) { runCatching { engine.startArchipelago(UUID.randomUUID().toString(), name, json, "archipelago", zoneRealms, seed, surfacePref, avoidStairs, awayZoneOnly, awayDistanceM) } }
             r.onSuccess { simClockMs = 0; apSyncedChecked = false; refreshAll(); tab = 2; status = "Archipelago game started" }
                 .onFailure { fail("start_game", it); status = "Could not start: ${it.message}" }
         }

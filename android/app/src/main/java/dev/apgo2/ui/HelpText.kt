@@ -91,6 +91,8 @@ object Help {
             "Only some of the map is tagged with surfaces, so this is a best effort.",
     )
     val stairs = HelpTopic("Avoid stairs", "Leaves out quests that are staircases.")
+    val awayZone = HelpTopic("Time away", "Count the time you spend away from home only while you are inside one of your game's zones, or anywhere. It needs GPS, so it only counts while you are playing.")
+    val awayDistance = HelpTopic("Away distance", "How far from home counts as away. Automatic picks a distance from the size of your realm (about 40% of the way to its far edge, between 300 m and 3 km). Switch it off to type your own.")
 
     // ---- Archipelago
     val archipelago = HelpTopic(

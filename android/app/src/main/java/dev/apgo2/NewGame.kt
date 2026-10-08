@@ -104,6 +104,9 @@ fun NewGameScreen(m: AppModel) {
     var fog by remember { mutableStateOf(false) }
     var trapsOn by remember { mutableStateOf(true) }
     var bonus by remember { mutableStateOf(true) }
+    var awayZoneOnly by remember { mutableStateOf(true) }
+    var awayAuto by remember { mutableStateOf(true) }
+    var awayMeters by remember { mutableStateOf("1000") }
     var url by remember { mutableStateOf("localhost:38281") }
     var slot by remember { mutableStateOf("Tester") }
     val apZoneRealms = remember { mutableStateListOf<String>() }
@@ -144,15 +147,20 @@ fun NewGameScreen(m: AppModel) {
         ChoiceChips(listOf("any", "prefer_paved", "paved_only"), m.surfacePref, { m.surfacePref = it }, { mapOf("any" to "Any", "prefer_paved" to "Prefer paved", "paved_only" to "Paved only")[it] ?: it })
         SwitchRow("Avoid stairs", Help.stairs, m.avoidStairs) { m.avoidStairs = it }
 
+        Text("Time away", style = MaterialTheme.typography.titleMedium)
+        SwitchRow("Only count time inside a zone", Help.awayZone, awayZoneOnly) { awayZoneOnly = it }
+        SwitchRow("Pick the distance automatically", Help.awayDistance, awayAuto) { awayAuto = it }
+        if (!awayAuto) OutlinedTextField(awayMeters, { awayMeters = it.filter(Char::isDigit).take(5) }, label = { Text("Away distance (metres)") }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+
         val ready = zones.isNotEmpty()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(enabled = ready, onClick = { m.startSolo(opts(), zones.map { it.realmId }, name) }) { Text("Play solo") }
+            Button(enabled = ready, onClick = { m.startSolo(opts(), zones.map { it.realmId }, name, awayZoneOnly, AwaySettings.distance(awayAuto, awayMeters)) }) { Text("Play solo") }
             OutlinedButton(enabled = ready, onClick = { m.exportYaml(opts()) }) { Text("Export YAML") }
         }
         if (!ready) Text("Add at least one zone to continue.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         HorizontalDivider()
-        ArchipelagoSection(m, url, { url = it }, slot, { slot = it }, apZoneRealms)
+        ArchipelagoSection(m, url, { url = it }, slot, { slot = it }, apZoneRealms, awayZoneOnly, AwaySettings.distance(awayAuto, awayMeters))
         Box(Modifier.height(24.dp))
     }
 }
@@ -283,7 +291,7 @@ private fun GoalsSection(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ArchipelagoSection(m: AppModel, url: String, onUrl: (String) -> Unit, slot: String, onSlot: (String) -> Unit, apZoneRealms: MutableList<String>) {
+private fun ArchipelagoSection(m: AppModel, url: String, onUrl: (String) -> Unit, slot: String, onSlot: (String) -> Unit, apZoneRealms: MutableList<String>, awayZoneOnly: Boolean, awayDistanceM: UInt) {
     LabelWithHelp("Join an Archipelago game", Help.archipelago, style = MaterialTheme.typography.titleMedium)
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         OutlinedTextField(url, onUrl, label = { Text("Server") }, singleLine = true, modifier = Modifier.weight(1f))
@@ -307,6 +315,6 @@ private fun ArchipelagoSection(m: AppModel, url: String, onUrl: (String) -> Unit
             }
         }
         val complete = apZoneRealms.size == m.apZoneModes.size && apZoneRealms.none { it.isBlank() }
-        Button(enabled = complete, onClick = { m.startApGame(apZoneRealms.toList(), "Archipelago: $slot") }) { Text("Start this game") }
+        Button(enabled = complete, onClick = { m.startApGame(apZoneRealms.toList(), "Archipelago: $slot", awayZoneOnly, awayDistanceM) }) { Text("Start this game") }
     }
 }
