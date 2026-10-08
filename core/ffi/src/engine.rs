@@ -13,6 +13,7 @@ use apgo_core::game::{AwayOptions, Backend, Event, Game, NearMiss, NewGame, Ques
 use apgo_core::geo::{distance_m, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
+use apgo_core::num::count_u32;
 use apgo_core::realm::{closest_proximity, Proximity, Realm, RealmStore, Shape};
 use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_realm, Atlas};
@@ -21,7 +22,7 @@ use apgo_core::solo::{generate, SoloOptions};
 use apgo_core::verify::{Fix, MAX_ACCURACY_M};
 use apgo_core::yaml::build_yaml;
 
-use crate::{count, CoreError, GeoPoint};
+use crate::{CoreError, GeoPoint};
 
 #[allow(clippy::needless_pass_by_value)] // used as a `map_err` callback, which hands over the error by value
 fn err<E: ToString>(e: E) -> CoreError {
@@ -762,7 +763,7 @@ impl Engine {
 
     /// Number of quest kinds in the catalog.
     pub fn catalog_size(&self) -> u32 {
-        count(self.catalog.kinds.len())
+        count_u32(self.catalog.kinds.len())
     }
 
     // ---------- realms ----------
@@ -778,7 +779,7 @@ impl Engine {
                 let polygon_active = r.polygon_active();
                 let atlas = store.load_atlas(&r.id);
                 // Count finds (zoned, usable by this realm's mode), the same number the Details list shows.
-                let places = self.zoned_atlas(&r).map_or(0, |a| count(self.kinds_by_place(&a).len()));
+                let places = self.zoned_atlas(&r).map_or(0, |a| count_u32(self.kinds_by_place(&a).len()));
                 let warning = atlas.and_then(|a| a.warnings.first().cloned());
                 RealmOut { id: r.id, name: r.name, icon: r.icon.clone(), circle, polygon, polygon_active, scanned_at_ms: r.scanned_at_ms, places, warning }
             })
@@ -849,9 +850,9 @@ impl Engine {
             rough_share: atlas.rough_share(),
             trail_m,
             parks,
-            streets: count(atlas.street_count()),
-            finds: count(places.len()),
-            quest_types: count(self.offers_of(&atlas).len()),
+            streets: count_u32(atlas.street_count()),
+            finds: count_u32(places.len()),
+            quest_types: count_u32(self.offers_of(&atlas).len()),
         })
     }
 
@@ -860,7 +861,7 @@ impl Engine {
         let Some(realm) = self.store().get(&id) else { return ScanPlanOut { tiles: 0, requests: 0, missing: 0 } };
         let cache = self.cache();
         let p = apgo_core::scan::plan(&realm.shape.to_zone(), &self.catalog, &|q| apgo_core::overpass::is_cached(q, &cache));
-        ScanPlanOut { tiles: count(p.tiles), requests: count(p.jobs), missing: count(p.missing()) }
+        ScanPlanOut { tiles: count_u32(p.tiles), requests: count_u32(p.jobs), missing: count_u32(p.missing()) }
     }
 
     /// Progress of the scan in progress: requests finished out of all of them.
@@ -881,8 +882,8 @@ impl Engine {
         self.scan_done.store(0, Relaxed);
         self.scan_total.store(0, Relaxed);
         let atlas = scan_realm(&realm, &self.catalog, Some(&self.cache()), now_ms, &|done, total| {
-            self.scan_done.store(count(done), Relaxed);
-            self.scan_total.store(count(total), Relaxed);
+            self.scan_done.store(count_u32(done), Relaxed);
+            self.scan_total.store(count_u32(total), Relaxed);
         })
         .map_err(err)?;
         store.save_atlas(&atlas).map_err(err)?;
@@ -1248,9 +1249,9 @@ impl Engine {
                 goal_label: s.label,
                 goal_progress: s.progress,
                 goal_achieved: s.achieved,
-                done: count(views.iter().filter(|v| v.state == QuestState::Done).count()),
-                total: count(views.len()),
-                keys: count(g.items.iter().filter(|i| *i == "Progressive Zone Key").count()),
+                done: count_u32(views.iter().filter(|v| v.state == QuestState::Done).count()),
+                total: count_u32(views.len()),
+                keys: count_u32(g.items.iter().filter(|i| *i == "Progressive Zone Key").count()),
                 tools,
                 letters: letters.into_iter().collect(),
                 traps: g.trap_labels(),
@@ -1471,7 +1472,7 @@ impl Engine {
         self.with_game(|g| {
             g.reroll(&ids, &realms, seed, catalog).map(|n| {
                 let _ = g.save(&dir);
-                count(n)
+                count_u32(n)
             })
         })
         .ok_or_else(|| err("no game open"))?

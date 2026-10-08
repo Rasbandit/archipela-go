@@ -26,7 +26,7 @@ def _useful_count(locations: int, percent: int, minimum: int, free: int) -> int:
     return min(max(minimum, locations * percent // 100), free)
 
 
-def plan_items(  # noqa: PLR0913
+def plan_items(  # noqa: PLR0913  # keyword-only, one argument per player option
     *,
     rng: random.Random,
     locations: int,

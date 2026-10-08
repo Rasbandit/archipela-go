@@ -24,7 +24,7 @@ MULTI = ["walk", "bike", "drive"]
 
 class Base(WorldTestBase):
     game = GAME_NAME
-    options: dict[str, Any] = {}
+    options: dict[str, Any] = {}  # noqa: RUF012  # WorldTestBase reads a plain class dict
 
     def goal_reachable(self, state: CollectionState) -> bool:
         """collect_all_but also collects the Victory event, so test the Goal location itself."""
@@ -35,7 +35,7 @@ class Base(WorldTestBase):
 
 
 class TestDefaultSeed(Base):
-    options = {"number_of_trips": 100}
+    options = {"number_of_trips": 100}  # noqa: RUF012  # WorldTestBase reads a plain class dict
 
     def test_goal_needs_all_letters(self) -> None:
         state = CollectionState(self.multiworld)
@@ -56,7 +56,7 @@ class TestDefaultSeed(Base):
 
 
 class TestThreeZonesLong(Base):
-    options = {
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "zone_modes": MULTI,
         "goal_selection": [GOAL_NAMES["macguffin_short"]],
         "number_of_trips": 60,
@@ -66,7 +66,7 @@ class TestThreeZonesLong(Base):
     }
 
     def test_every_zone_reachable_with_everything(self) -> None:
-        state = self.multiworld.get_all_state(False)
+        state = self.multiworld.get_all_state(use_cache=False)
         assert all(self.zone_reachable(state, z) for z in (1, 2, 3))
 
     def test_zones_gated_by_keys(self) -> None:
@@ -101,7 +101,7 @@ class TestThreeZonesLong(Base):
 
 
 class TestBossGoal(Base):
-    options = {
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "zone_modes": ["walk", "bike"],
         "goal_selection": [GOAL_NAMES["boss"]],
         "number_of_trips": 30,
@@ -116,7 +116,7 @@ class TestBossGoal(Base):
 
     def test_goal_needs_last_zone(self) -> None:
         assert not self.goal_reachable(CollectionState(self.multiworld))
-        assert self.goal_reachable(self.multiworld.get_all_state(False))
+        assert self.goal_reachable(self.multiworld.get_all_state(use_cache=False))
 
     def test_slot_data_boss(self) -> None:
         data = self.world.fill_slot_data()
@@ -126,7 +126,7 @@ class TestBossGoal(Base):
 
 
 class TestTreasureHunt(Base):
-    options = {
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "zone_modes": ["walk", "run"],
         "goal_selection": [GOAL_NAMES["treasure_hunt"]],
         "number_of_trips": 30,
@@ -149,7 +149,7 @@ class TestTreasureHunt(Base):
 
 
 class TestAllTrips(Base):
-    options = {
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "goal_selection": [GOAL_NAMES["all_trips"]],
         "zone_modes": ["run", "walk"],
         "number_of_trips": 20,
@@ -159,20 +159,20 @@ class TestAllTrips(Base):
         data = self.world.fill_slot_data()
         assert [z["tool"] for z in data["zones"]] == [None, None]
         assert not self.goal_reachable(CollectionState(self.multiworld))
-        assert self.goal_reachable(self.multiworld.get_all_state(False))
+        assert self.goal_reachable(self.multiworld.get_all_state(use_cache=False))
 
 
 class TestSingleZone(Base):
-    options = {"goal_selection": [GOAL_NAMES["all_trips"]], "number_of_trips": 1}
+    options = {"goal_selection": [GOAL_NAMES["all_trips"]], "number_of_trips": 1}  # noqa: RUF012  # WorldTestBase reads a plain class dict
 
     def test_beatable_at_start(self) -> None:
         assert self.goal_reachable(CollectionState(self.multiworld))
         self.collect_all_but([])
-        self.assertBeatable(True)
+        self.assertBeatable(beatable=True)
 
 
 class TestTrapPoolRestricted(Base):
-    options = {
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "enabled_traps": ["freeze"],
         "trap_rate": 100,
         "number_of_trips": 40,
@@ -187,7 +187,7 @@ class TestTrapPoolRestricted(Base):
 
 def _make_goal_test(goal: str) -> type:
     class _T(Base):
-        options = {
+        options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
             "goal_selection": [GOAL_NAMES[goal]],
             "zone_modes": ["walk", "bike"],
             "number_of_trips": 40,
@@ -195,7 +195,7 @@ def _make_goal_test(goal: str) -> type:
 
         def test_beatable_and_valid(self) -> None:
             self.collect_all_but([])
-            self.assertBeatable(True)
+            self.assertBeatable(beatable=True)
             jsonschema.validate(self.world.fill_slot_data(), SCHEMA)
             assert self.world.fill_slot_data()["goals"][0]["id"] == goal
 
@@ -208,7 +208,7 @@ globals().update({f"TestGoal_{g}": _make_goal_test(g) for g in GOALS})
 
 
 class TestExcludeHard(Base):
-    options = {"number_of_trips": 80, "exclude_locations": ["Hard"], "zone_modes": MULTI}
+    options = {"number_of_trips": 80, "exclude_locations": ["Hard"], "zone_modes": MULTI}  # noqa: RUF012  # WorldTestBase reads a plain class dict
 
     def test_no_progression_on_hard(self) -> None:
         # WorldTestBase skips Main's option verification (which expands groups) and exclusion step.
@@ -226,7 +226,7 @@ class TestExcludeHard(Base):
 
 
 class TestEffortReductionsOptional(Base):
-    options = {"number_of_trips": 50, "enable_effort_reductions": True}
+    options = {"number_of_trips": 50, "enable_effort_reductions": True}  # noqa: RUF012  # WorldTestBase reads a plain class dict
 
     def test_reductions_are_not_logic(self) -> None:
         assert self.get_items_by_name(names.EFFORT_REDUCTION)
@@ -235,7 +235,7 @@ class TestEffortReductionsOptional(Base):
 
 
 class TestLargeSeed(Base):
-    options = {
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "number_of_trips": 1000,
         "zone_modes": ["walk", "run", "bike", "drive", "walk", "run"],
         "goal_selection": [GOAL_NAMES["macguffin_long"]],
@@ -304,7 +304,7 @@ class TestInvalidSettings(WorldTestBase):
 class TestSeveralGoalsAny(Base):
     """Any one of: letters or the boss. Letters can be skipped, so logic must not demand them."""
 
-    options = {
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "goal_selection": ["Letter Hunt", "The Big One"],
         "goal_requirement": "require_any_one_goal",
         "zone_modes": ["walk", "bike"],
@@ -328,7 +328,7 @@ class TestSeveralGoalsAny(Base):
 
 
 class TestSeveralGoalsAll(Base):
-    options = {
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "goal_selection": ["Letter Hunt", "Quest-dex"],
         "goal_requirement": "require_all_goals",
         "goal_quest_dex_kinds": 9,
@@ -353,7 +353,7 @@ class TestSeveralGoalsAll(Base):
 
 
 class TestSeveralGoalsAtLeast(Base):
-    options = {
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "goal_selection": ["Marathon", "Explorer", "Daily Habit"],
         "goal_requirement": "require_at_least_n_goals",
         "goals_required": 2,
@@ -370,7 +370,7 @@ class TestSeveralGoalsAtLeast(Base):
 
     def test_beatable(self) -> None:
         self.collect_all_but([])
-        self.assertBeatable(True)
+        self.assertBeatable(beatable=True)
 
 
 class TestOptionVerification(WorldTestBase):
