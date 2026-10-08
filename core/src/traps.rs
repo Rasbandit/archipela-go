@@ -37,7 +37,7 @@ fn pool_point(pool: &[Point], from: Point, min: f64, max: f64, rng: &mut StdRng)
     let near: Vec<&Point> = pool.iter().filter(|p| (min..=max).contains(&distance_m(from, **p))).collect();
     match near.choose(rng) {
         Some(p) => **p,
-        None => destination(from, rng.random_range(0.0..360.0), (min + max) / 2.0),
+        None => destination(from, rng.random_range(0.0..360.0), f64::midpoint(min, max)),
     }
 }
 
@@ -100,6 +100,7 @@ impl Traps {
     }
 
     /// Why checks cannot count right now (None = free to check).
+    #[must_use]
     pub fn blocks_checks(&self, pos: Point) -> Option<String> {
         for t in &self.active {
             match t {
@@ -114,6 +115,7 @@ impl Traps {
     }
 
     /// With no known position, whether any trap that could block checks is active (a leash cannot be judged without one).
+    #[must_use]
     pub fn may_block_without_position(&self) -> bool {
         self.active.iter().any(|t| match t {
             Trap::Freeze { .. } | Trap::Leash { .. } => true,
@@ -123,14 +125,17 @@ impl Traps {
         })
     }
 
+    #[must_use]
     pub fn fog_active(&self) -> bool {
         self.active.iter().any(|t| matches!(t, Trap::Fog { .. }))
     }
 
+    #[must_use]
     pub fn silenced(&self) -> bool {
         self.active.iter().any(|t| matches!(t, Trap::Silence { .. }))
     }
 
+    #[must_use]
     pub fn dwell_multiplier(&self) -> f64 {
         if self.active.iter().any(|t| matches!(t, Trap::Slow { .. })) {
             2.0
@@ -139,10 +144,12 @@ impl Traps {
         }
     }
 
+    #[must_use]
     pub fn thaw_point(&self) -> Option<Point> {
         self.active.iter().find_map(|t| if let Trap::Freeze { thaw, .. } = t { Some(*thaw) } else { None })
     }
 
+    #[must_use]
     pub fn waypoint(&self) -> Option<Point> {
         self.active.iter().find_map(|t| if let Trap::Detour { waypoint, visited: false, .. } = t { Some(*waypoint) } else { None })
     }

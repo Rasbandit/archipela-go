@@ -12,7 +12,7 @@ pub const ENDPOINTS: [&str; 3] =
 const USER_AGENT: &str = "archipela-go2-spike/0.0";
 const TILE_DEG: f64 = 0.05;
 const TILE_SLACK_M: u32 = 4_000;
-const CACHE_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
+const CACHE_MAX_AGE: Duration = Duration::from_hours(720);
 
 #[derive(Debug)]
 pub enum Error {
@@ -24,9 +24,9 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Parse(m) => write!(f, "bad overpass response: {m}"),
-            Error::AllEndpointsFailed(v) => write!(f, "all endpoints failed: {}", v.join("; ")),
-            Error::Io(e) => write!(f, "io: {e}"),
+            Self::Parse(m) => write!(f, "bad overpass response: {m}"),
+            Self::AllEndpointsFailed(v) => write!(f, "all endpoints failed: {}", v.join("; ")),
+            Self::Io(e) => write!(f, "io: {e}"),
         }
     }
 }
@@ -35,7 +35,7 @@ impl std::error::Error for Error {}
 
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
-        Error::Io(e)
+        Self::Io(e)
     }
 }
 
@@ -45,11 +45,12 @@ pub struct Candidate {
     pub point: Point,
     pub name: String,
     pub score: u32,
-    /// Unpaved, unknown-surface trail, or stairs (see scan::is_rough).
+    /// Unpaved, unknown-surface trail, or stairs (see `scan::is_rough`).
     pub rough: bool,
 }
 
 /// One bulk query for named points of interest around a center.
+#[must_use]
 pub fn poi_query(center: Point, radius_m: u32) -> String {
     let (lat, lon) = (center.lat, center.lon);
     let a = format!("around:{radius_m},{lat},{lon}");
@@ -73,6 +74,7 @@ fn tile_center(p: Point) -> Point {
     Point::new(i as f64 * TILE_DEG, j as f64 * TILE_DEG)
 }
 
+#[must_use]
 pub fn cache_key(home: Point, radius_m: u32) -> String {
     let (i, j) = tile_index(home);
     format!("poi-{i}_{j}-r{radius_m}")
@@ -128,6 +130,7 @@ fn bump(i: usize, delta: i64) {
 }
 
 /// Endpoint indexes best-first; equally healthy ones are rotated by `start` to spread load.
+#[must_use]
 pub fn order_endpoints(health: &[i64], start: usize) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..health.len()).collect();
     idx.rotate_left(start % health.len().max(1));
@@ -201,6 +204,7 @@ fn is_fresh(file: &Path) -> bool {
 }
 
 /// Whether a query's answer is already in the cache and still fresh, so asking again costs no network.
+#[must_use]
 pub fn is_cached(query: &str, cache_dir: &Path) -> bool {
     is_fresh(&query_cache_file(cache_dir, query))
 }

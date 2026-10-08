@@ -17,15 +17,18 @@ pub struct Tile {
 }
 
 impl Tile {
-    pub fn containing(p: Point) -> Tile {
-        Tile { row: (p.lat / CELL_DEG).floor() as i32, col: (p.lon / CELL_DEG).floor() as i32 }
+    #[must_use]
+    pub fn containing(p: Point) -> Self {
+        Self { row: (p.lat / CELL_DEG).floor() as i32, col: (p.lon / CELL_DEG).floor() as i32 }
     }
 
+    #[must_use]
     pub fn center(self) -> Point {
         Point::new((f64::from(self.row) + 0.5) * CELL_DEG, (f64::from(self.col) + 0.5) * CELL_DEG)
     }
 
     /// Overpass bbox filter `south,west,north,east`, written the same way every time so equal tiles give equal query text.
+    #[must_use]
     pub fn filter(self) -> String {
         let (s, w) = (f64::from(self.row) * CELL_DEG, f64::from(self.col) * CELL_DEG);
         format!("{s:.4},{w:.4},{:.4},{:.4}", s + CELL_DEG, w + CELL_DEG)

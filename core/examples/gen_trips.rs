@@ -1,5 +1,5 @@
 //! Spike B demo: fetch POIs in one bulk query, sample trips, print timings.
-//! Usage: cargo run --release --example gen_trips -- <lat> <lon> <max_m> <trips> [seed]
+//! Usage: cargo run --release --example `gen_trips` -- <lat> <lon> <`max_m`> <trips> [seed]
 
 use std::path::PathBuf;
 use std::time::Instant;

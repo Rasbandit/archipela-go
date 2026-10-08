@@ -27,7 +27,7 @@ fn a_short_real_staircase_can_be_completed_by_walking_it() {
     let mut status = Status::Idle;
     for w in pts.windows(2) {
         for k in 1..=3 {
-            let f = k as f64 / 3.0;
+            let f = f64::from(k) / 3.0;
             ms += 15_000;
             status = t.update(&Fix { lat: w[0].lat + (w[1].lat - w[0].lat) * f, lon: w[0].lon + (w[1].lon - w[0].lon) * f, t_ms: ms, accuracy_m: 5.0 }, None);
         }

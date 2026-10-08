@@ -10,6 +10,7 @@ fn list(v: &[String]) -> String {
     format!("[{}]", v.join(", "))
 }
 
+#[must_use]
 pub fn build_yaml(player_name: &str, o: &SoloOptions) -> String {
     let modes: Vec<String> = o.zone_modes.iter().map(|m| m.name().to_string()).collect();
     let b = |x: bool| if x { "true" } else { "false" };

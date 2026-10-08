@@ -1,6 +1,7 @@
 //! Plain-language explanations of the items a quest can reward, for the activity log ("why did I get a Letter?").
 
 /// What an item does, in one sentence. Items whose effect is not wired up yet say so (the log must not promise what the app does not do).
+#[must_use]
 pub fn blurb(item: &str) -> String {
     let text = match item {
         i if i.starts_with("Letter ") => "A letter for the Letter Hunt goal: collect them all to spell the word.",

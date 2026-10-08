@@ -1,4 +1,4 @@
-//! UniFFI surface of apgo-core. Blocking calls: invoke from a background thread on the host side.
+//! `UniFFI` surface of apgo-core. Blocking calls: invoke from a background thread on the host side.
 
 use std::path::PathBuf;
 
@@ -11,7 +11,7 @@ uniffi::setup_scaffolding!();
 
 pub mod engine;
 
-/// Must match the apworld's game name exactly (apworld/ap_go2/constants.py).
+/// Must match the apworld's game name exactly (`apworld/ap_go2/constants.py`).
 const GAME_NAME: &str = "Archipela-Go 2: Electric Boogaloo";
 
 #[derive(Debug, uniffi::Record)]
@@ -97,7 +97,7 @@ pub fn generate_trips_for(zone: ZoneIn, specs: Vec<TripSpecIn>, seed: u64, mode:
 impl std::fmt::Display for CoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CoreError::Failed { detail } => write!(f, "{detail}"),
+            Self::Failed { detail } => write!(f, "{detail}"),
         }
     }
 }
@@ -105,6 +105,7 @@ impl std::fmt::Display for CoreError {
 impl std::error::Error for CoreError {}
 
 #[uniffi::export]
+#[must_use]
 pub fn core_version() -> String {
     format!("apgo-core {}", env!("CARGO_PKG_VERSION"))
 }
@@ -189,7 +190,7 @@ impl ApSession {
 
     /// Drain pending network events. Call every few hundred ms.
     pub fn poll(&self) -> Vec<ApEvent> {
-        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         conn.update()
             .into_iter()
             .map(|e| match e {
@@ -205,7 +206,7 @@ impl ApSession {
 
     /// `connecting`, `connected`, or `disconnected: <reason>`.
     pub fn status(&self) -> String {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match conn.state() {
             ap::ConnectionState::Connecting(_) => "connecting".into(),
             ap::ConnectionState::Connected(_) => "connected".into(),
@@ -213,14 +214,14 @@ impl ApSession {
         }
     }
 
-    /// The slot_data the apworld sent (JSON), once connected.
+    /// The `slot_data` the apworld sent (JSON), once connected.
     pub fn slot_data_json(&self) -> Option<String> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         conn.client().map(|c| c.slot_data().to_string())
     }
 
     pub fn received_items(&self) -> Vec<ReceivedItemOut> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(client) = conn.client() else { return vec![] };
         client
             .received_items()
@@ -241,21 +242,21 @@ impl ApSession {
 
     /// Location ids the server already has as checked (use after reconnecting).
     pub fn checked_location_ids(&self) -> Vec<i64> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(client) = conn.client() else { return vec![] };
         client.checked_locations().map(|l| l.id()).collect()
     }
 
     /// Tell the server this slot has reached its goal (shows as complete for the whole multiworld).
     pub fn send_goal(&self) -> Result<(), CoreError> {
-        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let client = conn.client_mut().ok_or_else(|| CoreError::Failed { detail: "not connected".into() })?;
         client.set_status(ap::ClientStatus::Goal).map_err(|e| CoreError::Failed { detail: e.to_string() })
     }
 
     /// Tell the server this location was checked.
     pub fn send_check(&self, location_id: i64) -> Result<(), CoreError> {
-        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let client = conn.client_mut().ok_or_else(|| CoreError::Failed { detail: "not connected".into() })?;
         client.mark_checked([location_id]).map_err(|e| CoreError::Failed { detail: e.to_string() })
     }

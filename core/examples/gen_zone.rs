@@ -1,5 +1,5 @@
 //! Spike B2: fill a zone with trips. Works with streets, an offline lattice, POIs, or a mix.
-//! Usage: gen_zone <streets|cells|pois|mixed> <circle lat lon r | annulus lat lon min max | poly "lat,lon;lat,lon;...">
+//! Usage: `gen_zone` <streets|cells|pois|mixed> <circle lat lon r | annulus lat lon min max | poly "lat,lon;lat,lon;...">
 //!        <trips> [seed]
 
 use std::path::PathBuf;

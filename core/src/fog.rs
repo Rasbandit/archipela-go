@@ -17,10 +17,12 @@ pub struct Fog {
     pub cells: BTreeSet<(i64, i64)>,
 }
 
+#[must_use]
 pub fn reveal_radius(scout_items: u32) -> f64 {
     BASE_REVEAL_M + PER_SCOUT_ITEM_M * f64::from(scout_items)
 }
 
+#[must_use]
 pub fn anchor(t: &Target) -> Option<Point> {
     match t {
         Target::Point { p, .. } | Target::Dwell { p, .. } => Some(*p),
@@ -32,6 +34,7 @@ pub fn anchor(t: &Target) -> Option<Point> {
     }
 }
 
+#[must_use]
 pub fn cell_of(p: Point) -> (i64, i64) {
     ((p.lat * 111_195.0 / CELL_M).floor() as i64, (p.lon * 111_195.0 * p.lat.to_radians().cos() / CELL_M).floor() as i64)
 }
@@ -58,6 +61,7 @@ impl Fog {
         fresh
     }
 
+    #[must_use]
     pub fn is_visible(&self, fog_enabled: bool, location_id: i64) -> bool {
         !fog_enabled || self.discovered.contains(&location_id)
     }

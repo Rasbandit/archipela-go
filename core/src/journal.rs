@@ -29,7 +29,8 @@ pub struct JournalEvent {
 }
 
 impl JournalEvent {
-    pub fn from_game_event(e: &Event, t_ms: i64, at: Option<(f64, f64)>) -> JournalEvent {
+    #[must_use]
+    pub fn from_game_event(e: &Event, t_ms: i64, at: Option<(f64, f64)>) -> Self {
         let (kind, detail) = match e {
             Event::QuestDone { name, .. } => (kind::QUEST_DONE, name.clone()),
             Event::SendCheck { location_id } => (kind::CHECK_SENT, location_id.to_string()),
@@ -41,7 +42,7 @@ impl JournalEvent {
             Event::GoalAchieved { label } => (kind::GOAL, label.clone()),
             Event::Info { text } => (kind::INFO, text.clone()),
         };
-        JournalEvent { t_ms, kind: kind.to_string(), detail, at }
+        Self { t_ms, kind: kind.to_string(), detail, at }
     }
 }
 
@@ -116,19 +117,19 @@ fn point_row(r: &rusqlite::Row) -> rusqlite::Result<TrackPoint> {
 }
 
 impl Journal {
-    fn init(conn: Connection) -> rusqlite::Result<Journal> {
+    fn init(conn: Connection) -> rusqlite::Result<Self> {
         conn.execute_batch(SCHEMA)?;
-        Ok(Journal { conn })
+        Ok(Self { conn })
     }
 
-    pub fn open(path: &Path) -> rusqlite::Result<Journal> {
+    pub fn open(path: &Path) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
         // Write-ahead log: a fix every few seconds must not block, and a crash must not lose the trace.
         conn.pragma_update(None, "journal_mode", "WAL")?;
         Self::init(conn)
     }
 
-    pub fn open_memory() -> rusqlite::Result<Journal> {
+    pub fn open_memory() -> rusqlite::Result<Self> {
         Self::init(Connection::open_in_memory()?)
     }
 
@@ -136,7 +137,7 @@ impl Journal {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO points (game, t_ms, lat, lon, accuracy_m, simulated) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            (game, p.t_ms, p.lat, p.lon, p.accuracy_m, p.simulated as i64),
+            (game, p.t_ms, p.lat, p.lon, p.accuracy_m, i64::from(p.simulated)),
         )?;
         let id = tx.last_insert_rowid();
         tx.execute("INSERT INTO points_rt (id, min_lat, max_lat, min_lon, max_lon) VALUES (?1, ?2, ?2, ?3, ?3)", (id, p.lat, p.lon))?;
@@ -214,7 +215,7 @@ impl Journal {
         let mut prev: Option<TrackPoint> = None;
         for p in self.track(game, from_ms, to_ms)? {
             s.points += 1;
-            s.simulated_points += p.simulated as u32;
+            s.simulated_points += u32::from(p.simulated);
             // Same rule as the live distance counter: a long gap is not walked.
             if let Some(l) = prev.as_ref().filter(|l| p.t_ms - l.t_ms <= DEFAULT_MAX_GAP_MS) {
                 s.distance_m += distance_m(Point::new(l.lat, l.lon), Point::new(p.lat, p.lon));

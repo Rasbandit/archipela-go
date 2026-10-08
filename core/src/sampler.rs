@@ -24,6 +24,7 @@ pub struct Trip {
 
 /// Tier `t` targets distances in `((t-1)*step, t*step]`. Candidates are never reused and trips stay at
 /// least `min_spacing_m` apart; if a band is empty the closest remaining candidate is used.
+#[must_use]
 pub fn sample(candidates: &[Candidate], home: Point, specs: &[TripSpec], step_m: f64, min_spacing_m: f64, seed: u64) -> Vec<Trip> {
     let mut rng = StdRng::seed_from_u64(seed);
     let dists: Vec<f64> = candidates.iter().map(|c| distance_m(home, c.point)).collect();
@@ -37,7 +38,7 @@ pub fn sample(candidates: &[Candidate], home: Point, specs: &[TripSpec], step_m:
         let in_band: Vec<usize> = (0..candidates.len()).filter(|&i| free(i, &used, &chosen) && dists[i] > lo && dists[i] <= hi).collect();
 
         let (pick, band) = if in_band.is_empty() {
-            let mid = (lo + hi) / 2.0;
+            let mid = f64::midpoint(lo, hi);
             let nearest = (0..candidates.len()).filter(|&i| free(i, &used, &chosen)).min_by(|&a, &b| (dists[a] - mid).abs().total_cmp(&(dists[b] - mid).abs()));
             match nearest {
                 Some(i) => (i, false),

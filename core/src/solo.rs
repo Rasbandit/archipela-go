@@ -34,6 +34,7 @@ const REACH_WEIGHT: usize = 3;
 pub const HONOR_TRAPS: [&str; 5] = ["Push Up Trap", "Socializing Trap", "Sit Up Trap", "Jumping Jack Trap", "Touch Grass Trap"];
 pub const FILLERS: [&str; 2] = ["Hydrate!", "Take a Breather!"];
 
+#[must_use]
 pub fn trap_item(key: &str) -> Option<&'static str> {
     Some(match key {
         "freeze" => "Freeze Trap",
@@ -48,6 +49,7 @@ pub fn trap_item(key: &str) -> Option<&'static str> {
     })
 }
 
+#[must_use]
 pub fn tool_for(mode: Mode) -> Option<&'static str> {
     match mode {
         Mode::Walk => None,
@@ -100,7 +102,7 @@ pub struct SoloOptions {
 
 impl Default for SoloOptions {
     fn default() -> Self {
-        SoloOptions {
+        Self {
             goal: "macguffin_short".into(),
             goal_target: 0,
             goals: vec![],
@@ -113,9 +115,12 @@ impl Default for SoloOptions {
             hard_share: 15,
             minutes_per_tier: 10,
             min_distance_m: 150,
-            quest_types: FAMILIES.iter().map(|s| s.to_string()).collect(),
+            quest_types: FAMILIES.iter().map(std::string::ToString::to_string).collect(),
             zone_quest_types: vec![],
-            enabled_traps: ["freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor"].iter().map(|s| s.to_string()).collect(),
+            enabled_traps: ["freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor"]
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
             trap_rate: 30,
             enable_effort_reductions: false,
             enable_scouting: false,
@@ -130,7 +135,7 @@ impl Default for SoloOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SoloGame {
     pub slot: SlotData,
-    /// location_id -> item name found there.
+    /// `location_id` -> item name found there.
     pub rewards: BTreeMap<i64, String>,
 }
 
@@ -157,6 +162,7 @@ fn has_boss_goal(goals: &[GoalSpec]) -> bool {
 
 impl SoloOptions {
     /// The win conditions: the `goals` list, or the single `goal`.
+    #[must_use]
     pub fn goal_list(&self) -> Vec<GoalSpec> {
         if self.goals.is_empty() {
             vec![GoalSpec { id: self.goal.clone(), target: self.goal_target }]
@@ -206,6 +212,7 @@ pub fn validate(o: &SoloOptions) -> Result<(), String> {
 }
 
 /// Tools needed by zones >= 2 whose mode differs from zone 1's (walk never needs one).
+#[must_use]
 pub fn tool_names(o: &SoloOptions) -> Vec<&'static str> {
     let first = o.zone_modes[0];
     let mut v: Vec<&'static str> = Vec::new();
@@ -295,7 +302,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
         }
     }
     let letters: Vec<String> = letters_for_goals(&o.goal_list()).chars().map(|c| format!("Letter {c}")).collect();
-    let mut free = total_locs as i64 - unlock.len() as i64 - letters.len() as i64;
+    let mut free = i64::from(total_locs) - unlock.len() as i64 - letters.len() as i64;
     let mut other: Vec<String> = Vec::new();
     let add_useful = |name: &str, share_pct: u32, min: u32, free: &mut i64, other: &mut Vec<String>| {
         let want = ((f64::from(total_locs) * f64::from(share_pct) / 100.0).floor() as u32).max(min).min((*free).max(0) as u32);
@@ -315,7 +322,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     let mut trap_names: Vec<String> = Vec::new();
     for t in &o.enabled_traps {
         if t == "honor" {
-            trap_names.extend(HONOR_TRAPS.iter().map(|s| s.to_string()));
+            trap_names.extend(HONOR_TRAPS.iter().map(std::string::ToString::to_string));
         } else if let Some(n) = trap_item(t) {
             trap_names.push(n.to_string());
         }
@@ -325,7 +332,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
         other.push(trap_names.choose(&mut rng).cloned().expect("non-empty"));
     }
     for _ in 0..(free - traps) {
-        other.push(FILLERS.choose(&mut rng).map(|s| s.to_string()).expect("fillers"));
+        other.push(FILLERS.choose(&mut rng).map(std::string::ToString::to_string).expect("fillers"));
     }
 
     // ---- fill: unlock items go to zones that are already reachable, so the game is beatable by construction ----
@@ -375,6 +382,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
 }
 
 /// Simulation used by tests and the app: can every quest (and the goal items) be reached by collecting rewards?
+#[must_use]
 pub fn is_beatable(g: &SoloGame) -> bool {
     let mut have: BTreeMap<String, u32> = BTreeMap::new();
     let mut collected: Vec<i64> = Vec::new();

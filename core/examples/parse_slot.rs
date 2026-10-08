@@ -1,4 +1,4 @@
-//! Parse a slot_data JSON file with the app's own reader: `cargo run --example parse_slot -- path.json`.
+//! Parse a `slot_data` JSON file with the app's own reader: `cargo run --example parse_slot -- path.json`.
 fn main() {
     let path = std::env::args().nth(1).expect("path to a slot_data json file");
     let text = std::fs::read_to_string(path).expect("read file");

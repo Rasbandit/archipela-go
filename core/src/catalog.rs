@@ -1,4 +1,4 @@
-//! The quest catalog: which kinds of quests the map data can support (data-driven, see data/quest_catalog.json).
+//! The quest catalog: which kinds of quests the map data can support (data-driven, see `data/quest_catalog.json`).
 
 use std::collections::BTreeMap;
 
@@ -14,36 +14,39 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub const ALL: [Mode; 4] = [Mode::Walk, Mode::Run, Mode::Bike, Mode::Drive];
+    pub const ALL: [Self; 4] = [Self::Walk, Self::Run, Self::Bike, Self::Drive];
 
     /// The modes a game can use for now. Car is left out until it is supported.
-    pub const PLAY: [Mode; 3] = [Mode::Walk, Mode::Run, Mode::Bike];
+    pub const PLAY: [Self; 3] = [Self::Walk, Self::Run, Self::Bike];
 
+    #[must_use]
     pub fn name(self) -> &'static str {
         match self {
-            Mode::Walk => "walk",
-            Mode::Run => "run",
-            Mode::Bike => "bike",
-            Mode::Drive => "drive",
+            Self::Walk => "walk",
+            Self::Run => "run",
+            Self::Bike => "bike",
+            Self::Drive => "drive",
         }
     }
 
-    pub fn parse(s: &str) -> Option<Mode> {
-        Mode::ALL.into_iter().find(|m| m.name() == s || (s == "car" && *m == Mode::Drive))
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.name() == s || (s == "car" && *m == Self::Drive))
     }
 
     /// Typical active speed in meters per minute.
+    #[must_use]
     pub fn m_per_min(self) -> f64 {
         match self {
-            Mode::Walk => 75.0,
-            Mode::Run => 150.0,
-            Mode::Bike => 250.0,
-            Mode::Drive => 583.0,
+            Self::Walk => 75.0,
+            Self::Run => 150.0,
+            Self::Bike => 250.0,
+            Self::Drive => 583.0,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cond {
     pub key: String,
     /// `"*"` matches any value; OSM `a;b` multi-values match if any part matches.
@@ -51,6 +54,7 @@ pub struct Cond {
 }
 
 impl Cond {
+    #[must_use]
     pub fn holds(&self, tags: &BTreeMap<String, String>) -> bool {
         let Some(v) = tags.get(&self.key) else { return false };
         self.values.iter().any(|want| want == "*" || v.split(';').any(|part| part.trim() == want))
@@ -91,18 +95,19 @@ fn metres(m: f64) -> String {
 
 impl Verify {
     /// What the player has to do, in one plain sentence.
+    #[must_use]
     pub fn how(&self) -> String {
         match self {
-            Verify::Reach { radius_m } => format!("Get within {}.", metres(*radius_m)),
-            Verify::Dwell { minutes, radius_m } => format!("Stay within {} for {} min.", metres(*radius_m), minutes.round()),
-            Verify::DwellInArea { minutes } => format!("Spend {} min inside it.", minutes.round()),
-            Verify::FollowLine { coverage, .. } => format!("Walk {}% of its length.", (coverage * 100.0).round()),
-            Verify::Courier { .. } => "Pick something up at one spot and deliver it to another.".to_string(),
-            Verify::RoundTrip => "Go out to a spot, then come back home (no time limit).".to_string(),
-            Verify::CoverCells { cells, .. } => format!("Visit {cells} new map cells."),
-            Verify::Steps { steps } => format!("Take {steps} steps."),
-            Verify::Away { min_distance_m, minutes } => format!("Get {} from home and stay {} min.", metres(*min_distance_m), minutes.round()),
-            Verify::Boss => "The biggest quest of the realm.".to_string(),
+            Self::Reach { radius_m } => format!("Get within {}.", metres(*radius_m)),
+            Self::Dwell { minutes, radius_m } => format!("Stay within {} for {} min.", metres(*radius_m), minutes.round()),
+            Self::DwellInArea { minutes } => format!("Spend {} min inside it.", minutes.round()),
+            Self::FollowLine { coverage, .. } => format!("Walk {}% of its length.", (coverage * 100.0).round()),
+            Self::Courier { .. } => "Pick something up at one spot and deliver it to another.".to_string(),
+            Self::RoundTrip => "Go out to a spot, then come back home (no time limit).".to_string(),
+            Self::CoverCells { cells, .. } => format!("Visit {cells} new map cells."),
+            Self::Steps { steps } => format!("Take {steps} steps."),
+            Self::Away { min_distance_m, minutes } => format!("Get {} from home and stay {} min.", metres(*min_distance_m), minutes.round()),
+            Self::Boss => "The biggest quest of the realm.".to_string(),
         }
     }
 }
@@ -134,6 +139,7 @@ pub struct Kind {
 
 impl Kind {
     /// The `key=value` map tags this kind looked at on a place, so the player can see why it matched.
+    #[must_use]
     pub fn evidence(&self, tags: &BTreeMap<String, String>) -> Vec<String> {
         let mut keys: Vec<&str> = self.any_of.iter().flatten().map(|c| c.key.as_str()).collect();
         keys.sort_unstable();
@@ -142,6 +148,7 @@ impl Kind {
     }
 
     /// Does an OSM feature with these tags satisfy this kind's filters?
+    #[must_use]
     pub fn matches(&self, tags: &BTreeMap<String, String>) -> bool {
         if self.any_of.is_empty() || (self.require_name && !tags.contains_key("name")) {
             return false;
@@ -152,6 +159,7 @@ impl Kind {
         self.any_of.iter().any(|group| group.iter().all(|c| c.holds(tags)))
     }
 
+    #[must_use]
     pub fn allows(&self, mode: Mode) -> bool {
         self.modes.contains(&mode)
     }
@@ -165,10 +173,12 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    pub fn builtin() -> Catalog {
+    #[must_use]
+    pub fn builtin() -> Self {
         serde_json::from_str(include_str!("../data/quest_catalog.json")).expect("quest_catalog.json is valid")
     }
 
+    #[must_use]
     pub fn kind(&self, id: &str) -> Option<&Kind> {
         self.kinds.iter().find(|k| k.id == id)
     }

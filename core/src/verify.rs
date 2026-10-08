@@ -14,6 +14,7 @@ pub struct Fix {
 }
 
 impl Fix {
+    #[must_use]
     pub fn point(&self) -> Point {
         Point::new(self.lat, self.lon)
     }
@@ -36,6 +37,7 @@ pub const MAX_OUTLIER_STREAK: u32 = 3;
 
 /// Speed between two fixes in km/h, ignoring the part of the distance that both fixes' error radii could explain.
 /// `None` when the gap is too short (< 1 s) or too long (> 2 min) to say anything.
+#[must_use]
 pub fn implied_speed_kmh(prev: &Fix, cur: &Fix) -> Option<f64> {
     let dt = (cur.t_ms - prev.t_ms) as f64 / 1000.0;
     if !(1.0..=120.0).contains(&dt) {
@@ -74,7 +76,8 @@ fn cell_id(p: Point, cell_m: f64) -> (i64, i64) {
 }
 
 impl Tracker {
-    pub fn new(target: Target, home: Point) -> Tracker {
+    #[must_use]
+    pub fn new(target: Target, home: Point) -> Self {
         let state = match &target {
             Target::Point { .. } => State::None,
             Target::Dwell { .. } | Target::DwellArea { .. } => State::Dwell { since: None, best_ms: 0 },
@@ -89,9 +92,10 @@ impl Tracker {
             Target::Steps { .. } => State::Steps { baseline: None, now: 0 },
             Target::Away { .. } => State::Away { accum_ms: 0, last_t: None },
         };
-        Tracker { target, home, state, done: false, progress: 0.0 }
+        Self { target, home, state, done: false, progress: 0.0 }
     }
 
+    #[must_use]
     pub fn status(&self) -> Status {
         if self.done {
             Status::Done

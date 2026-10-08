@@ -35,61 +35,66 @@ pub enum Proximity {
 pub const NEAR_ZONE_M: f64 = 300.0;
 
 /// The closest classification of `p` across `shapes` (Inside beats Near beats Far); `None` with no shapes.
+#[must_use]
 pub fn closest_proximity(shapes: &[Shape], p: Point) -> Option<Proximity> {
     shapes.iter().map(|s| s.proximity(p)).min()
 }
 
 impl Shape {
+    #[must_use]
     pub fn to_zone(&self) -> Zone {
         match self {
-            Shape::Circle { center, radius_m } => Zone::Circle { center: *center, radius_m: *radius_m },
-            Shape::Polygon { vertices } => Zone::Polygon(vertices.clone()),
+            Self::Circle { center, radius_m } => Zone::Circle { center: *center, radius_m: *radius_m },
+            Self::Polygon { vertices } => Zone::Polygon(vertices.clone()),
         }
     }
 
+    #[must_use]
     pub fn center(&self) -> Point {
         match self {
-            Shape::Circle { center, .. } => *center,
-            Shape::Polygon { vertices } => centroid(vertices),
+            Self::Circle { center, .. } => *center,
+            Self::Polygon { vertices } => centroid(vertices),
         }
     }
 
     /// Area in square metres. A polygon is measured on a flat map centred on itself (accurate for realm-sized shapes).
+    #[must_use]
     pub fn area_m2(&self) -> f64 {
         match self {
-            Shape::Circle { radius_m, .. } => std::f64::consts::PI * radius_m * radius_m,
-            Shape::Polygon { vertices } if vertices.len() >= 3 => {
+            Self::Circle { radius_m, .. } => std::f64::consts::PI * radius_m * radius_m,
+            Self::Polygon { vertices } if vertices.len() >= 3 => {
                 let flat = flatten(vertices);
                 (0..flat.len()).map(|i| flat[i].0 * flat[(i + 1) % flat.len()].1 - flat[(i + 1) % flat.len()].0 * flat[i].1).sum::<f64>().abs() / 2.0
             }
-            Shape::Polygon { .. } => 0.0,
+            Self::Polygon { .. } => 0.0,
         }
     }
 
     /// Length of the outline in metres.
+    #[must_use]
     pub fn perimeter_m(&self) -> f64 {
         match self {
-            Shape::Circle { radius_m, .. } => 2.0 * std::f64::consts::PI * radius_m,
-            Shape::Polygon { vertices } if vertices.len() >= 3 => {
+            Self::Circle { radius_m, .. } => 2.0 * std::f64::consts::PI * radius_m,
+            Self::Polygon { vertices } if vertices.len() >= 3 => {
                 (0..vertices.len()).map(|i| crate::geo::distance_m(vertices[i], vertices[(i + 1) % vertices.len()])).sum()
             }
-            Shape::Polygon { .. } => 0.0,
+            Self::Polygon { .. } => 0.0,
         }
     }
 
     /// The farthest any part of the shape is from `from`, in a straight line.
     pub fn farthest_m(&self, from: Point) -> f64 {
         match self {
-            Shape::Circle { center, radius_m } => crate::geo::distance_m(from, *center) + radius_m,
-            Shape::Polygon { vertices } => vertices.iter().map(|v| crate::geo::distance_m(from, *v)).fold(0.0, f64::max),
+            Self::Circle { center, radius_m } => crate::geo::distance_m(from, *center) + radius_m,
+            Self::Polygon { vertices } => vertices.iter().map(|v| crate::geo::distance_m(from, *v)).fold(0.0, f64::max),
         }
     }
 
     /// How far outside the shape `p` is, in metres; 0 when it is inside.
     pub fn distance_m(&self, p: Point) -> f64 {
         match self {
-            Shape::Circle { center, radius_m } => (crate::geo::distance_m(p, *center) - radius_m).max(0.0),
-            Shape::Polygon { vertices } => {
+            Self::Circle { center, radius_m } => (crate::geo::distance_m(p, *center) - radius_m).max(0.0),
+            Self::Polygon { vertices } => {
                 if crate::geo::point_in_polygon(p, vertices) || vertices.len() < 2 {
                     return 0.0;
                 }
@@ -99,6 +104,7 @@ impl Shape {
     }
 
     /// Where `p` is relative to this area: inside, within `NEAR_ZONE_M` of it, or far.
+    #[must_use]
     pub fn proximity(&self, p: Point) -> Proximity {
         let d = self.distance_m(p);
         if d == 0.0 {
@@ -110,10 +116,11 @@ impl Shape {
         }
     }
 
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         match self {
-            Shape::Circle { radius_m, .. } => *radius_m >= 50.0,
-            Shape::Polygon { vertices } => vertices.len() >= 3,
+            Self::Circle { radius_m, .. } => *radius_m >= 50.0,
+            Self::Polygon { vertices } => vertices.len() >= 3,
         }
     }
 }
@@ -141,6 +148,7 @@ impl Realm {
     }
 
     /// The circle (center, radius in metres), whether active or kept in reserve.
+    #[must_use]
     pub fn circle(&self) -> Option<(Point, f64)> {
         self.each_shape().find_map(|s| match s {
             Shape::Circle { center, radius_m } => Some((*center, *radius_m)),
@@ -149,6 +157,7 @@ impl Realm {
     }
 
     /// The polygon corners, whether active or kept in reserve.
+    #[must_use]
     pub fn polygon(&self) -> Option<&[Point]> {
         self.each_shape().find_map(|s| match s {
             Shape::Polygon { vertices } => Some(vertices.as_slice()),
@@ -156,6 +165,7 @@ impl Realm {
         })
     }
 
+    #[must_use]
     pub fn polygon_active(&self) -> bool {
         matches!(self.shape, Shape::Polygon { .. })
     }
@@ -175,6 +185,7 @@ impl RealmStore {
         Self { dir: dir.into() }
     }
 
+    #[must_use]
     pub fn dir(&self) -> &Path {
         &self.dir
     }
@@ -189,6 +200,7 @@ impl RealmStore {
         self.dir.join("marks").join(format!("{safe}.json"))
     }
 
+    #[must_use]
     pub fn marks(&self, id: &str) -> Marks {
         std::fs::read_to_string(self.marks_path(id)).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
@@ -199,6 +211,7 @@ impl RealmStore {
         std::fs::write(path, serde_json::to_string(marks).map_err(|e| e.to_string())?).map_err(io)
     }
 
+    #[must_use]
     pub fn list(&self) -> Vec<Realm> {
         std::fs::read_to_string(self.dir.join("realms.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
@@ -230,6 +243,7 @@ impl RealmStore {
         Ok(())
     }
 
+    #[must_use]
     pub fn get(&self, id: &str) -> Option<Realm> {
         self.list().into_iter().find(|r| r.id == id)
     }
@@ -240,10 +254,12 @@ impl RealmStore {
         std::fs::write(path, serde_json::to_string(atlas).map_err(|e| e.to_string())?).map_err(io)
     }
 
+    #[must_use]
     pub fn load_atlas(&self, id: &str) -> Option<Atlas> {
         std::fs::read_to_string(self.atlas_path(id)).ok().and_then(|s| serde_json::from_str(&s).ok())
     }
 
+    #[must_use]
     pub fn home(&self) -> Option<Point> {
         std::fs::read_to_string(self.dir.join("home.json")).ok().and_then(|s| serde_json::from_str(&s).ok())
     }

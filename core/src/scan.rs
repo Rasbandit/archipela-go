@@ -80,6 +80,7 @@ impl Atlas {
     }
 
     /// Walkable street length in metres. Atlases scanned before real lengths were recorded fall back to an estimate from their street points.
+    #[must_use]
     pub fn walkable_m(&self) -> f64 {
         if self.walkable_len_m > 0.0 {
             self.walkable_len_m
@@ -89,6 +90,7 @@ impl Atlas {
     }
 
     /// The share of walkable street that is rough going (unpaved, unknown-surface paths, stairs), 0..1.
+    #[must_use]
     pub fn rough_share(&self) -> f64 {
         if self.walkable_len_m > 0.0 {
             return (self.rough_len_m / self.walkable_len_m).clamp(0.0, 1.0);
@@ -102,6 +104,7 @@ impl Atlas {
     }
 
     /// How many differently named streets there are (a street with several ways, or a long street, counts once).
+    #[must_use]
     pub fn street_count(&self) -> usize {
         self.street_names.iter().map(|s| s.name.as_str()).collect::<BTreeSet<_>>().len()
     }
@@ -116,6 +119,7 @@ impl Atlas {
     }
 
     /// quest kind id -> number of places, only for kinds a realm allowing any of `modes` can actually offer.
+    #[must_use]
     pub fn offers(&self, catalog: &Catalog, modes: &[Mode]) -> BTreeMap<String, u32> {
         let mut out = BTreeMap::new();
         for k in &catalog.kinds {
@@ -153,6 +157,7 @@ fn statements(kinds: &[&Kind], filter: &str, element: &str) -> BTreeSet<String> 
 }
 
 /// Query A: points and area centers for point/area kinds.
+#[must_use]
 pub fn poi_query_in(filter: &str, catalog: &Catalog) -> String {
     let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| matches!(k.geom, Geom::Point | Geom::Area)).collect();
     let body: String = statements(&kinds, filter, "nwr").into_iter().collect::<Vec<_>>().join("\n");
@@ -160,16 +165,19 @@ pub fn poi_query_in(filter: &str, catalog: &Catalog) -> String {
 }
 
 /// Query B: full geometry (ways only) for line kinds and for area kinds (polygon outlines).
+#[must_use]
 pub fn geom_query_in(filter: &str, catalog: &Catalog) -> String {
     let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| matches!(k.geom, Geom::Line | Geom::Area)).collect();
     let body: String = statements(&kinds, filter, "way").into_iter().collect::<Vec<_>>().join("\n");
     format!("[out:json][timeout:40];\n(\n{body}\n);\nout geom tags qt;")
 }
 
+#[must_use]
 pub fn poi_query(zone: &Zone, catalog: &Catalog) -> String {
     poi_query_in(&zone.overpass_filter(), catalog)
 }
 
+#[must_use]
 pub fn geom_query(zone: &Zone, catalog: &Catalog) -> String {
     geom_query_in(&zone.overpass_filter(), catalog)
 }
@@ -248,6 +256,7 @@ pub fn is_rough(tags: &BTreeMap<String, String>) -> bool {
 }
 
 /// Chain way geometries (same trail, same name) into longer polylines by joining shared endpoints.
+#[must_use]
 pub fn stitch(ways: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
     let mut pool: Vec<Vec<Point>> = ways.into_iter().filter(|w| w.len() >= 2).collect();
     pool.sort_by_key(|w| std::cmp::Reverse(w.len()));
@@ -284,6 +293,7 @@ pub fn stitch(ways: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
 const LINK_M: f64 = 30.0;
 
 /// Join chains whose ends are within [`LINK_M`] of each other (a straight connector spans the gap), closest pair first.
+#[must_use]
 pub fn link(mut chains: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
     loop {
         let mut best: Option<(f64, usize, usize, bool, bool)> = None; // distance, i, j, flip i, flip j
@@ -315,11 +325,13 @@ pub fn link(mut chains: Vec<Vec<Point>>) -> Vec<Vec<Point>> {
     }
 }
 
+#[must_use]
 pub fn is_closed(pts: &[Point]) -> bool {
     pts.len() >= 4 && distance_m(pts[0], *pts.last().unwrap()) < 15.0
 }
 
 /// Match features to kinds; line kinds get same-name ways stitched into synthetic line features.
+#[must_use]
 pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, streets: Vec<Point>, catalog: &Catalog) -> Atlas {
     let mut matches: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     let base = features.len();
@@ -412,8 +424,9 @@ pub enum Job {
 
 /// The requests a scan of `zone` makes: per grid tile, places first, then streets (the generic quests), then trail/park geometry, so the most
 /// valuable data lands first. A request's text depends only on its tile, which is what lets realms share the query cache.
+#[must_use]
 pub fn jobs_for(zone: &Zone, catalog: &Catalog) -> Vec<(Job, String)> {
-    let tiles: Vec<String> = crate::tilegrid::tiles_for(zone).into_iter().map(|t| t.filter()).collect();
+    let tiles: Vec<String> = crate::tilegrid::tiles_for(zone).into_iter().map(super::tilegrid::Tile::filter).collect();
     let mut jobs = Vec::new();
     jobs.extend(tiles.iter().map(|t| (Job::Poi, poi_query_in(t, catalog))));
     jobs.extend(tiles.iter().map(|t| (Job::Streets, crate::fill::streets_query_in(t))));
@@ -430,6 +443,7 @@ pub struct ScanPlan {
 }
 
 impl ScanPlan {
+    #[must_use]
     pub fn missing(&self) -> usize {
         self.jobs - self.cached
     }
@@ -454,7 +468,7 @@ pub struct Pacing {
 
 impl Default for Pacing {
     fn default() -> Self {
-        Pacing { workers: 2, gap: Duration::from_millis(250), rounds: 3, backoff: Duration::from_secs(4) }
+        Self { workers: 2, gap: Duration::from_millis(250), rounds: 3, backoff: Duration::from_secs(4) }
     }
 }
 
@@ -489,7 +503,7 @@ fn run_jobs(
                     let Some(&i) = todo.get(at) else { break };
                     let r = fetch(&jobs[i].1, i, Some(deadline));
                     let ok = r.is_ok();
-                    results.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
+                    results.lock().unwrap_or_else(std::sync::PoisonError::into_inner)[i] = Some(r);
                     if ok {
                         progress(done.fetch_add(1, Ordering::SeqCst) + 1, jobs.len());
                     }
@@ -499,10 +513,10 @@ fn run_jobs(
                 });
             }
         });
-        let results_now = results.lock().unwrap_or_else(|e| e.into_inner());
+        let results_now = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         todo.retain(|&i| matches!(results_now[i], Some(Err(_))));
     }
-    results.into_inner().unwrap_or_else(|e| e.into_inner())
+    results.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Scan a realm with an injected fetcher (see [`scan_realm`]). Pieces that never arrive leave the atlas partial with a note, not an error;
@@ -552,9 +566,9 @@ pub fn scan_with(
                             named_streets.entry((c.name.clone(), cell.0, cell.1)).or_insert(c.point);
                         }
                         if c.rough {
-                            rough.push(c.point)
+                            rough.push(c.point);
                         } else {
-                            streets.push(c.point)
+                            streets.push(c.point);
                         }
                     }
                 }

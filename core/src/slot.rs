@@ -1,10 +1,10 @@
-//! slot_data v2: what the apworld (or the solo generator) says about a game. Mirrors apworld/docs/slot_data.schema.json.
+//! `slot_data` v2: what the apworld (or the solo generator) says about a game. Mirrors `apworld/docs/slot_data.schema.json`.
 
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::Mode;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ZoneSlot {
     pub id: u32,
     pub mode: Mode,
@@ -12,7 +12,7 @@ pub struct ZoneSlot {
     pub tool: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QuestSlot {
     pub location_id: i64,
     pub zone: u32,
@@ -28,7 +28,7 @@ fn is_zero(n: &u32) -> bool {
 }
 
 /// One win condition and its parameter (0 means the goal's own default).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GoalSpec {
     pub id: String,
     #[serde(default)]
@@ -94,13 +94,13 @@ pub struct SlotData {
     pub boss: Option<QuestSlot>,
 }
 
-/// The slot_data version this app writes, and the ones it can read.
+/// The `slot_data` version this app writes, and the ones it can read.
 pub const CURRENT_SCHEMA: u32 = 3;
 pub const SUPPORTED_SCHEMAS: [u32; 2] = [2, 3];
 
 impl SlotData {
-    pub fn from_json(s: &str) -> Result<SlotData, String> {
-        let d: SlotData = serde_json::from_str(s).map_err(|e| format!("bad slot_data: {e}"))?;
+    pub fn from_json(s: &str) -> Result<Self, String> {
+        let d: Self = serde_json::from_str(s).map_err(|e| format!("bad slot_data: {e}"))?;
         if !SUPPORTED_SCHEMAS.contains(&d.schema_version) {
             return Err(format!("unsupported slot_data schema {} (this app understands {SUPPORTED_SCHEMAS:?})", d.schema_version));
         }
@@ -112,6 +112,7 @@ impl SlotData {
     }
 
     /// The win conditions: the `goals` list, or for older (schema 2) data the single goal.
+    #[must_use]
     pub fn goal_list(&self) -> Vec<GoalSpec> {
         if self.goals.is_empty() && !self.goal.is_empty() {
             vec![GoalSpec { id: self.goal.clone(), target: self.goal_target }]
@@ -125,10 +126,12 @@ impl SlotData {
     }
 
     /// All quests including the boss (if any), in a stable order.
+    #[must_use]
     pub fn all_quests(&self) -> Vec<&QuestSlot> {
         self.trips.iter().chain(self.boss.iter()).collect()
     }
 
+    #[must_use]
     pub fn zone(&self, id: u32) -> Option<&ZoneSlot> {
         self.zones.iter().find(|z| z.id == id)
     }

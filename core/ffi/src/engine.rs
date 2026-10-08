@@ -1,4 +1,4 @@
-//! UniFFI facade over the game engine: realms, scanning, game setup, play. Blocking calls; call from a background thread.
+//! `UniFFI` facade over the game engine: realms, scanning, game setup, play. Blocking calls; call from a background thread.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -164,9 +164,9 @@ pub struct GoalLineOut {
 pub struct SoloOptionsIn {
     /// The win conditions (at least one).
     pub goals: Vec<GoalPickIn>,
-    /// How they combine: "any", "all" or "at_least".
+    /// How they combine: "any", "all" or "`at_least`".
     pub goal_requirement: String,
-    /// For "at_least": how many of the goals must be finished.
+    /// For "`at_least"`: how many of the goals must be finished.
     pub goal_need: u32,
     pub number_of_trips: u32,
     pub zone_modes: Vec<String>,
@@ -430,7 +430,7 @@ impl Engine {
     /// Run `f` on the journal if there is one; failures are reported and never interrupt play.
     fn journal_do(&self, f: impl FnOnce(&Journal) -> rusqlite::Result<()>) {
         if let Some(j) = &self.journal {
-            if let Err(e) = f(&j.lock().unwrap_or_else(|e| e.into_inner())) {
+            if let Err(e) = f(&j.lock().unwrap_or_else(std::sync::PoisonError::into_inner)) {
                 self.note(format!("journal write failed: {e}"));
             }
         }
@@ -438,7 +438,7 @@ impl Engine {
 
     /// Of the quests the player is near, those worth a log line now: the reason changed, or 30 s passed since the last line for it.
     fn new_near_misses(&self, near: Vec<NearMiss>, t_ms: i64) -> Vec<NearMiss> {
-        let mut seen = self.near_logged.lock().unwrap_or_else(|e| e.into_inner());
+        let mut seen = self.near_logged.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         near.into_iter()
             .filter(|n| {
                 let fresh = seen.get(&n.location_id).is_none_or(|(reason, at)| *reason != n.reason || t_ms.saturating_sub(*at) >= 30_000);
@@ -452,7 +452,7 @@ impl Engine {
 
     /// Queue a message for the app's diagnostics log. Keeps the newest 200.
     fn note(&self, msg: String) {
-        let mut q = self.diag.lock().unwrap_or_else(|e| e.into_inner());
+        let mut q = self.diag.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         q.push(msg);
         if q.len() > 200 {
             q.remove(0);
@@ -461,7 +461,7 @@ impl Engine {
 
     /// Save `g` when an event happened or the save interval has passed; a failure goes to the diagnostics log.
     fn save_if_due(&self, g: &Game, t_ms: i64, eventful: bool) {
-        let due = self.save_policy.lock().unwrap_or_else(|e| e.into_inner()).due(t_ms, eventful);
+        let due = self.save_policy.lock().unwrap_or_else(std::sync::PoisonError::into_inner).due(t_ms, eventful);
         if due {
             if let Err(e) = g.save(&self.dir) {
                 self.note(format!("could not save game {}: {e}", g.id));
@@ -473,9 +473,9 @@ impl Engine {
     fn install(&self, game: Game) {
         let store = self.store();
         let shapes = game.zone_realms.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect();
-        *self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner()) = shapes;
-        self.save_policy.lock().unwrap_or_else(|e| e.into_inner()).reset();
-        let mut slot = self.game.lock().unwrap_or_else(|e| e.into_inner());
+        *self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = shapes;
+        self.save_policy.lock().unwrap_or_else(std::sync::PoisonError::into_inner).reset();
+        let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Keep the outgoing game's progress (unless the new one replaces that very save).
         if let Some(old) = slot.as_ref().filter(|old| old.id != game.id) {
             if let Err(e) = old.save(&self.dir) {
@@ -487,7 +487,7 @@ impl Engine {
 
     /// Distance in metres from a point to the nearest zone area of the open game (0 inside), or `None` with no game.
     fn zone_distance_m(&self, p: Point) -> Option<f64> {
-        let shapes = self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner());
+        let shapes = self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         shapes.iter().map(|s| s.distance_m(p)).reduce(f64::min)
     }
 
@@ -496,7 +496,7 @@ impl Engine {
     }
 
     fn with_game<T>(&self, f: impl FnOnce(&mut Game) -> T) -> Option<T> {
-        self.game.lock().unwrap_or_else(|e| e.into_inner()).as_mut().map(f)
+        self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut().map(f)
     }
 
     /// The realm's scanned atlas, restricted to the realm's current zone (see `Atlas::restrict_to`).
@@ -625,7 +625,7 @@ impl Engine {
             (false, Some(c)) => Shape::Circle { center: pt(&c.center), radius_m: c.radius_m },
             _ => Shape::Polygon { vertices: polygon.iter().map(pt).collect() },
         };
-        let from = home.map(|h| pt(&h)).unwrap_or_else(|| shape.center());
+        let from = home.map_or_else(|| shape.center(), |h| pt(&h));
         ShapeStatsOut { area_m2: shape.area_m2(), perimeter_m: shape.perimeter_m(), farthest_m: shape.farthest_m(from) }
     }
 
@@ -888,15 +888,15 @@ impl Engine {
     }
 
     pub fn close_game(&self) {
-        let mut game = self.game.lock().unwrap_or_else(|e| e.into_inner());
+        let mut game = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(g) = game.as_ref() {
-            *self.last_game.lock().unwrap_or_else(|e| e.into_inner()) = Some(g.id.clone());
+            *self.last_game.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(g.id.clone());
             if let Err(e) = g.save(&self.dir) {
                 self.note(format!("could not save game {} on close: {e}", g.id));
             }
         }
         *game = None;
-        self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
     }
 
     pub fn delete_game(&self, id: String) -> Result<(), CoreError> {
@@ -904,16 +904,16 @@ impl Engine {
         if let Err(e) = Game::archive(&self.dir, &id) {
             self.note(format!("could not archive game {id}: {e}"));
         }
-        let mut g = self.game.lock().unwrap_or_else(|e| e.into_inner());
+        let mut g = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if g.as_ref().is_some_and(|x| x.id == id) {
             *g = None;
-            self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
         }
         Ok(())
     }
 
     pub fn has_game(&self) -> bool {
-        self.game.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+        self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
     }
 
     // ---------- play ----------
@@ -988,7 +988,7 @@ impl Engine {
             let views = g.quest_views();
             let mut letters: Vec<char> = g.items.iter().filter_map(|i| i.strip_prefix("Letter ").and_then(|s| s.chars().next())).collect();
             letters.sort_unstable();
-            let tools: Vec<String> = ["Running Shoes", "Bike", "Car"].iter().filter(|t| g.items.iter().any(|i| i == *t)).map(|t| t.to_string()).collect();
+            let tools: Vec<String> = ["Running Shoes", "Bike", "Car"].iter().filter(|t| g.items.iter().any(|i| i == *t)).map(ToString::to_string).collect();
             HudOut {
                 goals: g
                     .goal_statuses(now_ms)
@@ -1118,7 +1118,7 @@ impl Engine {
 
     /// Messages the core queued for the diagnostics log since the last call (journal failures and the like).
     pub fn take_diag(&self) -> Vec<String> {
-        std::mem::take(&mut *self.diag.lock().unwrap_or_else(|e| e.into_inner()))
+        std::mem::take(&mut *self.diag.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
     }
 
     // ---------- track and audit ----------
@@ -1132,9 +1132,9 @@ impl Engine {
     /// The newest `limit` things that happened in the open game, newest first: quests with how they were done, rewards with
     /// where they came from, traps, near misses and notices.
     pub fn activity(&self, limit: u32) -> Vec<AuditEventOut> {
-        let id = self.game_id().or_else(|| self.last_game.lock().unwrap_or_else(|e| e.into_inner()).clone());
+        let id = self.game_id().or_else(|| self.last_game.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone());
         let (Some(id), Some(j)) = (id, self.journal.as_ref()) else { return Vec::new() };
-        let rows = j.lock().unwrap_or_else(|e| e.into_inner()).recent_events(&id, limit).unwrap_or_default();
+        let rows = j.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recent_events(&id, limit).unwrap_or_default();
         rows.into_iter().map(|e| AuditEventOut { t_ms: e.t_ms, kind: e.kind, detail: e.detail, at: e.at.map(|(lat, lon)| GeoPoint { lat, lon }) }).collect()
     }
 
@@ -1148,7 +1148,7 @@ impl Engine {
     /// "inside" | "near" | "far" for the open game's zones, "unknown" with no game or no zones.
     pub fn zone_proximity(&self, lat: f64, lon: f64) -> String {
         let p = Point::new(lat, lon);
-        let shapes = self.zone_shapes.lock().unwrap_or_else(|e| e.into_inner());
+        let shapes = self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let best = closest_proximity(&shapes, p);
         match best {
             Some(Proximity::Inside) => "inside",
@@ -1173,21 +1173,21 @@ impl Engine {
     /// When the app was last sent to the background in the open game: the start of "while you were out".
     pub fn last_background_ms(&self) -> Option<i64> {
         let id = self.game_id()?;
-        let j = self.journal.as_ref()?.lock().unwrap_or_else(|e| e.into_inner());
+        let j = self.journal.as_ref()?.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         j.last_of_kind(&id, kind::APP_BACKGROUND).ok().flatten()
     }
 
     /// The trace of the open game as separate lines.
     pub fn track(&self, from_ms: i64, to_ms: i64) -> Vec<TrackSegmentOut> {
         let (Some(id), Some(j)) = (self.game_id(), self.journal.as_ref()) else { return Vec::new() };
-        let segs = j.lock().unwrap_or_else(|e| e.into_inner()).segments(&id, from_ms, to_ms, DEFAULT_MAX_GAP_MS).unwrap_or_default();
+        let segs = j.lock().unwrap_or_else(std::sync::PoisonError::into_inner).segments(&id, from_ms, to_ms, DEFAULT_MAX_GAP_MS).unwrap_or_default();
         segs.into_iter().map(|s| TrackSegmentOut { points: s.iter().map(|p| GeoPoint { lat: p.lat, lon: p.lon }).collect() }).collect()
     }
 
     /// Everything that happened in the open game between two moments.
     pub fn away_report(&self, from_ms: i64, to_ms: i64) -> Option<AwayReportOut> {
         let id = self.game_id()?;
-        let j = self.journal.as_ref()?.lock().unwrap_or_else(|e| e.into_inner());
+        let j = self.journal.as_ref()?.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let s = j.summary(&id, from_ms, to_ms).ok()?;
         let events = j.events_since(&id, from_ms).ok()?;
         Some(AwayReportOut {

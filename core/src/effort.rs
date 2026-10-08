@@ -5,28 +5,34 @@ use crate::catalog::Mode;
 /// Straight-line distance understates real routes.
 pub const DETOUR: f64 = 1.3;
 
+#[must_use]
 pub fn travel_min(dist_m: f64, mode: Mode) -> f64 {
     dist_m * DETOUR / mode.m_per_min()
 }
 
+#[must_use]
 pub fn tier_for(effort_min: f64, minutes_per_tier: f64) -> u8 {
     ((effort_min / minutes_per_tier).ceil().max(1.0) as u32).min(10) as u8
 }
 
 /// Inclusive-lower / inclusive-upper effort minutes of a tier.
+#[must_use]
 pub fn band(tier: u8, minutes_per_tier: f64) -> (f64, f64) {
     ((f64::from(tier) - 1.0) * minutes_per_tier, f64::from(tier) * minutes_per_tier)
 }
 
+#[must_use]
 pub fn mid(tier: u8, minutes_per_tier: f64) -> f64 {
     (f64::from(tier) - 0.5) * minutes_per_tier
 }
 
 /// Distance that takes about `effort_min` to reach one way.
+#[must_use]
 pub fn dist_for(effort_min: f64, mode: Mode) -> f64 {
     effort_min * mode.m_per_min() / DETOUR
 }
 
+#[must_use]
 pub fn cadence_steps_per_min(mode: Mode) -> f64 {
     match mode {
         Mode::Run => 150.0,

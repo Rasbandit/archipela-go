@@ -7,8 +7,9 @@ pub struct SavePolicy {
 }
 
 impl SavePolicy {
-    pub fn new(interval_ms: i64) -> SavePolicy {
-        SavePolicy { interval_ms, last_ms: None }
+    #[must_use]
+    pub fn new(interval_ms: i64) -> Self {
+        Self { interval_ms, last_ms: None }
     }
 
     /// `eventful`: this call produced game events (always save). Returns true when the caller should save now and records it.

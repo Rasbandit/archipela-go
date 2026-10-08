@@ -8,10 +8,12 @@ use crate::zone::Zone;
 
 const WALKABLE: &str = "^(residential|living_street|pedestrian|footway|path|cycleway|track|service|unclassified|tertiary|secondary|steps|bridleway)$";
 
+#[must_use]
 pub fn streets_query_in(filter: &str) -> String {
     format!("[out:json][timeout:40];\nway({filter})[\"highway\"~\"{WALKABLE}\"][\"access\"!~\"^(private|no)$\"];\nout geom qt;")
 }
 
+#[must_use]
 pub fn streets_query(zone: &Zone) -> String {
     streets_query_in(&zone.overpass_filter())
 }
@@ -57,6 +59,7 @@ pub fn fetch_streets(zone: &Zone, spacing_m: f64, cache_dir: Option<&std::path::
 }
 
 /// Offline hex-ish lattice of points covering the zone: works with no map data at all.
+#[must_use]
 pub fn lattice(zone: &Zone, spacing_m: f64) -> Vec<Candidate> {
     let (sw, ne) = zone.bbox();
     let dlat = spacing_m * 0.866 / 111_195.0;
@@ -107,7 +110,7 @@ pub fn street_segments(body: &str, zone: &Zone) -> Result<Vec<StreetSegment>, Er
         let rough = crate::scan::is_rough(&tag_map);
         let pts: Vec<Point> = geom.iter().filter_map(|g| Some(Point::new(g.get("lat")?.as_f64()?, g.get("lon")?.as_f64()?))).collect();
         for w in pts.windows(2) {
-            let mid = Point::new((w[0].lat + w[1].lat) / 2.0, (w[0].lon + w[1].lon) / 2.0);
+            let mid = Point::new(f64::midpoint(w[0].lat, w[1].lat), f64::midpoint(w[0].lon, w[1].lon));
             if !zone.contains(mid) {
                 continue;
             }

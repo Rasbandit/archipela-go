@@ -47,7 +47,7 @@ pub struct QuestView {
     pub name: String,
     pub place: String,
     pub family: String,
-    /// The quest kind's id ("bench_warmer"), for choosing an icon.
+    /// The quest kind's id ("`bench_warmer`"), for choosing an icon.
     pub kind_id: String,
     pub difficulty: String,
     pub tier: u8,
@@ -89,7 +89,7 @@ pub struct ChainView {
     pub marks: Vec<MarkView>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     QuestDone { location_id: i64, name: String },
     SendCheck { location_id: i64 },
@@ -153,12 +153,13 @@ pub struct AwayOptions {
 
 impl Default for AwayOptions {
     fn default() -> Self {
-        AwayOptions { zone_only: true, custom_m: None }
+        Self { zone_only: true, custom_m: None }
     }
 }
 
 impl AwayOptions {
     /// The away distance for a zone whose realm reaches `farthest_m` from home.
+    #[must_use]
     pub fn resolve(&self, farthest_m: f64) -> f64 {
         match self.custom_m {
             Some(m) => m.clamp(CUSTOM_AWAY_MIN_M, CUSTOM_AWAY_MAX_M),
@@ -176,11 +177,12 @@ pub struct AwayConfig {
 
 impl Default for AwayConfig {
     fn default() -> Self {
-        AwayConfig { zone_only: true, distance_m: BTreeMap::new() }
+        Self { zone_only: true, distance_m: BTreeMap::new() }
     }
 }
 
 impl AwayConfig {
+    #[must_use]
     pub fn distance_for(&self, zone: u32) -> f64 {
         self.distance_m.get(&zone).copied().unwrap_or(DEFAULT_AWAY_M)
     }
@@ -308,7 +310,7 @@ fn slots_in(slot: &SlotData, only: Option<&[i64]>) -> Vec<SlotIn> {
 }
 
 impl Game {
-    pub fn create(n: NewGame, catalog: &Catalog) -> Result<Game, String> {
+    pub fn create(n: NewGame, catalog: &Catalog) -> Result<Self, String> {
         let zones = zone_ctx(&n.slot, &n.zone_realms, n.realms)?;
         let params = AssignParams {
             home: n.home,
@@ -323,7 +325,7 @@ impl Game {
             zones.first().map(|z| z.atlas.streets.iter().step_by((z.atlas.streets.len() / 600).max(1)).copied().collect()).unwrap_or_default();
         let away =
             AwayConfig { zone_only: n.away.zone_only, distance_m: zones.iter().map(|z| (z.zone, n.away.resolve(z.realm.shape.farthest_m(n.home)))).collect() };
-        Ok(Game {
+        Ok(Self {
             id: n.id,
             name: n.name,
             backend: n.backend,
@@ -361,6 +363,7 @@ impl Game {
         self.items.iter().filter(|i| *i == item).count() as u32
     }
 
+    #[must_use]
     pub fn zone_unlocked(&self, zone: u32) -> bool {
         let keys = self.count("Progressive Zone Key");
         self.slot.zone(zone).is_some_and(|z| keys >= z.zone_keys_needed && z.tool.as_ref().is_none_or(|t| self.items.contains(t)))
@@ -383,10 +386,12 @@ impl Game {
     }
 
     /// Each goal of the game with its own progress.
+    #[must_use]
     pub fn goal_statuses(&self, now_ms: i64) -> Vec<(GoalSpec, GoalStatus)> {
         evaluate_each(&self.goal_ctx(now_ms))
     }
 
+    #[must_use]
     pub fn goal_status(&self, now_ms: i64) -> GoalStatus {
         evaluate(&GoalCtx {
             slot: &self.slot,
@@ -403,6 +408,7 @@ impl Game {
         self.slot.fog_of_war
     }
 
+    #[must_use]
     pub fn quest_views(&self) -> Vec<QuestView> {
         let chains = self.chains();
         self.assignments
@@ -458,6 +464,7 @@ impl Game {
             .collect()
     }
 
+    #[must_use]
     pub fn chain_views(&self) -> Vec<ChainView> {
         self.chains()
             .into_iter()
@@ -524,6 +531,7 @@ impl Game {
         }
     }
 
+    #[must_use]
     pub fn chains(&self) -> Vec<Chain> {
         chain::derive(&self.assignments)
     }
@@ -655,20 +663,17 @@ impl Game {
         if self.last_fix.is_some_and(|l| fix.t_ms - l.t_ms > 300_000) {
             self.odo_anchor = None;
         }
-        let moved = match self.odo_anchor {
-            Some(a) => {
-                let d = distance_m(a, pos);
-                if d >= fix.accuracy_m.max(ODOMETER_MIN_STEP_M) {
-                    self.odo_anchor = Some(pos);
-                    d
-                } else {
-                    0.0
-                }
-            }
-            None => {
+        let moved = if let Some(a) = self.odo_anchor {
+            let d = distance_m(a, pos);
+            if d >= fix.accuracy_m.max(ODOMETER_MIN_STEP_M) {
                 self.odo_anchor = Some(pos);
+                d
+            } else {
                 0.0
             }
+        } else {
+            self.odo_anchor = Some(pos);
+            0.0
         };
         self.stats.distance_m += moved;
 
@@ -851,6 +856,7 @@ impl Game {
     }
 
     /// Journal entries for events, with the reason attached: how a quest was completed, where a reward came from, what an item does.
+    #[must_use]
     pub fn journal_events(&self, ev: &[Event], t_ms: i64, at: Option<(f64, f64)>) -> Vec<JournalEvent> {
         let quest = |id: &i64| self.assignments.iter().find(|a| a.location_id == *id);
         let chains = self.chains();
@@ -884,13 +890,14 @@ impl Game {
     }
 
     /// For every open quest within `radius_m` of the fix: the distance and why it would or would not count right now.
+    #[must_use]
     pub fn explain_near(&self, fix: &Fix, radius_m: f64) -> Vec<NearMiss> {
         let blocked = self.traps.blocks_checks(fix.point());
         self.assignments
             .iter()
             .filter(|a| !self.done.contains(&a.location_id))
             .filter_map(|a| {
-                let at = crate::fog::anchor(&a.target)?;
+                let at = anchor(&a.target)?;
                 let distance_m = distance_m(fix.point(), at);
                 if distance_m > radius_m {
                     return None;
@@ -916,18 +923,22 @@ impl Game {
             .collect()
     }
 
+    #[must_use]
     pub fn last_pos(&self) -> Option<Point> {
         self.last_fix.map(|f| f.point())
     }
 
+    #[must_use]
     pub fn blocked_reason(&self) -> Option<String> {
         self.last_fix.and_then(|f| self.traps.blocks_checks(f.point()))
     }
 
+    #[must_use]
     pub fn streak_days(&self, now_ms: i64) -> u32 {
         streak(&self.stats.quest_days, now_ms / DAY_MS)
     }
 
+    #[must_use]
     pub fn path_for(dir: &Path, id: &str) -> PathBuf {
         let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
         dir.join("games").join(format!("{safe}.json"))
@@ -957,9 +968,9 @@ impl Game {
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
     }
 
-    pub fn load(dir: &Path, id: &str) -> Result<Game, String> {
+    pub fn load(dir: &Path, id: &str) -> Result<Self, String> {
         let s = std::fs::read_to_string(Self::path_for(dir, id)).map_err(|e| e.to_string())?;
-        let mut g: Game = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
+        let mut g: Self = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
         g.counters.steps_last = None; // steps taken while the game was closed are never credited
         g.normalize_counters();
         Ok(g)
@@ -979,6 +990,7 @@ impl Game {
         }
     }
 
+    #[must_use]
     pub fn list_ids(dir: &Path) -> Vec<(String, String)> {
         let mut out = Vec::new();
         if let Ok(rd) = std::fs::read_dir(dir.join("games")) {

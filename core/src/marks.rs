@@ -12,7 +12,7 @@ pub enum Mark {
     Banned,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Marks {
     #[serde(default)]
     pub favorites: BTreeSet<String>,
@@ -22,11 +22,13 @@ pub struct Marks {
 
 impl Marks {
     /// A shared empty set, for callers (and tests) with nothing marked.
-    pub fn none() -> &'static Marks {
+    #[must_use]
+    pub fn none() -> &'static Self {
         static NONE: Marks = Marks { favorites: BTreeSet::new(), banned: BTreeSet::new() };
         &NONE
     }
 
+    #[must_use]
     pub fn get(&self, id: &str) -> Mark {
         if self.banned.contains(id) {
             Mark::Banned
@@ -37,10 +39,12 @@ impl Marks {
         }
     }
 
+    #[must_use]
     pub fn is_banned(&self, id: &str) -> bool {
         self.banned.contains(id)
     }
 
+    #[must_use]
     pub fn is_favorite(&self, id: &str) -> bool {
         self.favorites.contains(id)
     }

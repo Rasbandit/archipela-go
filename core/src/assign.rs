@@ -39,17 +39,18 @@ pub enum Target {
 
 impl Target {
     /// What the player has to do, in one line ("Get within 40 m").
+    #[must_use]
     pub fn goal_text(&self) -> String {
         match self {
-            Target::Point { r, .. } => format!("Get within {r:.0} m"),
-            Target::Dwell { r, minutes, .. } => format!("Stay {minutes:.0} min within {r:.0} m"),
-            Target::DwellArea { minutes, .. } => format!("Spend {minutes:.0} min inside the area"),
-            Target::Line { pts, coverage, .. } => format!("Cover {:.0}% of this {:.1} km path", coverage * 100.0, crate::geo::polyline_len_m(pts) / 1000.0),
-            Target::Courier { time_limit_min, .. } => format!("Pick up at A, deliver to B within {time_limit_min:.0} min"),
-            Target::RoundTrip { .. } => "Reach the far point, then come back home".to_string(),
-            Target::Cells { n, .. } => format!("Visit {n} new map cells"),
-            Target::Steps { n } => format!("Take {n} steps"),
-            Target::Away { min_distance_m, minutes } => format!("Spend {minutes:.0} min at least {:.1} km from home", min_distance_m / 1000.0),
+            Self::Point { r, .. } => format!("Get within {r:.0} m"),
+            Self::Dwell { r, minutes, .. } => format!("Stay {minutes:.0} min within {r:.0} m"),
+            Self::DwellArea { minutes, .. } => format!("Spend {minutes:.0} min inside the area"),
+            Self::Line { pts, coverage, .. } => format!("Cover {:.0}% of this {:.1} km path", coverage * 100.0, polyline_len_m(pts) / 1000.0),
+            Self::Courier { time_limit_min, .. } => format!("Pick up at A, deliver to B within {time_limit_min:.0} min"),
+            Self::RoundTrip { .. } => "Reach the far point, then come back home".to_string(),
+            Self::Cells { n, .. } => format!("Visit {n} new map cells"),
+            Self::Steps { n } => format!("Take {n} steps"),
+            Self::Away { min_distance_m, minutes } => format!("Spend {minutes:.0} min at least {:.1} km from home", min_distance_m / 1000.0),
         }
     }
 }
@@ -89,11 +90,12 @@ pub enum SurfacePref {
 }
 
 impl SurfacePref {
-    pub fn parse(s: &str) -> SurfacePref {
+    #[must_use]
+    pub fn parse(s: &str) -> Self {
         match s {
-            "prefer_paved" => SurfacePref::PreferPaved,
-            "paved_only" => SurfacePref::PavedOnly,
-            _ => SurfacePref::Any,
+            "prefer_paved" => Self::PreferPaved,
+            "paved_only" => Self::PavedOnly,
+            _ => Self::Any,
         }
     }
 }
@@ -343,6 +345,7 @@ fn one(
 }
 
 /// Assign every slot (boss last so it gets the best leftovers). Output keeps the input slot order.
+#[must_use]
 pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx], catalog: &Catalog, p: &AssignParams) -> Vec<Assignment> {
     let mut rng = StdRng::seed_from_u64(p.seed);
     let mut used_feat = BTreeSet::new();

@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Archipela-Go 2 core: catalog, realms, scanning, quest assignment, verification, game state.
 
 pub mod assign;

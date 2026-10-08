@@ -31,6 +31,7 @@ pub struct Chain {
 }
 
 /// The unit and amount a quest contributes to a chain; `None` for quests that are not progressive.
+#[must_use]
 pub fn amount_of(t: &Target) -> Option<(ChainUnit, f64)> {
     match t {
         Target::Steps { n } => Some((ChainUnit::Steps, f64::from(*n))),
@@ -40,11 +41,13 @@ pub fn amount_of(t: &Target) -> Option<(ChainUnit, f64)> {
     }
 }
 
+#[must_use]
 pub fn is_chain_target(t: &Target) -> bool {
     amount_of(t).is_some()
 }
 
 /// 30000 -> "30,000".
+#[must_use]
 pub fn thousands(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::new();
@@ -58,6 +61,7 @@ pub fn thousands(n: u64) -> String {
 }
 
 /// 270 -> "4 h 30 min", 45 -> "45 min", 120 -> "2 h".
+#[must_use]
 pub fn minutes_text(m: f64) -> String {
     let m = m.max(0.0).round() as u64;
     match (m / 60, m % 60) {
@@ -68,6 +72,7 @@ pub fn minutes_text(m: f64) -> String {
 }
 
 /// 850 -> "850 m", 1200 -> "1.2 km".
+#[must_use]
 pub fn distance_text(m: f64) -> String {
     if m >= 1000.0 {
         format!("{:.1} km", m / 1000.0)
@@ -77,21 +82,25 @@ pub fn distance_text(m: f64) -> String {
 }
 
 impl Chain {
+    #[must_use]
     pub fn total(&self) -> f64 {
         self.marks.last().map_or(0.0, |m| m.at)
     }
 
     /// Location ids whose mark is at or below `counter`, in mark order.
+    #[must_use]
     pub fn reached(&self, counter: f64) -> Vec<i64> {
         self.marks.iter().filter(|m| m.at <= counter + 1e-9).map(|m| m.location_id).collect()
     }
 
     /// 1-based position of a member among the marks ("milestone 3 of 5").
+    #[must_use]
     pub fn position_of(&self, location_id: i64) -> Option<usize> {
         self.marks.iter().position(|m| m.location_id == location_id).map(|i| i + 1)
     }
 
     /// "Take 30,000 steps" / "Spend 4 h 30 min at least 1.2 km from home" / "Visit 60 new map squares".
+    #[must_use]
     pub fn rule_text(&self, away_m: f64) -> String {
         let t = self.total();
         match self.unit {
@@ -102,6 +111,7 @@ impl Chain {
     }
 
     /// The amount at a mark: "8,500 steps", "1 h 30 min", "40 squares".
+    #[must_use]
     pub fn amount_text(&self, at: f64) -> String {
         match self.unit {
             ChainUnit::Steps => format!("{} steps", thousands(at.round() as u64)),
@@ -115,6 +125,7 @@ impl Chain {
 type Member = (i64, String, ChainUnit, f64);
 
 /// Group the progressive quests by zone and kind. Members are ordered by their own amount (ties by location id); each mark is the running total.
+#[must_use]
 pub fn derive(assignments: &[Assignment]) -> Vec<Chain> {
     let mut groups: BTreeMap<(u32, String), Vec<Member>> = BTreeMap::new();
     for a in assignments {

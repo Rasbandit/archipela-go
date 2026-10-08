@@ -23,7 +23,8 @@ pub struct GoalCtx<'a> {
     pub streak_days: u32,
 }
 
-/// How a goal is written in an Archipelago YAML's `goal_selection` (the apworld's GOAL_NAMES).
+/// How a goal is written in an Archipelago YAML's `goal_selection` (the apworld's `GOAL_NAMES`).
+#[must_use]
 pub fn goal_yaml_name(id: &str) -> &'static str {
     match id {
         "macguffin_short" => "Letter Hunt",
@@ -43,6 +44,7 @@ pub fn goal_yaml_name(id: &str) -> &'static str {
 }
 
 /// The YAML option that holds a counting goal's number, and that number's default.
+#[must_use]
 pub fn goal_target_option(id: &str) -> Option<(&'static str, u32)> {
     Some(match id {
         "zone_conqueror" => ("goal_zone_conqueror_percent", 60),
@@ -94,6 +96,7 @@ fn or_default(target: u32, default: u32) -> u32 {
 }
 
 /// Every goal of the game with its own progress, for the UI.
+#[must_use]
 pub fn evaluate_each(c: &GoalCtx) -> Vec<(GoalSpec, GoalStatus)> {
     c.slot
         .goal_list()
@@ -106,6 +109,7 @@ pub fn evaluate_each(c: &GoalCtx) -> Vec<(GoalSpec, GoalStatus)> {
 }
 
 /// The game's win condition: its goal, or several goals combined by the slot's rule (any, all, or at least N).
+#[must_use]
 pub fn evaluate(c: &GoalCtx) -> GoalStatus {
     let mut each = evaluate_each(c);
     if each.len() == 1 {
