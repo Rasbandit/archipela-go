@@ -13,7 +13,7 @@ pub mod goal;
 pub mod items;
 pub mod journal;
 pub mod marks;
-mod num;
+pub mod num;
 pub mod overpass;
 pub mod realm;
 pub mod sampler;

@@ -402,7 +402,7 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
                             tags.insert("rough".to_string(), "yes".to_string());
                         }
                         // The id is the kind, the name and where the line starts, so it is the same after a rescan (marks are keyed by it).
-                        let start = ends(&chain).map_or(chain[0], |(first, last)| first.min_by_coords(last));
+                        let start = ends(&chain).map_or_else(|| chain[0], |(first, last)| first.min_by_coords(last));
                         idxs.push(features.len());
                         features.push(Feature {
                             id: format!("L:{}:{}:{:.5}_{:.5}", k.id, if name.is_empty() { "~" } else { &name }, start.lat, start.lon),

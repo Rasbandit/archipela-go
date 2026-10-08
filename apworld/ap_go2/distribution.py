@@ -64,7 +64,7 @@ def pick_family(rng: random.Random, mode: str, enabled: Sequence[str]) -> str:
     return rng.choices(pool, weights=weights, k=1)[0]
 
 
-def generate_quests(  # noqa: PLR0913
+def generate_quests(  # noqa: PLR0913  # keyword-only, one argument per player option
     *,
     rng: random.Random,
     zone_modes: Sequence[str],
