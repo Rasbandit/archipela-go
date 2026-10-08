@@ -251,9 +251,12 @@ private fun WifiChoiceList(state: WifiStepState) {
     }
 }
 
+// Only asked when hasBluetoothConnect() is false, which cannot happen before Android 12.
+@SuppressLint("InlinedApi")
+private const val BLUETOOTH_CONNECT_PERMISSION = Manifest.permission.BLUETOOTH_CONNECT
+
 /** Step 3: tick the Bluetooth device that is your car. Optional. */
 @Composable
-@SuppressLint("InlinedApi") // only asked when hasBluetoothConnect() is false, which cannot happen before Android 12
 internal fun CarStep(
     m: AppModel,
     onBack: () -> Unit,
@@ -264,7 +267,7 @@ internal fun CarStep(
     var query by remember { mutableStateOf("") }
     // Tell the model too: it restarts the monitor so car detection works without leaving the app. A grant made on the settings page
     // is picked up when the step resumes (and by the activity's own re-read on start).
-    val askBt = rememberPermissionAsk(Manifest.permission.BLUETOOTH_CONNECT, ctx::hasBluetoothConnect, m.presence::ensureMonitor)
+    val askBt = rememberPermissionAsk(BLUETOOTH_CONNECT_PERMISSION, ctx::hasBluetoothConnect, m.presence::ensureMonitor)
     val btOk = askBt.action == PermissionAsk.Granted
     val paired = remember(btOk) { if (btOk) pairedDevices(ctx) else emptyList() }
 

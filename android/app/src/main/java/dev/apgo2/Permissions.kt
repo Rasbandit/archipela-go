@@ -32,6 +32,14 @@ private const val BACKGROUND_PROMPT =
     """To keep recording your route and completing quests while the phone is in your pocket, choose "Allow all the time" """
 private const val BACKGROUND_PROMPT_TAIL = "for location on the next screen. Your location stays on this phone."
 
+// A plain string on older Android, where the system treats the unknown permission as denied.
+@SuppressLint("InlinedApi")
+private const val ACTIVITY_RECOGNITION_PERMISSION = Manifest.permission.ACTIVITY_RECOGNITION
+
+// Only requested when shouldExplainBackground() is true, which needs Android 10.
+@SuppressLint("InlinedApi")
+private const val BACKGROUND_LOCATION_PERMISSION = Manifest.permission.ACCESS_BACKGROUND_LOCATION
+
 internal fun Context.hasPermission(permission: String) =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
@@ -85,9 +93,7 @@ internal class PermissionState(
 
     private fun prefs() = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    // The permission is a plain string on older Android, where the check simply reports "not granted".
-    @SuppressLint("InlinedApi")
-    private fun hasActivityRecognition() = ctx.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)
+    private fun hasActivityRecognition() = ctx.hasPermission(ACTIVITY_RECOGNITION_PERMISSION)
 
     private fun hasBackgroundLocation() =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || ctx.hasPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
@@ -109,7 +115,6 @@ internal fun rememberPermissionState(): PermissionState {
  * notification). The last two wait until the setup wizard is closed ([setupOpen] false) so they do not stack over it.
  */
 @Composable
-@SuppressLint("InlinedApi") // older Android treats the unknown permission string as denied
 internal fun RequestPermissions(
     perms: PermissionState,
     setupOpen: Boolean,
@@ -139,7 +144,7 @@ internal fun RequestPermissions(
     LaunchedEffect(perms.location, setupOpen) {
         if (perms.followUps == FollowUps.NotAsked && askFollowUps(perms.location, setupOpen)) {
             perms.followUps = FollowUps.Asking
-            askSteps.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+            askSteps.launch(ACTIVITY_RECOGNITION_PERMISSION)
         }
     }
 }
@@ -149,7 +154,6 @@ internal fun RequestPermissions(
  * step counter and notification prompts, until the player accepts or declines.
  */
 @Composable
-@SuppressLint("InlinedApi") // shown only when shouldExplainBackground() is true, which needs Android 10
 internal fun BackgroundLocationPrompt(
     perms: PermissionState,
     setupOpen: Boolean,
@@ -162,7 +166,7 @@ internal fun BackgroundLocationPrompt(
         title = { Text("Track with the screen off") },
         text = { Text(BACKGROUND_PROMPT + BACKGROUND_PROMPT_TAIL) },
         confirmButton = {
-            TextButton(onClick = { askBackground.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }) { Text("Continue") }
+            TextButton(onClick = { askBackground.launch(BACKGROUND_LOCATION_PERMISSION) }) { Text("Continue") }
         },
         dismissButton = { TextButton(onClick = perms::declineBackground) { Text("Not now") } },
     )

@@ -6,6 +6,8 @@ _Last verified: 2026-10-07_
 
 Design proposal from owner brainstorm; not yet in the apworld. Next spec candidate. Builds on `archipelago-game-model.md`.
 
+**Superseded in part (2026-10-08):** Car and Bike are purged; modes are walk and run (`Running Shoes` gates run). See `economy-eggs-buddies.md`.
+
 ## Owner Decisions (2026-10-07)
 
 - **Only quests the phone can prove reliably.** Dropped: NFC, photo/camera quests, "touch grass", weather, social/team features (for now).

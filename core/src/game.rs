@@ -283,10 +283,13 @@ impl AwayConfig {
 /// Saved progress of the progressive quests.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Counters {
-    /// Chain id -> steps credited or minutes away (map squares come from `Fog::cells`).
+    /// Chain id -> steps credited, minutes away or new map squares seen (each only while the chain's zone is unlocked).
     pub progress: BTreeMap<String, f64>,
     /// The last step-counter reading seen this session (reset when a game is opened).
     pub steps_last: Option<i64>,
+    /// Whether map squares are counted in `progress`. False in saves from before that, whose squares were the whole game's `Fog::cells`.
+    #[serde(default)]
+    pub cells_counted: bool,
 }
 
 /// A game in progress: its quests, progress, rewards, fog, traps and goal. Saved as JSON.
@@ -483,7 +486,7 @@ impl Game {
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
             away,
-            counters: Counters::default(),
+            counters: Counters { cells_counted: true, ..Counters::default() },
             trackers: BTreeMap::new(),
             last_fix: None,
             unlocked_at: BTreeMap::new(),
@@ -685,9 +688,16 @@ impl Game {
     }
 
     fn counter_of(&self, c: &Chain) -> f64 {
-        match c.unit {
-            ChainUnit::Cells => count_f64(self.fog.cells.len()),
-            _ => self.counters.progress.get(&c.id).copied().unwrap_or(0.0),
+        self.counters.progress.get(&c.id).copied().unwrap_or(0.0)
+    }
+
+    /// Credit map squares seen for the first time to every map-square chain in an unlocked zone.
+    fn credit_cells(&mut self, gained: usize) {
+        if gained == 0 {
+            return;
+        }
+        for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Cells) {
+            *self.counters.progress.entry(c.id).or_insert(0.0) += count_f64(gained);
         }
     }
 
@@ -826,11 +836,13 @@ impl Game {
         self.stats.distance_m += moved;
 
         let scout = self.count("Progressive Scouting Distance");
+        let cells_before = self.fog.cells.len();
         for id in self.fog.update(pos, &self.assignments, reveal_radius(scout)) {
             if self.fog_on() {
                 ev.push(Event::Discovered { location_id: id });
             }
         }
+        self.credit_cells(self.fog.cells.len() - cells_before);
         for text in self.traps.tick(fix.t_ms, pos, moved) {
             ev.push(Event::Info { text });
         }
@@ -1159,10 +1171,16 @@ impl Game {
     }
 
     /// An old save has finished chain members but no counters: start each counter at its highest finished mark so nothing is lost or earned twice.
+    /// A save from before map squares were counted per chain starts an open zone's squares at the whole game's (what it showed before) and a
+    /// locked zone's at nothing, so only squares seen after its unlock count.
     fn normalize_counters(&mut self) {
+        let migrate_cells = !self.counters.cells_counted;
+        self.counters.cells_counted = true;
         for c in self.chains() {
-            if c.unit == ChainUnit::Cells {
-                continue;
+            if migrate_cells && c.unit == ChainUnit::Cells && self.zone_unlocked(c.zone) {
+                let seen = count_f64(self.fog.cells.len());
+                let entry = self.counters.progress.entry(c.id.clone()).or_insert(0.0);
+                *entry = entry.max(seen);
             }
             let floor = c.marks.iter().filter(|m| self.done.contains(&m.location_id)).map(|m| m.at).fold(0.0, f64::max);
             let entry = self.counters.progress.entry(c.id).or_insert(0.0);
@@ -1359,6 +1377,95 @@ mod tests {
             done.extend(done_ids(&g.on_fix(Fix { accuracy_m: 5.0, ..fixat(p, 1000 + i64::from(i) * 150) }, None)));
         }
         assert_eq!(done, vec![1001, 1000], "two cells unlock the 2-cell member, five the next");
+    }
+
+    /// Two Cartographer members in zone 1: marks at 2 and 5 squares.
+    fn cartographer_game() -> Game {
+        chain_game("cartographer", vec![Target::Cells { n: 2, cell_m: 150.0 }, Target::Cells { n: 3, cell_m: 150.0 }])
+    }
+
+    /// Walk east into `n` new 150 m squares, starting at step `from` (steps are 200 m and 150 s apart, so keep `from` increasing).
+    fn new_squares(g: &mut Game, from: i32, n: i32) -> Vec<i64> {
+        let mut done = Vec::new();
+        for i in from..from + n {
+            let p = destination(g.home, 90.0, 200.0 * f64::from(i));
+            done.extend(done_ids(&g.on_fix(Fix { accuracy_m: 5.0, ..fixat(p, 1000 + i64::from(i) * 150) }, None)));
+        }
+        done
+    }
+
+    fn cartographer_counter(g: &Game) -> f64 {
+        g.chain_views().into_iter().find(|c| c.id == "1:cartographer").unwrap().counter
+    }
+
+    #[test]
+    fn squares_in_a_locked_zone_do_not_count_and_only_new_squares_count_after_unlock() {
+        let mut g = cartographer_game();
+        lock_zone_1(&mut g);
+        assert!(new_squares(&mut g, 0, 6).is_empty());
+        assert_eq!(g.fog.cells.len(), 6, "the map still records every square");
+        assert_eq!(cartographer_counter(&g), 0.0, "a locked zone's chain must not fill");
+        assert!(done_ids(&g.receive_item("Progressive Zone Key", 2000, None)).is_empty(), "unlocking pays nothing out at once");
+        assert_eq!(cartographer_counter(&g), 0.0);
+        assert!(new_squares(&mut g, 6, 1).is_empty());
+        assert_eq!(new_squares(&mut g, 7, 1), vec![1000], "the second new square reaches the 2-square mark");
+        assert_eq!(cartographer_counter(&g), 2.0);
+    }
+
+    #[test]
+    fn squares_seen_while_a_zone_is_relocked_do_not_count_and_nothing_pays_twice() {
+        let mut g = cartographer_game();
+        lock_zone_1(&mut g);
+        let key = vec!["Progressive Zone Key".to_string()];
+        g.sync_items(&key, 1, None);
+        assert_eq!(new_squares(&mut g, 0, 2), vec![1000]);
+        g.sync_items(&[], 2, None); // the server's list shrank: the zone locks again
+        assert!(!g.zone_unlocked(1));
+        assert!(new_squares(&mut g, 2, 5).is_empty());
+        assert_eq!(cartographer_counter(&g), 2.0, "credited squares are kept, locked ones are not added");
+        assert!(done_ids(&g.sync_items(&key, 3, None)).is_empty(), "re-unlocking pays nothing at once");
+        assert!(g.done.contains(&1000), "a finished mark stays finished");
+        assert!(new_squares(&mut g, 7, 2).is_empty());
+        assert_eq!(new_squares(&mut g, 9, 1), vec![1001], "the 5-square mark pays once, after 3 more unlocked squares");
+        assert!(new_squares(&mut g, 10, 3).is_empty(), "nothing pays twice");
+    }
+
+    #[test]
+    fn zones_open_from_the_start_count_every_square_of_the_game() {
+        let mut g = cartographer_game();
+        assert_eq!(new_squares(&mut g, 0, 3), vec![1000]);
+        assert_eq!(cartographer_counter(&g), 3.0);
+        assert_eq!(cartographer_counter(&g), count_f64(g.fog.cells.len()));
+    }
+
+    #[test]
+    fn an_old_save_keeps_its_squares_in_open_zones_and_drops_them_in_locked_ones() {
+        let dir = std::env::temp_dir().join(format!("apgo-cells-oldsave-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Open zone: the old counter was the whole game's squares, and stays so (nothing lost, nothing paid twice).
+        let mut g = cartographer_game();
+        assert_eq!(new_squares(&mut g, 0, 3), vec![1000]);
+        g.counters = Counters::default();
+        g.save(&dir).unwrap();
+        let mut back = Game::load(&dir, "g1").unwrap();
+        assert_eq!(cartographer_counter(&back), 3.0);
+        assert!(new_squares(&mut back, 3, 1).is_empty(), "the 2-square mark is not paid again");
+        assert_eq!(new_squares(&mut back, 4, 1), vec![1001]);
+        // Locked zone: squares seen before the unlock never count.
+        let mut g = cartographer_game();
+        lock_zone_1(&mut g);
+        assert!(new_squares(&mut g, 0, 6).is_empty());
+        g.counters = Counters::default();
+        g.save(&dir).unwrap();
+        let mut back = Game::load(&dir, "g1").unwrap();
+        assert_eq!(cartographer_counter(&back), 0.0);
+        assert!(done_ids(&back.receive_item("Progressive Zone Key", 2000, None)).is_empty(), "unlocking pays nothing out at once");
+        assert!(new_squares(&mut back, 6, 1).is_empty());
+        assert_eq!(new_squares(&mut back, 7, 1), vec![1000]);
+        // A saved game of this version is not migrated again on the next load.
+        back.save(&dir).unwrap();
+        assert_eq!(cartographer_counter(&Game::load(&dir, "g1").unwrap()), 2.0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Lock zone 1 (where `chain_game` puts its members) behind one zone key.

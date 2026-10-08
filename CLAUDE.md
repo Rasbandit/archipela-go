@@ -65,7 +65,8 @@ If you need the Android build/run loop, versions and gotchas, see `docs/context/
 If you need the dev Archipelago server loop (`just ap-host`) and Android-to-server gotchas, see `docs/context/android-dev-workflow.md`
 If you need how our game maps onto Archipelago (YAML, apworld, fill, phone) or the Zelda reference worlds, see `docs/context/archipelago-game-model.md`
 If you need quest-type ideas, phone sensor/health API permissions and the quest table, see `docs/context/quest-types-and-phone-apis.md`
-If you need progression design (zones as regions, Bike/Car tools, trail quests, Freeze trap, OSM trail data findings), see `docs/context/progression-zones-and-tools.md`
+If you need progression design (zones as regions, trail quests, Freeze trap, OSM trail data findings; Bike/Car purged), see `docs/context/progression-zones-and-tools.md`
+If you need the economy/progression direction (walk/run, money tiers, backpack/bank, shop, eggs, buddies, treehouse), see `docs/context/economy-eggs-buddies.md`
 If you need measured OpenStreetMap tag coverage (surface/lit/parks/trails), the surface-filter design and Fog of War design, see `docs/context/map-data-capabilities.md`
 If you need the v1 architecture, verified results, known gaps and how to run the emulator/e2e, see `docs/context/v1-architecture-and-status.md`
 If you need the full list of quest kinds (names, map filters, proof, modes), see `docs/context/quest-catalog.md` (generated)
