@@ -69,3 +69,18 @@ Our own successor to Archipela-Go! (upstream `aki665/react-native-archipelago`, 
 | Several goals via `goal_selection` OptionSet + `goal_requirement` Choice (Satisfactory pattern); slot_data schema 3 | Follow Archipelago standards; client reports the goal |
 | Realm preview = real MapLibre snapshot + live overlay; Home is a separate green card | Distinct, instant, mostly offline |
 | Self-hosted Overpass deferred | Owner: not now |
+
+## 2026-10-08 Progression direction (decisions)
+
+Details: `economy-eggs-buddies.md`. Direction only; core gameplay comes first.
+
+| Decision | Why |
+| -- | -- |
+| Pillar "the walking randomizer": steps drive every system; checks go out when revealed (banked/hatched), stalls OK | The game is the game; AP is a layer |
+| Modes are walk and run only; Car and Bike purged | Focus; run = strict time + fast movement |
+| 3 money tiers unlocked by upgrades (License), never by place | No guarantees about what is near a player's home |
+| Backpack banked at home/bank places; soft bag limit with a step penalty when over | The coming-home rush; carry-weight feel |
+| Shop sells AP Shop Slots plus local upgrades; defense items tabled | It is a randomizer; owner dislikes defense items |
+| Goal Eggs replace Letter macguffins; Found Eggs are checks; both hatch with steps | Goals need walking too |
+| Buddies: one active (buff, levels by distance), the rest at home bring gifts | Hatch loop has lasting value |
+| Theme (teen, townsfolk, treehouse) is a mechanics guide only | Reskin later |
