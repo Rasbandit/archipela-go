@@ -4,6 +4,11 @@
     <issue id="NewApi">
         <ignore path="src/main/kotlin/uniffi/**" />
     </issue>
+    <!-- "A newer version exists" checks depend on what was published upstream today, not on our code:
+         they turn CI red overnight with no change. Dependabot owns version bumps. -->
+    <issue id="NewerVersionAvailable" severity="ignore" />
+    <issue id="GradleDependency" severity="ignore" />
+    <issue id="AndroidGradlePluginVersion" severity="ignore" />
     <!-- targetSdk bump is a behaviour change; tracked separately -->
     <issue id="OldTargetApi" severity="ignore" />
 </lint>
