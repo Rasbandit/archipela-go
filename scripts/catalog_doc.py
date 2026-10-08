@@ -22,7 +22,7 @@ def filt(kind: dict) -> str:
             + ", ".join(f"{c['key']}={'/'.join(c['values'])}" for c in kind["none_of"])
             + ")"
         )
-    return out.replace("|", "\\|")
+    return out.replace("|", "\\|").replace("*", "\\*")
 
 
 def verify(kind: dict) -> str:
@@ -47,7 +47,7 @@ for fam in cat["families"]:
         f"## {fam} ({len(ks)})",
         "",
         "| Quest | What | Map data (OSM) | Proof | Modes |",
-        "|--|--|--|--|--|",
+        "| -- | -- | -- | -- | -- |",
     ]
     for k in ks:
         flag = " (named)" if k.get("require_name") else ""

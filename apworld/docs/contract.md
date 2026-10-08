@@ -16,7 +16,7 @@ Game name: `Archipela-Go 2: Electric Boogaloo`. Item and location IDs are offset
 ## slot_data
 
 | Field | Type | Meaning |
-|--|--|--|
+| -- | -- | -- |
 | `schema_version` | int, 3 | See above |
 | `goals` | array, 1-12 | The selected win conditions, each `{id, target}` (see Goals); `target` is N for counting goals, 0 otherwise |
 | `goal_requirement` | `any`, `all` or `at_least` | How the goals combine into winning |
@@ -43,7 +43,7 @@ walk 4.5, run 9, bike 15, drive 35 km/h. Never place a place closer than `min_di
 ## Families (`type`) and modes
 
 | Family | Modes |
-|--|--|
+| -- | -- |
 | reach, dwell, landmark, courier, away | walk, run, bike, drive |
 | explore, trail, water | walk, run, bike |
 | park, steps | walk, run |
@@ -69,7 +69,7 @@ Drive, Boss (the boss is also in Hard).
 ## Items
 
 | Item | Class | Client behavior |
-|--|--|--|
+| -- | -- | -- |
 | Progressive Zone Key | progression | Opens zones |
 | Running Shoes / Bike / Car | progression | Tools, see Zones |
 | Progressive Effort Reduction | useful | Reduces effort (not logic) |
@@ -94,7 +94,7 @@ A player picks the goals with `goal_selection` (an `OptionSet`, as the Satisfact
 `goal_boss_rush_hard_quests`). The slot_data carries the resolved ids and targets.
 
 | Goal | Win when | Default target |
-|--|--|--|
+| -- | -- | -- |
 | macguffin_short / macguffin_long | all letters of APGO / ARCHIPELAGO held | - |
 | all_trips | every quest done | - |
 | boss | Boss Quest done | - |

@@ -11,6 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-10-07-setup-flow-design.md`
 
 ## Global Constraints
+
 - Work on branch `feat/setup-flow`, never `main`.
 - Conventional commits, imperative subject under 50 chars, body lines under 72 (the `committed` hook rejects otherwise). End each commit message with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Use the git MCP tools or the git CLI.
 - TDD for the pure logic: failing test first, never edit a test to fit bad code. UI is checked on the emulator with screenshots (Task 8).
@@ -21,7 +22,9 @@
 - Files live in `android/app/src/main/java/dev/apgo2/` (call it `$SRC`) and tests in `android/app/src/test/java/dev/apgo2/`.
 
 ## Review Focus
+
 Failure modes the spec implies but no happy-path test covers. Each has a pinned test or a named manual check in the owning task.
+
 1. Location permission denied or Wi-Fi off: the scan list is empty, the typed-name path still works, nothing crashes (Task 5 manual; empty-scan case in Task 2 tests).
 2. Rescan throttled by Android: the player sees a message, not a silent no-op (Task 5 manual).
 3. Hidden/blank/`<unknown ssid>` scan entries never appear as rows (Task 2 test).
@@ -33,10 +36,12 @@ Failure modes the spec implies but no happy-path test covers. Each has a pinned 
 ### Task 1: SetupProgress (pure)
 
 **Files:**
+
 - Create: `$SRC/presence/SetupProgress.kt`
 - Test: `android/app/src/test/java/dev/apgo2/presence/SetupProgressTest.kt`
 
 **Interfaces:**
+
 - Produces: `enum class SetupStep { Home, Wifi, Car }`; `data class SetupProgress(homeSet: Boolean, wifiCount: Int, carCount: Int, setupDone: Boolean)` with `val missingWifi: Boolean`, `fun nextStep(): SetupStep?`, `fun needsAttention(): Boolean`.
 
 - [ ] **Step 1: Write the failing test**
@@ -134,10 +139,12 @@ git commit -m "feat: add SetupProgress for the setup flow"
 ### Task 2: Wi-Fi and car choice lists (pure)
 
 **Files:**
+
 - Create: `$SRC/presence/Choices.kt`
 - Test: `android/app/src/test/java/dev/apgo2/presence/ChoicesTest.kt`
 
 **Interfaces:**
+
 - Consumes: `HomeNetwork(ssid, bssid)`, `WifiId(ssid, bssid)`, `CarDevice(name, address)`, `PresenceSignals.cleanSsid(String?)` (all in `presence/PresenceSignals.kt`).
 - Produces: `data class WifiChoice(ssid: String, bssid: String?, saved: Boolean, connected: Boolean)`; `WifiChoices.merge(saved: List<HomeNetwork>, current: WifiId?, nearby: List<String>, query: String): List<WifiChoice>`; `CarChoices.merge(paired: List<CarDevice>, saved: List<CarDevice>, query: String): List<CarDevice>`.
 
@@ -272,6 +279,7 @@ git commit -m "feat: add Wi-Fi and car choice lists"
 ### Task 3: "Protection off" chip text
 
 **Files:**
+
 - Modify: `$SRC/presence/PresenceSignals.kt` (`PresenceText.chip`)
 - Test: `android/app/src/test/java/dev/apgo2/presence/PresenceSignalsTest.kt:78`
 
@@ -315,6 +323,7 @@ git commit -m "feat: say protection is off when unconfigured"
 ### Task 4: Platform plumbing (scanner, setupDone, model state)
 
 **Files:**
+
 - Create: `$SRC/presence/WifiScanner.kt`
 - Modify: `android/app/src/main/AndroidManifest.xml`
 - Modify: `$SRC/presence/PresenceSettings.kt`
@@ -322,6 +331,7 @@ git commit -m "feat: say protection is off when unconfigured"
 - Modify: `docs/superpowers/specs/2026-10-07-setup-flow-design.md` (permission line)
 
 **Interfaces:**
+
 - Consumes: `SetupProgress`, `SetupStep` (Task 1).
 - Produces: `WifiScanner(ctx).nearby(): List<String>`, `WifiScanner.rescan(): Boolean`; `PresenceSettings.setupDone: Boolean` (get/set); on `AppModel`: `showSetup: Boolean` (read only), `setupStart: SetupStep`, `setupProgress(): SetupProgress`, `openSetup(from: SetupStep? = null)`, `leaveSetup()`, `finishSetup()`.
 
@@ -406,9 +416,11 @@ Add `import dev.apgo2.presence.SetupProgress` and `import dev.apgo2.presence.Set
 ### Task 5: Wizard steps 2 and 3 (Wi-Fi and car pages)
 
 **Files:**
+
 - Create: `$SRC/SetupSteps.kt`
 
 **Interfaces:**
+
 - Consumes: `WifiChoices`, `CarChoices`, `WifiScanner` (Tasks 2 and 4); `AppModel.settings`, `monitor.currentNetwork()`, `locationPermitted`, `evaluatePresence()`, `ensureMonitor(Boolean)`.
 - Produces: `internal fun StepPage(...)`, `internal fun WifiStep(m, onBack, onNext)`, `internal fun CarStep(m, onBack, onDone)`.
 
@@ -590,11 +602,13 @@ internal fun CarStep(m: AppModel, onBack: () -> Unit, onDone: () -> Unit) {
 ### Task 6: Wizard shell, HomePicker reuse, remove PresenceScreen
 
 **Files:**
+
 - Create: `$SRC/SetupFlow.kt`
 - Modify: `$SRC/Screens.kt` (`AppRoot` line ~128, `RealmsScreen` line ~183, `HomeCard` ~234-262, `HomePicker` ~304-352)
 - Delete: `$SRC/PresenceScreen.kt`
 
 **Interfaces:**
+
 - Consumes: `WifiStep`, `CarStep` (Task 5); `AppModel.setupStart`, `finishSetup()`, `leaveSetup()`, `openSetup()`, `setupProgress()` (Task 4).
 - Produces: `fun SetupFlow(m: AppModel)`; `HomePicker(m, onBack, onConfirm = onBack, title = "Home", confirmLabel = "Done", requireHome = false)` now `internal`.
 
@@ -630,6 +644,7 @@ Change the signature and the three spots that used `onClose`/`"Home"`/`"Done"`:
 @Composable
 internal fun HomePicker(m: AppModel, onBack: () -> Unit, onConfirm: () -> Unit = onBack, title: String = "Home", confirmLabel: String = "Done", requireHome: Boolean = false) {
 ```
+
 - `BackHandler { onClose() }` becomes `BackHandler { onBack() }`.
 - The top-right button becomes `Button(onClick = onConfirm, enabled = !requireHome || saved, contentPadding = ...) { IconLabel(confirmLabel, ApgoIcons.Done, 14.sp) }`. (`saved` is true once a pin was placed or home already existed, so Next stays disabled until home is really saved.)
 - `Text("Home", style = MaterialTheme.typography.titleSmall)` becomes `Text(title, style = MaterialTheme.typography.titleSmall)`.
@@ -660,6 +675,7 @@ Add `import dev.apgo2.ui.FeedbackText` and `import dev.apgo2.ui.Tone` to `Screen
 git rm android/app/src/main/java/dev/apgo2/PresenceScreen.kt
 cd android && ./gradlew assembleDebug testDebugUnitTest --console=plain -q
 ```
+
 Expected: builds; all unit tests pass. Fix any import the compiler reports (`SetupStep` and `SetupProgress` in `AppModel.kt`; `Spacer`, `ColumnScope` in the step file).
 
 - [ ] **Step 6: Commit Tasks 4-6 together**
@@ -674,6 +690,7 @@ git commit -m "feat: guide home, Wi-Fi and car in a setup flow" -m "Replaces the
 ### Task 7: Docs and backlog
 
 **Files:**
+
 - Modify: `docs/context/v1-architecture-and-status.md` (Presence section, lines ~55-60)
 - Modify: `docs/context/outdoor-test-plan.md` (any mention of the Presence screen)
 
@@ -712,6 +729,7 @@ adb -s emulator-5554 install -r android/app/build/outputs/apk/debug/app-debug.ap
 adb -s emulator-5554 shell pm clear dev.apgo2   # fresh first run
 adb -s emulator-5554 shell am start -n dev.apgo2/.MainActivity
 ```
+
 Grant the permission dialogs. Expected: the wizard opens at step 1 (map) instead of the realm list, "Next" disabled until a pin is placed.
 
 - [ ] **Step 2: Walk the steps and screenshot each** (`adb exec-out screencap -p > /tmp/x.png`, then Read it)

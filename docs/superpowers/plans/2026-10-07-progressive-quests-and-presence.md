@@ -11,6 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-10-07-progressive-quests-design.md` (Part A sections 1-7, Part B sections B.1-B.8). GitHub issue #6 is Part B; close it with the last task.
 
 ## Global Constraints
+
 - TDD: write the failing test first, run it and see it fail for the right reason, then implement. Never edit a test to fit bad code.
 - Commits: conventional (`feat:`, `fix:`, `docs:`), **subject at most 50 characters, imperative mood** ("add", not "adds"); body lines at most 72 characters; end with the line `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Hooks run `typos` (avoid abbreviated or misspelled identifiers), `gitleaks`, and `committed`.
 - Rust: `cd core && cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test -q` must be clean before each Rust commit.
@@ -21,7 +22,9 @@
 - Never work on `main`; the current branch is `feat/adaptive-gps-interval`.
 
 ## Review Focus
+
 Failure modes the spec implies but no happy-path task would exercise (each has a named test in the task that owns it):
+
 1. **Phone reboot mid-game** resets the step counter below the last reading: credit the new value, never a negative. (Task 4)
 2. **A game with none of these quest kinds, or a chain with one member**: no chain, no panic, one-mark bar. (Task 1)
 3. **Steps taken while the game is stopped**, then a huge reading after reopening: nothing credited for the gap. (Task 4)
@@ -32,6 +35,7 @@ Failure modes the spec implies but no happy-path task would exercise (each has a
 8. **Custom away distance typed as empty text or nonsense**: falls back to a sane value, never crashes. (Task 11)
 
 ## File Structure
+
 Part A (core): `core/src/chain.rs` (new: chain model, derivation, text), `core/src/geo.rs` (+`distance_to_segment_m`), `core/src/realm.rs` (+`Shape::distance_m`), `core/src/game.rs` (counters, away config, counting, views), `core/src/journal.rs` (unchanged API), `core/ffi/src/engine.rs` (records, `chains`, `on_steps`, zone shapes, start parameters).
 Part A (Android): `ui/ChainFormat.kt` (new: pure text and tick maths), `ui/ChainBar.kt` (new: the bar composable), `PlayLayout.kt` (chain members leave the lists), `Screens.kt` (Progress section, chain popup), `AppModel.kt`, `Sensors.kt`, `NewGame.kt`, `ui/HelpText.kt`, `AwaySettings.kt` (new: parse the distance field).
 Part B (core): `game.rs` (+`counting`), `engine.rs` (+`zone_proximity`, `set_counting`, `log_presence`), `journal.rs` (+kind).
@@ -39,15 +43,17 @@ Part B (Android): `presence/PresencePolicy.kt` (new, pure), `presence/PresenceSi
 
 ---
 
-# Part A: progressive quest chains
+## Part A: progressive quest chains
 
 ### Task 1: Chain model and derivation
 
 **Files:**
+
 - Create: `core/src/chain.rs`
 - Modify: `core/src/lib.rs` (add `pub mod chain;` after `pub mod catalog;`)
 
 **Interfaces:**
+
 - Produces: `ChainUnit {Steps, Minutes, Cells}`, `Milestone {location_id: i64, at: f64}`, `Chain {id: String, zone: u32, kind_id: String, name: String, unit: ChainUnit, marks: Vec<Milestone>}`, `amount_of(&Target) -> Option<(ChainUnit, f64)>`, `is_chain_target(&Target) -> bool`, `derive(&[Assignment]) -> Vec<Chain>`, `Chain::{total, reached(counter) -> Vec<i64>, position_of(location_id) -> Option<usize>, rule_text(away_m), amount_text(at)}`, `thousands(u64)`, `minutes_text(f64)`, `distance_text(f64)`.
 
 - [ ] **Step 1: Write the failing tests and stubs.** Create `core/src/chain.rs` with the content below (types and `todo!()` bodies first, tests at the bottom), and register the module.
@@ -353,6 +359,7 @@ pub fn derive(assignments: &[Assignment]) -> Vec<Chain> {
 - [ ] **Step 4: Run and see green.** Run: `cd core && cargo test -q chain 2>&1 | tail -5`. Expected: `test result: ok`.
 
 - [ ] **Step 5: Lint and commit.**
+
 ```bash
 cd core && cargo fmt && cargo clippy --all-targets -- -D warnings 2>&1 | grep -E "^(warning|error)" -A6 | head
 cd .. && git add core/src/chain.rs core/src/lib.rs && git commit -m "feat: add progressive quest chains" -m "Group steps, time-away and map-square quests by zone and kind into one chain with running-total marks, plus the text for them." -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
@@ -363,9 +370,11 @@ cd .. && git add core/src/chain.rs core/src/lib.rs && git commit -m "feat: add p
 ### Task 2: Distance from a point to a zone shape
 
 **Files:**
+
 - Modify: `core/src/geo.rs` (add `distance_to_segment_m`), `core/src/realm.rs` (add `Shape::distance_m`)
 
 **Interfaces:**
+
 - Produces: `geo::distance_to_segment_m(p: Point, a: Point, b: Point) -> f64`; `Shape::distance_m(&self, p: Point) -> f64` (0 when inside).
 
 - [ ] **Step 1: Write the failing tests.** Append to the `tests` module of `core/src/realm.rs` (find it with `grep -n "mod tests" core/src/realm.rs`) :
@@ -395,6 +404,7 @@ cd .. && git add core/src/chain.rs core/src/lib.rs && git commit -m "feat: add p
         assert!((s.distance_m(corner) - 300.0).abs() < 3.0, "nearest edge is the east side");
     }
 ```
+
 Use `use super::*;` as the module already does; if `Point` is not imported there add `use crate::geo::Point;` inside the test module.
 
 - [ ] **Step 2: Run, see it fail to compile** (`no method named distance_m`): `cd core && cargo test -q realm 2>&1 | tail -8`.
@@ -415,6 +425,7 @@ pub fn distance_to_segment_m(p: Point, a: Point, b: Point) -> f64 {
     (cx * cx + cy * cy).sqrt()
 }
 ```
+
 In `core/src/realm.rs`, inside `impl Shape` (next to `farthest_m`):
 
 ```rust
@@ -440,9 +451,11 @@ In `core/src/realm.rs`, inside `impl Shape` (next to `farthest_m`):
 ### Task 3: Away settings, counters and per-zone distances in the game
 
 **Files:**
+
 - Modify: `core/src/game.rs` (types, `Game` fields, `NewGame.away`, `Game::create`, the two `NewGame { ... }` literals in the tests module at about lines 720 and 850), `core/ffi/src/engine.rs` (the two `NewGame { ... }` literals; pass `away: AwayOptions::default()` for now)
 
 **Interfaces:**
+
 - Produces: `AwayOptions {zone_only: bool, custom_m: Option<f64>}` with `Default` (zone_only true) and `resolve(&self, farthest_m: f64) -> f64`; `AwayConfig {zone_only: bool, distance_m: BTreeMap<u32, f64>}` with `distance_for(zone) -> f64`; `Counters {progress: BTreeMap<String, f64>, steps_last: Option<i64>}`; `Game.away: AwayConfig`, `Game.counters: Counters` (both `#[serde(default)]`); `NewGame.away: AwayOptions`; constants `DEFAULT_AWAY_M = 1000.0`.
 
 - [ ] **Step 1: Write the failing tests** in the `tests` module of `core/src/game.rs`:
@@ -552,11 +565,13 @@ pub struct Counters {
     pub steps_last: Option<i64>,
 }
 ```
+
 Add to `struct Game` (after `avoid_stairs`): `#[serde(default)] pub away: AwayConfig,` and `#[serde(default)] pub counters: Counters,`. Add to `struct NewGame`: `pub away: AwayOptions,`. In `Game::create`, before `Ok(Game { ... })` compute and then set fields:
 
 ```rust
         let away = AwayConfig { zone_only: n.away.zone_only, distance_m: zones.iter().map(|z| (z.zone, n.away.resolve(z.realm.shape.farthest_m(n.home)))).collect() };
 ```
+
 and in the struct literal: `away, counters: Counters::default(),`. Add `away: AwayOptions::default(),` to every `NewGame { ... }` literal (in `core/src/game.rs` tests and both in `core/ffi/src/engine.rs`).
 
 - [ ] **Step 4: Run, see green.** `cd core && cargo test -q 2>&1 | grep -E "^test result|FAILED"` and `cargo clippy --all-targets -- -D warnings`.
@@ -567,9 +582,11 @@ and in the struct literal: `away, counters: Counters::default(),`. Add `away: Aw
 ### Task 4: Step counting and milestone completion
 
 **Files:**
+
 - Modify: `core/src/game.rs`
 
 **Interfaces:**
+
 - Consumes: Task 1 (`chain::derive`, `is_chain_target`, `ChainUnit`, `Chain`), Task 3 (`counters`).
 - Produces: `Game::chains(&self) -> Vec<Chain>`; `Game::on_steps(&mut self, total: i64, t_ms: i64) -> Vec<Event>`; `on_fix` credits steps and completes reached marks; `Game::load` resets `counters.steps_last`; per-location trackers skip chain targets.
 
@@ -593,6 +610,7 @@ and in the struct literal: `away, counters: Counters::default(),`. Add `away: Aw
         ev.iter().filter_map(|e| if let Event::QuestDone { location_id, .. } = e { Some(*location_id) } else { None }).collect()
     }
 ```
+
 This requires exposing the Task 1 helper: in `core/src/chain.rs` add (outside `tests`) `#[cfg(test)] pub(crate) mod tests_support { pub(crate) use super::tests::member; }` and make `tests::member` `pub(crate)` (it already is). Then the tests:
 
 ```rust
@@ -651,6 +669,7 @@ This requires exposing the Task 1 helper: in `core/src/chain.rs` add (outside `t
         assert_eq!(done_ids(&g.on_steps(1_601, 3)), vec![1000], "the counter kept the steps");
     }
 ```
+
 (The last test may need `use rand::SeedableRng;`; `Traps::active` is `pub` in `traps.rs` — if not, expose it `pub(crate)`.)
 
 - [ ] **Step 2: Run and see failures** (`no method named on_steps`): `cd core && cargo test -q game 2>&1 | tail -10`.
@@ -712,6 +731,7 @@ This requires exposing the Task 1 helper: in `core/src/chain.rs` add (outside `t
         ev
     }
 ```
+
 In `Game::on_fix`: (a) first line after `let mut ev = Vec::new();` add `if let Some(total) = steps_total { self.credit_steps(total); }`; (b) before `let mut finished = Vec::new();` add `let in_chain: BTreeSet<i64> = self.assignments.iter().filter(|a| is_chain_target(&a.target)).map(|a| a.location_id).collect();` and inside the per-quest loop, right after the `done`/zone check, add `if in_chain.contains(&id) { continue; }`; (c) after `for id in finished { ... }` add `ev.extend(self.complete_reached(fix.t_ms, Some(pos)));`. In `Game::load` replace the final line with:
 
 ```rust
@@ -719,6 +739,7 @@ In `Game::on_fix`: (a) first line after `let mut ev = Vec::new();` add `if let S
         g.counters.steps_last = None; // steps taken while the game was closed are never credited
         Ok(g)
 ```
+
 Make `Traps::active` `pub(crate)` in `core/src/traps.rs` if the compiler requires it.
 
 - [ ] **Step 4: Run, see green.** `cd core && cargo test -q 2>&1 | grep -E "^test result|FAILED|panicked"`.
@@ -729,9 +750,11 @@ Make `Traps::active` `pub(crate)` in `core/src/traps.rs` if the compiler require
 ### Task 5: Time away and map squares
 
 **Files:**
+
 - Modify: `core/src/game.rs`
 
 **Interfaces:**
+
 - Produces: `Game::set_in_zone(&mut self, bool)`; away minutes accrue in `on_fix`; Cartographer chain completes from `fog.cells`.
 
 - [ ] **Step 1: Write the failing tests** (game.rs tests module; reuse `chain_game`, `done_ids`):
@@ -815,6 +838,7 @@ Make `Traps::active` `pub(crate)` in `core/src/traps.rs` if the compiler require
         }
     }
 ```
+
 with `const AWAY_MAX_GAP_MS: i64 = 5 * 60_000;`. In `on_fix`, just before `self.last_fix = Some(fix);` (and before the `complete_reached` call added in Task 4, so move that call to after this) add `if let Some(prev) = self.last_fix { self.accrue_away(&prev, &fix); }`. Order at the end of `on_fix` must be: finished loop, `accrue_away`, `complete_reached`, `self.last_fix = Some(fix)`.
 
 - [ ] **Step 4: Run, see green.** `cd core && cargo test -q 2>&1 | grep -E "^test result|FAILED|panicked"`.
@@ -825,9 +849,11 @@ with `const AWAY_MAX_GAP_MS: i64 = 5 * 60_000;`. In `on_fix`, just before `self.
 ### Task 6: Chain views, quest progress and milestone attribution
 
 **Files:**
+
 - Modify: `core/src/game.rs`
 
 **Interfaces:**
+
 - Consumes: Tasks 1, 4, 5.
 - Produces: `MarkView {at, location_id, reached, reward: Option<String>}`; `ChainView {id, zone, kind_id, name, family, unit: ChainUnit, counter, total, rule, marks: Vec<MarkView>}`; `Game::chain_views(&self) -> Vec<ChainView>`; `QuestView.chain_id: Option<String>`; chain members' `QuestView.progress` = progress toward their mark; QuestDone journal detail for members: `"Step Up milestone 3 of 5: 8,500 steps"`.
 
@@ -873,6 +899,7 @@ with `const AWAY_MAX_GAP_MS: i64 = 5 * 60_000;`. In `on_fix`, just before `self.
         assert_eq!(done, vec!["step up milestone 1 of 2: 500 steps", "step up milestone 2 of 2: 1,500 steps"]);
     }
 ```
+
 (`chain_game` names quests by `kind.replace('_', " ")` through the Task 1 helper, hence the lower-case names.)
 
 - [ ] **Step 2: Run, see failures.** `cd core && cargo test -q game 2>&1 | tail -8`.
@@ -903,6 +930,7 @@ pub struct ChainView {
     pub marks: Vec<MarkView>,
 }
 ```
+
 Add `pub chain_id: Option<String>,` to `QuestView`. In `impl Game`:
 
 ```rust
@@ -936,6 +964,7 @@ Add `pub chain_id: Option<String>,` to `QuestView`. In `impl Game`:
         Some((c.id.clone(), p as f32))
     }
 ```
+
 In `quest_views`, compute `let chains = self.chains();` once before the map; for each assignment: `let member = self.member_progress(&chains, a.location_id);` then `progress` = `member.as_ref().map_or(<existing tracker progress>, |(_, p)| *p)` and `chain_id: member.map(|(id, _)| id)`. In `journal_events`, in the `Event::QuestDone` arm, before the existing detail, add:
 
 ```rust
@@ -944,6 +973,7 @@ In `quest_views`, compute `let chains = self.chains();` once before the map; for
                             j.detail = format!("{name} milestone {i} of {}: {}", c.marks.len(), c.amount_text(c.marks[i - 1].at));
                         } else if let Some(a) = quest(location_id) { ...existing... }
 ```
+
 with `let chains = self.chains();` at the top of `journal_events`.
 
 - [ ] **Step 4: Run, see green; also fix any existing test that constructs `QuestView`** (add `chain_id: None`). `cd core && cargo test -q 2>&1 | grep -E "^test result|FAILED|panicked|^error"`.
@@ -954,6 +984,7 @@ with `let chains = self.chains();` at the top of `journal_events`.
 ### Task 7: Reroll guard and old-save counters
 
 **Files:**
+
 - Modify: `core/src/game.rs`
 
 - [ ] **Step 1: Write the failing tests:**
@@ -990,6 +1021,7 @@ with `let chains = self.chains();` at the top of `journal_events`.
         let _ = std::fs::remove_dir_all(&dir);
     }
 ```
+
 `realm("r0", Mode::Walk)` is the existing helper in the tests module (it returns `(Realm, Atlas)`).
 
 - [ ] **Step 2: Run, see failures.**
@@ -1010,6 +1042,7 @@ with `let chains = self.chains();` at the top of `journal_events`.
         }
     }
 ```
+
 - [ ] **Step 4: Run, see green** (`cargo test -q`).
 - [ ] **Step 5: Lint and commit** (`feat: guard chain rerolls and old saves`).
 
@@ -1018,9 +1051,11 @@ with `let chains = self.chains();` at the top of `journal_events`.
 ### Task 8: FFI: chains, steps, zone shapes and new-game options
 
 **Files:**
+
 - Modify: `core/ffi/src/engine.rs`
 
 **Interfaces:**
+
 - Consumes: Tasks 2-7.
 - Produces (UniFFI/Kotlin): records `MarkOut {at: f64, location_id: i64, reached: bool, reward: Option<String>}` and `ChainOut {id, zone: u32, kind_id, name, family, unit: String, counter: f64, total: f64, rule, marks: Vec<MarkOut>}`; `QuestOut.chain_id: Option<String>`; `Engine.chains() -> Vec<ChainOut>`; `Engine.on_steps(total: i64, t_ms: i64) -> Vec<EventOut>`; `start_solo(..., avoid_stairs: bool, away_zone_only: bool, away_distance_m: u32)` and `start_archipelago(..., avoid_stairs: bool, away_zone_only: bool, away_distance_m: u32)` (`0` = automatic); `Engine.on_fix` now tells the game whether the player is inside a zone.
 
@@ -1050,6 +1085,7 @@ pub struct ChainOut {
     pub marks: Vec<MarkOut>,
 }
 ```
+
 Add `pub chain_id: Option<String>,` to `QuestOut` and `chain_id: q.chain_id,` in the `QuestOut { ... }` construction inside `quests()`.
 
 - [ ] **Step 2: Zone shapes and `install`.** Add to `Engine`: `zone_shapes: Mutex<Vec<Shape>>,` (initialise `Mutex::new(Vec::new())` in `Engine::new`). Add a private helper in `impl Engine`:
@@ -1069,6 +1105,7 @@ Add `pub chain_id: Option<String>,` to `QuestOut` and `chain_id: q.chain_id,` in
         shapes.iter().map(|s| s.distance_m(p)).reduce(f64::min)
     }
 ```
+
 Replace the three `*self.game.lock()... = Some(...)` assignments (in `start_solo`, `start_archipelago`, `open_game`) with `self.install(game)` / `self.install(g)`. In `on_fix`, before the `with_game` call: `let inside = self.zone_distance_m(Point::new(lat, lon)).is_none_or(|d| d == 0.0);` and inside the closure before `g.on_fix`: `g.set_in_zone(inside);`.
 
 - [ ] **Step 3: New-game options.** Add `away_zone_only: bool, away_distance_m: u32` after `avoid_stairs` in both `start_solo` and `start_archipelago`, and in their `NewGame { ... }` literals replace `away: AwayOptions::default()` with `away: AwayOptions { zone_only: away_zone_only, custom_m: (away_distance_m > 0).then_some(f64::from(away_distance_m)) }`. Import `AwayOptions` from `apgo_core::game`.
@@ -1120,14 +1157,17 @@ Replace the three `*self.game.lock()... = Some(...)` assignments (in `start_solo
         ev.into_iter().map(ev_out).collect()
     }
 ```
+
 Import `apgo_core::chain::ChainUnit`.
 
 - [ ] **Step 5: Build, lint, rebuild bindings, commit.**
+
 ```bash
 cd core && cargo fmt && cargo clippy --all-targets -- -D warnings 2>&1 | grep -E "^(warning|error)" -A6 | head; cargo test -q 2>&1 | grep -E "^test result|FAILED"
 cd .. && APGO_ABIS="arm64-v8a x86_64" scripts/android_core.sh debug 2>&1 | tail -1
 git add core && git commit -m "feat: expose chains and steps over FFI" -m "Chains, on_steps, away options on game start, zone shapes for the inside-a-zone check, chain_id on quests." -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
+
 (Kotlin will not compile until Task 11 passes the new `startSolo`/`startArchipelago` arguments; commit the Kotlin side right after in Tasks 9-11 and do not run Gradle in between.)
 
 ---
@@ -1135,10 +1175,12 @@ git add core && git commit -m "feat: expose chains and steps over FFI" -m "Chain
 ### Task 9: Kotlin chain text and tick maths (pure)
 
 **Files:**
+
 - Create: `android/app/src/main/java/dev/apgo2/ui/ChainFormat.kt`, `android/app/src/test/java/dev/apgo2/ui/ChainFormatTest.kt`
 - Modify: `android/app/src/main/java/dev/apgo2/AppModel.kt` (only the call sites needed to compile, see Task 11 step 3)
 
 **Interfaces:**
+
 - Consumes: generated `uniffi.apgo_ffi.ChainOut`, `MarkOut`.
 - Produces: `ChainFormat.thousands(Long)`, `ChainFormat.amount(unit: String, value: Double)`, `ChainFormat.next(c: ChainOut): String`, `ChainFormat.fractions(marks: List<Double>, total: Double): List<Float>`, `ChainFormat.fill(counter: Double, total: Double): Float`.
 
@@ -1251,10 +1293,12 @@ object ChainFormat {
 ### Task 10: The chain bar, Progress section and popup
 
 **Files:**
+
 - Create: `android/app/src/main/java/dev/apgo2/ui/ChainBar.kt`
 - Modify: `PlayLayout.kt`, `PlayLayoutTest.kt` (chain members leave both lists), `AppModel.kt`, `Sensors.kt`, `Screens.kt`
 
 **Interfaces:**
+
 - Consumes: Task 9, Task 8 (`engine.chains()`, `engine.onSteps`).
 - Produces: `ChainBar(counter, total, fractions, reached: List<Boolean>, modifier)` composable; `AppModel.chains: List<ChainOut>`, `AppModel.selectedChain: String?`, `AppModel.onSteps(total: Long)`; `PlayLayout.split` excludes quests with a `chainId`.
 
@@ -1267,6 +1311,7 @@ object ChainFormat {
         assertEquals(listOf(3L), ids(s.places))
     }
 ```
+
 Update the helper signature to `private fun q(id: Long, shape: String, state: String = "open", progress: Float = 0f, chainId: String? = null)`. Run: expect FAIL (members still listed). `cd android && ./gradlew :app:testDebugUnitTest -q`.
 
 - [ ] **Step 2: Implement `PlayLayout.split`:** begin with `val quests = quests.filter { it.chainId == null }`; keep the rest unchanged. Run, see green.
@@ -1308,6 +1353,7 @@ fun ChainBar(fill: Float, fractions: List<Float>, reached: List<Boolean>, modifi
     }
 }
 ```
+
 (`ApgoPalette` is in the same package `dev.apgo2.ui`.)
 
 - [ ] **Step 4: Model.** In `AppModel.kt`: `import uniffi.apgo_ffi.ChainOut`; add state `var chains by mutableStateOf<List<ChainOut>>(emptyList())` and `var selectedChain by mutableStateOf<String?>(null)`; in `refreshPlay()` set `chains = engine.chains()` in the game branch and `emptyList()` in the else branch (and `selectedChain = null` there); add:
@@ -1321,6 +1367,7 @@ fun ChainBar(fill: Float, fractions: List<Float>, reached: List<Boolean>, modifi
         refreshPlay(withTrace = false)
     }
 ```
+
 In `Sensors.kt` change the step listener body to `model.onSteps(e.values[0].toLong())`.
 
 - [ ] **Step 5: Screens.** In `PlayScreen`, in the panel Column (the one with `weight(0.45f)`), render the chain rows first inside the Progress section: replace `if (layout.progress.isNotEmpty()) { ... }` by a block that shows chains then the remaining in-progress quests:
@@ -1332,6 +1379,7 @@ In `Sensors.kt` change the step listener body to `model.onSteps(e.values[0].toLo
         (if (allProgress) layout.progress else layout.progress.take(PROGRESS_ROWS)).forEach { q -> ProgressRow(q) { m.selected = q.locationId; m.selectedChain = null } }
         if (layout.progress.size > PROGRESS_ROWS) TextButton(onClick = { allProgress = !allProgress }) { Text(if (allProgress) "Show fewer" else "Show all ${layout.progress.size}", fontSize = 11.sp) }
 ```
+
 Add the row composable at the end of the file:
 
 ```kotlin
@@ -1349,6 +1397,7 @@ private fun ChainRow(c: uniffi.apgo_ffi.ChainOut, onClick: () -> Unit) {
     }
 }
 ```
+
 and the popup: inside the map `Box` after the existing `selected?.let { ... }` add
 
 ```kotlin
@@ -1356,6 +1405,7 @@ and the popup: inside the map `Box` after the existing `selected?.let { ... }` a
                 MapOverlayCard(Modifier.align(Alignment.BottomCenter)) { ChainDetails(c) { m.selectedChain = null } }
             }
 ```
+
 ```kotlin
 @Composable
 private fun ColumnScope.ChainDetails(c: uniffi.apgo_ffi.ChainOut, onClose: () -> Unit) {
@@ -1377,6 +1427,7 @@ private fun ColumnScope.ChainDetails(c: uniffi.apgo_ffi.ChainOut, onClose: () ->
     Text(ChainFormat.next(c), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 ```
+
 Add imports for `dev.apgo2.ui.ChainBar`, `dev.apgo2.ui.ChainFormat`. In `QuestDetails`, hide the Reroll button for chain members: `if (q.state != "done" && q.chainId == null) OutlinedButton(...)`.
 
 - [ ] **Step 6: Build, test, commit.** `cd android && ./gradlew :app:testDebugUnitTest :app:assembleDebug -q 2>&1 | grep -E "^e:|FAILED"`; commit `feat: show progressive quests as one bar`.
@@ -1386,10 +1437,12 @@ Add imports for `dev.apgo2.ui.ChainBar`, `dev.apgo2.ui.ChainFormat`. In `QuestDe
 ### Task 11: New Game settings for time away
 
 **Files:**
+
 - Create: `android/app/src/main/java/dev/apgo2/AwaySettings.kt`, `android/app/src/test/java/dev/apgo2/AwaySettingsTest.kt`
 - Modify: `NewGame.kt`, `AppModel.kt`, `ui/HelpText.kt`
 
 **Interfaces:**
+
 - Produces: `AwaySettings.distance(auto: Boolean, text: String): UInt` (0 = automatic), `AppModel.startSolo(opts, zoneRealms, name, awayZoneOnly: Boolean, awayDistanceM: UInt)`, `AppModel.startArchipelagoGame(...)` taking the same two values (find the exact method that calls `engine.startArchipelago`, around line 500).
 
 - [ ] **Step 1: Failing test:**
@@ -1414,6 +1467,7 @@ class AwaySettingsTest {
     @Test fun hugeNumbersAreCappedAtTwentyKilometres() = assertEquals(20_000u, AwaySettings.distance(auto = false, text = "999999999"))
 }
 ```
+
 Run: FAIL (unresolved reference).
 
 - [ ] **Step 2: Implement** `AwaySettings.kt`:
@@ -1433,6 +1487,7 @@ object AwaySettings {
     }
 }
 ```
+
 Run, see green.
 
 - [ ] **Step 3: Pass the values through.** In `AppModel.startSolo` add parameters `awayZoneOnly: Boolean, awayDistanceM: UInt` and pass them after `avoidStairs` in `engine.startSolo(...)`; do the same for the Archipelago start method (`engine.startArchipelago(...)`) and its callers. Add two `HelpTopic`s in `ui/HelpText.kt` following the existing pattern (`val awayZone = HelpTopic("Time away", "Count the time you spend away from home only while you are inside one of your game's zones, or anywhere. It needs GPS, so it only counts while you are playing.")`, `val awayDistance = HelpTopic("Away distance", "How far from home counts as away. Automatic picks a distance from the size of your realm (about 40% of the way to its far edge, between 300 m and 3 km). Switch it off to type your own.")`).
@@ -1448,6 +1503,7 @@ In `NewGame.kt`, near the zones section add state and controls and pass them to 
         SwitchRow("Pick the distance automatically", Help.awayDistance, awayAuto) { awayAuto = it }
         if (!awayAuto) OutlinedTextField(awayMeters, { awayMeters = it.filter(Char::isDigit).take(5) }, label = { Text("Away distance (metres)") }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number), modifier = Modifier.fillMaxWidth())
 ```
+
 and call `m.startSolo(opts, zoneRealms, name, awayZoneOnly, AwaySettings.distance(awayAuto, awayMeters))`.
 
 - [ ] **Step 4: Build, test, commit** (`feat: choose how time away counts`).
@@ -1463,7 +1519,7 @@ and call `m.startSolo(opts, zoneRealms, name, awayZoneOnly, AwaySettings.distanc
 
 ---
 
-# Part B: presence
+## Part B: presence
 
 ### Task 13: Core `counting` flag
 
@@ -1536,7 +1592,9 @@ and call `m.startSolo(opts, zoneRealms, name, awayZoneOnly, AwaySettings.distanc
         self.outlier_streak = 0;
     }
 ```
+
 In `on_fix`, at the top after `let mut ev = Vec::new();`: `if !self.counting { if let Some(t) = steps_total { self.counters.steps_last = Some(t); } return ev; }`. In `on_steps`: `if !self.counting { self.counters.steps_last = Some(total); return Vec::new(); }` before `credit_steps`.
+
 - [ ] **Step 4: Run, see green; fmt/clippy.**
 - [ ] **Step 5: Commit** (`feat: switch counting off for presence rules`).
 
@@ -1560,6 +1618,7 @@ In `on_fix`, at the top after `let mut ev = Vec::new();`: `if !self.counting { i
         assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 900.0)), Proximity::Far);
     }
 ```
+
 - [ ] **Step 2: Implement** in `core/src/realm.rs`:
 
 ```rust
@@ -1587,7 +1646,9 @@ impl Shape {
     }
 }
 ```
+
 Run the test, see green. In `journal.rs` add `pub const PRESENCE: &str = "presence";` (and a label in Kotlin later).
+
 - [ ] **Step 3: Engine calls** (`core/ffi/src/engine.rs`):
 
 ```rust
@@ -1620,7 +1681,9 @@ Run the test, see green. In `journal.rs` add `pub const PRESENCE: &str = "presen
         self.journal_do(|j| j.log(&id, &JournalEvent { t_ms, kind: kind::PRESENCE.into(), detail: text, at: None }));
     }
 ```
+
 Import `apgo_core::realm::Proximity`.
+
 - [ ] **Step 4: Build, clippy, rebuild bindings, commit** (`feat: expose zone proximity and counting`).
 
 ---
@@ -1628,10 +1691,13 @@ Import `apgo_core::realm::Proximity`.
 ### Task 15: Presence policy and debouncer (pure Kotlin)
 
 **Files:**
+
 - Create: `android/app/src/main/java/dev/apgo2/presence/PresencePolicy.kt`, `android/app/src/test/java/dev/apgo2/presence/PresencePolicyTest.kt`
 
 **Interfaces:**
+
 - Produces:
+
 ```kotlin
 enum class Zone { Inside, Near, Far, Unknown }
 enum class PresenceState { Stopped, InCar, AtHome, InZone, OutsideZones }
@@ -1641,6 +1707,7 @@ data class Decision(val state: PresenceState, val gps: GpsMode, val counting: Bo
 object PresencePolicy { fun decide(s: Signals): Decision; const val COARSE_MS = 90_000L }
 class Debouncer(private val holdMs: Long = 45_000) { fun feed(raw: Boolean?, nowMs: Long): Boolean? }
 ```
+
 `Debouncer.feed` returns the **stable** value: it adopts a changed raw value only after the raw value has stayed the same for `holdMs`; `null` (unknown) is adopted immediately and the first value ever is adopted immediately.
 
 - [ ] **Step 1: Failing tests:**
@@ -1711,6 +1778,7 @@ class DebouncerTest {
     }
 }
 ```
+
 - [ ] **Step 2: Run, see failure** (unresolved references).
 - [ ] **Step 3: Implement** `PresencePolicy.kt`:
 
@@ -1769,7 +1837,9 @@ class Debouncer(private val holdMs: Long = 45_000) {
     }
 }
 ```
+
 Note `Stopped` carries `GpsMode.Off` in the decision; `Sensors` keeps its existing "idle while the app is on screen" rule for that state (Task 18), it does not use the decision's GPS mode for `Stopped`.
+
 - [ ] **Step 4: Run, see green.**
 - [ ] **Step 5: Commit** (`feat: add the presence policy and debouncer`).
 
@@ -1778,9 +1848,11 @@ Note `Stopped` carries `GpsMode.Off` in the decision; `Sensors` keeps its existi
 ### Task 16: Wi-Fi and Bluetooth matching (pure Kotlin)
 
 **Files:**
+
 - Create: `presence/PresenceSignals.kt`, `android/app/src/test/java/dev/apgo2/presence/PresenceSignalsTest.kt`
 
 **Interfaces:**
+
 - Produces: `data class WifiId(val ssid: String?, val bssid: String?)`, `data class HomeNetwork(val ssid: String, val bssid: String?)`, `PresenceSignals.cleanSsid(raw: String?): String?`, `PresenceSignals.isHome(current: WifiId?, saved: List<HomeNetwork>): Boolean?` (null when `current` is null/unknown or nothing is saved), `data class CarDevice(val name: String, val address: String)`, `PresenceSignals.carConnected(connectedAddresses: Set<String>?, saved: List<CarDevice>): Boolean?`.
 
 - [ ] **Step 1: Failing tests:**
@@ -1833,6 +1905,7 @@ class PresenceSignalsTest {
     }
 }
 ```
+
 - [ ] **Step 2: Run, see failure.**
 - [ ] **Step 3: Implement** `PresenceSignals.kt`:
 
@@ -1867,6 +1940,7 @@ object PresenceSignals {
     }
 }
 ```
+
 - [ ] **Step 4: Run, see green. Step 5: Commit** (`feat: match home Wi-Fi and car Bluetooth`).
 
 ---
@@ -1874,10 +1948,12 @@ object PresenceSignals {
 ### Task 17: Android signal sources, settings storage and permissions
 
 **Files:**
+
 - Create: `presence/PresenceSettings.kt`, `presence/PresenceMonitor.kt`
 - Modify: `app/src/main/AndroidManifest.xml`
 
 **Interfaces:**
+
 - Produces: `PresenceSettings(ctx)` with `homeNetworks: List<HomeNetwork>`, `carDevices: List<CarDevice>`, `addHome(HomeNetwork)`, `removeHome(ssid: String)`, `setCar(List<CarDevice>)` persisted in `SharedPreferences("presence")` as JSON strings (use `org.json`); `PresenceMonitor(ctx, onChange: () -> Unit)` with `start()`, `stop()`, `currentWifi: WifiId?` and `connectedCarCandidates: Set<String>?` (addresses of connected Bluetooth devices, `null` when `BLUETOOTH_CONNECT` is not granted), `fun currentNetwork(): WifiId?` for the "Add current network" button.
 
 - [ ] **Step 1: Manifest.** Add inside `<manifest>`: `<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />`, `<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />`, `<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />`, `<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />`.
@@ -1913,6 +1989,7 @@ class PresenceSettings(ctx: Context) {
     fun setCar(devices: List<CarDevice>) { carDevices = devices }
 }
 ```
+
 - [ ] **Step 3: `PresenceMonitor.kt`.** One class that registers (a) a `ConnectivityManager.NetworkCallback` for `NetworkCapabilities.TRANSPORT_WIFI`, created with `ConnectivityManager.NetworkCallback(ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO)` on API 31+ and the plain constructor below, reading `(caps.transportInfo as? WifiInfo)` for `ssid`/`bssid` in `onCapabilitiesChanged`, clearing on `onLost`; below API 31 read `WifiManager.connectionInfo`; (b) a `BroadcastReceiver` for `BluetoothDevice.ACTION_ACL_CONNECTED` / `ACTION_ACL_DISCONNECTED` keeping a `MutableSet<String>` of addresses, plus an initial read of connected A2DP and HEADSET devices through `BluetoothAdapter.getProfileProxy` (only when `checkSelfPermission(BLUETOOTH_CONNECT)` is granted, else `connectedCarCandidates = null`). Both call `onChange()` on the main thread when anything changes. Expose `fun currentNetwork(): WifiId?` for the settings button. Skeleton:
 
 ```kotlin
@@ -2010,6 +2087,7 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
     fun currentNetwork(): WifiId? = currentWifi ?: legacyWifi().takeIf { PresenceSignals.cleanSsid(it?.ssid) != null }
 }
 ```
+
 - [ ] **Step 4: Build.** `cd android && ./gradlew :app:assembleDebug -q 2>&1 | grep -E "^e:|FAILED"`. No unit test here (Android framework glue); the pure parts are tested in Tasks 15-16.
 - [ ] **Step 5: Commit** (`feat: watch Wi-Fi and Bluetooth for presence`).
 
@@ -2020,6 +2098,7 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
 **Files:** Modify `AppModel.kt`, `GpsPolicy.kt`, `GpsPolicyTest.kt`, `Sensors.kt`, `MainActivity.kt`, `AwayFormat.kt`.
 
 **Interfaces:**
+
 - Consumes: Tasks 13-17.
 - Produces: `AppModel.presence: Decision` (state shown by the chip), `AppModel.settings: PresenceSettings`, `AppModel.monitor: PresenceMonitor`; `GpsPolicy.forDecision(d: Decision, appVisible: Boolean): Rate?` (null = location off).
 
@@ -2044,7 +2123,9 @@ class GpsDecisionTest {
     }
 }
 ```
+
 (import `dev.apgo2.presence.*`.) Run, see failure.
+
 - [ ] **Step 2: Implement** in `GpsPolicy.kt`:
 
 ```kotlin
@@ -2055,7 +2136,9 @@ class GpsDecisionTest {
         else -> null
     }
 ```
+
 Run, see green.
+
 - [ ] **Step 3: The app model.** In `AppModel.kt` add: `val settings = dev.apgo2.presence.PresenceSettings(ctx)`; `val monitor = dev.apgo2.presence.PresenceMonitor(ctx) { evaluatePresence() }`; `var presence by mutableStateOf(Decision(PresenceState.Stopped, GpsMode.Off, false))`; `private val homeDebounce = Debouncer()`, `private val carDebounce = Debouncer()`; `private var zone = Zone.Unknown`; and:
 
 ```kotlin
@@ -2091,7 +2174,9 @@ Run, see green.
         if (rate == null) sensors.stopLocation() else sensors.startLocation(rate)
     }
 ```
+
 Update `onFix` to refresh the zone from each fix and re-evaluate: after the `engine.onFix(...)` call add `zone = when (engine.zoneProximity(loc.latitude, loc.longitude)) { "inside" -> Zone.Inside; "near" -> Zone.Near; "far" -> Zone.Far; else -> Zone.Unknown }; evaluatePresence()`. In `openGame`/start paths and `pause()` call `evaluatePresence()` after `refreshAll()` (the `playing` signal changes with `hud`). Add the activity label `"presence" to "Presence"` in `AwayFormat.LABELS`.
+
 - [ ] **Step 4: Activity wiring.** In `MainActivity.kt` replace the `LaunchedEffect(permitted, rate, visible, playingNow)` block with: `LaunchedEffect(permitted, model.hud != null, visible, model.presence) { model.appVisible = visible; if (permitted) model.applyLocation() else model.sensors.stopLocation() }`, and start the monitor once: `DisposableEffect(permitted) { if (permitted) { model.monitor.start(); model.evaluatePresence() }; onDispose { model.monitor.stop() } }`. Keep the foreground service rule (`playing`) unchanged. In `Sensors.startLocation` nothing changes (it already takes a `Rate`).
 - [ ] **Step 5: Heartbeat and journal.** Add `"presence" to presence.state.name, "counting" to presence.counting` to the heartbeat fields; keep the 60 s beat running while a game is open.
 - [ ] **Step 6: Build, test, commit** (`feat: apply presence rules to GPS and counting`). If `engine.zoneProximity`/`setCounting`/`logPresence` are unresolved, rebuild the bindings (`scripts/android_core.sh debug`).
@@ -2114,7 +2199,9 @@ Update `onFix` to refresh the zone from each fix and re-evaluate: after the `eng
         assertEquals("Not playing", PresenceText.chip(PresenceState.Stopped, configured = true))
     }
 ```
+
 Run (fail), implement, run (green).
+
 - [ ] **Step 2: Chip on Play.** In the Play header `Row`, under the game name add `Text(PresenceText.chip(m.presence.state, m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty()), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)`.
 - [ ] **Step 3: `PresenceScreen.kt`** and its entry point. Add `var showPresence by mutableStateOf(false)` to `AppModel`. In the Home card on the Realms screen add `OutlinedButton(onClick = { m.showPresence = true }) { Text("Presence") }`. At the top of `AppRoot` add `if (m.showPresence) { BackHandler { m.showPresence = false }; Surface(Modifier.fillMaxSize()) { PresenceScreen(m) }; return }`. Create `PresenceScreen.kt`:
 
@@ -2211,6 +2298,7 @@ private fun toggleCar(m: AppModel, d: CarDevice, on: Boolean, done: (List<CarDev
     m.evaluatePresence()
 }
 ```
+
 - [ ] **Step 4: Build, test, commit** (`feat: add presence settings and status chip`).
 
 ---
@@ -2221,8 +2309,10 @@ private fun toggleCar(m: AppModel, d: CarDevice, on: Boolean, done: (List<CarDev
 - [ ] **Step 2: Counting really stops.** While "At home", complete nothing (feed fixes at a quest target, none are processed); after removing the network the same fix completes the quest.
 - [ ] **Step 3: Docs.** Update `docs/context/outdoor-test-plan.md` with the presence checklist (add home Wi-Fi, tag the car, what each chip means, and that Bluetooth and the outside-zone duty cycle are untested until an outdoor run) and `docs/context/v1-architecture-and-status.md` (state machine, counting flag, settings storage). Add the presence signals to the diagnostics section of the test plan (`presence` log lines, heartbeat fields).
 - [ ] **Step 4: Commit and close.**
+
 ```bash
 git add -A && git commit -m "docs: describe presence and chains for testing" -m "Closes #6" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 gh issue close 6 --comment "Implemented: PresencePolicy, home Wi-Fi, car Bluetooth, zone-based GPS duty cycle (see spec Part B)."
 ```
+
 - [ ] **Step 5: Install on the Pixel** (`adb -s adb-3A131FDJG001L0-xa29Iw._adb-tls-connect._tcp install -r ...`) and hand over the outdoor checklist: home Wi-Fi saved, car tagged, chips as expected, then `scripts/pull_diag.sh` after the walk.

@@ -5,24 +5,29 @@ where checks are real-world places reached by walking, biking or driving. Androi
 inspiration only; we write our own apworld and client.
 
 ## Status
+
 Working Android app + Rust core + apworld 0.3.0 (slot_data schema 3), verified on an emulator (real phone: Pixel 8 Pro over wireless adb). **Read
 `docs/context/working-in-this-repo.md` (preferences, commands, gotchas, backlog) and `docs/context/v1-architecture-and-status.md` (what exists, what is
 verified, what is NOT) at the start of every session.** Never work on main; branch per task. Specs: `docs/superpowers/specs/`.
 
 ## Commands
+
 `just check` (apworld lint/types/tests), `cd core && cargo test` (also `cargo clippy --all-targets -- -D warnings`), `just android-run` (phone), `just emu-start && just emu-run && just e2e` (emulator),
 `just ap-host` (dev Archipelago server), `just build` (apworld artifact). `mise.toml` pins tools; `committed` and `gitleaks` need installing locally.
 
 ## Stack (decided and built)
+
 Rust core (AP protocol via `archipelago_rs`, location generation, geofence, SQLite) + Kotlin/Compose Android UI
 via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monorepo: `apworld/`, `core/`, `android/`,
 `docs/`. Run an Android build + connect spike for Rust before committing to the stack.
 
 ## Sub-projects (each: spec, plan, build)
+
 1. Apworld + client contract + root/Python tooling (spec done)
 2. Rust core  3. Android app  4. Rust/Kotlin tooling  5. iOS
 
 ## Key decisions (full log: `docs/context/project-decisions.md`)
+
 - Own apworld, game `Archipela-Go 2: Electric Boogaloo`, new ID offset. Archipelago's own conventions are the golden rule.
 - Realms are places; **travel mode is chosen per zone in a game**; zones are gated by keys and tools; quests come from a 76-kind catalog on real finds.
 - Several win conditions (any / all / at least N) are client-evaluated and reported with `StatusUpdate`; slot_data is schema 3.
@@ -30,6 +35,7 @@ via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monore
 - Licence is MIT today but the owner plans to monetize: decide before going public (`working-in-this-repo.md`).
 
 ## Conventions
+
 - Conventional commits (`feat:`, `fix:`, `docs:`), subject under 50 chars. Small, tightly scoped steps.
 - TDD: failing tests first; never edit tests to fit bad code.
 - Upstream code is MIT (keep notice if copying); upstream apworld has NO license: reimplement, never copy.
@@ -40,6 +46,7 @@ via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monore
 - Parallel agents must not edit this file concurrently (two agents once overwrote each other's index lines).
 
 ## Context Docs
+
 If you need the project decision log, risks and unverified items, see `docs/context/project-decisions.md`
 If you need info on the Archipelago websocket protocol (packets, items_handling, DataStorage), see `docs/context/archipelago-network-protocol.md`
 If you need info on Archipelago concepts (worlds, apworlds, YAML, hints, classification), see `docs/context/archipelago-concepts.md`

@@ -3,13 +3,15 @@
 _Last verified: 2026-10-07 (end of the big UI session). "Verified" = run; "Not done" = not run. Read `docs/context/working-in-this-repo.md` next._
 
 ## What exists
+
 A real-world quest game. The player saves **realms** (places, a circle or polygon), the app **scans** each realm's map data into **finds**, and a **game**
 builds **zones** (a realm played by walk/run/bike) filled with quests from a 76-kind catalog. It plays **solo** or as an **Archipelago** client.
 Win conditions: 12 goals, one or several, combined any / all / at least N.
 
 ## Layout
+
 | Path | What |
-|--|--|
+| -- | -- |
 | `apworld/` | Python apworld **0.3.0**, slot_data **schema 3** (`goals`, `goal_requirement`, `goal_need`). 210 tests. Contract: `apworld/docs/contract.md` |
 | `core/` (`apgo-core`) | Rust engine: catalog, realms (+marks, +icon), scan + **tile grid** (`tilegrid.rs`), assign, verify, goal, fog, traps, solo, game, yaml. 132 tests + 1 regression |
 | `core/ffi/` | UniFFI `Engine` (realms, finds, marks, stats, scan plan/progress, games, play) and `ApSession` (Archipelago via a patched `archipelago_rs`, see `core/vendor/PATCHES.md`) |
@@ -18,6 +20,7 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 | `docs/context/` | Everything below; index in `CLAUDE.md` |
 
 ## Screens (all verified on the emulator; phone = Pixel 8 Pro over wireless adb)
+
 - **Realms**: Home Base tile (green outline, house, map preview; tapping it opens the setup flow) above a Realms list. Realm cards: icon, name, finds, quest types, map-snapshot preview. Swipe to delete (confirm + Undo bar).
 - **Realm editor** (full-screen map, autosave, Undo/Redo, no Save/Cancel, Done button): left toolbar = Circle|Polygon pill + Details; Area shows a stats box
   (area, farthest from home, walkable, streets, trails, finds, parks, unpaved); Details shows name, icon, search, finds list with favorite/ban, callout bubbles.
@@ -26,6 +29,7 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - **Play**: map with kind icons, per-goal progress, quest list, dev simulator buttons.
 
 ## Track and audit journal (new, branch `feat/adaptive-gps-interval`)
+
 - `core/src/journal.rs`: one SQLite file `journal.db` (WAL) in the app files dir. `points` (+ `points_rt` R*Tree) = every accepted GPS fix, flagged
   simulated or real; `events` = audit log (quests, checks, rewards, traps, rejected fixes throttled to 1/min, app foreground/background).
 - Trace = `Journal::segments`, split where two points are >2 min apart (phone off). Play map draws it (`trace` layer in `QuestMap.kt`).
@@ -40,9 +44,11 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
   `delete_game` archives the save to `games-archive/` and keeps journal rows. Street snapping is NOT done yet (idea: display/trace only, sticky segment, after the retest).
 
 ## Progressive chains
+
 Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone marks, "next: ..." text, tap for the milestone list) instead of many separate quests; members are hidden from "Show places on the map". Counters live in `Game.counters` (steps, seconds away, `steps_last` baseline) and `Fog::cells` (Cartographer squares); both are in the game file, old saves load with defaults. Steps count only while a game is open (`steps_last` is reset on load, so closed time is never credited). Away settings (only count time inside a zone, away distance auto or custom) are chosen in New Game and saved with the game. The game file is saved only when a fix produces events, so counters gained between milestones are lost on force-stop (seen on the emulator; `Engine.save_game` is never called from Kotlin).
 
 ## Key design facts
+
 - Difficulty = active minutes; tier = ceil(minutes / minutes_per_tier); Easy 1-3, Medium 4-7, Hard 8-10. Locations `"{Easy|Medium|Hard} {Walk|Run|Bike|Drive} Quest #n"`.
 - **Travel mode belongs to the zone/game, not the realm.** Any realm can serve any mode. Car is hidden in the UI (core still has `Drive`).
 - A realm stores a circle and a polygon (one active, one `spare`); old files with `mode`/`modes` still load.
@@ -53,6 +59,7 @@ Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone 
 - Zone keys + tools gate zones; every trap has an exit; anti-cheat is light (accuracy 75 m, speed caps).
 
 ## Presence (home Wi-Fi, car Bluetooth, zone duty cycle)
+
 `android/.../presence/`: `PresencePolicy.decide(Signals)` is a pure function, first match wins: not playing = Stopped; car Bluetooth = InCar; home Wi-Fi = AtHome (all three:
 GPS off, `counting=false`); zone Far = OutsideZones (GPS every 90 s, counting); otherwise InZone (GPS every 5 s, counting). `PresenceMonitor` gathers the signals
 (Wi-Fi SSID, Bluetooth ACL, nearest zone), applies the decision to the location source and to the counting flag (the engine ignores fixes and steps while it is false), shows
@@ -67,6 +74,7 @@ Known limits: Bluetooth and the outside-zone duty cycle have no outdoor run yet;
 first diag line prints `GpsMode$Off@hash` (cosmetic, no toString).
 
 ## Verified
+
 - Core 132 + apworld 210 tests; ruff, pyright, clippy (`-D warnings`), rustfmt clean.
 - Real Archipelago `Generate.py` + `MultiServer` with 3 goals / "at least 2": the app's own reader (`cargo run --example parse_slot`) accepts the slot_data.
 - Emulator: realm create/edit/undo/redo/autosave, scan with progress and cooldown, cache hit (11 of 12 requests from cache after a nudge), stats, home picker,
@@ -74,6 +82,7 @@ first diag line prints `GpsMode$Off@hash` (cosmetic, no toString).
 - Earlier (before the UI rework): solo autoplay to a win; full Archipelago session against a local server incl. a Bike item unlocking zone 2 and the goal being reported.
 
 ## Not done / not verified (be honest in summaries)
+
 - **No foreground service or background location**: tracking only works while the app is open and the screen on. Biggest gap before an outdoor test.
 - Real outdoor GPS with the new UI is untested (phone testing so far was indoors / install only). Mode proof (Activity Recognition) is not implemented.
 - `scripts/e2e_emulator.sh` is STALE (taps old labels such as "Circle around me", waits for "places"); it needs rewriting for the editor/New Game flows.

@@ -35,7 +35,7 @@
 ## File Structure
 
 | File | Responsibility |
-|------|----------------|
+| ------ | ---------------- |
 | `core/Cargo.toml` | `[workspace.lints]` (rust + clippy), crate lint opt-in |
 | `core/ffi/Cargo.toml` | `lints.workspace = true` |
 | `core/clippy.toml` | test allowances for `unwrap`/`expect`/`print` |
@@ -60,15 +60,18 @@
 ### Task 1: Rust strict lints
 
 **Files:**
+
 - Modify: `core/Cargo.toml`, `core/ffi/Cargo.toml`, `core/src/lib.rs` (top), all `core/src/**`, `core/ffi/src/**`, `core/tests/**`, `core/examples/**` as lint fixes require
 - Create: `core/clippy.toml`, `core/rust-toolchain.toml`
 
 **Interfaces:**
+
 - Produces: workspace lint policy consumed by Task 2 (`check-rust`) and Task 9 (CI).
 
 - [ ] **Step 1: Pin the toolchain**
 
 `core/rust-toolchain.toml`:
+
 ```toml
 [toolchain]
 channel = "1.99.0"
@@ -79,6 +82,7 @@ targets = ["aarch64-linux-android", "x86_64-linux-android"]
 - [ ] **Step 2: Add the lint policy (the "failing test")**
 
 Append to `core/Cargo.toml` (after `[workspace]` block):
+
 ```toml
 [workspace.lints.rust]
 unsafe_code = "deny"          # uniffi macros need a local allow in apgo-ffi; apgo-core forbids in lib.rs
@@ -105,14 +109,18 @@ module_name_repetitions = "allow"  # `poi::PoiCache` style names read better tha
 [lints]
 workspace = true
 ```
+
 Add to `core/ffi/Cargo.toml`:
+
 ```toml
 [lints]
 workspace = true
 ```
+
 Add as the first line of `core/src/lib.rs`: `#![forbid(unsafe_code)]`
 
 `core/clippy.toml`:
+
 ```toml
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
@@ -128,6 +136,7 @@ Expected: several hundred errors (≈700 seen in planning).
 
 Run: `cd core && cargo clippy --fix --allow-dirty -p apgo-core -p apgo-ffi --all-targets && cargo fmt --all && cargo test -p apgo-core -p apgo-ffi -q`
 Expected: tests PASS. Commit:
+
 ```bash
 git add core && git commit -m "refactor(core): apply clippy pedantic autofixes"
 ```
@@ -137,6 +146,7 @@ git add core && git commit -m "refactor(core): apply clippy pedantic autofixes"
 Get the list: `cargo clippy -p apgo-core -p apgo-ffi --all-targets --message-format=short -- -D warnings 2>&1 | grep '^[a-z].*error' | sed -E 's/.*error: //' | sort | uniq -c | sort -rn`
 
 Rules per group:
+
 - `must_use_candidate`: add `#[must_use]` to the function.
 - `missing_errors_doc` / `missing_panics_doc`: add `/// # Errors` (or `# Panics`) section naming the real failure cases.
 - `missing_docs`: one-line `///` doc on each pub item saying what it is for.
@@ -146,6 +156,7 @@ Rules per group:
 - `print_stdout` in `core/examples/**`: add `#![allow(clippy::print_stdout)] // CLI example output` at the top of each example file.
 
 After each group: `cargo test -p apgo-core -p apgo-ffi -q` PASS, then
+
 ```bash
 git add core && git commit -m "refactor(core): fix clippy <group> lints"
 ```
@@ -171,10 +182,12 @@ git commit -m "build(core): deny clippy pedantic and pin toolchain"
 ### Task 2: Rust supply chain, ffi tests, docs
 
 **Files:**
+
 - Create: `core/deny.toml`
 - Modify: `justfile` (`core-check` → `check-rust`), `mise.toml`
 
 **Interfaces:**
+
 - Produces: `just check-rust` (used by Tasks 8, 9).
 
 - [ ] **Step 1: Install tools and pin**
@@ -224,6 +237,7 @@ check-rust:
     cd core && cargo deny check
     cd core && cargo test -p apgo-core -p apgo-ffi -q
 ```
+
 Update `check:` to reference `check-rust` instead of `core-check`; grep for `core-check` in `docs/`, `CLAUDE.md`, `CONTRIBUTING.md`, `.github/` and replace.
 
 - [ ] **Step 5: Verify**
@@ -242,11 +256,13 @@ git commit -m "build(core): add cargo-deny, doc and ffi test gates"
 ### Task 3: Python strict
 
 **Files:**
+
 - Modify: `apworld/pyproject.toml`, `apworld/ap_go2/**`, `apworld/tests/**` as fixes require
 
 - [ ] **Step 1: Tighten config**
 
 In `apworld/pyproject.toml` replace `[tool.ruff.lint]` and `[tool.pyright]`:
+
 ```toml
 [tool.ruff.lint]
 select = ["ALL"]
@@ -301,15 +317,18 @@ git add apworld && git commit -m "build(apworld): enable ruff ALL and pyright st
 ### Task 4: Android host bindings + Spotless/ktlint
 
 **Files:**
+
 - Create: `scripts/android_bindings.sh`, `android/.editorconfig`
 - Modify: `android/gradle/libs.versions.toml`, `android/build.gradle.kts`, `android/app/build.gradle.kts`, `android/app/src/**/*.kt` (format)
 
 **Interfaces:**
+
 - Produces: `scripts/android_bindings.sh` (no args; writes `android/app/src/main/kotlin/uniffi/`), Gradle task `spotlessCheck`/`spotlessApply`.
 
 - [ ] **Step 1: Host-only bindings script**
 
 `scripts/android_bindings.sh`:
+
 ```bash
 #!/usr/bin/env bash
 # Generate the Kotlin UniFFI bindings from a host build (no NDK). Enough for
@@ -323,6 +342,7 @@ rm -rf "$out/uniffi"
 cargo run -q -p apgo-ffi --bin uniffi-bindgen -- generate \
   --library target/debug/libapgo_ffi.so --language kotlin --no-format --out-dir "$out"
 ```
+
 `chmod +x scripts/android_bindings.sh`. Verify on a tree with bindings deleted: `rm -rf android/app/src/main/kotlin/uniffi && bash scripts/android_bindings.sh && ls android/app/src/main/kotlin/uniffi/apgo_ffi` → file listed.
 
 - [ ] **Step 2: Look up versions**
@@ -332,6 +352,7 @@ Use Perplexity to find the latest stable versions of: Spotless Gradle plugin (`c
 - [ ] **Step 3: Configure Spotless**
 
 `android/build.gradle.kts` add `alias(libs.plugins.spotless) apply false`. `android/app/build.gradle.kts` add plugin `alias(libs.plugins.spotless)` and:
+
 ```kotlin
 spotless {
     kotlin {
@@ -346,7 +367,9 @@ spotless {
     }
 }
 ```
+
 `android/.editorconfig`:
+
 ```ini
 [*.{kt,kts}]
 ktlint_code_style = ktlint_official
@@ -371,12 +394,14 @@ git add scripts/android_bindings.sh android && git commit -m "build(android): ad
 ### Task 5: detekt
 
 **Files:**
+
 - Create: `android/config/detekt.yml`
 - Modify: `android/build.gradle.kts`, `android/app/build.gradle.kts`, Kotlin sources as fixes require
 
 - [ ] **Step 1: Configure**
 
 Add plugin alias `libs.plugins.detekt` (root `apply false`, app applied) and in `android/app/build.gradle.kts`:
+
 ```kotlin
 detekt {
     buildUponDefaultConfig = true
@@ -389,7 +414,9 @@ tasks.withType<dev.detekt.gradle.Detekt>().configureEach {
 }
 dependencies { detektPlugins(libs.compose.rules.detekt) }
 ```
+
 `android/config/detekt.yml` (only Compose-driven relaxations):
+
 ```yaml
 naming:
   FunctionNaming:
@@ -405,6 +432,7 @@ style:
   UnusedPrivateMember:
     ignoreAnnotated: ['Preview']     # previews are used by tooling only
 ```
+
 (If the detekt 2.x package/task name differs from `dev.detekt.gradle.Detekt`, use the one in its docs.)
 
 - [ ] **Step 2: Confirm it fails**
@@ -430,11 +458,13 @@ git add android && git commit -m "build(android): add strict detekt gate"
 ### Task 6: Android Lint + warnings as errors + `check-android`
 
 **Files:**
+
 - Modify: `android/app/build.gradle.kts`, `justfile`, Kotlin sources/resources as fixes require
 
 - [ ] **Step 1: Configure**
 
 In `android { }`:
+
 ```kotlin
 lint {
     warningsAsErrors = true
@@ -443,7 +473,9 @@ lint {
     checkReleaseBuilds = true
 }
 ```
+
 At top level:
+
 ```kotlin
 kotlin { compilerOptions { allWarningsAsErrors.set(true) } }
 ```
@@ -453,6 +485,7 @@ kotlin { compilerOptions { allWarningsAsErrors.set(true) } }
 Run: `cd android && ./gradlew :app:lintDebug :app:compileDebugKotlin --console=plain` → FAIL (lint warnings and/or compiler warnings).
 
 Generated `uniffi` code can't be edited or suppressed in-file, and disabling an issue globally (`lint { disable += ... }`) is not allowed. For each lint issue id that fires only in generated code, add a path ignore to `android/app/lint.xml`:
+
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <lint>
@@ -462,6 +495,7 @@ Generated `uniffi` code can't be edited or suppressed in-file, and disabling an 
     </issue>
 </lint>
 ```
+
 If a Kotlin *compiler* warning comes from generated code, the `allWarningsAsErrors` gate can't be scoped to a path: report it to the owner instead of weakening the flag.
 
 - [ ] **Step 3: Fix findings**
@@ -471,6 +505,7 @@ Fix real issues (deprecated APIs, unused resources, hardcoded strings → `strin
 - [ ] **Step 4: Add the recipe**
 
 `justfile`:
+
 ```just
 # Android: bindings (host build), format, static analysis, lint, unit tests
 check-android:
@@ -493,6 +528,7 @@ git add android justfile && git commit -m "build(android): enforce lint and Kotl
 ### Task 7: Coverage ratchet
 
 **Files:**
+
 - Modify: `apworld/pyproject.toml`, `justfile`, `android/build.gradle.kts`, `android/app/build.gradle.kts`, `android/gradle/libs.versions.toml`
 
 - [ ] **Step 1: Measure today**
@@ -506,6 +542,7 @@ Record the three line-coverage percentages; floor = each rounded down.
 - [ ] **Step 2: Set floors**
 
 Python, `apworld/pyproject.toml`:
+
 ```toml
 [tool.coverage.run]
 source = ["ap_go2"]
@@ -515,6 +552,7 @@ branch = true
 fail_under = <PY_FLOOR>
 show_missing = true
 ```
+
 and `justfile` `test:` → `uv run --project apworld pytest apworld --cov --cov-report=term-missing:skip-covered -q`.
 
 Rust, `check-rust` last line becomes:
@@ -522,6 +560,7 @@ Rust, `check-rust` last line becomes:
 (replaces the plain `cargo test` line; llvm-cov runs the tests).
 
 Kotlin, `android/app/build.gradle.kts`:
+
 ```kotlin
 kover {
     reports {
@@ -530,6 +569,7 @@ kover {
     }
 }
 ```
+
 and append `:app:koverVerifyDebug` to the `check-android` Gradle call.
 
 - [ ] **Step 3: Verify the gate bites**
@@ -541,6 +581,7 @@ Temporarily raise each floor to 100 → each recipe fails with a coverage messag
 ```bash
 git add apworld justfile android && git commit -m "test: add coverage ratchet floors"
 ```
+
 Commit body lists the three measured numbers.
 
 ---
@@ -548,15 +589,18 @@ Commit body lists the three measured numbers.
 ### Task 8: Pre-push dispatcher + lefthook
 
 **Files:**
+
 - Create: `scripts/prepush.sh`, `scripts/tests/prepush_test.sh`
 - Modify: `justfile`, `lefthook.yml`
 
 **Interfaces:**
+
 - Produces: `scripts/prepush.sh select` — reads newline-separated paths on stdin, prints space-separated recipe names; `scripts/prepush.sh` (no args) — computes the range, runs `just <recipes>`.
 
 - [ ] **Step 1: Write the failing test**
 
 `scripts/tests/prepush_test.sh`:
+
 ```bash
 #!/usr/bin/env bash
 # Tests for scripts/prepush.sh select: changed paths -> just recipes.
@@ -582,6 +626,7 @@ expect mixed       $'apworld/a.py\nandroid/b.kt'              "check-hygiene che
 expect empty       ""                                         "check-hygiene"
 exit $fail
 ```
+
 (`core/src` → android too: the Kotlin bindings expose core types through ffi. `justfile`, `lefthook.yml`, `mise.toml`, `scripts/**`, `.github/**` → all.)
 
 - [ ] **Step 2: Run it, confirm fail**
@@ -592,6 +637,7 @@ Expected: FAIL (`prepush.sh` missing).
 - [ ] **Step 3: Implement**
 
 `scripts/prepush.sh`:
+
 ```bash
 #!/usr/bin/env bash
 # Pre-push: run only the `just check-*` recipes for what the pushed commits touch.
@@ -635,6 +681,7 @@ echo "pre-push: just $recipes"
 # shellcheck disable=SC2086  # word-splitting is the recipe list
 exec just $recipes
 ```
+
 Note: on a brand-new branch `@{upstream}` doesn't exist, so the base is `merge-base HEAD origin/main` — this checks every file the branch changed, which is the correct set.
 
 - [ ] **Step 4: Run tests, confirm pass**
@@ -644,6 +691,7 @@ Run: `bash scripts/tests/prepush_test.sh` → all `ok`, exit 0.
 - [ ] **Step 5: Split `just check` and wire lefthook**
 
 `justfile`:
+
 ```just
 check-py: lint typecheck test
 
@@ -656,15 +704,19 @@ check-hygiene:
 
 check: check-hygiene check-py check-rust check-android
 ```
+
 Make `check-py` fail clearly when `.ap/` is missing: prepend to `check-py` a dependency `ap-present` recipe:
+
 ```just
 [private]
 ap-present:
     @test -d .ap || { echo "Archipelago checkout missing: run 'just setup-ap'"; exit 1; }
 ```
+
 and `check-py: ap-present lint typecheck test`.
 
 `lefthook.yml`:
+
 ```yaml
 pre-commit:
   parallel: true
@@ -695,6 +747,7 @@ commit-msg:
     committed:
       run: committed --commit-file {1}
 ```
+
 Run: `lefthook install`.
 
 - [ ] **Step 6: Verify end to end**
@@ -714,6 +767,7 @@ git add scripts justfile lefthook.yml && git commit -m "build: run per-language 
 ### Task 9: CI, pins, Dependabot
 
 **Files:**
+
 - Modify: `.github/workflows/ci.yml`, `.github/workflows/release-please.yml`, `.github/dependabot.yml`, `mise.toml`
 
 - [ ] **Step 1: Pin `mise.toml`**
@@ -779,11 +833,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@<SHA> # <tag>
       - run: just check-android
 ```
+
 Each `<SHA> # <tag>` is the real value from Step 2. The justfile's hardcoded `JAVA_HOME := "/usr/lib/jvm/java-25-openjdk"` would break CI: change it to `export JAVA_HOME := env("JAVA_HOME", "/usr/lib/jvm/java-25-openjdk")` (mise sets `JAVA_HOME`). Same for `ANDROID_HOME`: `env("ANDROID_HOME", env("HOME") + "/Android/Sdk")` (runner sets `ANDROID_HOME`). Apply the same SHA pinning to `release-please.yml`.
 
 - [ ] **Step 4: Dependabot**
 
 Append to `.github/dependabot.yml`:
+
 ```yaml
   - package-ecosystem: cargo
     directory: /core
@@ -806,6 +862,7 @@ git add .github mise.toml justfile && git commit -m "ci: split jobs per language
 git push -u origin chore/strict-quality-gates
 gh run watch --exit-status
 ```
+
 Expected: all four jobs green. If `android` fails on missing SDK components, add `sdkmanager --install "platforms;android-37" "build-tools;<agp default>"` step and re-push. Open a draft PR only when the owner asks.
 
 ---
@@ -813,6 +870,7 @@ Expected: all four jobs green. If `android` fails on missing SDK components, add
 ### Task 10: Docs and follow-up issues
 
 **Files:**
+
 - Modify: `CONTRIBUTING.md`, `docs/context/working-in-this-repo.md`, `CLAUDE.md` (Commands line only), `docs/superpowers/specs/2026-10-07-strict-quality-gates-design.md` (note host-bindings + dispatcher deviations)
 
 - [ ] **Step 1: Update docs**
@@ -833,6 +891,7 @@ gh issue create -R Rasbandit/archipela-go -l enhancement -t "Enable branch prote
 - [ ] **Step 3: Verify and commit**
 
 Run: `just check-hygiene` (typos over docs) → PASS.
+
 ```bash
 git add CONTRIBUTING.md CLAUDE.md docs && git commit -m "docs: document strict quality gates"
 ```

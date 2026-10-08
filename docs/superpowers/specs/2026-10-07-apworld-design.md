@@ -10,6 +10,7 @@ its location generation is broken (see `docs/context/archipela-go-location-gener
 license, no manifest, and known logic bugs (`docs/context/archipela-go-game-design.md`).
 
 Product direction (decided with the owner):
+
 - Android first, iOS later (not testable by owner yet). Rust core + native UI is the intended client stack and is
   specced in later sub-projects; it is **not** decided here.
 - Our **own apworld**, clean-room, not compatible with upstream's `slot_data`.
@@ -85,7 +86,7 @@ Product direction (decided with the owner):
 ## 4. Items
 
 | Item | Class | Notes |
-|--|--|--|
+| -- | -- | -- |
 | Progressive Key | progression | gates Areas |
 | Progressive Distance Reduction | progression | optional, see Logic |
 | Progressive Scouting Distance | useful | optional; client reveals nearby locations' contents |
@@ -139,6 +140,7 @@ least goal letters + locks (macguffin_long needs 11 + locks); locks clamped to `
 Layout: `apworld/` (Python), `core/` (Rust workspace, later), `android/` (Kotlin, later), `docs/`.
 
 Delivered with this spec (root + Python):
+
 - `mise.toml` pinning Python (and later Rust, JDK); `justfile` with `check`, `test`, `lint`, `fmt`, `build`.
 - Python: `uv`, `ruff` (lint + format, strict ruleset), `pyright` strict, `pytest` with Archipelago `WorldTestBase`.
 - Repo-wide: `lefthook` (pre-commit: format/lint; pre-push: tests), `committed` (conventional commits; a single binary, chosen over `commitlint` to avoid a Node toolchain),

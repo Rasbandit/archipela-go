@@ -3,14 +3,17 @@
 _Last verified: 2026-10-07_
 
 ## Status
+
 Living decision log. Sub-project 1 (apworld + contract + Python tooling) implemented on branch `feat/apworld`; 76 tests green, real Archipelago 0.6.8 generation verified. Next: Rust core spike and spec.
 
 ## What This Is
+
 Our own successor to Archipela-Go! (upstream `aki665/react-native-archipelago`, branch `archipela-go`): an Archipelago multiworld game where checks are real-world places reached by walking, biking or driving. Upstream is inspiration only (maintainer ~9 months inactive; app errors out on location generation).
 
 ## Decisions (owner-approved unless marked)
+
 | Topic | Decision | Why |
-|--|--|--|
+| -- | -- | -- |
 | Platforms | Android first, iOS later | Owner has no easy iOS access |
 | Stack (lean, not final) | Rust core (AP protocol, location gen, geofence, SQLite) + native Android UI (Kotlin/Compose) via UniFFI; SwiftUI later over same core | Owner asked for most performant, close-to-machine-code, cross-platform; app is network/GPS/battery-bound, so shared testable core + best background-location control. Needs an Android spike (see risks) |
 | Apworld | Write our own, clean-room, not upstream-compatible | Upstream apworld has no license, no manifest, logic bugs |
@@ -28,6 +31,7 @@ Our own successor to Archipela-Go! (upstream `aki665/react-native-archipelago`, 
 | Life OS | Intentionally skipped for this project (owner decision) | Global work-log skill expects it; ignore here |
 
 ## Key Findings Behind the Decisions
+
 - Upstream generation bug: one Overpass request per candidate point, unbounded recursion, no backoff or HTTP status check, `wait()` never awaits, min/max validation is dead code. Full detail: `docs/context/archipela-go-location-generation.md`.
 - Our fix: plan targets locally, fetch by bounding box tiles with one bulk query, cache, sample locally, endpoint fallback + offline path.
 - Upstream license MIT (copying code allowed with notice); apworld has no license (reimplement only).
@@ -36,24 +40,27 @@ Our own successor to Archipela-Go! (upstream `aki665/react-native-archipelago`, 
 - Overpass etiquette: overpass-api.de limits (<10k queries/day, divided across app users); private.coffee wants notice for large projects; Nominatim 1 req/s and no grid reverse-geocoding.
 
 ## Risks and Unverified
+
 - Rust-on-Android via UniFFI with `archipelago_rs` is untested: run a build + connect spike first (TLS `wss` only, `native-tls` off).
 - Speed-band constants (walk 0-9, bike 8-35, drive 25+ km/h) are guesses.
 - ID offset `8_902_400_000_000` needs a collision check against published worlds.
 - crates.io listing and Archipelago main repo license not verified.
 
 ## Failed Approaches / Dead Ends
+
 - No standalone upstream apworld repo exists; only release assets.
 - Work-log/Life OS skill blocked: `~/.claude/lifeos-reference.md` missing and `mcp__engram__*` unauthenticated. Owner chose to drop Life OS here.
 
 ## References
+
 - Spec: `docs/superpowers/specs/2026-10-07-apworld-design.md`
-- Upstream: https://github.com/aki665/react-native-archipelago
+- Upstream: <https://github.com/aki665/react-native-archipelago>
 - Related: all other docs in `docs/context/`
 
-
 ## 2026-10-07 UI and goals session (decisions)
+
 | Decision | Why |
-|--|--|
+| -- | -- |
 | Travel mode moves from realm to zone/game; car hidden for now | A place is not a way of moving; the same downtown can be a walk zone and a bike zone |
 | Realm editor autosaves with Undo/Redo and a Done button, no Save/Cancel | An X felt like discarding; autosave + visible "All changes saved" + history is safer |
 | Finds are favorited/banned per realm (not global) | Owner choice; stored in `marks/<realm>.json`, survives rescans |
