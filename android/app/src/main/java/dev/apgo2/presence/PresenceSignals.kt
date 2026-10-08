@@ -12,6 +12,12 @@ object PresenceSignals {
         return if (s.isEmpty() || s.equals("<unknown ssid>", ignoreCase = true)) null else s
     }
 
+    /** The network with a cleaned SSID, or `null` when the name is not usable (for example no location permission). */
+    fun usableNetwork(w: WifiId?): WifiId? {
+        val ssid = cleanSsid(w?.ssid) ?: return null
+        return WifiId(ssid, w?.bssid)
+    }
+
     /** `true` at home, `false` on another network, `null` when unknown (not connected, name hidden, or no home network saved). */
     fun isHome(current: WifiId?, saved: List<HomeNetwork>): Boolean? {
         if (saved.isEmpty()) return null

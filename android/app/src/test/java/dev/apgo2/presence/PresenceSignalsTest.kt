@@ -62,4 +62,11 @@ class PresenceSignalsTest {
         val cars = listOf(CarDevice("Subaru", "AA:01"), CarDevice("Truck", "BB:02"))
         assertEquals(true, PresenceSignals.carConnected(setOf("bb:02"), cars))
     }
+
+    @Test fun aUsableNetworkHasACleanSsidOrIsNull() {
+        assertEquals(WifiId("HomeNet", "aa:01"), PresenceSignals.usableNetwork(WifiId("\"HomeNet\"", "aa:01")))
+        assertNull(PresenceSignals.usableNetwork(WifiId("<unknown ssid>", "02:00:00:00:00:00")))
+        assertNull(PresenceSignals.usableNetwork(WifiId(null, "aa:01")))
+        assertNull(PresenceSignals.usableNetwork(null))
+    }
 }

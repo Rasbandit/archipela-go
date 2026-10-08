@@ -45,12 +45,14 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
     @SuppressLint("MissingPermission")
     private fun legacyWifi(): WifiId? = ctx.applicationContext.getSystemService(WifiManager::class.java)?.connectionInfo?.let { WifiId(it.ssid, it.bssid) }
 
-    private fun update(w: WifiId?) { main.post { if (w != currentWifi) { currentWifi = w; onChange() } } }
+    // Network callbacks are registered with the main handler, so this runs on the main thread.
+    private fun update(w: WifiId?) { if (started && w != currentWifi) { currentWifi = w; onChange() } }
 
     private val btReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             val d = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java) else @Suppress("DEPRECATION") i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
             val a = d?.address ?: return
+            if (!started) return
             if (i.action == BluetoothDevice.ACTION_ACL_CONNECTED) bt.add(a) else bt.remove(a)
             connectedCarCandidates = bt.toSet()
             onChange()
@@ -62,21 +64,24 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
     @SuppressLint("MissingPermission")
     fun start() {
         if (started) return
+        reset()
+        cm.registerNetworkCallback(NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), netCallback, main)
         started = true
-        cm.registerNetworkCallback(NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), netCallback)
         if (btAllowed()) {
             val filter = IntentFilter().apply { addAction(BluetoothDevice.ACTION_ACL_CONNECTED); addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED) }
-            // The ACL broadcasts come from the system, so the receiver is exported (required on API 34+ for context-registered receivers).
+            // ACL broadcasts come from the system, so the receiver is exported; the flag exists from API 33 and is mandatory when targeting 34+.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ctx.registerReceiver(btReceiver, filter, Context.RECEIVER_EXPORTED) else ctx.registerReceiver(btReceiver, filter)
             connectedCarCandidates = bt.toSet()
             val adapter = ctx.getSystemService(BluetoothManager::class.java)?.adapter
             for (profile in intArrayOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)) {
                 adapter?.getProfileProxy(ctx, object : BluetoothProfile.ServiceListener {
                     override fun onServiceConnected(p: Int, proxy: BluetoothProfile) {
-                        runCatching { proxy.connectedDevices.forEach { bt.add(it.address) } }
-                        connectedCarCandidates = bt.toSet()
+                        if (started) {
+                            runCatching { proxy.connectedDevices.forEach { bt.add(it.address) } }
+                            connectedCarCandidates = bt.toSet()
+                        }
                         adapter.closeProfileProxy(p, proxy)
-                        main.post(onChange)
+                        if (started) onChange()
                     }
                     override fun onServiceDisconnected(p: Int) {}
                 }, profile)
@@ -89,8 +94,16 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
         started = false
         runCatching { cm.unregisterNetworkCallback(netCallback) }
         runCatching { ctx.unregisterReceiver(btReceiver) }
+        reset()
+    }
+
+    /** Forget everything: no events arrive while stopped, so old values would go stale. */
+    private fun reset() {
+        bt.clear()
+        currentWifi = null
+        connectedCarCandidates = null
     }
 
     /** The network the phone is on right now, for "Add current network". */
-    fun currentNetwork(): WifiId? = currentWifi ?: legacyWifi().takeIf { PresenceSignals.cleanSsid(it?.ssid) != null }
+    fun currentNetwork(): WifiId? = PresenceSignals.usableNetwork(currentWifi ?: legacyWifi())
 }
