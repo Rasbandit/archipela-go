@@ -2,6 +2,7 @@
 //! or Archipelago (checks go to the server, items come back). Everything else is identical.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use rand::rngs::StdRng;
@@ -942,7 +943,14 @@ impl Game {
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         let path = Self::path_for(dir, &self.id);
         std::fs::create_dir_all(path.parent().unwrap_or(dir)).map_err(|e| e.to_string())?;
-        std::fs::write(path, serde_json::to_string(self).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+        let json = serde_json::to_string(self).map_err(|e| e.to_string())?;
+        // Write beside the save, flush to disk, then rename over it: a kill mid-write never corrupts the only copy.
+        let tmp = path.with_extension("json.tmp");
+        let mut file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        file.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
     }
 
     pub fn load(dir: &Path, id: &str) -> Result<Game, String> {
@@ -970,7 +978,7 @@ impl Game {
     pub fn list_ids(dir: &Path) -> Vec<(String, String)> {
         let mut out = Vec::new();
         if let Ok(rd) = std::fs::read_dir(dir.join("games")) {
-            for e in rd.flatten() {
+            for e in rd.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "json")) {
                 if let Ok(s) = std::fs::read_to_string(e.path()) {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
                         if let (Some(id), Some(name)) = (v["id"].as_str(), v["name"].as_str()) {
@@ -1481,6 +1489,25 @@ mod tests {
         std::fs::write(Game::path_for(&dir, "g1"), "{broken").unwrap();
         assert!(Game::load(&dir, "g1").is_err());
         assert!(Game::load(&dir, "missing").is_err());
+    }
+
+    #[test]
+    fn saving_is_atomic_and_leaves_no_temp_file_and_ignores_a_stale_one() {
+        let dir = std::env::temp_dir().join(format!("apgo-atomic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        g.save(&dir).unwrap();
+        let tmp = Game::path_for(&dir, "g1").with_extension("json.tmp");
+        assert!(!tmp.exists(), "no temp file remains after a save");
+        // a kill mid-write leaves a stale temp file (here: a full copy, the worst case for the list)
+        std::fs::write(&tmp, std::fs::read_to_string(Game::path_for(&dir, "g1")).unwrap().replace("\"g1\"", "\"ghost\"")).unwrap();
+        assert!(Game::load(&dir, "g1").is_ok(), "the real save still loads");
+        assert_eq!(Game::list_ids(&dir).len(), 1, "a leftover temp file is not a game");
+        std::fs::write(&tmp, "{half").unwrap();
+        g.save(&dir).unwrap();
+        assert!(!tmp.exists(), "the next save replaces the stale temp file");
+        assert!(Game::load(&dir, "g1").is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
