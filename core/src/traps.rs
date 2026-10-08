@@ -113,6 +113,16 @@ impl Traps {
         None
     }
 
+    /// With no known position, whether any trap that could block checks is active (a leash cannot be judged without one).
+    pub fn may_block_without_position(&self) -> bool {
+        self.active.iter().any(|t| match t {
+            Trap::Freeze { .. } | Trap::Leash { .. } => true,
+            Trap::Detour { visited, .. } => !visited,
+            Trap::Toll { need_m, moved_m, .. } => moved_m < need_m,
+            _ => false,
+        })
+    }
+
     pub fn fog_active(&self) -> bool {
         self.active.iter().any(|t| matches!(t, Trap::Fog { .. }))
     }

@@ -594,7 +594,11 @@ impl Game {
 
     /// Complete every chain member whose mark the counter has passed (in unlocked zones, and not while a trap blocks checks).
     fn complete_reached(&mut self, t_ms: i64, pos: Option<Point>) -> Vec<Event> {
-        if pos.is_some_and(|p| self.traps.blocks_checks(p).is_some()) {
+        let blocked = match pos {
+            Some(p) => self.traps.blocks_checks(p).is_some(),
+            None => self.traps.may_block_without_position(),
+        };
+        if blocked {
             return Vec::new();
         }
         let mut ev = Vec::new();
@@ -1184,6 +1188,39 @@ mod tests {
         assert_eq!(back.counters.steps_last, None, "the session baseline is not");
         back.on_steps(90_000, 3); // a whole day of walking with the game closed
         assert_eq!(back.counters.progress["1:step_up"], 300.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn freeze(g: &mut Game) {
+        g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_pool.clone(), &mut rand::SeedableRng::seed_from_u64(1));
+        assert!(!g.traps.active.is_empty(), "the freeze trap is active");
+    }
+
+    #[test]
+    fn steps_wait_under_a_trap_when_no_position_is_known_after_a_counting_toggle() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.on_steps(1_000, 1);
+        freeze(&mut g);
+        g.set_counting(false);
+        g.set_counting(true); // clears the last fix
+        assert!(g.last_pos().is_none());
+        g.on_steps(1_100, 2);
+        assert!(g.on_steps(1_700, 3).is_empty(), "a frozen player earns nothing from steps");
+        g.traps.active.clear();
+        assert_eq!(done_ids(&g.on_steps(1_710, 4)), vec![1000], "the mark pays once the trap is gone");
+    }
+
+    #[test]
+    fn steps_wait_under_a_saved_trap_right_after_loading() {
+        let dir = std::env::temp_dir().join(format!("apgo-steps-trap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        freeze(&mut g);
+        g.save(&dir).unwrap();
+        let mut back = Game::load(&dir, "g1").unwrap();
+        assert!(back.last_pos().is_none());
+        back.on_steps(1_000, 1);
+        assert!(back.on_steps(1_700, 2).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
