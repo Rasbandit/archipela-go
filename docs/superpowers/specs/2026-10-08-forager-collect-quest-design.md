@@ -18,7 +18,7 @@ up, and the quest completes once enough have been brought home. It rewards wande
 | Modes | Walk, run, bike (not drive) |
 | Family | Existing `courier` family: no apworld, YAML or slot_data change |
 | Model | Each quest owns its own items (no shared inventory) |
-| Shuffle trap or reroll | Banked and carried counts are kept; only the unpicked points move |
+| Shuffle trap | Banked and carried counts are kept; only the unpicked points move |
 | Theme | Random per quest (pinecones, shells, mushrooms, acorns, ...), flavour only |
 
 ## Catalog
@@ -57,9 +57,9 @@ Progress for the quest row and chain-free views: `min(1, (banked + 0.5 * carried
 Same rules as other quests: fixes that are too inaccurate or imply an impossible jump are ignored; nothing counts while
 presence has counting off (home Wi-Fi, car); a Freeze trap that blocks checks also blocks pickups and banking.
 
-## Reroll and Shuffle
+## Shuffle trap
 
-A reroll or Shuffle trap re-places only the unpicked items (new points under the same generation rules). `carried`,
+A Shuffle trap re-places only the unpicked items (new points under the same generation rules). `carried`,
 `banked` and `need` are unchanged, and items already picked stay picked. The theme stays the same.
 
 ## UI (Android)
@@ -83,7 +83,7 @@ Core (written first):
 - Pickup: one pickup per item, the 25 m boundary, inaccurate fixes ignored.
 - Banking: partial banking over several outings, done exactly when `banked >= need`, nothing banked away from home.
 - Counting off and Freeze trap: no pickups or banking.
-- Reroll and Shuffle: unpicked items move, `carried` and `banked` kept, picked items do not come back.
+- Shuffle trap: unpicked items move, `carried` and `banked` kept, picked items do not come back.
 - Save round trip, and an old save without the new state loads.
 
 Android: a unit test for the progress text formatter. Device check: a short walk that picks up two items, banks at home,
