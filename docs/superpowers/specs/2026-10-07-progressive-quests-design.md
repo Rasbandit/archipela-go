@@ -15,7 +15,7 @@ progress that survives restarts, and a single distance for Wanderlust.
 
 ## Decisions (from the brainstorm)
 - **Approach:** derive chains from the quests already assigned. No change to generation, the apworld, `slot_data`, or Archipelago: every milestone is still its own location with its own reward. Chains are client-side grouping.
-- **Steps** count always, from game start, by the phone's step counter (not only while playing). Progress is saved.
+- **Steps** count only while playing (revised 2026-10-07 after the first review): while a game is open, from the phone's step counter. Steps taken while stopped never count. Progress is saved.
 - **Time away** is a setting: count away-from-home time **inside a zone's area**, or **anywhere**. It can only accrue while the app is tracking (it needs GPS).
 - **Wanderlust distance** is a setting: **Automatic** (scaled to the realm) or **Custom**.
 - **Cartographer (new map squares)** is included (assumption confirmed in design review: same kind of progress-bar quest).
@@ -38,7 +38,7 @@ Stored in the game save (new fields, all optional so old saves load):
 
 | Chain kind | Counter | Rule |
 |--|--|--|
-| Step Up | `steps_acc: i64`, `steps_last: Option<i64>` | On each step-counter reading `r`: if `steps_last` is `None`, set it to `r` (the game starts counting from now). If `r >= last`, `acc += r - last`, else the phone rebooted: `acc += r`. Then `last = r`. Counts whether or not the game is "playing"; the reading arrives from the step sensor listener (kept alive in the Application) or, on next open, the current reading. |
+| Step Up | `steps_acc: i64`, `steps_last: Option<i64>` | On each step-counter reading `r` while a game is open: if `steps_last` is `None`, set it to `r` (counting starts now). If `r >= last`, `acc += r - last`, else the phone rebooted: `acc += r`. Then `last = r`. **`steps_last` is reset to `None` every time the game is opened**, so steps taken while stopped are never credited. The reading arrives from the step sensor listener (kept alive in the Application). |
 | Wanderlust | `away_ms: i64` (milliseconds) | On each accepted fix (after the existing accuracy and jump filters), if the previous accepted fix was within 5 minutes and **both** fixes are beyond the chain distance from home, add the interval. If the setting is "inside a zone", also require the fix to be inside the area of one of the game's zone realms. |
 | Cartographer | `fog.cells.len()` (already saved) | Cells are 150 m, same as `Fog::CELL_M`. The counter is the number of distinct cells visited this game. |
 
@@ -77,4 +77,5 @@ Emulator: drive a game, check bars fill, marks check off, restart the app and co
 ## Risks and tuning notes
 - Running totals make Wanderlust long: members of 30, 45, 60, 75 and 90 minutes give a 5 h bar. The first outdoor tests decide whether to cap or rescale it.
 - Step totals above ~30,000 depend on the tier mix of the game; the title always shows the real total.
-- Away time is only counted while tracking runs; "Stop playing" therefore pauses Wanderlust but not Step Up.
+- "Stop playing" pauses all three chains: nothing counts while no game is open.
+- A later "presence" feature (home Wi-Fi, car Bluetooth, zone-based GPS duty cycle; GitHub issue) will add flags that suppress counting. Chain counters should take a single "counts now" input so it can plug in without a redesign.
