@@ -37,6 +37,9 @@ private const val AWAY_MIN_MS = 60_000L
 
 class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     val engine = Engine(ctx.filesDir.absolutePath)
+    val sensors = Sensors(ctx, this)
+    /** Reloading the whole trace on every fix gets slower as it grows; every 10 s is plenty for a line on a map. */
+    private val traceThrottle = Throttle(10_000)
 
     var tab by mutableIntStateOf(0) // 0 Realms, 1 New Game, 2 Play
     /** The realm editor: null shows the realm list, "" a new realm, otherwise the id of the realm being edited. */
@@ -82,6 +85,8 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     val me: LatLng?
         get() = simPos ?: realLoc?.let { LatLng(it.latitude, it.longitude) }
 
+    private fun fail(what: String, t: Throwable) = Diag.e("model", "$what failed", t)
+
     fun say(msg: String) {
         log.add(0, msg)
         while (log.size > 60) log.removeAt(log.lastIndex)
@@ -95,26 +100,61 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         refreshPlay()
     }
 
-    fun refreshPlay() {
+    fun refreshPlay(withTrace: Boolean = true) {
         if (engine.hasGame()) {
             quests = engine.quests()
             zones = engine.zones()
             hud = engine.hud(now())
-            trace = engine.track(0L, Long.MAX_VALUE).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
+            if (withTrace) trace = engine.track(0L, Long.MAX_VALUE).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
         } else {
             quests = emptyList(); zones = emptyList(); hud = null; trace = emptyList()
         }
     }
 
+    /** Log quest progress each time it crosses a 10% step, so a quest that never moves shows up in the log. */
+    private fun logProgress() {
+        for (q in quests) {
+            if (q.state != "progress") { progressBuckets.remove(q.locationId); continue }
+            val b = (q.progress * 10).toInt()
+            if (progressBuckets.put(q.locationId, b) != b) Diag.i("progress", q.name, "kind" to q.kindId, "percent" to b * 10, "id" to q.locationId)
+        }
+    }
+
+    /** One line a minute while a game is open: what the sensors delivered, power state and battery. Gaps in these lines are the story. */
+    fun heartbeat() {
+        val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+        Diag.i(
+            "heartbeat", "tracking",
+            "fixes" to fixesSinceBeat, "rejected" to rejectedSinceBeat,
+            "last_fix_age_s" to if (lastFixMs == 0L) -1L else (now() - lastFixMs) / 1000,
+            "last_acc_m" to lastFixAcc, "last_provider" to lastFixProvider,
+            "steps" to stepsTotal, "battery_pct" to bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY),
+            "screen_on" to pm.isInteractive, "power_save" to pm.isPowerSaveMode,
+            "doze" to pm.isDeviceIdleMode, "unrestricted" to pm.isIgnoringBatteryOptimizations(ctx.packageName),
+            "quests" to quests.size, "done" to (hud?.done ?: 0),
+        )
+        fixesSinceBeat = 0; rejectedSinceBeat = 0
+        drainCoreDiag()
+    }
+
+    /** Move messages the Rust core queued (journal failures etc.) into the diagnostics log. */
+    fun drainCoreDiag() = engine.takeDiag().forEach { Diag.w("core", it) }
+
     // ----------------------------------------------------------------- away report
     /** The app left the screen: the trace has a gap from now on. */
-    fun onBackground() = engine.logAppState(false, now())
+    fun onBackground() {
+        engine.logAppState(false, now())
+        Diag.i("lifecycle", "background")
+        drainCoreDiag()
+    }
 
     /** Back on screen: if you were gone a while, build the report of what the phone recorded. */
     fun onForeground() {
         val left = engine.lastBackgroundMs()
         val t = now()
         engine.logAppState(true, t)
+        Diag.i("lifecycle", "foreground", "away_ms" to (left?.let { t - it } ?: -1L))
         if (left != null && t - left >= AWAY_MIN_MS) away = engine.awayReport(left, t)
     }
 
@@ -140,7 +180,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             engine.saveRealm(rid, name.ifBlank { defaultRealmName() }, icon, c, polygon.map { GeoPoint(it.latitude, it.longitude) }, polygonActive)
         }
             .onSuccess { realms = engine.realms() }
-            .onFailure { status = "Could not save: ${it.message}" }
+            .onFailure { fail("save", it); status = "Could not save: ${it.message}" }
             .map { rid }
             .getOrNull()
     }
@@ -194,7 +234,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             if (plan.missing > 0u) lastDownload[id] = now()
             realms = engine.realms()
             result.onSuccess { offers[id] = it; status = "" }
-                .onFailure { status = "Couldn't reach the map servers just now. Trying again in a moment." }
+                .onFailure { fail("scan", it); status = "Couldn't reach the map servers just now. Trying again in a moment." }
             // Pieces that did not arrive (or a failure) are picked up again later, a few times, without bothering the player.
             val partial = result.isFailure || realms.firstOrNull { it.id == id }?.warning != null
             if (partial && (quietRetries[id] ?: 0) < MAX_QUIET_RETRIES) {
@@ -210,7 +250,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     fun setFindMark(realmId: String, placeId: String, mark: String): Boolean =
         runCatching { engine.setFindMark(realmId, placeId, mark) }
             .onSuccess { offers[realmId] = engine.realmOffers(realmId) }
-            .onFailure { status = "Could not save: ${it.message}" }
+            .onFailure { fail("save", it); status = "Could not save: ${it.message}" }
             .isSuccess
 
     /** A realm that was just deleted and can still be brought back. */
@@ -252,7 +292,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     fun setHome(p: LatLng, announce: Boolean = true) {
         runCatching { engine.setHome(GeoPoint(p.latitude, p.longitude)) }
             .onSuccess { home = engine.home(); if (announce) status = "Home set" }
-            .onFailure { status = "Could not set home: ${it.message}" }
+            .onFailure { fail("set_home", it); status = "Could not set home: ${it.message}" }
     }
 
     // ------------------------------------------------------------------- games
@@ -263,16 +303,16 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             val r = withContext(Dispatchers.IO) { runCatching { engine.startSolo(UUID.randomUUID().toString(), name, opts, zoneRealms, seed, surfacePref, avoidStairs) } }
             busy = null
             r.onSuccess { simClockMs = 0; log.clear(); refreshAll(); tab = 2; status = "Game started!" }
-                .onFailure { status = "Could not start: ${it.message}" }
+                .onFailure { fail("start_game", it); status = "Could not start: ${it.message}" }
         }
     }
 
     fun exportYaml(opts: SoloOptionsIn) {
-        runCatching { engine.buildYaml("Player", opts) }.onSuccess { yamlText = it }.onFailure { status = "YAML failed: ${it.message}" }
+        runCatching { engine.buildYaml("Player", opts) }.onSuccess { yamlText = it }.onFailure { fail("yaml", it); status = "YAML failed: ${it.message}" }
     }
 
     fun openGame(id: String) {
-        runCatching { engine.openGame(id) }.onSuccess { simClockMs = 0; refreshAll(); tab = 2 }.onFailure { status = "Could not open: ${it.message}" }
+        runCatching { engine.openGame(id) }.onSuccess { Diag.i("game", "opened", "id" to id); simClockMs = 0; refreshAll(); tab = 2 }.onFailure { fail("open_game", it); status = "Could not open: ${it.message}" }
     }
 
     fun deleteGame(id: String) {
@@ -282,6 +322,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
 
     // ------------------------------------------------------------------ events
     fun handle(events: List<EventOut>) {
+        events.forEach { Diag.i("event", it.toString().take(300)) }
         for (e in events) when (e) {
             is EventOut.QuestDone -> say("Done: ${e.name}")
             is EventOut.Reward -> say("Found: ${e.item}")
@@ -290,18 +331,29 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             is EventOut.Discovered -> {}
             is EventOut.GoalAchieved -> {
                 say("GOAL ACHIEVED: ${e.label}"); status = "You won! ${e.label}"
-                if (hud?.backend == "archipelago") runCatching { session?.sendGoal() }.onFailure { say("could not report goal: ${it.message}") }
+                if (hud?.backend == "archipelago") runCatching { session?.sendGoal() }.onFailure { fail("ap_goal", it); say("could not report goal: ${it.message}") }
             }
             is EventOut.Info -> say(e.text)
-            is EventOut.SendCheck -> runCatching { session?.sendCheck(e.locationId) }.onFailure { say("check failed: ${it.message}") }
+            is EventOut.SendCheck -> runCatching { session?.sendCheck(e.locationId) }.onFailure { fail("ap_check", it); say("check failed: ${it.message}") }
             is EventOut.ShuffleRequested -> runCatching { engine.reroll(emptyList(), Random.nextLong().toULong() shr 1) }
         }
     }
 
+    // Counters for the heartbeat in the diagnostics log (what the phone delivered since the last beat).
+    private var fixesSinceBeat = 0
+    private var rejectedSinceBeat = 0
+    private var lastFixMs = 0L
+    private var lastFixAcc = 0f
+    private var lastFixProvider = ""
+    private val progressBuckets = HashMap<Long, Int>()
+
     fun onFix(loc: Location) {
         if (!engine.hasGame() || simPos != null) return
+        lastFixMs = now(); lastFixAcc = loc.accuracy; lastFixProvider = loc.provider ?: ""
+        if (loc.accuracy > 75f) rejectedSinceBeat++ else fixesSinceBeat++
         handle(engine.onFix(loc.latitude, loc.longitude, now(), loc.accuracy.toDouble(), stepsTotal, false))
-        refreshPlay()
+        refreshPlay(withTrace = traceThrottle.due(now()))
+        logProgress()
     }
 
     // ------------------------------------------------------------- dev simulator
@@ -405,7 +457,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
                 else -> {}
             }
         }
-        apStatus = s.status()
+        s.status().let { if (it != apStatus) Diag.i("ap", "status", "status" to it); apStatus = it }
         if (engine.hasGame() && hud?.backend == "archipelago") {
             val items = withContext(Dispatchers.IO) { runCatching { s.receivedItems().map { it.name } }.getOrDefault(emptyList()) }
             if (!apSyncedChecked && apSlotJson != null) {
@@ -424,7 +476,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             val seed = Random.nextLong().toULong() shr 1
             val r = withContext(Dispatchers.IO) { runCatching { engine.startArchipelago(UUID.randomUUID().toString(), name, json, "archipelago", zoneRealms, seed, surfacePref, avoidStairs) } }
             r.onSuccess { simClockMs = 0; apSyncedChecked = false; refreshAll(); tab = 2; status = "Archipelago game started" }
-                .onFailure { status = "Could not start: ${it.message}" }
+                .onFailure { fail("start_game", it); status = "Could not start: ${it.message}" }
         }
     }
 

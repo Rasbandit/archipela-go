@@ -61,4 +61,5 @@ If you need the v1 architecture, verified results, known gaps and how to run the
 If you need the full list of quest kinds (names, map filters, proof, modes), see `docs/context/quest-catalog.md` (generated)
 If you need the Android UI design system (palette, theme, shared components, rules) or the Archipelago logo/icon licence finding, see `docs/context/ui-design-system.md`
 If you need how scans, the tile grid, the shared cache, pacing/retries and the scan cooldown work, see `docs/context/scan-and-tile-cache.md`
+If you need the outdoor test steps and how to pull/read the diagnostics, see `docs/context/outdoor-test-plan.md`
 If you need to start working (owner preferences, build/install/test commands, gotchas, backlog, licence/publishing), see `docs/context/working-in-this-repo.md`

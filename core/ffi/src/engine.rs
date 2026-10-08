@@ -374,6 +374,8 @@ pub struct Engine {
     dir: PathBuf,
     /// Track and audit log; `None` if the file could not be opened (the game still plays, nothing is recorded).
     journal: Option<Mutex<Journal>>,
+    /// Messages from the core for the app's diagnostics log (stderr is lost on Android). Capped; drained by `take_diag`.
+    diag: Mutex<Vec<String>>,
     /// When a rejected fix was last logged, so a bad-signal stretch is one line, not thousands.
     last_reject_log_ms: std::sync::atomic::AtomicI64,
     catalog: Catalog,
@@ -396,8 +398,17 @@ impl Engine {
     fn journal_do(&self, f: impl FnOnce(&Journal) -> rusqlite::Result<()>) {
         if let Some(j) = &self.journal {
             if let Err(e) = f(&j.lock().unwrap_or_else(|e| e.into_inner())) {
-                eprintln!("journal write failed: {e}");
+                self.note(format!("journal write failed: {e}"));
             }
+        }
+    }
+
+    /// Queue a message for the app's diagnostics log. Keeps the newest 200.
+    fn note(&self, msg: String) {
+        let mut q = self.diag.lock().unwrap_or_else(|e| e.into_inner());
+        q.push(msg);
+        if q.len() > 200 {
+            q.remove(0);
         }
     }
 
@@ -463,10 +474,12 @@ impl Engine {
     pub fn new(dir: String) -> Arc<Self> {
         let dir = PathBuf::from(dir);
         let _ = std::fs::create_dir_all(&dir);
-        let journal = Journal::open(&dir.join("journal.db")).map_err(|e| eprintln!("journal unavailable: {e}")).ok().map(Mutex::new);
+        let mut diag = Vec::new();
+        let journal = Journal::open(&dir.join("journal.db")).map_err(|e| diag.push(format!("journal unavailable: {e}"))).ok().map(Mutex::new);
         Arc::new(Self {
             dir,
             journal,
+            diag: Mutex::new(diag),
             last_reject_log_ms: std::sync::atomic::AtomicI64::new(i64::MIN),
             catalog: Catalog::builtin(),
             game: Mutex::new(None),
@@ -951,6 +964,11 @@ impl Engine {
             g.mark_checked(&ids, now_ms);
             let _ = g.save(&dir);
         });
+    }
+
+    /// Messages the core queued for the diagnostics log since the last call (journal failures and the like).
+    pub fn take_diag(&self) -> Vec<String> {
+        std::mem::take(&mut *self.diag.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     // ---------- track and audit ----------

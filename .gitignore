@@ -16,3 +16,4 @@ android/app/src/main/jniLibs/
 android/local.properties
 *.iml
 android/app/src/main/kotlin/uniffi/
+diag/

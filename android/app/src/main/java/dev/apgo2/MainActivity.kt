@@ -1,97 +1,72 @@
 package dev.apgo2
 
 import android.Manifest
-import android.annotation.SuppressLint
-import android.content.Context
-import android.location.LocationListener
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
-import dev.apgo2.ui.ApgoTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.apgo2.ui.ApgoTheme
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
-    private fun providers(lm: LocationManager): List<String> {
-        val all = buildList {
-            if (Build.VERSION.SDK_INT >= 31) add(LocationManager.FUSED_PROVIDER)
-            add(LocationManager.GPS_PROVIDER)
-            add(LocationManager.NETWORK_PROVIDER)
-        }
-        return all.filter { lm.isProviderEnabled(it) }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Transparent system bars, with dark or light icons chosen from the system theme (the app theme follows the same setting, so they agree).
         enableEdgeToEdge()
+        // The model lives in the Application: sensors and the game keep going if this activity is recreated or destroyed.
+        val model = (application as ApgoApp).model
         setContent {
             ApgoTheme {
                 // No manual status-bar padding: Scaffold insets its own content, and this surface paints behind the bars.
                 Surface(Modifier.fillMaxSize()) {
-                    val scope = rememberCoroutineScope()
-                    val model = remember { AppModel(applicationContext, scope).also { it.refreshAll() } }
-                    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-                    DisposableEffect(owner, model) {
-                        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+                    val owner = LocalLifecycleOwner.current
+                    DisposableEffect(owner) {
+                        val obs = LifecycleEventObserver { _, e ->
                             when (e) {
-                                androidx.lifecycle.Lifecycle.Event.ON_START -> model.onForeground()
-                                androidx.lifecycle.Lifecycle.Event.ON_STOP -> model.onBackground()
+                                Lifecycle.Event.ON_START -> model.onForeground()
+                                Lifecycle.Event.ON_STOP -> model.onBackground()
                                 else -> {}
                             }
                         }
                         owner.lifecycle.addObserver(obs)
                         onDispose { owner.lifecycle.removeObserver(obs) }
                     }
-                    var permitted by remember { mutableStateOf(false) }
-                    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permitted = it }
-                    LaunchedEffect(Unit) { ask.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
-                    var stepsOk by remember { mutableStateOf(false) }
-                    val askSteps = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { stepsOk = it }
-                    LaunchedEffect(permitted) { if (permitted) askSteps.launch(Manifest.permission.ACTIVITY_RECOGNITION) }
-                    DisposableEffect(stepsOk) {
-                        if (!stepsOk) return@DisposableEffect onDispose {}
-                        val sm = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-                        val sensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-                        val l = object : SensorEventListener {
-                            override fun onSensorChanged(e: SensorEvent) { model.stepsTotal = e.values[0].toLong() }
-                            override fun onAccuracyChanged(s: Sensor?, a: Int) {}
-                        }
-                        if (sensor != null) sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-                        onDispose { sm.unregisterListener(l) }
-                    }
 
+                    // Permissions, one after another: location, then step counter, then notifications (the tracking notification).
+                    var permitted by remember { mutableStateOf(false) }
+                    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { Diag.i("permission", "notifications", "granted" to it) }
+                    var stepsOk by remember { mutableStateOf(false) }
+                    val askSteps = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                        stepsOk = it
+        Diag.i("permission", "activity_recognition", "granted" to it)
+                        if (Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permitted = it; Diag.i("permission", "fine_location", "granted" to it) }
+                    LaunchedEffect(Unit) { ask.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
+                    LaunchedEffect(permitted) { if (permitted) askSteps.launch(Manifest.permission.ACTIVITY_RECOGNITION) }
+
+                    LaunchedEffect(stepsOk) { if (stepsOk) model.sensors.startSteps() }
                     val rate = GpsPolicy.forState(playing = model.quests.isNotEmpty())
-                    DisposableEffect(permitted, rate) {
-                        if (!permitted) return@DisposableEffect onDispose {}
-                        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                        val listener = LocationListener { loc -> model.realLoc = loc; model.onFix(loc) }
-                        // Listen on every enabled provider: whichever has a fix wins (emulators only feed GPS).
-                        providers(lm).forEach { provider ->
-                            @SuppressLint("MissingPermission")
-                            lm.requestLocationUpdates(provider, rate.intervalMs, rate.minDistanceM, listener)
-                            @SuppressLint("MissingPermission")
-                            lm.getLastKnownLocation(provider)?.let { model.realLoc = it }
-                        }
-                        onDispose { lm.removeUpdates(listener) }
+                    LaunchedEffect(permitted, rate) { if (permitted) model.sensors.startLocation(rate) }
+                    // A game that is open is tracked in the foreground service, so fixes keep coming with the screen off.
+                    val playing = model.hud != null
+                    LaunchedEffect(permitted, playing) {
+                        if (permitted && playing) runCatching { TrackingService.start(applicationContext) } else TrackingService.stop(applicationContext)
                     }
                     LaunchedEffect(model.session) { while (model.session != null) { model.apTick(); delay(300) } }
                     AppRoot(model)
