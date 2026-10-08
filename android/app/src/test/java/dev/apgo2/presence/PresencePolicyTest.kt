@@ -18,6 +18,12 @@ class PresencePolicyTest {
         assertEquals(Decision(PresenceState.InCar, GpsMode.Off, counting = false), d)
     }
 
+    @Test fun notPlayingBeatsCarAndHome() {
+        assertEquals(Decision(PresenceState.Stopped, GpsMode.Off, counting = false), PresencePolicy.decide(s(playing = false, car = true, home = true)))
+    }
+
+    @Test fun theCoarseIntervalIsNinetySeconds() = assertEquals(90_000L, PresencePolicy.COARSE_MS)
+
     @Test fun homeWifiTurnsGpsOffAndStopsCounting() {
         assertEquals(Decision(PresenceState.AtHome, GpsMode.Off, counting = false), PresencePolicy.decide(s(home = true, zone = Zone.Far)))
     }
@@ -52,8 +58,31 @@ class DebouncerTest {
         val d = Debouncer(45_000)
         d.feed(false, 0)
         var t = 1_000L
-        repeat(20) { d.feed(it % 2 == 0, t); t += 10_000 }
-        assertEquals(false, d.feed(false, t))
+        repeat(20) {
+            assertEquals("flap $it at $t", false, d.feed(it % 2 == 0, t))
+            t += 10_000
+        }
+        // The last flap fed false at t - 10_000; now hold true until it settles.
+        assertEquals("sustained true starts", false, d.feed(true, t))
+        assertEquals("sustained true settles", true, d.feed(true, t + 45_000))
+    }
+
+    @Test fun theHoldBoundaryIsInclusive() {
+        val d = Debouncer(45_000)
+        d.feed(false, 0)
+        d.feed(true, 1_000)
+        assertEquals("just under holdMs", false, d.feed(true, 45_999))
+        assertEquals("exactly holdMs", true, d.feed(true, 46_000))
+    }
+
+    @Test fun aMidHoldRevertRestartsTheTimer() {
+        val d = Debouncer(45_000)
+        d.feed(false, 0)
+        d.feed(true, 1_000)
+        d.feed(false, 20_000)
+        d.feed(true, 30_000)
+        assertEquals("timer restarted at 30 s", false, d.feed(true, 50_000))
+        assertEquals("held 45 s since 30 s", true, d.feed(true, 75_000))
     }
 
     @Test fun unknownIsAdoptedImmediatelyAndNeverHeldBack() {
