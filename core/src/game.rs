@@ -17,7 +17,7 @@ use crate::geo::{distance_m, Point};
 use crate::goal::{evaluate, evaluate_each, GoalCtx, GoalStatus};
 use crate::journal::JournalEvent;
 use crate::num::{count_f64, count_u32, i64_to_f64, to_f32};
-use crate::realm::Realm;
+use crate::realm::{Realm, Shape};
 use crate::scan::Atlas;
 use crate::slot::GoalSpec;
 use crate::slot::SlotData;
@@ -217,7 +217,7 @@ pub struct Stats {
     pub quest_days: BTreeSet<i64>,
 }
 
-/// Distance from home for time-away chains when nothing better is known (old saves).
+/// Distance from home for time-away chains when nothing better is known (an old save whose realm is gone).
 pub const DEFAULT_AWAY_M: f64 = 1000.0;
 const AUTO_AWAY_SHARE: f64 = 0.4;
 const AUTO_AWAY_MIN_M: f64 = 300.0;
@@ -1145,6 +1145,19 @@ impl Game {
         Ok(g)
     }
 
+    /// An old save has no away distance for its zones: give each the Automatic distance of its realm (looked up by realm id
+    /// with `shape_of`), as New Game would. Zones that already have one, or whose realm is gone, are left alone.
+    pub fn backfill_away(&mut self, shape_of: impl Fn(&str) -> Option<Shape>) {
+        for (z, realm_id) in self.slot.zones.iter().zip(&self.zone_realms) {
+            if self.away.distance_m.contains_key(&z.id) {
+                continue;
+            }
+            if let Some(shape) = shape_of(realm_id) {
+                self.away.distance_m.insert(z.id, AwayOptions::default().resolve(shape.farthest_m(self.home)));
+            }
+        }
+    }
+
     /// An old save has finished chain members but no counters: start each counter at its highest finished mark so nothing is lost or earned twice.
     fn normalize_counters(&mut self) {
         for c in self.chains() {
@@ -1184,7 +1197,6 @@ impl Game {
 mod tests {
     use super::*;
     use crate::geo::destination;
-    use crate::realm::Shape;
     use crate::scan::build_atlas;
     use crate::solo::{generate, SoloOptions};
 
@@ -2019,5 +2031,32 @@ mod tests {
         assert_eq!(back.away, AwayConfig::default());
         assert!(back.counters.progress.is_empty());
         assert_eq!(back.away.distance_for(1), DEFAULT_AWAY_M);
+    }
+
+    #[test]
+    fn an_old_save_gets_the_automatic_away_distance_of_each_zone_realm() {
+        let o = reach_only(&[Mode::Walk, Mode::Bike], 20, "all_trips");
+        let realms: Vec<(Realm, Atlas)> = o.zone_modes.iter().enumerate().map(|(i, m)| realm(&format!("r{i}"), *m)).collect();
+        let g = game(&o, Backend::Solo, 4);
+        let mut v = serde_json::to_value(&g).unwrap();
+        v.as_object_mut().unwrap().remove("away");
+        let mut back: Game = serde_json::from_value(v).unwrap();
+        // The second zone's realm is gone: it keeps the fallback.
+        back.backfill_away(|id| realms.iter().find(|(r, _)| r.id == id && id != "r1").map(|(r, _)| r.shape.clone()));
+        let z = &back.slot.zones;
+        let want = AwayOptions::default().resolve(realms[0].0.shape.farthest_m(back.home));
+        assert_eq!(back.away.distance_for(z[0].id), want);
+        assert_ne!(want, DEFAULT_AWAY_M, "the test realm must not match the fallback by chance");
+        assert_eq!(back.away.distance_for(z[1].id), DEFAULT_AWAY_M);
+        assert!(!back.away.distance_m.contains_key(&z[1].id));
+    }
+
+    #[test]
+    fn backfill_keeps_distances_a_game_already_has() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let zone = g.slot.zones[0].id;
+        g.away.distance_m.insert(zone, 1234.0);
+        g.backfill_away(|_| Some(Shape::Circle { center: home(), radius_m: 5000.0 }));
+        assert_eq!(g.away.distance_for(zone), 1234.0);
     }
 }
