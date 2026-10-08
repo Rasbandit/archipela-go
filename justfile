@@ -55,6 +55,7 @@ build:
 
 # Rust core: format, lint, docs, supply chain, tests with line-coverage floor
 check-rust:
+    @! grep -rn "changed by cargo-mutants" core/src core/ffi/src || { echo "a mutation from an interrupted 'just mutate-rust' is left in: git restore core/src"; exit 1; }
     cd core && cargo fmt --all --check
     cd core && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings
     cd core && RUSTDOCFLAGS="-D warnings" cargo doc -p apgo-core -p apgo-ffi --no-deps -q
@@ -66,10 +67,17 @@ check-rust:
 mutate-py *args: ap-present
     bash scripts/mutate_py.sh {{args}}
 
-# Rust core: `just mutate-rust` (all, ~1 h), `just mutate-rust -f src/goal.rs`. In place (yaml.rs includes a file outside core/,
-# so the default copy cannot build): do not edit core/ while it runs.
+# Rust core: `just mutate-rust -f src/goal.rs` (one file), `just mutate-rust` (all ~2000 mutants: hours). In place, because yaml.rs
+# includes a file outside core/ so the default temp copy cannot build: do not edit core/ while it runs. An interrupted run can
+# leave one mutant behind (marked `~ changed by cargo-mutants ~`; check-rust fails on it): `git restore core/src`.
 mutate-rust *args:
+    @git diff --quiet -- core || { echo "core/ has uncommitted changes: commit them first, the run mutates core/ in place"; exit 1; }
     cd core && cargo mutants -p apgo-core --in-place {{args}}
+
+# Rust core, only the lines this branch changed against origin/main: the quick one to run before a PR.
+mutate-rust-diff:
+    git -C core diff --relative origin/main... > core/mutants.diff
+    just mutate-rust --in-diff mutants.diff
 
 # --- Android dev loop (phone paired over adb) ---
 export JAVA_HOME := shell('bash "$1"', justfile_directory() / "scripts/java_home.sh")

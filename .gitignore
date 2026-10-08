@@ -21,3 +21,4 @@ diag/
 .claude/worktrees/
 .mutate-py/
 core/mutants.out*/
+core/mutants.diff

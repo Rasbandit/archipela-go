@@ -40,7 +40,8 @@ npm install -g --prefix ~/.local markdownlint-cli2@0.23.3
   Kover floor of 17.
 - Coverage floors only go up (see `docs/context/working-in-this-repo.md`).
 - Mutation testing (slow, not part of `check`): `just mutate-py` (mutmut over `apworld/ap_go2`, staged in `.mutate-py/`)
-  and `just mutate-rust` (cargo-mutants over `apgo-core`, in place, about an hour; `-f src/goal.rs` for one file).
+  and `just mutate-rust` (cargo-mutants over `apgo-core`, in place; `-f src/goal.rs` for one file, all of it takes hours).
+  Before a PR that touches `core/`, `just mutate-rust-diff` mutates only the lines the branch changed.
   A surviving mutant is a change no test notices: add the test that kills it.
 
 ## Hooks
