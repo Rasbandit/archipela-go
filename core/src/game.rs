@@ -18,7 +18,7 @@ use crate::scan::Atlas;
 use crate::slot::GoalSpec;
 use crate::slot::SlotData;
 use crate::traps::Traps;
-use crate::verify::{Fix, Status, Tracker, MAX_ACCURACY_M};
+use crate::verify::{implied_speed_kmh, Fix, Status, Tracker, MAX_ACCURACY_M, MAX_OUTLIER_STREAK, MAX_PLAUSIBLE_KMH};
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -108,6 +108,10 @@ pub struct Game {
     #[serde(skip)]
     last_fix: Option<Fix>,
     #[serde(skip)]
+    outlier_streak: u32,
+    #[serde(skip)]
+    odo_anchor: Option<Point>,
+    #[serde(skip)]
     last_block: Option<String>,
 }
 
@@ -125,6 +129,9 @@ pub struct NewGame<'a> {
     pub surface: SurfacePref,
     pub avoid_stairs: bool,
 }
+
+/// Distance only counts after moving at least this far from the last counted point.
+const ODOMETER_MIN_STEP_M: f64 = 6.0;
 
 fn speed_ok(mode: Mode, kmh: f64) -> bool {
     match mode {
@@ -199,6 +206,8 @@ impl Game {
             avoid_stairs: n.avoid_stairs,
             trackers: BTreeMap::new(),
             last_fix: None,
+            outlier_streak: 0,
+            odo_anchor: None,
             last_block: None,
         })
     }
@@ -311,21 +320,36 @@ impl Game {
         if fix.accuracy_m > MAX_ACCURACY_M {
             return ev;
         }
+        // A fix that implies an impossible jump (a network or cell fix far off) is dropped, so it can neither complete a quest nor become
+        // the reference for the next speed check. After a few in a row the newest is believed: you really did relocate.
+        if self.last_fix.as_ref().and_then(|l| implied_speed_kmh(l, &fix)).is_some_and(|kmh| kmh > MAX_PLAUSIBLE_KMH)
+            && self.outlier_streak < MAX_OUTLIER_STREAK - 1
+        {
+            self.outlier_streak += 1;
+            return ev;
+        }
+        self.outlier_streak = 0;
         let pos = fix.point();
-        let (mut moved, mut speed) = (0.0, None);
-        if let Some(l) = self.last_fix {
-            let dt = (fix.t_ms - l.t_ms) as f64 / 1000.0;
-            if dt >= 3.0 {
-                let d = distance_m(l.point(), pos);
-                let kmh = d / dt * 3.6;
-                if dt <= 120.0 {
-                    speed = Some(kmh);
-                }
-                if kmh <= 150.0 && dt <= 300.0 {
-                    moved = d;
+        let speed = self.last_fix.as_ref().and_then(|l| implied_speed_kmh(l, &fix));
+        // Distance walked counts only once you are clearly away from where the last counted point was (GPS wobble while standing is not movement).
+        if self.last_fix.is_some_and(|l| fix.t_ms - l.t_ms > 300_000) {
+            self.odo_anchor = None;
+        }
+        let moved = match self.odo_anchor {
+            Some(a) => {
+                let d = distance_m(a, pos);
+                if d >= fix.accuracy_m.max(ODOMETER_MIN_STEP_M) {
+                    self.odo_anchor = Some(pos);
+                    d
+                } else {
+                    0.0
                 }
             }
-        }
+            None => {
+                self.odo_anchor = Some(pos);
+                0.0
+            }
+        };
         self.stats.distance_m += moved;
 
         let scout = self.count("Progressive Scouting Distance");
@@ -761,6 +785,78 @@ mod tests {
         std::fs::write(Game::path_for(&dir, "g1"), "{broken").unwrap();
         assert!(Game::load(&dir, "g1").is_err());
         assert!(Game::load(&dir, "missing").is_err());
+    }
+
+    fn start_near_a_quest() -> (Game, i64, Point) {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let q = g.quest_views().remove(0);
+        let target = q.anchor.unwrap();
+        let p0 = destination(target, 0.0, 200.0);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(p0, 1000) }, None);
+        (g, q.location_id, p0)
+    }
+
+    #[test]
+    fn a_far_off_network_style_fix_is_dropped_even_on_the_target() {
+        let (mut g, id, p0) = start_near_a_quest();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| crate::fog::anchor(&a.target)).unwrap();
+        let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(target, 1003) }, None);
+        assert!(ev.is_empty() && !g.done.contains(&id), "a 200 m jump in 3 s is a bad fix and must not complete the quest");
+        assert_eq!(g.last_pos(), Some(p0), "the last good position is kept");
+    }
+
+    #[test]
+    fn walking_to_the_target_still_completes_after_an_outlier() {
+        let (mut g, id, _) = start_near_a_quest();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| crate::fog::anchor(&a.target)).unwrap();
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(target, 1003) }, None); // dropped
+        let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(target, 1100) }, None); // 200 m in 100 s: a brisk walk
+        assert!(ev.iter().any(|e| matches!(e, Event::QuestDone { location_id, .. } if *location_id == id)));
+    }
+
+    #[test]
+    fn several_far_fixes_in_a_row_are_believed() {
+        let (mut g, _, p0) = start_near_a_quest();
+        let far = destination(p0, 90.0, 5000.0);
+        for (i, t) in [1003, 1006, 1009].into_iter().enumerate() {
+            g.on_fix(Fix { accuracy_m: 5.0, ..fixat(far, t) }, None);
+            assert_eq!(g.last_pos() == Some(far), i == 2, "believed only on the third in a row (step {i})");
+        }
+    }
+
+    #[test]
+    fn fixes_worse_than_35_m_are_ignored() {
+        let (mut g, id, _) = start_near_a_quest();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| crate::fog::anchor(&a.target)).unwrap();
+        let ev = g.on_fix(Fix { accuracy_m: 40.0, ..fixat(target, 2000) }, None);
+        assert!(ev.is_empty() && !g.done.contains(&id));
+    }
+
+    #[test]
+    fn standing_still_with_gps_jitter_adds_no_distance() {
+        let (mut g, _, p0) = start_near_a_quest();
+        for i in 0..60 {
+            let wobble = destination(p0, (i * 97 % 360) as f64, 3.0 + (i % 3) as f64);
+            g.on_fix(Fix { accuracy_m: 5.0, ..fixat(wobble, 1005 + i * 5) }, None);
+        }
+        assert!(g.stats.distance_m < 12.0, "jitter counted as {} m", g.stats.distance_m);
+    }
+
+    #[test]
+    fn a_long_gap_is_not_walked_distance() {
+        let (mut g, _, p0) = start_near_a_quest();
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(destination(p0, 90.0, 20_000.0), 1000 + 3600) }, None);
+        assert!(g.stats.distance_m < 1.0, "an hour later 20 km away is a relocation, counted {}", g.stats.distance_m);
+    }
+
+    #[test]
+    fn walking_adds_about_the_distance_walked() {
+        let (mut g, _, p0) = start_near_a_quest();
+        for i in 1..=40 {
+            g.on_fix(Fix { accuracy_m: 5.0, ..fixat(destination(p0, 90.0, 7.0 * i as f64), 1000 + i * 5) }, None);
+        }
+        let d = g.stats.distance_m;
+        assert!((d - 280.0).abs() < 28.0, "walked 280 m, counted {d}");
     }
 
     #[test]

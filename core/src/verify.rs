@@ -28,7 +28,22 @@ pub enum Status {
 }
 
 /// Fixes less accurate than this are ignored (urban canyons, indoor).
-pub const MAX_ACCURACY_M: f64 = 75.0;
+pub const MAX_ACCURACY_M: f64 = 35.0;
+/// A jump implying more than this is a bad fix (a network or cell fix hundreds of metres off), not movement.
+pub const MAX_PLAUSIBLE_KMH: f64 = 100.0;
+/// After this many bad-looking fixes in a row the newest one is believed (you really did move, e.g. a long gap or a lift).
+pub const MAX_OUTLIER_STREAK: u32 = 3;
+
+/// Speed between two fixes in km/h, ignoring the part of the distance that both fixes' error radii could explain.
+/// `None` when the gap is too short (< 1 s) or too long (> 2 min) to say anything.
+pub fn implied_speed_kmh(prev: &Fix, cur: &Fix) -> Option<f64> {
+    let dt = (cur.t_ms - prev.t_ms) as f64 / 1000.0;
+    if !(1.0..=120.0).contains(&dt) {
+        return None;
+    }
+    let effective = (distance_m(prev.point(), cur.point()) - prev.accuracy_m - cur.accuracy_m).max(0.0);
+    Some(effective / dt * 3.6)
+}
 const HOME_RADIUS_M: f64 = 100.0;
 const MAX_GAP_MS: i64 = 5 * 60_000;
 
@@ -230,6 +245,25 @@ mod tests {
 
     fn fix(p: Point, t_s: i64) -> Fix {
         Fix { lat: p.lat, lon: p.lon, t_ms: t_s * 1000, accuracy_m: 10.0 }
+    }
+
+    #[test]
+    fn implied_speed_discounts_the_error_radii() {
+        let a = Fix { accuracy_m: 5.0, ..fix(home(), 0) };
+        let b = Fix { accuracy_m: 5.0, ..fix(destination(home(), 0.0, 100.0), 10) };
+        let v = implied_speed_kmh(&a, &b).unwrap();
+        assert!((v - 32.4).abs() < 0.5, "(100 - 10) m in 10 s is 32.4 km/h, got {v}");
+        let jitter = Fix { accuracy_m: 5.0, ..fix(destination(home(), 0.0, 8.0), 5) };
+        assert_eq!(implied_speed_kmh(&a, &jitter), Some(0.0), "movement inside the error radii is noise");
+    }
+
+    #[test]
+    fn implied_speed_needs_a_sensible_gap() {
+        let a = fix(home(), 0);
+        let far = destination(home(), 0.0, 500.0);
+        assert_eq!(implied_speed_kmh(&a, &fix(far, 0)), None, "same instant");
+        assert_eq!(implied_speed_kmh(&a, &fix(far, 121)), None, "too long ago to compare");
+        assert!(implied_speed_kmh(&a, &fix(far, 60)).is_some());
     }
 
     #[test]
