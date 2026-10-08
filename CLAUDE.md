@@ -5,13 +5,12 @@ where checks are real-world places reached by walking, biking or driving. Androi
 inspiration only; we write our own apworld and client.
 
 ## Status
-v1 built (2026-10-08): apworld v2 (179 tests), Rust core (78 tests), Android app (Realms / New Game / Play), standalone solo mode, 12 goals, fog, traps,
-surface preference, Archipelago play. Verified on an emulator end to end (solo and against a local Archipelago server). Read
-`docs/context/v1-architecture-and-status.md` first: it lists what is verified and what is NOT (foreground service, real outdoor GPS, mode proof).
-Specs: `docs/superpowers/specs/2026-10-08-v1-quests-realms-design.md` (v1), `2026-10-07-apworld-design.md` (v1 apworld, superseded). Never work on main.
+Working Android app + Rust core + apworld 0.3.0 (slot_data schema 3), verified on an emulator (real phone: Pixel 8 Pro over wireless adb). **Read
+`docs/context/working-in-this-repo.md` (preferences, commands, gotchas, backlog) and `docs/context/v1-architecture-and-status.md` (what exists, what is
+verified, what is NOT) at the start of every session.** Never work on main; branch per task. Specs: `docs/superpowers/specs/`.
 
 ## Commands
-`just check` (apworld lint/types/tests), `cd core && cargo test`, `just android-run` (phone), `just emu-start && just emu-run && just e2e` (emulator),
+`just check` (apworld lint/types/tests), `cd core && cargo test` (also `cargo clippy --all-targets -- -D warnings`), `just android-run` (phone), `just emu-start && just emu-run && just e2e` (emulator),
 `just ap-host` (dev Archipelago server), `just build` (apworld artifact). `mise.toml` pins tools; `committed` and `gitleaks` need installing locally.
 
 ## Stack (decided and built)
@@ -23,14 +22,12 @@ via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monore
 1. Apworld + client contract + root/Python tooling (spec done)
 2. Rust core  3. Android app  4. Rust/Kotlin tooling  5. iOS
 
-## Key decisions
-- Own apworld, game name `Archipela-Go 2: Electric Boogaloo`, new ID offset, MIT license.
-- Compact location pool `Trip #1..#1000`; attributes in `slot_data` (`schema_version` gated; `type` hook).
-- Player-declared travel modes with client-enforced speed bands.
-- v1 mechanics: distance reductions, scouting + collection distance, traps, DeathLink, return-home. v1 challenge
-  type: `reach_point` only. Backlog: timed run, ordered points, steps, elevation, One Hard Travel.
-- Location generation: bulk Overpass tiles + local sampling + cache + endpoint fallback (fixes upstream's hang).
-Full table and rationale: `docs/context/project-decisions.md`.
+## Key decisions (full log: `docs/context/project-decisions.md`)
+- Own apworld, game `Archipela-Go 2: Electric Boogaloo`, new ID offset. Archipelago's own conventions are the golden rule.
+- Realms are places; **travel mode is chosen per zone in a game**; zones are gated by keys and tools; quests come from a 76-kind catalog on real finds.
+- Several win conditions (any / all / at least N) are client-evaluated and reported with `StatusUpdate`; slot_data is schema 3.
+- Scans use a global tile grid and a shared cache; the editor autosaves with undo/redo; one design system (`ui/`) and one help-text file.
+- Licence is MIT today but the owner plans to monetize: decide before going public (`working-in-this-repo.md`).
 
 ## Conventions
 - Conventional commits (`feat:`, `fix:`, `docs:`), subject under 50 chars. Small, tightly scoped steps.
@@ -64,3 +61,4 @@ If you need the v1 architecture, verified results, known gaps and how to run the
 If you need the full list of quest kinds (names, map filters, proof, modes), see `docs/context/quest-catalog.md` (generated)
 If you need the Android UI design system (palette, theme, shared components, rules) or the Archipelago logo/icon licence finding, see `docs/context/ui-design-system.md`
 If you need how scans, the tile grid, the shared cache, pacing/retries and the scan cooldown work, see `docs/context/scan-and-tile-cache.md`
+If you need to start working (owner preferences, build/install/test commands, gotchas, backlog, licence/publishing), see `docs/context/working-in-this-repo.md`

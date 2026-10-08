@@ -49,3 +49,16 @@ Our own successor to Archipela-Go! (upstream `aki665/react-native-archipelago`, 
 - Spec: `docs/superpowers/specs/2026-10-07-apworld-design.md`
 - Upstream: https://github.com/aki665/react-native-archipelago
 - Related: all other docs in `docs/context/`
+
+
+## 2026-10-07 UI and goals session (decisions)
+| Decision | Why |
+|--|--|
+| Travel mode moves from realm to zone/game; car hidden for now | A place is not a way of moving; the same downtown can be a walk zone and a bike zone |
+| Realm editor autosaves with Undo/Redo and a Done button, no Save/Cancel | An X felt like discarding; autosave + visible "All changes saved" + history is safer |
+| Finds are favorited/banned per realm (not global) | Owner choice; stored in `marks/<realm>.json`, survives rescans |
+| Global 0.02 degree tile grid + shared cache; manual cooldown (20 s/realm), big-area confirm, quiet retries | Reliability against slow public Overpass; overlap costs nothing |
+| Lucide icons via `ApgoIcons` (own runner icon); Archipelago logo NOT bundled (CC BY-NC) | Fun look; licence safety |
+| Several goals via `goal_selection` OptionSet + `goal_requirement` Choice (Satisfactory pattern); slot_data schema 3 | Follow Archipelago standards; client reports the goal |
+| Realm preview = real MapLibre snapshot + live overlay; Home is a separate green card | Distinct, instant, mostly offline |
+| Self-hosted Overpass deferred | Owner: not now |

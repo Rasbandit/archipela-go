@@ -1,66 +1,56 @@
-# Context Doc: v1 Architecture and Status (overnight build, 2026-10-08)
+# Context Doc: architecture and status
 
-_Last verified: 2026-10-08. Everything marked "verified" was run; everything under "Not done / not verified" was not._
+_Last verified: 2026-10-07 (end of the big UI session). "Verified" = run; "Not done" = not run. Read `docs/context/working-in-this-repo.md` next._
 
 ## What exists
-A real-world quest game. Players save **realms** (geofences tagged walk/run/bike/car), the app **scans** each realm's map data, and a game fills
-the realms with quests drawn from a 76-kind catalog. It plays **standalone (solo)** or as an **Archipelago** client. Win conditions: 12 goals.
+A real-world quest game. The player saves **realms** (places, a circle or polygon), the app **scans** each realm's map data into **finds**, and a **game**
+builds **zones** (a realm played by walk/run/bike) filled with quests from a 76-kind catalog. It plays **solo** or as an **Archipelago** client.
+Win conditions: 12 goals, one or several, combined any / all / at least N.
 
 ## Layout
 | Path | What |
 |--|--|
-| `apworld/` | Python apworld v2 (zones, tools, difficulty-named locations, 12 goals, 8 trap types). 179 tests. Contract: `apworld/docs/contract.md`, schema, sample slot_data, example.yaml |
-| `core/` (`apgo-core`) | Rust engine: catalog, realms, scan, assign, verify, goal, fog, traps, solo generator, game state, YAML builder. 78 unit tests + 1 regression test |
-| `core/ffi/` | UniFFI facade: `Engine` (realms, scan, games, play) and `ApSession` (Archipelago websocket via a patched `archipelago_rs`) |
-| `core/data/quest_catalog.json` | The quest kinds (source of truth; `scripts/catalog_doc.py` writes `docs/context/quest-catalog.md`) |
-| `android/` | Kotlin/Compose app: `AppModel` (state, GPS, steps, dev simulator, AP sync), `Screens` (Realms / New Game / Play), `QuestMap` (MapLibre) |
-| `scripts/` | `android_core.sh` (cargo-ndk + bindings), `emu.sh`, `e2e_emulator.sh`, `e2e_autoplay.sh`, `android_ui.py` (adb UI driver), `ap_host.sh` (dev Archipelago server) |
+| `apworld/` | Python apworld **0.3.0**, slot_data **schema 3** (`goals`, `goal_requirement`, `goal_need`). 210 tests. Contract: `apworld/docs/contract.md` |
+| `core/` (`apgo-core`) | Rust engine: catalog, realms (+marks, +icon), scan + **tile grid** (`tilegrid.rs`), assign, verify, goal, fog, traps, solo, game, yaml. 132 tests + 1 regression |
+| `core/ffi/` | UniFFI `Engine` (realms, finds, marks, stats, scan plan/progress, games, play) and `ApSession` (Archipelago via a patched `archipelago_rs`, see `core/vendor/PATCHES.md`) |
+| `android/` | Kotlin/Compose. `AppModel`, `Screens.kt` (Realms list/editor/home picker, Play), `NewGame.kt`, `QuestMap.kt` (MapLibre), `ui/` design system |
+| `scripts/` | `android_core.sh`, `emu.sh`, `android_ui.py` (adb UI driver), `ap_host.sh` (dev Archipelago server, env `APGO_GOALS`, `APGO_REQ`, `APGO_ZONES`), `e2e_*.sh` (STALE, see below) |
+| `docs/context/` | Everything below; index in `CLAUDE.md` |
 
-## Data flow
-`draw/circle realm -> Engine.scan_realm (tiled Overpass queries, cached) -> Atlas (places, streets, rough streets, per-kind matches)`
-`-> Game Builder: Solo (core/solo.rs generates slot_data + rewards) OR Archipelago (apworld generates; app reads slot_data)`
-`-> assign (slot -> kind + real place in the zone's realm by effort tier, mode, surface pref) -> play: GPS/steps -> verify trackers -> quest done`
-`-> Solo: local reward table | Archipelago: LocationChecks out, items back (ApSession.poll + syncItems) -> zone keys/tools unlock zones, traps fire`
-`-> goal evaluation (core/goal.rs) -> Archipelago: StatusUpdate(Goal)`
+## Screens (all verified on the emulator; phone = Pixel 8 Pro over wireless adb)
+- **Realms**: Home card (green outline, house, map preview) above a Realms list. Realm cards: icon, name, finds, quest types, map-snapshot preview. Swipe to delete (confirm + Undo bar).
+- **Realm editor** (full-screen map, autosave, Undo/Redo, no Save/Cancel, Done button): left toolbar = Circle|Polygon pill + Details; Area shows a stats box
+  (area, farthest from home, walkable, streets, trails, finds, parks, unpaved); Details shows name, icon, search, finds list with favorite/ban, callout bubbles.
+- **Home picker**: full-screen map, draggable house pin, tap to place, "Use my location".
+- **New Game**: zones added once (card = travel mode + quest types with live counts), several goals + rule, tooltips everywhere (`ui/Help*.kt`), Archipelago join.
+- **Play**: map with kind icons, per-goal progress, quest list, dev simulator buttons.
 
 ## Key design facts
-- Difficulty = estimated active minutes (`effort`). Tier = ceil(minutes / minutes_per_tier); Easy 1-3, Medium 4-7, Hard 8-10.
-- Locations are named `"{Easy|Medium|Hard} {Walk|Run|Bike|Drive} Quest #n"` so AP's standard `exclude_locations` / `priority_locations` accept groups (`Hard`, `Bike`...).
-- A zone's realm mode must equal the zone mode (mode tag decides which kinds can appear). Walk never needs a tool; Run/Bike/Drive zones need Running Shoes / Bike / Car.
-- Anti-cheat is light by design: GPS accuracy cap (75 m), mode speed caps (walk 12, run 25, bike 50 km/h), continuous-dwell, corridor coverage for trails.
-- Every trap has an exit (thaw point / waypoint / toll distance / timers). Fog reveal radius 150 m + 100 m per Scouting item.
-- The scanner uses ~1.5 km tiles, 3 parallel workers, per-query disk cache (30 days), endpoint health ordering. Cold scans of a dense 1.5 km downtown took 2-5 minutes on the public servers.
+- Difficulty = active minutes; tier = ceil(minutes / minutes_per_tier); Easy 1-3, Medium 4-7, Hard 8-10. Locations `"{Easy|Medium|Hard} {Walk|Run|Bike|Drive} Quest #n"`.
+- **Travel mode belongs to the zone/game, not the realm.** Any realm can serve any mode. Car is hidden in the UI (core still has `Drive`).
+- A realm stores a circle and a polygon (one active, one `spare`); old files with `mode`/`modes` still load.
+- Scan data is cached per **0.02 degree grid tile** (`http-cache/q-<hash>.json`, 30 days) and shared by every realm; moving a realm fetches only new tiles. Details in `scan-and-tile-cache.md`.
+- Every read of an atlas is restricted to the realm's current zone (`Atlas::restrict_to`); favorites/bans live in `marks/<realm>.json` per realm.
+- Trail finds are consolidated (30 m link, length gates, id-as-name ignored); a trail quest asks for the share of the line that fits the effort.
+- Walkable length = sum of unique street segments (sidewalks/crossings excluded), not points.
+- Zone keys + tools gate zones; every trap has an exit; anti-cheat is light (accuracy 75 m, speed caps).
 
-## Verified (2026-10-08)
-- Desktop: 78 core tests; autoplay on **real downtown Portland data** reached the quest-dex goal (`core/examples/play_sim.rs`).
-- Emulator (Android 16, x86_64) with the real app: realm scan -> solo game -> autoplay to win (quest-dex; letters with fog + paved-only + avoid stairs).
-- Emulator against a local **Archipelago server running the v2 apworld**: connect, slot_data, checks as `Easy Walk Quest #n`, Bike item unlocked zone 2 mid-game, goal reported, server printed "Team #1 has completed all of their games".
-- Persistence: games and realms survive app restarts and reinstalls.
-- Phone (Pixel 8 Pro): the earlier spike (Rust core, map, geofence, Archipelago checks) worked; the NEW UI was only tested on the emulator because the phone was locked overnight.
+## Verified
+- Core 132 + apworld 210 tests; ruff, pyright, clippy (`-D warnings`), rustfmt clean.
+- Real Archipelago `Generate.py` + `MultiServer` with 3 goals / "at least 2": the app's own reader (`cargo run --example parse_slot`) accepts the slot_data.
+- Emulator: realm create/edit/undo/redo/autosave, scan with progress and cooldown, cache hit (11 of 12 requests from cache after a nudge), stats, home picker,
+  New Game with zones + two goals starting a game, per-goal progress in Play, swipe delete + Undo, Back/Done/tab navigation.
+- Earlier (before the UI rework): solo autoplay to a win; full Archipelago session against a local server incl. a Bike item unlocking zone 2 and the goal being reported.
 
-## Bugs real data / emulator found and fixed
-Scan too slow (one big query) -> tiles + parallel + endpoint health; park center outside its polygon -> `point_inside`; trail roughness lost when stitching ways;
-round-trip timer swallowed the far-point fix after a timeout and started at first fix instead of leaving home; goal not reported to the server.
-
-## Not done / not verified (be honest)
-- **No foreground service / background location**: the app only tracks while open. This is the biggest gap before real outdoor play.
-- Real outdoor GPS play with the new UI is untested. Run `just android-run`, set a realm, tap "Real GPS".
-- Step quests need the phone's step counter: wired (ACTIVITY_RECOGNITION + TYPE_STEP_COUNTER) but only the simulator path was exercised.
-- Mode proof beyond speed caps (Activity Recognition: walking vs cycling vs vehicle) is not implemented.
-- `return_home` and `death_link` options reach the app in slot_data but are not implemented client-side. Effort Reduction and Collection Distance items are received but not applied (Scouting is applied to fog).
-- No UI for Archipelago chat, hints, or release/collect. No in-app warning when a realm is too small for a mode's difficulty (assignments then take the biggest thing available, flagged by effort).
-- Surface preference is best effort (OSM surface tags are sparse: ~18% of paths). Old atlases need a rescan to get rough-street data.
-- Public Overpass is the weak link (timeouts/504s). The prebuilt static atlas plan (`docs/context/poi-atlas-and-server-options.md`) is the real fix.
-- `archipelago_rs` is vendored with a patch (Android cache dir); no upstream issue/PR filed (decision: prove first).
-- Apworld: no WebWorld/website docs page; game-name spelling/ID collision checks are open items in the apworld spec.
-- Debug APK is ~90 MB (two ABIs, symbols); no signing/store work.
-
-## How to run
-- Emulator (no phone): `scripts/emu.sh create` once, `just emu-start`, `just emu-run`, `just e2e`. Dev Archipelago server: `APGO_ZONES=walk,bike APGO_GOAL=quest_dex just ap-host 40`; in the emulator app use server `10.0.2.2:38281`, slot `Tester`.
-- Phone: wireless debugging (`adb pair` / `adb connect`; reconnect after it drops), `just android-run`. When both phone and emulator are attached, set `ANDROID_SERIAL`.
-- Dev simulator buttons in the Play screen: "DEV: do next" (completes the next quest with realistic fixes), per-quest "DEV: complete", "Real GPS".
-- Emulator gotchas: only `-gpu swangle_indirect` works (others segfault); host loopback is `10.0.2.2`; `adb emu geo fix <lon> <lat>` sets GPS; the app subscribes to all location providers (emulator only feeds GPS).
-
-## Next steps (suggested)
-1. Foreground service + background location + wake handling. 2. Real outdoor test (short realm near home). 3. Prebuilt atlas/CDN to replace live scans.
-4. Activity Recognition for mode proof. 5. Client-side `return_home`, DeathLink, chat/hints. 6. Timed/ordered quests from the backlog. 7. iOS (Swift over the same Rust core).
+## Not done / not verified (be honest in summaries)
+- **No foreground service or background location**: tracking only works while the app is open and the screen on. Biggest gap before an outdoor test.
+- Real outdoor GPS with the new UI is untested (phone testing so far was indoors / install only). Mode proof (Activity Recognition) is not implemented.
+- `scripts/e2e_emulator.sh` is STALE (taps old labels such as "Circle around me", waits for "places"); it needs rewriting for the editor/New Game flows.
+- Archipelago play was not re-run after the goals rework beyond generation + parsing; the app's AP flow (`ApSession`) was not re-tested end to end.
+- `return_home`, `death_link` are ignored client-side; Effort Reduction / Collection items are received but not applied; no chat/hints/release UI.
+- Per-zone quest types exist in solo; the apworld has one list, so export sends the union.
+- Public Overpass servers are slow (a first scan of a new area can take minutes); a self-hosted Overpass was discussed and deferred.
+- No attribution/About screen yet (OSM, OpenFreeMap, Lucide ISC are required for a store release). No APK signing; debug APK is ~90 MB.
+- The apworld has no tutorial/game-info pages (WebWorld only carries option groups).
+- Launcher icon is the default; our own icon is not designed. The Archipelago logo (CC BY-NC) must not be bundled (`ui-design-system.md`).
+- Licensing: repo is MIT today. The owner wants to monetize the app: change the app's license before making the repo public (see `working-in-this-repo.md`).
