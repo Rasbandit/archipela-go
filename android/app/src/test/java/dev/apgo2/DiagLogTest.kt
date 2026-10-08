@@ -70,4 +70,51 @@ class DiagLogTest {
         // an unwritable location must not crash the app
         DiagLog(File(dir, "file-not-dir").apply { writeText("x") }, 1000, 3) { 4L }.write("I", "a", "ignored")
     }
+
+    private fun DiagLog.onlyLine() = files().single().readLines().single()
+
+    @Test fun infoAndWarnWriteTheirLevel() {
+        val l = log()
+        l.info("a", "one")
+        l.warn("b", "two", mapOf("n" to 1))
+        val lines = l.files().single().readLines()
+        assertEquals("""{"t":1000,"lvl":"I","tag":"a","msg":"one"}""", lines[0])
+        assertEquals("""{"t":1000,"lvl":"W","tag":"b","msg":"two","n":1}""", lines[1])
+    }
+
+    @Test fun errorWithoutAThrowableHasNoStack() {
+        val l = log()
+        l.error("net", "gone", fields = mapOf("code" to 7))
+        assertEquals("""{"t":1000,"lvl":"E","tag":"net","msg":"gone","code":7}""", l.onlyLine())
+    }
+
+    @Test fun fieldValuesAreWrittenAsJson() {
+        val l = log()
+        val fields =
+            mapOf(
+                "none" to null,
+                "long" to 12_345_678_901L,
+                "double" to 1.5,
+                "float" to 2.5f,
+                "nan" to Double.NaN,
+                "inf" to Double.POSITIVE_INFINITY,
+                "fnan" to Float.NaN,
+                "list" to listOf(1, 2),
+                "cr" to "a\rb",
+            )
+        l.write("I", "t", "m", fields)
+        assertEquals(
+            """{"t":1000,"lvl":"I","tag":"t","msg":"m","none":null,"long":12345678901,"double":1.5,"float":2.5,""" +
+                """"nan":null,"inf":null,"fnan":null,"list":"[1, 2]","cr":"a\rb"}""",
+            l.onlyLine(),
+        )
+    }
+
+    @Test fun theAppLogDropsEntriesBeforeInit() {
+        // Diag is never initialised in unit tests: every call must be a silent no-op, not a crash.
+        Diag.info("t", "m", "k" to 1)
+        Diag.warn("t", "m")
+        Diag.error("t", "m", IllegalStateException("x"))
+        Diag.failure("save", IllegalStateException("x"))
+    }
 }
