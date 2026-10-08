@@ -11,7 +11,7 @@ import kotlin.math.roundToLong
 internal object Units {
     private const val M_PER_MILE = 1609.344
     private const val M_PER_FOOT = 0.3048
-    private const val M_PER_KM = 1000
+    private const val NO_VALUE = "–"
     private const val M2_PER_KM2 = 1_000_000.0
     private const val SHORT_MILE_FRACTION = 0.1
     private const val HUNDREDS = 100
@@ -36,23 +36,26 @@ internal object Units {
     // Drops trailing fractional zeros and a dangling point, never integer zeros: "1.50" -> "1.5", "100" stays "100".
     private fun short(v: Double) = trim(v).let { if ('.' in it) it.trimEnd('0').trimEnd('.') else it }
 
+    /** A distance in metres; a NaN or infinite one (bad geometry) reads "–" rather than crashing the screen. */
     fun distance(m: Double): String =
-        if (imperial()) {
-            if (m <
-                SHORT_MILE_FRACTION * M_PER_MILE
-            ) {
-                "${fmt("%.0f", m / M_PER_FOOT)} ft"
-            } else {
-                "${short(m / M_PER_MILE)} mi"
+        when {
+            !m.isFinite() -> {
+                NO_VALUE
             }
-        } else {
-            // Switch on the rounded value, or 999.6 m would read "1000 m".
-            val whole = m.roundToLong()
-            if (whole < M_PER_KM) "$whole m" else "${short(m / M_PER_KM)} km"
+
+            imperial() -> {
+                if (m < SHORT_MILE_FRACTION * M_PER_MILE) "${fmt("%.0f", m / M_PER_FOOT)} ft" else "${short(m / M_PER_MILE)} mi"
+            }
+
+            else -> {
+                // Switch on the rounded value, or 999.6 m would read "1000 m".
+                val whole = m.roundToLong()
+                if (whole < METERS_PER_KM) "$whole m" else "${short(m / METERS_PER_KM)} km"
+            }
         }
 
-    /** A share in 0..1 as a whole percentage, e.g. "38%". */
-    fun percent(fraction: Double): String = "${fmt("%.0f", fraction * PERCENT)}%"
+    /** A share in 0..1 as a whole percentage, e.g. "38%"; float noise below 0 reads "0%", not "-0%". */
+    fun percent(fraction: Double): String = "${fmt("%.0f", fraction.coerceAtLeast(0.0) * PERCENT)}%"
 
     fun area(m2: Double): String = if (imperial()) "${trim(m2 / (M_PER_MILE * M_PER_MILE))} mi²" else "${trim(m2 / M2_PER_KM2)} km²"
 }

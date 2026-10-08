@@ -84,6 +84,16 @@ class UnitsTest {
         assertEquals("100%", Units.percent(1.0))
     }
 
+    @Test fun percentNeverShowsMinusZero() = assertEquals("0%", Units.percent(-1e-9))
+
+    @Test fun aDistanceThatIsNotANumberDoesNotCrash() {
+        metric()
+        assertEquals("–", Units.distance(Double.NaN))
+        assertEquals("–", Units.distance(Double.POSITIVE_INFINITY))
+        imperial()
+        assertEquals("–", Units.distance(Double.NaN))
+    }
+
     @Test fun percentUsesWesternDigitsInEveryLocale() {
         Locale.setDefault(Locale.forLanguageTag("ar-EG"))
         assertEquals("38%", Units.percent(0.375))
