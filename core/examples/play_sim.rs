@@ -1,5 +1,14 @@
 //! End-to-end check on REAL map data: scan a realm, generate a solo game, autoplay every quest to the goal.
 //! Usage: cargo run --release --example `play_sim` -- <lat> <lon> <`radius_m`> <trips> <goal> [mode]
+#![allow(
+    clippy::print_stdout,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::too_many_lines,
+    clippy::many_single_char_names
+)] // CLI example: prints results, fails fast on bad input, and uses demo-sized numbers
 
 use std::collections::BTreeMap;
 use std::time::Instant;
