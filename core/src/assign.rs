@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use rand::rngs::StdRng;
 use rand::seq::{IndexedRandom, SliceRandom};
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Catalog, Geom, Kind, Mode, Verify};
