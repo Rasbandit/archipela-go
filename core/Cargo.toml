@@ -41,7 +41,7 @@ description = "Archipela-Go 2 core: POI fetching, caching and trip sampling"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rand = "0.9"
+rand = "0.10"
 ureq = "3"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 
