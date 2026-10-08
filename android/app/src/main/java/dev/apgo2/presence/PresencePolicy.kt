@@ -42,7 +42,8 @@ class Debouncer(private val holdMs: Long = 45_000) {
 
     /**
      * Forget the history and start from [value]: a non-null value is stable at once and later changes are debounced; `null` means
-     * "no history", so the first real value fed afterwards is adopted at once (like a fresh debouncer). Never pending right after.
+     * "no history: the next real value is adopted at once". That differs from a fresh debouncer fed `null`, which stays unknown but
+     * would hold a following value. Never pending right after.
      */
     fun seed(value: Boolean?) {
         started = true

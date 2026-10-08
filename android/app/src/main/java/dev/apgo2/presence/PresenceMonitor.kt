@@ -37,6 +37,8 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
     var bluetoothReady = false
         private set
     private var proxiesPending = 0
+    /** Bumped on every start so that late answers from an earlier session are ignored. */
+    private var generation = 0
     private val bt = mutableSetOf<String>()
     private var started = false
 
@@ -86,22 +88,26 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ctx.registerReceiver(btReceiver, filter, Context.RECEIVER_EXPORTED) else ctx.registerReceiver(btReceiver, filter)
             connectedCarCandidates = bt.toSet()
             val adapter = ctx.getSystemService(BluetoothManager::class.java)?.adapter
-            if (adapter == null) bluetoothReady = true
             val profiles = intArrayOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)
+            val gen = ++generation
             proxiesPending = profiles.size
-            for (profile in profiles) {
-                adapter?.getProfileProxy(ctx, object : BluetoothProfile.ServiceListener {
+            /** One profile has answered (or cannot): the read is complete when none is left. Stale sessions are ignored. */
+            fun answered() { if (gen == generation && --proxiesPending <= 0) bluetoothReady = true }
+            if (adapter == null) { proxiesPending = 0; bluetoothReady = true }
+            else for (profile in profiles) {
+                val asked = adapter.getProfileProxy(ctx, object : BluetoothProfile.ServiceListener {
                     override fun onServiceConnected(p: Int, proxy: BluetoothProfile) {
-                        if (started) {
+                        if (started && gen == generation) {
                             runCatching { proxy.connectedDevices.forEach { bt.add(it.address) } }
                             connectedCarCandidates = bt.toSet()
-                            if (--proxiesPending <= 0) bluetoothReady = true
+                            answered()
                         }
                         adapter.closeProfileProxy(p, proxy)
-                        if (started) onChange()
+                        if (started && gen == generation) onChange()
                     }
                     override fun onServiceDisconnected(p: Int) {}
                 }, profile)
+                if (!asked) answered() // no listener will ever fire (adapter off)
             }
         } else {
             bluetoothReady = true // nothing to wait for: car devices stay unknown

@@ -2,6 +2,7 @@ package dev.apgo2
 
 import android.content.Context
 import android.location.Location
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -13,6 +14,7 @@ import dev.apgo2.presence.Decision
 import dev.apgo2.presence.GpsMode
 import dev.apgo2.presence.PresenceMonitor
 import dev.apgo2.presence.PresencePolicy
+import dev.apgo2.presence.PresenceSeeding
 import dev.apgo2.presence.PresenceSettings
 import dev.apgo2.presence.PresenceSignals
 import dev.apgo2.presence.PresenceState
@@ -47,7 +49,8 @@ import uniffi.apgo_ffi.ZoneOut
 
 private const val AWAY_MIN_MS = 60_000L
 private const val REEVALUATE_MS = 5_000L
-private const val SEED_FALLBACK_MS = 3_000L
+private const val SEED_TIMEOUT_MS = 3_000L
+private const val SEED_POLL_MS = 1_000L
 
 class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     val engine = Engine(ctx.filesDir.absolutePath)
@@ -158,31 +161,31 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
 
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private val reevaluate = Runnable { evaluatePresence() }
-    private val seedFallback = Runnable { seedWhatIsReady(timedOut = true) }
-    /**
-     * Each debouncer takes its first real reading once per monitor start, on its own signal: Wi-Fi on the first network callback,
-     * Bluetooth when the device read has answered, either after 3 s at the latest. While a started monitor is not fully seeded,
-     * [evaluatePresence] keeps the previous decision: reset or half-read values must not flip the presence.
-     */
-    private var homeSeeded = false
-    private var carSeeded = false
+    private val seedPoll = Runnable { pollSeeding() }
+    private val seeding = PresenceSeeding(SEED_TIMEOUT_MS)
     private var monitorBluetooth: Boolean? = null
     var locationPermitted = false
 
     private fun rawHome() = PresenceSignals.isHome(monitor.currentWifi, settings.homeNetworks)
     private fun rawCar() = PresenceSignals.carConnected(monitor.connectedCarCandidates, settings.carDevices)
 
-    private fun seedHome() { if (!homeSeeded) { homeSeeded = true; homeDebounce.seed(rawHome()) } }
-    private fun seedCar() { if (!carSeeded) { carSeeded = true; carDebounce.seed(rawCar()) } }
-
-    private fun seedWhatIsReady(timedOut: Boolean) {
-        if (timedOut || monitor.wifiReported) seedHome()
-        if (timedOut || monitor.bluetoothReady) seedCar()
-        main.removeCallbacks(seedFallback)
+    /**
+     * Each debouncer takes its first real reading once per monitor start, on its own signal (see [PresenceSeeding]); a signal that
+     * never answers (not on Wi-Fi, Bluetooth off) is read as it stands after the timeout. This one runnable reschedules itself while
+     * seeding is incomplete and is never cancelled by monitor events, which only call [pollSeeding] too.
+     * Known limit: after a process start the first game open waits for seeding (up to 3 s) with the previous decision (Stopped:
+     * not counting, idle GPS rate).
+     */
+    private fun pollSeeding() {
+        val plan = seeding.poll(SystemClock.elapsedRealtime(), monitor.wifiReported, monitor.bluetoothReady)
+        if (plan.home) homeDebounce.seed(rawHome())
+        if (plan.car) carDebounce.seed(rawCar())
+        main.removeCallbacks(seedPoll)
+        if (seeding.waiting) main.postDelayed(seedPoll, SEED_POLL_MS)
         evaluatePresence()
     }
 
-    private fun onMonitorChange() = seedWhatIsReady(timedOut = false)
+    private fun onMonitorChange() = pollSeeding()
 
     /**
      * Start the Wi-Fi/Bluetooth watcher once location permission is there, and again only when the Bluetooth grant changes.
@@ -192,32 +195,28 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
      */
     fun ensureMonitor(bluetoothGranted: Boolean) {
         if (monitorBluetooth == bluetoothGranted) return
+        monitorBluetooth = null // recorded again only if the start succeeds
         monitor.stop()
-        homeSeeded = false
-        carSeeded = false
+        seeding.restart(SystemClock.elapsedRealtime())
         runCatching { monitor.start() }
             .onSuccess { monitorBluetooth = bluetoothGranted }
             .onFailure { Diag.e("presence", "monitor start failed", it) }
-        // Whatever has not answered after 3 s is read as it stands (not on Wi-Fi, no Bluetooth device).
-        main.removeCallbacks(seedFallback)
-        main.postDelayed(seedFallback, SEED_FALLBACK_MS)
-        seedWhatIsReady(timedOut = false)
+        pollSeeding()
     }
 
     /** Recompute the presence decision from the current signals and apply it: GPS rate, the core's counting flag, and an activity-log line on change. */
     fun evaluatePresence() {
         val t = now()
         if (hud == null) zone = Zone.Unknown
-        val waiting = monitorBluetooth != null && !(homeSeeded && carSeeded)
-        if (waiting) { // restart in progress: keep the last decision (the core flag still follows it for a newly opened game)
+        if (seeding.waiting) { // restart in progress: keep the last decision (the core flag still follows it for a newly opened game)
             engine.setCounting(presence.counting)
             return
         }
-        val home = if (monitorBluetooth != null) homeDebounce.feed(rawHome(), t) else rawHome()
-        val car = if (monitorBluetooth != null) carDebounce.feed(rawCar(), t) else rawCar()
+        val home = if (seeding.complete) homeDebounce.feed(rawHome(), t) else rawHome()
+        val car = if (seeding.complete) carDebounce.feed(rawCar(), t) else rawCar()
         // A debounced change gets no event of its own (GPS may be off), so look again until it has settled.
         main.removeCallbacks(reevaluate)
-        if (monitorBluetooth != null && (homeDebounce.pending || carDebounce.pending)) main.postDelayed(reevaluate, REEVALUATE_MS)
+        if (seeding.complete && (homeDebounce.pending || carDebounce.pending)) main.postDelayed(reevaluate, REEVALUATE_MS)
         val d = PresencePolicy.decide(Signals(playing = hud != null, homeWifi = home, carBluetooth = car, zone = zone))
         // Every run, not only on change: a game that replaces an open one starts counting again. The core ignores an unchanged value.
         engine.setCounting(d.counting)
