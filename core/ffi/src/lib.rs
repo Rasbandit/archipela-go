@@ -4,17 +4,13 @@ use std::path::PathBuf;
 
 use apgo_core::fill::{fetch_streets, lattice};
 use apgo_core::geo::Point;
+use apgo_core::num::count_u32;
 use apgo_core::sampler::{sample, TripSpec};
 use apgo_core::zone::Zone;
 
 uniffi::setup_scaffolding!();
 
 pub mod engine;
-
-/// A count as `u32`, saturating at `u32::MAX` (counts here are far smaller).
-pub(crate) fn count(n: usize) -> u32 {
-    u32::try_from(n).unwrap_or(u32::MAX)
-}
 
 /// Must match the apworld's game name exactly (`apworld/ap_go2/constants.py`).
 const GAME_NAME: &str = "Archipela-Go 2: Electric Boogaloo";
@@ -118,7 +114,7 @@ pub fn generate_trips_for(zone: ZoneIn, specs: Vec<TripSpecIn>, seed: u64, mode:
         FillMode::Cells => lattice(&zone, (step_m / 3.0).clamp(30.0, 150.0)),
         FillMode::Streets => fetch_streets(&zone, 50.0, Some(&PathBuf::from(cache_dir))).map_err(|e| CoreError::Failed { detail: e.to_string() })?,
     };
-    let core_specs: Vec<TripSpec> = specs.iter().enumerate().map(|(i, s)| TripSpec { number: count(i) + 1, tier: s.tier }).collect();
+    let core_specs: Vec<TripSpec> = specs.iter().enumerate().map(|(i, s)| TripSpec { number: count_u32(i) + 1, tier: s.tier }).collect();
     let out = sample(&candidates, zone.home(), &core_specs, step_m, 40.0, seed);
     Ok(out
         .into_iter()
@@ -266,7 +262,7 @@ impl ApSession {
             .into_iter()
             .map(|e| match e {
                 ap::Event::Connected => ApEvent::Connected,
-                ap::Event::ReceivedItems(i) => ApEvent::ReceivedItems { from_index: count(i) },
+                ap::Event::ReceivedItems(i) => ApEvent::ReceivedItems { from_index: count_u32(i) },
                 ap::Event::Print(p) => ApEvent::Print { text: p.to_string() },
                 ap::Event::Updated(_) => ApEvent::Updated,
                 ap::Event::Error(err) => ApEvent::Error { detail: err.to_string() },
@@ -302,7 +298,7 @@ impl ApSession {
             .map(|r| {
                 let item = r.item();
                 ReceivedItemOut {
-                    index: count(r.index()),
+                    index: count_u32(r.index()),
                     item_id: item.id(),
                     name: item.name().to_string(),
                     sender: r.sender().name().to_string(),

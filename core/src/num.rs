@@ -1,7 +1,8 @@
 //! Small, saturating numeric conversions for counts that are far below the target type's limits.
 
 /// A count as `u32`, saturating at `u32::MAX` (counts here are bounded by game size, so saturation is unreachable in practice).
-pub(crate) fn count_u32(n: usize) -> u32 {
+#[must_use]
+pub fn count_u32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
