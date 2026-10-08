@@ -12,8 +12,9 @@ verified, what is NOT) at the start of every session.** Never work on main; bran
 
 ## Commands
 
-`just check` (apworld lint/types/tests), `cd core && cargo test` (also `cargo clippy --all-targets -- -D warnings`), `just android-run` (phone), `just emu-start && just emu-run && just e2e` (emulator),
-`just ap-host` (dev Archipelago server), `just build` (apworld artifact). `mise.toml` pins tools; `committed` and `gitleaks` need installing locally.
+`just check` (everything; also `just check-py|check-rust|check-android|check-hygiene`), `just android-run` (phone), `just emu-start && just emu-run && just e2e` (emulator),
+`just ap-host` (dev Archipelago server), `just build` (apworld artifact). Pre-push runs `scripts/prepush.sh` (only the recipes for touched paths). Coverage floors (py 99, rust 80, kotlin 7) only go up.
+`mise.toml` pins tools; `committed`, `gitleaks`, `cargo-deny`, `cargo-llvm-cov` and `markdownlint-cli2` need installing locally (`CONTRIBUTING.md`).
 
 ## Stack (decided and built)
 

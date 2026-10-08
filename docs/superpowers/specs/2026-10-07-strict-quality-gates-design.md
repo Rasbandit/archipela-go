@@ -37,7 +37,7 @@ Out of scope (issues filed): emulator e2e in CI (needs a KVM runner), mutation t
   - Allow-list with reasons: `module_name_repetitions`; others only if justified in the commit body.
 - Cast lints are fixed with `try_from`/checked conversions; a local `#[allow]` with a comment only where loss is
   intended (geo math).
-- `RUSTFLAGS=-D warnings` everywhere; `just core-check` also runs `cargo test` for `apgo-ffi` and `cargo doc` with
+- `RUSTFLAGS=-D warnings` everywhere; `just check-rust` also runs `cargo test` for `apgo-ffi` and `cargo doc` with
   `-D warnings`.
 - `cargo-deny` (`core/deny.toml`): advisories, licence allow-list (MIT/Apache/BSD/ISC/Unicode/Zlib/MPL), bans
   duplicate major versions as warnings, sources restricted to crates.io. Matters for the future monetisation decision.
@@ -90,3 +90,17 @@ it, confirm green. Each step ends with a green full `just check`.
 - `{push_files}` is empty on a new branch's first push in some lefthook versions; the pre-push then falls back to
   running every language (safe default).
 - Large mechanical diffs in step 1/2; kept to `--fix` output plus hand fixes, reviewed per lint group.
+
+## Deviations (as built)
+
+- Android CI builds the UniFFI bindings on the host (`scripts/android_bindings.sh`); no NDK or Rust Android targets.
+- Pre-push is a tested script (`scripts/prepush.sh`) that reads git's pushed refs on stdin, instead of lefthook
+  `{push_files}` globs. It falls back to upstream/merge-base, and to everything (`__ALL__`) when unsure.
+- `unsafe_code` is denied at the workspace and `#![forbid(unsafe_code)]` is set in `apgo-core`.
+- Commit types `build`/`ci` are rejected by the `committed` hook; use `chore`.
+- Cast lints use saturating helpers in `core/src/num.rs` instead of propagating `try_from` errors.
+- detekt 2.0.0-alpha.6: no stable 2.x supports Kotlin 2.4. The Compose `UnstableCollections` rule is disabled
+  (strong skipping).
+- Ruff's copyright-header rule is ignored (licence undecided).
+- Release automation uses release-please-action v5.
+- `just core-check` was renamed `just check-rust`.

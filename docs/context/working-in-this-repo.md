@@ -14,8 +14,9 @@
 
 | Task | Command |
 | -- | -- |
-| Core tests / lint | `cd core && cargo test && cargo fmt && cargo clippy --all-targets -- -D warnings` (also in `core/ffi`) |
-| Apworld tests / lint | `uv run --project apworld pytest apworld -q`, `ruff check apworld`, `ruff format apworld`, `pyright --project apworld` (or `just check`) |
+| All gates | `just check` (or `just check-hygiene`, `check-py`, `check-rust`, `check-android`); pre-push runs only what your changes touch |
+| Core tests / lint | `cd core && cargo test && cargo fmt && cargo clippy --all-targets -- -D warnings` (or `just check-rust`) |
+| Apworld tests / lint | `uv run --project apworld pytest apworld -q`, `ruff check apworld`, `ruff format apworld`, `pyright --project apworld` (or `just check-py`) |
 | Rebuild native libs + Kotlin bindings | `APGO_ABIS="arm64-v8a x86_64" bash scripts/android_core.sh debug` (needed after ANY change to `core/ffi`; x86_64 is the emulator) |
 | Build APK | `cd android && ./gradlew assembleDebug --console=plain -q` |
 | Emulator | `adb -s emulator-5554 install -r android/app/build/outputs/apk/debug/app-debug.apk`; start with `just emu-start` (headless, `-gpu swangle_indirect`) |
@@ -36,6 +37,11 @@
 - UniFFI: a record field named `message` clashes with Kotlin's Throwable.message; rustls needs the ring provider installed explicitly; generated Kotlin lives in `src/main/kotlin`.
 - Compose icons: Lucide names differ from memory (e.g. no `CloudCheck`, `CircleHelp` exists). A wrong name is a compile error: fix by trying the compiler.
 - The commit hook wants imperative subjects (`feat: show finds`, not `feat: finds ...`) and lines under 72 chars in the body.
+- Generated `android/app/src/main/kotlin/uniffi/` is excluded from every Kotlin gate (Spotless, detekt, Lint, Kover); never edit or lint it. `core/vendor/` is likewise untouched.
+- `bash scripts/android_bindings.sh` builds the bindings on the host (no NDK) for `just check-android` and CI; `android_core.sh` is for device builds.
+- Raising a coverage floor: python `fail_under` in `apworld/pyproject.toml`, rust `--fail-under-lines` in the `check-rust` justfile recipe, kotlin `minBound` in `android/app/build.gradle.kts`.
+  Set it to the measured line coverage rounded down. Floors only go up.
+- Every `allow` / `ignore` / `@Suppress` / `noqa` must be as local as possible and carry a reason comment.
 - rustfmt width is 160; after `cargo fmt` literals may be reformatted, so re-read before scripted edits.
 
 ## Where things are decided (pointers, do not duplicate)

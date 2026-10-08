@@ -1,11 +1,16 @@
 # Context Doc: Android Dev Workflow (Rust core + Kotlin/Compose on a real phone)
 
-_Last verified: 2026-10-07_
+_Last verified: 2026-10-08_
 
 ## Status
 
 Working end to end on a Pixel 8 Pro (Android 17, arm64) over wireless debugging. Spike A proven: the Rust core (`core/ffi`, UniFFI) loads
 and runs in a Compose app. On device: 100 trips offline cells 1.07 s; streets (live Overpass) 24.7 s cold; debug build.
+
+## Quality gates
+
+`just check-android` = `scripts/android_bindings.sh` (host-built UniFFI bindings, no NDK) then Gradle `spotlessCheck detekt lintDebug testDebugUnitTest koverVerifyDebug`.
+Generated `uniffi/` is excluded. Needs `JAVA_HOME` (the justfile defaults to a Fedora JDK 25 path).
 
 ## Daily loop (about 8 s from edit to running app)
 
