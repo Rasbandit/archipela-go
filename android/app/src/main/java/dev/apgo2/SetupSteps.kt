@@ -315,11 +315,11 @@ private fun AllowBluetooth(ask: PermissionAskState) {
     val blocked = ask.action == PermissionAsk.OpenSettings
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = ask::ask) { Text(if (blocked) "Open settings to allow Bluetooth" else "Allow Bluetooth to pick your car") }
-        Text(
-            if (blocked) SetupText.CAR_BLUETOOTH_BLOCKED else SetupText.CAR_NEEDS_BLUETOOTH,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (blocked) {
+            FeedbackText(SetupText.CAR_BLUETOOTH_BLOCKED, Tone.Warning)
+        } else {
+            Text(SetupText.CAR_NEEDS_BLUETOOTH, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

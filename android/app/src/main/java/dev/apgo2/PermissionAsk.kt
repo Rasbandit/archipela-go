@@ -20,7 +20,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.edit
 import androidx.lifecycle.compose.LifecycleResumeEffect
 
-private const val PREFS = "prefs"
+/** The app's shared preferences file (permission records live here). */
+internal const val PREFS = "prefs"
 private const val DENIED_PREFIX = "denied:"
 private const val LOG_TAG = "permission"
 
@@ -43,6 +44,23 @@ internal fun permissionAsk(
         else -> PermissionAsk.Request
     }
 
+/**
+ * What to remember after the system dialog answered ([granted]), given the rationale flag read right after it ([rationaleNow]).
+ * A grant clears the record (so a later auto-reset of an unused permission starts fresh). A denial that now wants a rationale is a
+ * real first "no". A denial without one is either a dismissal (tap outside, Back) or the final "no" after an earlier one, so
+ * the record stays as it was ([deniedBefore]).
+ */
+internal fun deniedAfterAnswer(
+    granted: Boolean,
+    rationaleNow: Boolean,
+    deniedBefore: Boolean,
+): Boolean =
+    when {
+        granted -> false
+        rationaleNow -> true
+        else -> deniedBefore
+    }
+
 /** One permission asked from a screen button: [action] says which button to show, [ask] does it. */
 @Stable
 internal class PermissionAskState(
@@ -63,7 +81,8 @@ internal class PermissionAskState(
 
     /** The system dialog answered: remember a denial so a later "never ask again" can be told apart from "never asked". */
     fun onAnswer(isGranted: Boolean) {
-        prefs().edit { putBoolean(DENIED_PREFIX + permission, !isGranted) }
+        val denied = deniedAfterAnswer(isGranted, rationale(), deniedBefore())
+        prefs().edit { putBoolean(DENIED_PREFIX + permission, denied) }
         Diag.info(LOG_TAG, permission, "granted" to isGranted)
         refresh()
     }
@@ -81,16 +100,14 @@ internal class PermissionAskState(
         Diag.info(LOG_TAG, permission, "open_settings" to true)
         val intent =
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", ctx.packageName, null))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { ctx.startActivity(intent) }.onFailure { Diag.error(LOG_TAG, "app settings did not open", it) }
     }
 
-    private fun read() =
-        permissionAsk(
-            granted = granted(),
-            deniedBefore = prefs().getBoolean(DENIED_PREFIX + permission, false),
-            showRationale = activity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, permission) } ?: false,
-        )
+    private fun read() = permissionAsk(granted(), deniedBefore(), rationale())
+
+    private fun deniedBefore() = prefs().getBoolean(DENIED_PREFIX + permission, false)
+
+    private fun rationale() = activity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, permission) } ?: false
 
     private fun prefs() = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }
@@ -108,7 +125,7 @@ internal fun rememberPermissionAsk(
     val ctx = LocalContext.current
     val activity = LocalActivity.current
     val answer by rememberUpdatedState(onAnswer)
-    val state = remember(permission) { PermissionAskState(ctx, activity, permission, granted) }
+    val state = remember(permission, ctx, activity) { PermissionAskState(ctx, activity, permission, granted) }
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
             state.onAnswer(it)
