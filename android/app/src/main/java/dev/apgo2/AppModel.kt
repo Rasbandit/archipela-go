@@ -131,7 +131,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             "last_acc_m" to lastFixAcc, "last_provider" to lastFixProvider,
             "steps" to stepsTotal, "battery_pct" to bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY),
             "screen_on" to pm.isInteractive, "power_save" to pm.isPowerSaveMode,
-            "doze" to pm.isDeviceIdleMode, "unrestricted" to pm.isIgnoringBatteryOptimizations(ctx.packageName),
+            "doze" to pm.isDeviceIdleMode, "bg_location" to (android.os.Build.VERSION.SDK_INT < 29 || ctx.checkSelfPermission(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED), "unrestricted" to pm.isIgnoringBatteryOptimizations(ctx.packageName),
             "quests" to quests.size, "done" to (hud?.done ?: 0),
         )
         fixesSinceBeat = 0; rejectedSinceBeat = 0

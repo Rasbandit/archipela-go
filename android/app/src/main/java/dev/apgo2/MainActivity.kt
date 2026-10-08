@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -9,6 +10,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.core.content.ContextCompat
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +29,9 @@ import dev.apgo2.ui.ApgoTheme
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+    private fun hasBackgroundLocation() =
+        Build.VERSION.SDK_INT < 29 || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Transparent system bars, with dark or light icons chosen from the system theme (the app theme follows the same setting, so they agree).
@@ -35,10 +43,12 @@ class MainActivity : ComponentActivity() {
                 // No manual status-bar padding: Scaffold insets its own content, and this surface paints behind the bars.
                 Surface(Modifier.fillMaxSize()) {
                     val owner = LocalLifecycleOwner.current
+                    // "Allow all the time". Re-read on every start: the user grants it on a system settings page, not in a dialog.
+                    var bgGranted by remember { mutableStateOf(hasBackgroundLocation()) }
                     DisposableEffect(owner) {
                         val obs = LifecycleEventObserver { _, e ->
                             when (e) {
-                                Lifecycle.Event.ON_START -> model.onForeground()
+                                Lifecycle.Event.ON_START -> { bgGranted = hasBackgroundLocation(); model.onForeground() }
                                 Lifecycle.Event.ON_STOP -> model.onBackground()
                                 else -> {}
                             }
@@ -59,6 +69,27 @@ class MainActivity : ComponentActivity() {
                     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permitted = it; Diag.i("permission", "fine_location", "granted" to it) }
                     LaunchedEffect(Unit) { ask.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
                     LaunchedEffect(permitted) { if (permitted) askSteps.launch(Manifest.permission.ACTIVITY_RECOGNITION) }
+
+                    val askBackground = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                        bgGranted = it || hasBackgroundLocation()
+                        Diag.i("permission", "background_location", "granted" to bgGranted)
+                    }
+                    var bgDeclined by remember { mutableStateOf(getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("bg_declined", false)) }
+                    if (permitted && !bgGranted && !bgDeclined && Build.VERSION.SDK_INT >= 29) {
+                        AlertDialog(
+                            onDismissRequest = {},
+                            title = { Text("Track with the screen off") },
+                            text = { Text("To keep recording your route and completing quests while the phone is in your pocket, choose \"Allow all the time\" for location on the next screen. Your location stays on this phone.") },
+                            confirmButton = { TextButton(onClick = { askBackground.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }) { Text("Continue") } },
+                            dismissButton = {
+                                TextButton(onClick = {
+                                    bgDeclined = true
+                                    getSharedPreferences("prefs", MODE_PRIVATE).edit().putBoolean("bg_declined", true).apply()
+                                    Diag.i("permission", "background_location", "granted" to false, "declined_in_app" to true)
+                                }) { Text("Not now") }
+                            },
+                        )
+                    }
 
                     LaunchedEffect(stepsOk) { if (stepsOk) model.sensors.startSteps() }
                     val rate = GpsPolicy.forState(playing = model.quests.isNotEmpty())
