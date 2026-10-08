@@ -19,7 +19,7 @@ import java.util.Date
 
 /** "While you were out": what the phone recorded since the app was last in the background. */
 @Composable
-fun AwayDialog(
+internal fun AwayDialog(
     r: AwayReportOut,
     onDismiss: () -> Unit,
 ) {

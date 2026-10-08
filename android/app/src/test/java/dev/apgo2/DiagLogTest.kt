@@ -68,6 +68,6 @@ class DiagLogTest {
         DiagLog(dir, 1_000_000, 5) { 2L }.write("I", "a", "two")
         assertEquals(2, DiagLog(dir, 1_000_000, 5) { 3L }.files().sumOf { it.readLines().size })
         // an unwritable location must not crash the app
-        DiagLog(File(dir, "file-not-dir").also { it.writeText("x") }, 1000, 3) { 4L }.write("I", "a", "ignored")
+        DiagLog(File(dir, "file-not-dir").apply { writeText("x") }, 1000, 3) { 4L }.write("I", "a", "ignored")
     }
 }

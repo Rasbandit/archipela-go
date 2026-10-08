@@ -1,7 +1,7 @@
 package dev.apgo2
 
 /** Lets an action through at most once per [gapMs]. Not thread-safe: call it from one thread (the UI thread). */
-class Throttle(
+internal class Throttle(
     private val gapMs: Long,
 ) {
     private var last: Long? = null

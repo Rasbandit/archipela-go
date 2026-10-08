@@ -10,15 +10,16 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 
-/** How long the step counter may hold readings back before delivering them (microseconds). */
+// How long the step counter may hold readings back before delivering them (microseconds).
 private const val STEP_BATCH_US = 10_000_000
+private const val TAG = "sensors"
 
 /**
  * Location and step-counter listeners. They belong to the app model, not to the activity, so they keep running
  * (with [TrackingService] holding the process in the foreground) when the screen is off or the activity is gone.
  * Callers must hold the matching permissions before calling the start functions.
  */
-class Sensors(
+internal class Sensors(
     private val ctx: Context,
     private val model: AppModel,
 ) {
@@ -50,14 +51,14 @@ class Sensors(
                 lm.requestLocationUpdates(p, rate.intervalMs, rate.minDistanceM, l)
                 registered = true
                 lm.getLastKnownLocation(p)?.let { model.realLoc = it }
-            }.onFailure { Diag.e("sensors", "requestLocationUpdates failed for $p", it) }
+            }.onFailure { Diag.error(TAG, "requestLocationUpdates failed for $p", it) }
         }
         // Nothing registered (no permission yet): remember nothing, so a later call with the same rate tries again.
         if (!registered) return lm.removeUpdates(l)
         locationListener = l
         this.rate = rate
-        Diag.i(
-            "sensors",
+        Diag.info(
+            TAG,
             "location started",
             "interval_ms" to rate.intervalMs,
             "min_dist_m" to rate.minDistanceM,
@@ -66,7 +67,7 @@ class Sensors(
     }
 
     fun stopLocation() {
-        if (locationListener != null) Diag.i("sensors", "location stopped")
+        if (locationListener != null) Diag.info(TAG, "location stopped")
         locationListener?.let { lm.removeUpdates(it) }
         locationListener = null
         rate = null
@@ -74,7 +75,7 @@ class Sensors(
 
     fun startSteps() {
         if (stepListener != null) return
-        val sensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return Diag.w("sensors", "no step counter on this device")
+        val sensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return Diag.warn(TAG, "no step counter on this device")
         val l =
             object : SensorEventListener {
                 override fun onSensorChanged(e: SensorEvent) {
@@ -84,12 +85,14 @@ class Sensors(
                 override fun onAccuracyChanged(
                     s: Sensor?,
                     a: Int,
-                ) {}
+                ) {
+                    // The step counter's accuracy does not matter here.
+                }
             }
         // Let the hardware batch readings for up to 10 s: nothing here needs a step the moment it happens.
         sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL, STEP_BATCH_US)
         stepListener = l
-        Diag.i("sensors", "steps started")
+        Diag.info(TAG, "steps started")
     }
 
     fun stopSteps() {

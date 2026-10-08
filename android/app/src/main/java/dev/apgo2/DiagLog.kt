@@ -7,7 +7,7 @@ import java.io.File
  * the device and analysed later. One line per entry: `{"t":epoch_ms,"lvl":"I|W|E","tag":..,"msg":..,<fields>}`.
  * Never throws: a log that cannot be written must not break the app.
  */
-class DiagLog(
+internal class DiagLog(
     private val dir: File,
     private val maxFileBytes: Long = 2_000_000,
     private val keep: Int = 10,
@@ -105,7 +105,7 @@ class DiagLog(
 }
 
 /** The app-wide log. Safe to call before [init] (entries are dropped). */
-object Diag {
+internal object Diag {
     @Volatile private var log: DiagLog? = null
 
     /** App-specific external storage, so `adb pull` can read it without run-as (falls back to internal files). */
@@ -113,7 +113,7 @@ object Diag {
         log = DiagLog(java.io.File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "diag"))
     }
 
-    fun i(
+    fun info(
         tag: String,
         msg: String,
         vararg fields: Pair<String, Any?>,
@@ -121,7 +121,7 @@ object Diag {
         log?.info(tag, msg, mapOf(*fields))
     }
 
-    fun w(
+    fun warn(
         tag: String,
         msg: String,
         vararg fields: Pair<String, Any?>,
@@ -129,7 +129,7 @@ object Diag {
         log?.warn(tag, msg, mapOf(*fields))
     }
 
-    fun e(
+    fun error(
         tag: String,
         msg: String,
         t: Throwable? = null,
@@ -137,4 +137,10 @@ object Diag {
     ) {
         log?.error(tag, msg, t, mapOf(*fields))
     }
+
+    /** An app-model operation ([what]) threw: log it with its stack. */
+    fun failure(
+        what: String,
+        t: Throwable,
+    ) = error("model", "$what failed", t)
 }

@@ -13,7 +13,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** One figure with its label under it. */
+private const val PERCENT = 100
+
+// One figure with its label under it.
 @Composable
 private fun RowScope.Stat(
     label: String,
@@ -31,7 +33,7 @@ private fun RowScope.Stat(
  * A figure that is not known yet is null and shows [waiting] ("after scan" or "looking…") in its place.
  */
 @Composable
-fun RealmStatsBox(
+internal fun RealmStatsBox(
     area: Double,
     farthest: Double,
     scan: ScanFigures?,
@@ -60,14 +62,14 @@ fun RealmStatsBox(
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Stat("parks", scan?.parks?.toString() ?: waiting)
-            Stat("unpaved", scan?.let { "%.0f%%".format(it.roughShare * 100) } ?: waiting)
+            Stat("unpaved", scan?.let { "%.0f%%".format(it.roughShare * PERCENT) } ?: waiting)
             Stat("", "")
         }
     }
 }
 
 /** The figures a scan gives (plain values, so this file does not depend on the generated bindings). */
-data class ScanFigures(
+internal data class ScanFigures(
     val walkableM: Double,
     val streets: Int,
     val trailM: Double,

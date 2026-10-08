@@ -2,11 +2,13 @@ package dev.apgo2.ui
 
 import uniffi.apgo_ffi.ChainOut
 
+private const val MINUTES_PER_HOUR = 60
+
 /** Text and bar maths for a progressive quest (a chain). Pure, so it is unit-tested. */
-object ChainFormat {
+internal object ChainFormat {
     fun thousands(n: Long): String = "%,d".format(java.util.Locale.US, n)
 
-    /** The number with its unit word left off: "5,100", "1 h 30 min", "40". */
+    // The number with its unit word left off: "5,100", "1 h 30 min", "40".
     private fun bare(
         unit: String,
         value: Double,
@@ -30,7 +32,7 @@ object ChainFormat {
 
     private fun minutes(m: Double): String {
         val total = m.coerceAtLeast(0.0).toLong()
-        val (h, r) = total / 60 to total % 60
+        val (h, r) = total / MINUTES_PER_HOUR to total % MINUTES_PER_HOUR
         return when {
             h == 0L -> "$r min"
             r == 0L -> "$h h"

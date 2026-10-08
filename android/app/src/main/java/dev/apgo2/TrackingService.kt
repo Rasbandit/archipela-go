@@ -45,13 +45,13 @@ class TrackingService : Service() {
                 .setContentIntent(open)
                 .build()
         startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-        Diag.i("service", "started", "restart" to (intent == null))
+        Diag.info("service", "started", "restart" to (intent == null))
         if (beat?.isActive != true) {
             beat =
                 scope.launch {
                     while (true) {
                         delay(HEARTBEAT_MS)
-                        (application as ApgoApp).model.heartbeat()
+                        (application as ApgoApp).model.diag.heartbeat()
                     }
                 }
         }
@@ -59,18 +59,21 @@ class TrackingService : Service() {
     }
 
     override fun onDestroy() {
-        Diag.i("service", "stopped")
+        Diag.info("service", "stopped")
         scope.cancel()
         super.onDestroy()
     }
 
+    /** Constants and the start/stop entry points for the service. */
     companion object {
         private const val CHANNEL = "tracking"
         private const val ID = 1
         private const val HEARTBEAT_MS = 60_000L
 
+        /** Starts the foreground service. */
         fun start(ctx: Context) = ctx.startForegroundService(Intent(ctx, TrackingService::class.java))
 
+        /** Stops the foreground service. */
         fun stop(ctx: Context) {
             ctx.stopService(Intent(ctx, TrackingService::class.java))
         }

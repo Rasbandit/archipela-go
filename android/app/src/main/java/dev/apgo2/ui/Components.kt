@@ -34,17 +34,17 @@ import androidx.compose.ui.unit.sp
 
 /** Shared building blocks. Screens compose these; they do not restyle Material widgets themselves. */
 
-val MODES = listOf("walk", "run", "bike", "drive")
+internal val MODES = listOf("walk", "run", "bike", "drive")
 
 /** The modes a realm or zone can be for right now. Car is not offered yet. */
-val PLAY_MODES = listOf("walk", "run", "bike")
+internal val PLAY_MODES = listOf("walk", "run", "bike")
 
 /** The game says "car" where the data says "drive". */
-fun modeLabel(mode: String) = if (mode == "drive") "car" else mode
+internal fun modeLabel(mode: String) = if (mode == "drive") "car" else mode
 
 /** A selectable chip. The selected one is a solid fill, so it reads clearly against the card behind it. */
 @Composable
-fun ApgoChip(
+internal fun ApgoChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
@@ -71,7 +71,7 @@ fun ApgoChip(
 
 /** One row of single-choice chips, optionally with an icon on each. */
 @Composable
-fun <T> ChoiceChips(
+internal fun <T> ChoiceChips(
     options: List<T>,
     selected: T,
     onSelect: (T) -> Unit,
@@ -88,7 +88,7 @@ fun <T> ChoiceChips(
 
 /** A panel floating over a full-page map. With [fillHeight] its content may use all the height the caller gives the card (for lists). */
 @Composable
-fun MapOverlayCard(
+internal fun MapOverlayCard(
     modifier: Modifier = Modifier,
     fillHeight: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
@@ -103,7 +103,7 @@ fun MapOverlayCard(
 }
 
 /** Where a callout goes relative to the pin it describes. */
-object BubblePlacement {
+internal object BubblePlacement {
     /**
      * Top-left of the bubble in the container's pixels: above the pin and centred on it when that fits, otherwise below, and
      * always inside the container.
@@ -130,7 +130,7 @@ object BubblePlacement {
  * can make room for it). Used by the realm editor (a find) and the Play map (a quest).
  */
 @Composable
-fun MapBubble(
+internal fun MapBubble(
     at: androidx.compose.ui.geometry.Offset,
     onSize: (androidx.compose.ui.unit.IntSize) -> Unit,
     modifier: Modifier = Modifier,
@@ -170,11 +170,11 @@ fun MapBubble(
     }
 }
 
-enum class Tone { Warning, Danger, Success, Muted }
+internal enum class Tone { Warning, Danger, Success, Muted }
 
 /** A line of status text; warnings and errors get a warning icon in front. */
 @Composable
-fun FeedbackText(
+internal fun FeedbackText(
     text: String,
     tone: Tone,
     modifier: Modifier = Modifier,
@@ -205,7 +205,7 @@ fun FeedbackText(
 
 /** An icon button that is lit in [tint] when [active] and dim otherwise (favorite star, ban sign). */
 @Composable
-fun MarkToggle(
+internal fun MarkToggle(
     icon: ImageVector,
     description: String,
     active: Boolean,
@@ -225,7 +225,7 @@ fun MarkToggle(
 
 /** The content of a button: an optional icon in front of the label. */
 @Composable
-fun IconLabel(
+internal fun IconLabel(
     text: String,
     icon: ImageVector?,
     modifier: Modifier = Modifier,
@@ -239,7 +239,7 @@ fun IconLabel(
 
 /** A row of icon-only single-choice toggles, for tight spaces. Each needs a [description] for accessibility. */
 @Composable
-fun <T> IconChoices(
+internal fun <T> IconChoices(
     options: List<T>,
     selected: T,
     onSelect: (T) -> Unit,
@@ -252,75 +252,8 @@ fun <T> IconChoices(
             FilledIconToggleButton(
                 checked = option == selected,
                 onCheckedChange = { onSelect(option) },
-                colors =
-                    IconButtonDefaults.filledIconToggleButtonColors(
-                        containerColor = Color.Transparent,
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        checkedContainerColor = MaterialTheme.colorScheme.primary,
-                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
+                colors = toolToggleColors(),
             ) { Icon(icon(option), contentDescription = description(option), modifier = Modifier.size(20.dp)) }
         }
     }
-}
-
-/** A round icon button for a tool strip floating over the map; the selected tool is filled. */
-@Composable
-fun ToolButton(
-    icon: ImageVector,
-    description: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    selected: Boolean = false,
-    enabled: Boolean = true,
-) {
-    FilledIconToggleButton(
-        modifier = modifier,
-        checked = selected,
-        onCheckedChange = { onClick() },
-        enabled = enabled,
-        colors =
-            IconButtonDefaults.filledIconToggleButtonColors(
-                containerColor = Color.Transparent,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                checkedContainerColor = MaterialTheme.colorScheme.primary,
-                checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-    ) { Icon(icon, contentDescription = description, modifier = Modifier.size(22.dp)) }
-}
-
-/** A rounded group of tools floating over the map. Tools in one pill belong together (for example Circle and Polygon: one or the other). */
-@Composable
-fun ToolPill(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Column(
-        modifier
-            .background(
-                MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                androidx.compose.foundation.shape
-                    .RoundedCornerShape(24.dp),
-            ).padding(4.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-        content = content,
-    )
-}
-
-/** Like [ToolPill], laid out in a row. */
-@Composable
-fun ToolPillRow(
-    modifier: Modifier = Modifier,
-    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
-) {
-    Row(
-        modifier
-            .background(
-                MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                androidx.compose.foundation.shape
-                    .RoundedCornerShape(24.dp),
-            ).padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        content = content,
-    )
 }

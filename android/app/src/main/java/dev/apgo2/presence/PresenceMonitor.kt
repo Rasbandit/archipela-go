@@ -1,6 +1,7 @@
 package dev.apgo2.presence
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
@@ -23,7 +24,7 @@ import android.os.Looper
  * Watches the Wi-Fi network and the Bluetooth connections that decide presence. Needs location permission for Wi-Fi names and
  * BLUETOOTH_CONNECT for devices.
  */
-class PresenceMonitor(
+internal class PresenceMonitor(
     private val ctx: Context,
     private val onChange: () -> Unit,
 ) {
@@ -51,7 +52,7 @@ class PresenceMonitor(
         private set
     private var proxiesPending = 0
 
-    /** Bumped on every start so that late answers from an earlier session are ignored. */
+    // Bumped on every start so that late answers from an earlier session are ignored.
     private var generation = 0
     private val bt = mutableSetOf<String>()
     private var started = false
@@ -77,24 +78,6 @@ class PresenceMonitor(
             }
         }
 
-    @Suppress("DEPRECATION")
-    @SuppressLint("MissingPermission")
-    private fun legacyWifi(): WifiId? =
-        ctx.applicationContext.getSystemService(WifiManager::class.java)?.connectionInfo?.let {
-            WifiId(it.ssid, it.bssid)
-        }
-
-    // Network callbacks are registered with the main handler, so this runs on the main thread.
-    private fun update(w: WifiId?) {
-        if (!started) return
-        val first = !wifiReported
-        wifiReported = true
-        if (w != currentWifi || first) {
-            currentWifi = w
-            onChange()
-        }
-    }
-
     private val btReceiver =
         object : BroadcastReceiver() {
             override fun onReceive(
@@ -118,73 +101,36 @@ class PresenceMonitor(
             }
         }
 
+    @Suppress("DEPRECATION")
+    @SuppressLint("MissingPermission")
+    private fun legacyWifi(): WifiId? =
+        ctx.applicationContext.getSystemService(WifiManager::class.java)?.connectionInfo?.let {
+            WifiId(it.ssid, it.bssid)
+        }
+
+    // Network callbacks are registered with the main handler, so this runs on the main thread.
+    private fun update(w: WifiId?) {
+        if (!started) return
+        val first = !wifiReported
+        wifiReported = true
+        if (w != currentWifi || first) {
+            currentWifi = w
+            onChange()
+        }
+    }
+
     private fun btAllowed() =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             ctx.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
+    /** Start watching; does nothing when already started. */
     @SuppressLint("MissingPermission")
     fun start() {
         if (started) return
         reset()
         cm.registerNetworkCallback(NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), netCallback, main)
         started = true
-        if (btAllowed()) {
-            val filter =
-                IntentFilter().apply {
-                    addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
-                    addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
-                }
-            // ACL broadcasts come from the system, so the receiver is exported; the flag exists from API 33 and is mandatory when
-            // targeting 34+.
-            if (Build.VERSION.SDK_INT >=
-                Build.VERSION_CODES.TIRAMISU
-            ) {
-                ctx.registerReceiver(btReceiver, filter, Context.RECEIVER_EXPORTED)
-            } else {
-                ctx.registerReceiver(btReceiver, filter)
-            }
-            connectedCarCandidates = bt.toSet()
-            val adapter = ctx.getSystemService(BluetoothManager::class.java)?.adapter
-            val profiles = intArrayOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)
-            val gen = ++generation
-            proxiesPending = profiles.size
-
-            /** One profile has answered (or cannot): the read is complete when none is left. Stale sessions are ignored. */
-            fun answered() {
-                if (gen == generation && --proxiesPending <= 0) bluetoothReady = true
-            }
-            if (adapter == null) {
-                proxiesPending = 0
-                bluetoothReady = true
-            } else {
-                for (profile in profiles) {
-                    val asked =
-                        adapter.getProfileProxy(
-                            ctx,
-                            object : BluetoothProfile.ServiceListener {
-                                override fun onServiceConnected(
-                                    p: Int,
-                                    proxy: BluetoothProfile,
-                                ) {
-                                    if (started && gen == generation) {
-                                        runCatching { proxy.connectedDevices.forEach { bt.add(it.address) } }
-                                        connectedCarCandidates = bt.toSet()
-                                        answered()
-                                    }
-                                    adapter.closeProfileProxy(p, proxy)
-                                    if (started && gen == generation) onChange()
-                                }
-
-                                override fun onServiceDisconnected(p: Int) {}
-                            },
-                            profile,
-                        )
-                    if (!asked) answered() // no listener will ever fire (adapter off)
-                }
-            }
-        } else {
-            bluetoothReady = true // nothing to wait for: car devices stay unknown
-        }
+        if (btAllowed()) watchBluetooth() else bluetoothReady = true // nothing to wait for: car devices stay unknown
     }
 
     fun stop() {
@@ -195,7 +141,7 @@ class PresenceMonitor(
         reset()
     }
 
-    /** Forget everything: no events arrive while stopped, so old values would go stale. */
+    // Forget everything: no events arrive while stopped, so old values would go stale.
     private fun reset() {
         bt.clear()
         wifiReported = false
@@ -203,6 +149,63 @@ class PresenceMonitor(
         proxiesPending = 0
         currentWifi = null
         connectedCarCandidates = null
+    }
+
+    private fun watchBluetooth() {
+        val filter =
+            IntentFilter().apply {
+                addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+                addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+            }
+        // ACL broadcasts come from the system, so the receiver is exported; the flag exists from API 33 and is mandatory when
+        // targeting 34+.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ctx.registerReceiver(btReceiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            ctx.registerReceiver(btReceiver, filter)
+        }
+        connectedCarCandidates = bt.toSet()
+        val adapter = ctx.getSystemService(BluetoothManager::class.java)?.adapter
+        val profiles = intArrayOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)
+        val gen = ++generation
+        proxiesPending = profiles.size
+        if (adapter == null) {
+            proxiesPending = 0
+            bluetoothReady = true
+            return
+        }
+        for (profile in profiles) {
+            val asked = adapter.getProfileProxy(ctx, ProfileListener(adapter, gen), profile)
+            if (!asked) answered(gen) // no listener will ever fire (adapter off)
+        }
+    }
+
+    // One profile has answered (or cannot): the read is complete when none is left. Stale sessions are ignored.
+    private fun answered(gen: Int) {
+        if (gen == generation && --proxiesPending <= 0) bluetoothReady = true
+    }
+
+    private inner class ProfileListener(
+        private val adapter: BluetoothAdapter,
+        private val gen: Int,
+    ) : BluetoothProfile.ServiceListener {
+        override fun onServiceConnected(
+            p: Int,
+            proxy: BluetoothProfile,
+        ) {
+            val current = started && gen == generation
+            if (current) {
+                runCatching { proxy.connectedDevices.forEach { bt.add(it.address) } }
+                connectedCarCandidates = bt.toSet()
+                answered(gen)
+            }
+            adapter.closeProfileProxy(p, proxy)
+            if (current) onChange()
+        }
+
+        override fun onServiceDisconnected(p: Int) {
+            // Nothing to do: a lost proxy only matters while a read is pending, and that read has its own answer.
+        }
     }
 
     /** The network the phone is on right now, for "Add current network". */

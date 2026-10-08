@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PresenceSeedingTest {
-    private fun started(t: Long = 0) = PresenceSeeding(3_000).also { it.restart(t) }
+    private fun started(t: Long = 0) = PresenceSeeding(3_000).apply { restart(t) }
 
     @Test fun eachSignalSeedsWhenItsOwnReadingArrives() {
         val s = started()

@@ -70,7 +70,7 @@ private fun DrawScope.icon(
 }
 
 /** A round badge with the icon inside: the pin for a find on the map. */
-fun renderPin(
+internal fun renderPin(
     icon: ImageVector,
     sizePx: Int,
     fill: Color,
@@ -87,7 +87,7 @@ fun renderPin(
     }
 
 /** Just the icon, for drawing a glyph on top of another marker. */
-fun renderGlyph(
+internal fun renderGlyph(
     icon: ImageVector,
     sizePx: Int,
     color: Color = Color.White,
@@ -97,7 +97,7 @@ fun renderGlyph(
  * The icon itself, bold and with a light outline so it reads on any map: a marker that is the shape (a house) rather than a
  * badge around it.
  */
-fun renderMarker(
+internal fun renderMarker(
     icon: ImageVector,
     sizePx: Int,
     color: Color,
@@ -114,7 +114,7 @@ fun renderMarker(
  * A find pin with the quest's state as a badge in the bottom-right corner: a check when done, an amber dot in progress, a lock
  * when locked.
  */
-fun renderQuestPin(
+internal fun renderQuestPin(
     icon: ImageVector,
     sizePx: Int,
     fill: Color,

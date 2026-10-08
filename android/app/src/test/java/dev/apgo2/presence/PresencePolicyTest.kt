@@ -5,7 +5,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PresencePolicyTest {
-    private fun s(
+    private fun signals(
         playing: Boolean = true,
         home: Boolean? = false,
         car: Boolean? = false,
@@ -13,27 +13,30 @@ class PresencePolicyTest {
     ) = Signals(playing, home, car, zone)
 
     @Test fun notPlayingIsStoppedAndNothingCounts() {
-        val d = PresencePolicy.decide(s(playing = false))
+        val d = PresencePolicy.decide(signals(playing = false))
         assertEquals(PresenceState.Stopped, d.state)
         assertEquals(false, d.counting)
     }
 
     @Test fun theCarBeatsEverythingElse() {
-        val d = PresencePolicy.decide(s(car = true, home = true, zone = Zone.Inside))
+        val d = PresencePolicy.decide(signals(car = true, home = true, zone = Zone.Inside))
         assertEquals(Decision(PresenceState.InCar, GpsMode.Off, counting = false), d)
     }
 
     @Test fun notPlayingBeatsCarAndHome() {
         assertEquals(
             Decision(PresenceState.Stopped, GpsMode.Off, counting = false),
-            PresencePolicy.decide(s(playing = false, car = true, home = true)),
+            PresencePolicy.decide(signals(playing = false, car = true, home = true)),
         )
     }
 
     @Test fun theCoarseIntervalIsNinetySeconds() = assertEquals(90_000L, PresencePolicy.COARSE_MS)
 
     @Test fun homeWifiTurnsGpsOffAndStopsCounting() {
-        assertEquals(Decision(PresenceState.AtHome, GpsMode.Off, counting = false), PresencePolicy.decide(s(home = true, zone = Zone.Far)))
+        assertEquals(
+            Decision(PresenceState.AtHome, GpsMode.Off, counting = false),
+            PresencePolicy.decide(signals(home = true, zone = Zone.Far)),
+        )
     }
 
     @Test fun insideNearOrUnknownZoneIsPreciseAndCounts() {
@@ -41,7 +44,7 @@ class PresencePolicyTest {
             assertEquals(
                 "$z",
                 Decision(PresenceState.InZone, GpsMode.Rate(5_000L, 0f), counting = true),
-                PresencePolicy.decide(s(zone = z)),
+                PresencePolicy.decide(signals(zone = z)),
             )
         }
     }
@@ -49,12 +52,12 @@ class PresencePolicyTest {
     @Test fun farFromEveryZoneIsCoarseButStillCounts() {
         assertEquals(
             Decision(PresenceState.OutsideZones, GpsMode.Rate(PresencePolicy.COARSE_MS, 0f), counting = true),
-            PresencePolicy.decide(s(zone = Zone.Far)),
+            PresencePolicy.decide(signals(zone = Zone.Far)),
         )
     }
 
     @Test fun unknownSignalsAreTreatedAsNotPresent() {
-        assertEquals(PresenceState.InZone, PresencePolicy.decide(s(home = null, car = null, zone = Zone.Inside)).state)
+        assertEquals(PresenceState.InZone, PresencePolicy.decide(signals(home = null, car = null, zone = Zone.Inside)).state)
     }
 }
 

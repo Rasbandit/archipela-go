@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
 /** A small ⓘ that explains [topic]. Use it beside a control or heading; use [LabelWithHelp] when there is a label to press and hold. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HelpTip(
+internal fun HelpTip(
     topic: HelpTopic,
     modifier: Modifier = Modifier,
 ) {
@@ -57,7 +57,7 @@ fun HelpTip(
 /** A label with its ⓘ. Pressing and holding the label (or tapping the ⓘ) opens the explanation. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LabelWithHelp(
+internal fun LabelWithHelp(
     text: String,
     topic: HelpTopic,
     modifier: Modifier = Modifier,

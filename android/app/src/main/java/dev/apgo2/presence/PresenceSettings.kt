@@ -5,7 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** App-level presence settings (platform identifiers, so they live in preferences, not in the core). */
-class PresenceSettings(
+internal class PresenceSettings(
     ctx: Context,
 ) {
     private val prefs = ctx.getSharedPreferences("presence", Context.MODE_PRIVATE)
@@ -17,25 +17,24 @@ class PresenceSettings(
     var homeNetworks: List<HomeNetwork>
         get() = homeCache ?: parseHome().also { homeCache = it }
         private set(v) {
-            prefs
-                .edit()
-                .putString(
-                    "home",
-                    JSONArray(v.map { JSONObject().put("ssid", it.ssid).put("bssid", it.bssid ?: "") }).toString(),
-                ).apply()
+            val json = JSONArray(v.map { JSONObject().put("ssid", it.ssid).put("bssid", it.bssid ?: "") }).toString()
+            prefs.edit().putString("home", json).apply()
             homeCache = v
         }
 
     var carDevices: List<CarDevice>
         get() = carCache ?: parseCar().also { carCache = it }
         private set(v) {
-            prefs
-                .edit()
-                .putString(
-                    "car",
-                    JSONArray(v.map { JSONObject().put("name", it.name).put("address", it.address) }).toString(),
-                ).apply()
+            val json = JSONArray(v.map { JSONObject().put("name", it.name).put("address", it.address) }).toString()
+            prefs.edit().putString("car", json).apply()
             carCache = v
+        }
+
+    /** True once the player finished or explicitly skipped the setup wizard; until then the wizard opens on each app (process) start. */
+    var setupDone: Boolean
+        get() = prefs.getBoolean("setup_done", false)
+        set(v) {
+            prefs.edit().putBoolean("setup_done", v).apply()
         }
 
     private fun parseHome(): List<HomeNetwork> =
@@ -57,13 +56,6 @@ class PresenceSettings(
                 runCatching { a.getJSONObject(i).let { o -> CarDevice(o.getString("name"), o.getString("address")) } }.getOrNull()
             }
         }.getOrDefault(emptyList())
-
-    /** True once the player finished or explicitly skipped the setup wizard; until then the wizard opens on each app (process) start. */
-    var setupDone: Boolean
-        get() = prefs.getBoolean("setup_done", false)
-        set(v) {
-            prefs.edit().putBoolean("setup_done", v).apply()
-        }
 
     fun addHome(n: HomeNetwork) {
         val key = PresenceSignals.cleanSsid(n.ssid) ?: n.ssid

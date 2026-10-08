@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -28,6 +29,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -38,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.apgo2.ui.ApgoChip
@@ -46,6 +49,7 @@ import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.ChoiceChips
 import dev.apgo2.ui.Help
 import dev.apgo2.ui.HelpTip
+import dev.apgo2.ui.HelpTopic
 import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.IconLabel
 import dev.apgo2.ui.LabelWithHelp
@@ -55,12 +59,29 @@ import uniffi.apgo_ffi.GoalPickIn
 import uniffi.apgo_ffi.RealmOut
 import uniffi.apgo_ffi.SoloOptionsIn
 
+private const val ANY = "any"
+private const val ALL = "all"
+private const val AT_LEAST = "at_least"
+private const val MAX_ZONES = 6
+private const val MIN_DISTANCE_M = 150u
+private const val TRAP_RATE_PERCENT = 30u
+private const val REDUCTION_PERCENT = 8u
+private const val DEFAULT_TRIPS = 60f
+private const val DEFAULT_MINUTES_PER_TIER = 10f
+private const val DEFAULT_AWAY_M = "1000"
+private const val MAX_AWAY_DIGITS = 5
+private const val MAX_TARGET_DIGITS = 4
+private const val DEFAULT_NEED = 2
+private const val BALANCED_PRESET = 1
+private val TRIPS_RANGE = 10f..300f
+private val MINUTES_RANGE = 5f..30f
+
 private val FAMILIES = listOf("reach", "dwell", "landmark", "trail", "park", "water", "courier", "explore", "steps", "away")
 
-/** Quest types that need no found places: they are made from streets and open map. */
+// Quest types that need no found places: they are made from streets and open map.
 private val NEEDS_NO_FINDS = setOf("reach", "courier", "explore", "steps", "away")
 
-/** The win conditions, in the game's own order: id, title. */
+// The win conditions, in the game's own order: id, title.
 private val GOALS =
     listOf(
         "macguffin_short" to "Letter Hunt",
@@ -95,6 +116,19 @@ private val GOAL_NUMBERS =
 
 private val TRAPS = listOf("freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor")
 
+/** How the quests split over the three difficulty tiers, in percent. */
+private data class DifficultyMix(
+    val label: String,
+    val easy: Int,
+    val medium: Int,
+    val hard: Int,
+)
+
+private val MIXES =
+    listOf(DifficultyMix("Relaxed", 70, 25, 5), DifficultyMix("Balanced", 50, 35, 15), DifficultyMix("Challenging", 20, 40, 40))
+private val TERRAIN_LABELS = mapOf(ANY to "Any", "prefer_paved" to "Prefer paved", "paved_only" to "Paved only")
+private val REQUIREMENT_LABELS = mapOf(ANY to "Any one", ALL to "All of them", AT_LEAST to "At least…")
+
 /** A zone being set up: a realm, how you travel there, and the quest types it uses. */
 private data class ZoneDraft(
     val realmId: String,
@@ -102,7 +136,76 @@ private data class ZoneDraft(
     val types: Set<String>,
 )
 
-/** Quest types a realm can serve, with how many places were found for each. */
+// Everything the New Game screen is asking for. It lives as long as the screen is on view.
+@Stable
+private class NewGameForm {
+    var name by mutableStateOf("My game")
+    val zones = mutableStateListOf<ZoneDraft>()
+    val goals = mutableStateListOf("macguffin_short")
+    val targets = mutableStateMapOf<String, String>()
+    var requirement by mutableStateOf(ANY)
+    var need by mutableIntStateOf(DEFAULT_NEED)
+    var trips by mutableFloatStateOf(DEFAULT_TRIPS)
+    var preset by mutableIntStateOf(BALANCED_PRESET)
+    var minutesPerTier by mutableFloatStateOf(DEFAULT_MINUTES_PER_TIER)
+    var fog by mutableStateOf(false)
+    var trapsOn by mutableStateOf(true)
+    var bonus by mutableStateOf(true)
+    var awayZoneOnly by mutableStateOf(true)
+    var awayAuto by mutableStateOf(true)
+    var awayMeters by mutableStateOf(DEFAULT_AWAY_M)
+    var url by mutableStateOf("localhost:38281")
+    var slot by mutableStateOf("Tester")
+    val apZoneRealms = mutableStateListOf<String>()
+
+    fun awayDistanceM() = AwaySettings.distance(awayAuto, awayMeters)
+
+    // There is always at least one goal.
+    fun toggleGoal(id: String) {
+        if (id in goals) {
+            if (goals.size > 1) goals.remove(id)
+        } else {
+            goals.add(id)
+            goals.sortBy { g -> GOALS.indexOfFirst { it.first == g } }
+        }
+    }
+
+    fun pickApRealm(
+        zoneIndex: Int,
+        realmId: String,
+    ) {
+        while (apZoneRealms.size <= zoneIndex) apZoneRealms.add("")
+        apZoneRealms[zoneIndex] = realmId
+    }
+
+    fun options(): SoloOptionsIn {
+        val mix = MIXES[preset]
+        return SoloOptionsIn(
+            goals = goals.map { GoalPickIn(it, targets[it]?.toUIntOrNull() ?: 0u) },
+            goalRequirement = if (goals.size == 1) ANY else requirement,
+            goalNeed = need.coerceIn(1, goals.size).toUInt(),
+            numberOfTrips = trips.toInt().toUInt(),
+            zoneModes = zones.map { it.mode },
+            easyShare = mix.easy.toUInt(),
+            mediumShare = mix.medium.toUInt(),
+            hardShare = mix.hard.toUInt(),
+            minutesPerTier = minutesPerTier.toInt().toUInt(),
+            minDistanceM = MIN_DISTANCE_M,
+            questTypes = FAMILIES,
+            zoneQuestTypes = zones.map { z -> FAMILIES.filter { it in z.types } },
+            enabledTraps = if (trapsOn) TRAPS else emptyList(),
+            trapRate = if (trapsOn) TRAP_RATE_PERCENT else 0u,
+            enableEffortReductions = bonus,
+            enableScouting = bonus || fog,
+            enableCollection = bonus,
+            reductionPercent = REDUCTION_PERCENT,
+            fogOfWar = fog,
+            returnHome = false,
+        )
+    }
+}
+
+// Quest types a realm can serve, with how many places were found for each.
 private fun findsByFamily(
     m: AppModel,
     realmId: String,
@@ -120,170 +223,112 @@ private fun availableTypes(
     return FAMILIES.filter { it in NEEDS_NO_FINDS || (found[it] ?: 0) > 0 }.toSet()
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/** The New Game tab: zones, win conditions and options, then Play solo, Export YAML or join an Archipelago game. */
 @Composable
-fun NewGameScreen(
+internal fun NewGameScreen(
     m: AppModel,
     modifier: Modifier = Modifier,
 ) {
-    var name by remember { mutableStateOf("My game") }
-    val zones = remember { mutableStateListOf<ZoneDraft>() }
-    val goals = remember { mutableStateListOf("macguffin_short") }
-    val targets = remember { mutableStateMapOf<String, String>() }
-    var requirement by remember { mutableStateOf("any") }
-    var need by remember { mutableIntStateOf(2) }
-    var trips by remember { mutableFloatStateOf(60f) }
-    var preset by remember { mutableIntStateOf(1) }
-    var mpt by remember { mutableFloatStateOf(10f) }
-    var fog by remember { mutableStateOf(false) }
-    var trapsOn by remember { mutableStateOf(true) }
-    var bonus by remember { mutableStateOf(true) }
-    var awayZoneOnly by remember { mutableStateOf(true) }
-    var awayAuto by remember { mutableStateOf(true) }
-    var awayMeters by remember { mutableStateOf("1000") }
-    var url by remember { mutableStateOf("localhost:38281") }
-    var slot by remember { mutableStateOf("Tester") }
-    val apZoneRealms = remember { mutableStateListOf<String>() }
-    val shares = listOf(Triple(70, 25, 5), Triple(50, 35, 15), Triple(20, 40, 40))
-
-    fun opts(): SoloOptionsIn {
-        val (e, md, h) = shares[preset]
-        return SoloOptionsIn(
-            goals = goals.map { GoalPickIn(it, targets[it]?.toUIntOrNull() ?: 0u) },
-            goalRequirement = if (goals.size == 1) "any" else requirement,
-            goalNeed = need.coerceIn(1, goals.size).toUInt(),
-            numberOfTrips = trips.toInt().toUInt(),
-            zoneModes = zones.map { it.mode },
-            easyShare = e.toUInt(),
-            mediumShare = md.toUInt(),
-            hardShare = h.toUInt(),
-            minutesPerTier = mpt.toInt().toUInt(),
-            minDistanceM = 150u,
-            questTypes = FAMILIES,
-            zoneQuestTypes = zones.map { z -> FAMILIES.filter { it in z.types } },
-            enabledTraps = if (trapsOn) TRAPS else emptyList(),
-            trapRate = if (trapsOn) 30u else 0u,
-            enableEffortReductions = bonus,
-            enableScouting = bonus || fog,
-            enableCollection = bonus,
-            reductionPercent = 8u,
-            fogOfWar = fog,
-            returnHome = false,
-        )
-    }
-
+    val form = remember { NewGameForm() }
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text("New game", style = MaterialTheme.typography.titleLarge)
-        OutlinedTextField(name, { name = it }, label = { Text("Game name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-
+        OutlinedTextField(
+            form.name,
+            { form.name = it },
+            label = { Text("Game name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
         ZonesSection(
             m,
-            zones,
-            onChange = { i, z -> zones[i] = z },
-            onAdd = { zones.add(it) },
-            onRemove = { zones.removeAt(it) },
+            form.zones,
+            onChange = { i, z -> form.zones[i] = z },
+            onAdd = { form.zones.add(it) },
+            onRemove = { form.zones.removeAt(it) },
         )
         GoalsSection(
-            goals,
-            targets,
-            onToggle = { id ->
-                // There is always at least one goal.
-                if (id in goals) {
-                    if (goals.size > 1) goals.remove(id)
-                } else {
-                    goals.add(id)
-                    goals.sortBy { g -> GOALS.indexOfFirst { it.first == g } }
-                }
-            },
-            onTarget = { id, v -> targets[id] = v },
-            requirement = requirement,
-            onRequirement = { requirement = it },
-            need = need,
-            onNeed = { need = it },
+            form.goals,
+            form.targets,
+            onToggle = form::toggleGoal,
+            onTarget = { id, v -> form.targets[id] = v },
+            requirement = form.requirement,
+            onRequirement = { form.requirement = it },
+            need = form.need,
+            onNeed = { form.need = it },
         )
+        PlaySettings(m, form)
+        AwaySection(form)
+        StartButtons(m, form)
+        HorizontalDivider()
+        ArchipelagoSection(m, form)
+        Box(Modifier.height(24.dp))
+    }
+}
 
-        // ---- how the game plays
-        LabelWithHelp("Number of quests: ${trips.toInt()}", Help.questCount)
-        Slider(trips, { trips = it }, valueRange = 10f..300f)
+@Composable
+private fun PlaySettings(
+    m: AppModel,
+    form: NewGameForm,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LabelWithHelp("Number of quests: ${form.trips.toInt()}", Help.questCount)
+        Slider(form.trips, { form.trips = it }, valueRange = TRIPS_RANGE)
         LabelWithHelp("Difficulty mix", Help.difficulty)
-        ChoiceChips(listOf(0, 1, 2), preset, { preset = it }, { listOf("Relaxed", "Balanced", "Challenging")[it] })
-        LabelWithHelp("Minutes per difficulty tier: ${mpt.toInt()}", Help.minutesPerTier)
-        Slider(mpt, { mpt = it }, valueRange = 5f..30f)
-        SwitchRow("Fog of war", Help.fog, fog) { fog = it }
-        SwitchRow("Traps", Help.traps, trapsOn) { trapsOn = it }
-        SwitchRow("Bonus items", Help.bonus, bonus) { bonus = it }
+        ChoiceChips(MIXES.indices.toList(), form.preset, { form.preset = it }, { MIXES[it].label })
+        LabelWithHelp("Minutes per difficulty tier: ${form.minutesPerTier.toInt()}", Help.minutesPerTier)
+        Slider(form.minutesPerTier, { form.minutesPerTier = it }, valueRange = MINUTES_RANGE)
+        SwitchRow("Fog of war", Help.fog, form.fog) { form.fog = it }
+        SwitchRow("Traps", Help.traps, form.trapsOn) { form.trapsOn = it }
+        SwitchRow("Bonus items", Help.bonus, form.bonus) { form.bonus = it }
         LabelWithHelp("Terrain", Help.terrain)
-        ChoiceChips(listOf("any", "prefer_paved", "paved_only"), m.surfacePref, { m.surfacePref = it }, {
-            mapOf(
-                "any" to "Any",
-                "prefer_paved" to "Prefer paved",
-                "paved_only" to "Paved only",
-            )[it]
-                ?: it
-        })
+        ChoiceChips(TERRAIN_LABELS.keys.toList(), m.surfacePref, { m.surfacePref = it }, { TERRAIN_LABELS[it] ?: it })
         SwitchRow("Avoid stairs", Help.stairs, m.avoidStairs) { m.avoidStairs = it }
+    }
+}
 
+@Composable
+private fun AwaySection(form: NewGameForm) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Time away", style = MaterialTheme.typography.titleMedium)
-        SwitchRow("Only count time inside a zone", Help.awayZone, awayZoneOnly) { awayZoneOnly = it }
-        SwitchRow("Pick the distance automatically", Help.awayDistance, awayAuto) { awayAuto = it }
-        if (!awayAuto) {
+        SwitchRow("Only count time inside a zone", Help.awayZone, form.awayZoneOnly) { form.awayZoneOnly = it }
+        SwitchRow("Pick the distance automatically", Help.awayDistance, form.awayAuto) { form.awayAuto = it }
+        if (!form.awayAuto) {
             OutlinedTextField(
-                awayMeters,
-                {
-                    awayMeters = it.filter(Char::isDigit).take(5)
-                },
-                label = {
-                    Text("Away distance (metres)")
-                },
+                form.awayMeters,
+                { form.awayMeters = it.filter(Char::isDigit).take(MAX_AWAY_DIGITS) },
+                label = { Text("Away distance (metres)") },
                 singleLine = true,
-                keyboardOptions =
-                    androidx.compose.foundation.text.KeyboardOptions(
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-                    ),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+}
 
-        val ready = zones.isNotEmpty()
+@Composable
+private fun StartButtons(
+    m: AppModel,
+    form: NewGameForm,
+) {
+    val ready = form.zones.isNotEmpty()
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = ready, onClick = {
-                m.startSolo(opts(), zones.map { it.realmId }, name, awayZoneOnly, AwaySettings.distance(awayAuto, awayMeters))
+                m.library.startSolo(form.options(), form.zones.map { it.realmId }, form.name, form.awayZoneOnly, form.awayDistanceM())
             }) { Text("Play solo") }
-            OutlinedButton(enabled = ready, onClick = { m.exportYaml(opts()) }) { Text("Export YAML") }
+            OutlinedButton(enabled = ready, onClick = { m.library.exportYaml(form.options()) }) { Text("Export YAML") }
         }
         if (!ready) Text("Add at least one zone to continue.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-        HorizontalDivider()
-        ArchipelagoSection(
-            m,
-            url,
-            { url = it },
-            slot,
-            { slot = it },
-            apZoneRealms,
-            onPickRealm = { i, id ->
-                while (apZoneRealms.size <= i) apZoneRealms.add("")
-                apZoneRealms[i] = id
-            },
-            onConnect = {
-                apZoneRealms.clear()
-                m.connectAp(url, slot)
-            },
-            awayZoneOnly = awayZoneOnly,
-            awayDistanceM =
-                AwaySettings.distance(awayAuto, awayMeters),
-        )
-        Box(Modifier.height(24.dp))
     }
 }
 
 @Composable
 private fun SwitchRow(
     label: String,
-    help: dev.apgo2.ui.HelpTopic,
+    help: HelpTopic,
     on: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
@@ -313,11 +358,11 @@ private fun ZonesSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         zones.forEachIndexed { i, z ->
-            val realm = m.shownRealms.firstOrNull { it.id == z.realmId }
+            val realm = m.realmOps.shown.firstOrNull { it.id == z.realmId }
             ZoneCard(m, i, z, realm, onChange = { onChange(i, it) }, onRemove = { onRemove(i) })
         }
-        val scanned = m.shownRealms.filter { it.scannedAtMs != null }
-        if (zones.size < 6) {
+        val scanned = m.realmOps.shown.filter { it.scannedAtMs != null }
+        if (zones.size < MAX_ZONES) {
             Text(
                 if (scanned.isEmpty()) "Scan a realm on the Realms tab to use it here." else "Add a zone from one of your realms:",
                 fontSize = 12.sp,
@@ -333,7 +378,6 @@ private fun ZonesSection(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ZoneCard(
     m: AppModel,
@@ -343,7 +387,6 @@ private fun ZoneCard(
     onChange: (ZoneDraft) -> Unit,
     onRemove: () -> Unit,
 ) {
-    val found = findsByFamily(m, zone.realmId)
     val available = availableTypes(m, zone.realmId)
     Card(
         Modifier.fillMaxWidth(),
@@ -351,31 +394,7 @@ private fun ZoneCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(
-                    ApgoIcons.realm(realm?.icon),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp),
-                )
-                Column(Modifier.weight(1f)) {
-                    Text("Zone ${index + 1}: ${realm?.name ?: "realm removed"}", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        if (index ==
-                            0
-                        ) {
-                            "You start here"
-                        } else {
-                            "Opens with keys"
-                        },
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(
-                    onClick = onRemove,
-                ) { Icon(ApgoIcons.Remove, contentDescription = "Remove zone ${index + 1}", tint = ApgoPalette.danger) }
-            }
+            ZoneHeader(index, realm, onRemove)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -385,43 +404,65 @@ private fun ZoneCard(
                 IconChoices(PLAY_MODES, zone.mode, { onChange(zone.copy(mode = it)) }, ApgoIcons::mode, ::modeLabel)
             }
             LabelWithHelp("Quest types", Help.questTypes)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                FAMILIES.forEach { f ->
-                    val here = f in available
-                    val label = if (f in NEEDS_NO_FINDS) f else "$f ${found[f] ?: 0}"
-                    ApgoChip(
-                        label,
-                        f in zone.types && here,
-                        {
-                            onChange(
-                                zone.copy(
-                                    types =
-                                        if (f in
-                                            zone.types
-                                        ) {
-                                            zone.types - f
-                                        } else {
-                                            zone.types + f
-                                        },
-                                ),
-                            )
-                        },
-                        textSize = 11.sp,
-                        enabled = here || f in zone.types,
-                        icon = ApgoIcons.familyIcons[f],
-                    )
-                }
-            }
-            if (zone.types.none {
-                    it in available
-                }
-            ) {
+            QuestTypeChips(findsByFamily(m, zone.realmId), available, zone, onChange)
+            if (zone.types.none { it in available }) {
                 Text(
                     "Pick at least one type, or walking-to-a-point quests are used.",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.error,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ZoneHeader(
+    index: Int,
+    realm: RealmOut?,
+    onRemove: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(
+            ApgoIcons.realm(realm?.icon),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text("Zone ${index + 1}: ${realm?.name ?: "realm removed"}", style = MaterialTheme.typography.titleSmall)
+            Text(
+                if (index == 0) "You start here" else "Opens with keys",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(
+            onClick = onRemove,
+        ) { Icon(ApgoIcons.Remove, contentDescription = "Remove zone ${index + 1}", tint = ApgoPalette.danger) }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun QuestTypeChips(
+    found: Map<String, Int>,
+    available: Set<String>,
+    zone: ZoneDraft,
+    onChange: (ZoneDraft) -> Unit,
+) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        FAMILIES.forEach { f ->
+            val here = f in available
+            val label = if (f in NEEDS_NO_FINDS) f else "$f ${found[f] ?: 0}"
+            ApgoChip(
+                label,
+                f in zone.types && here,
+                { onChange(zone.copy(types = if (f in zone.types) zone.types - f else zone.types + f)) },
+                textSize = 11.sp,
+                enabled = here || f in zone.types,
+                icon = ApgoIcons.familyIcons[f],
+            )
         }
     }
 }
@@ -446,62 +487,68 @@ private fun GoalsSection(
         Text("Choose one or more.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             GOALS.forEach { (id, title) ->
-                ApgoChip(
-                    title,
-                    id in goals,
-                    { onToggle(id) },
-                    textSize = 12.sp,
-                    icon = if (id in goals) ApgoIcons.Check else null,
-                )
+                ApgoChip(title, id in goals, { onToggle(id) }, textSize = 12.sp, icon = if (id in goals) ApgoIcons.Check else null)
             }
         }
         // What each chosen goal means, and its number if it counts something.
-        goals.forEach { id ->
-            val title = GOALS.first { it.first == id }.second
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                    Help.goalDescriptions[id]?.let { HelpTip(it) }
-                }
-                GOAL_NUMBERS[id]?.let { n ->
-                    OutlinedTextField(
-                        targets[id] ?: "",
-                        { onTarget(id, it.filter(Char::isDigit).take(4)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("${n.unit} (usually ${n.default})") },
-                        trailingIcon = { HelpTip(Help.goalTarget) },
-                    )
-                }
-            }
+        goals.forEach { id -> GoalDetail(id, targets[id] ?: "") { onTarget(id, it) } }
+        if (goals.size >= 2) GoalRule(goals.size, requirement, onRequirement, need, onNeed)
+    }
+}
+
+@Composable
+private fun GoalDetail(
+    id: String,
+    target: String,
+    onTarget: (String) -> Unit,
+) {
+    val title = GOALS.first { it.first == id }.second
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            Help.goalDescriptions[id]?.let { HelpTip(it) }
         }
-        if (goals.size >= 2) {
-            LabelWithHelp("You win when you finish", Help.goalRule)
-            ChoiceChips(listOf("any", "all", "at_least"), requirement, onRequirement, {
-                mapOf(
-                    "any" to "Any one",
-                    "all" to "All of them",
-                    "at_least" to "At least…",
-                )[it]
-                    ?: it
-            })
-            if (requirement == "at_least") {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onNeed((need - 1).coerceAtLeast(1)) }) { Text("−") }
-                    Text("${need.coerceIn(1, goals.size)} of ${goals.size} goals", style = MaterialTheme.typography.titleSmall)
-                    OutlinedButton(onClick = { onNeed((need + 1).coerceAtMost(goals.size)) }) { Text("+") }
-                }
-            }
-            Text(
-                when (requirement) {
-                    "any" -> "The first of these ${goals.size} goals you finish wins."
-                    "all" -> "You must finish all ${goals.size} goals."
-                    else -> "Finish ${need.coerceIn(1, goals.size)} of the ${goals.size} goals to win."
-                },
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        GOAL_NUMBERS[id]?.let { n ->
+            OutlinedTextField(
+                target,
+                { onTarget(it.filter(Char::isDigit).take(MAX_TARGET_DIGITS)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("${n.unit} (usually ${n.default})") },
+                trailingIcon = { HelpTip(Help.goalTarget) },
             )
         }
+    }
+}
+
+// How several goals combine: any one, all of them, or at least N. Shown only when two or more goals are chosen.
+@Composable
+private fun GoalRule(
+    goalCount: Int,
+    requirement: String,
+    onRequirement: (String) -> Unit,
+    need: Int,
+    onNeed: (Int) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LabelWithHelp("You win when you finish", Help.goalRule)
+        ChoiceChips(REQUIREMENT_LABELS.keys.toList(), requirement, onRequirement, { REQUIREMENT_LABELS[it] ?: it })
+        if (requirement == AT_LEAST) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onNeed((need - 1).coerceAtLeast(1)) }) { Text("−") }
+                Text("${need.coerceIn(1, goalCount)} of $goalCount goals", style = MaterialTheme.typography.titleSmall)
+                OutlinedButton(onClick = { onNeed((need + 1).coerceAtMost(goalCount)) }) { Text("+") }
+            }
+        }
+        Text(
+            when (requirement) {
+                ANY -> "The first of these $goalCount goals you finish wins."
+                ALL -> "You must finish all $goalCount goals."
+                else -> "Finish ${need.coerceIn(1, goalCount)} of the $goalCount goals to win."
+            },
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -511,40 +558,35 @@ private fun GoalsSection(
 @Composable
 private fun ArchipelagoSection(
     m: AppModel,
-    url: String,
-    onUrl: (String) -> Unit,
-    slot: String,
-    onSlot: (String) -> Unit,
-    apZoneRealms: List<String>,
-    onPickRealm: (Int, String) -> Unit,
-    onConnect: () -> Unit,
-    awayZoneOnly: Boolean,
-    awayDistanceM: UInt,
+    form: NewGameForm,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         LabelWithHelp("Join an Archipelago game", Help.archipelago, style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedTextField(url, onUrl, label = { Text("Server") }, singleLine = true, modifier = Modifier.weight(1f))
-            OutlinedTextField(slot, onSlot, label = { Text("Slot") }, singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedTextField(form.url, { form.url = it }, label = { Text("Server") }, singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedTextField(form.slot, { form.slot = it }, label = { Text("Slot") }, singleLine = true, modifier = Modifier.weight(1f))
         }
-        Button(onClick = onConnect) { Text("Connect") }
-        Text("Status: ${m.apStatus}${m.apGoalSummary()?.let { "  ·  goal: $it" } ?: ""}", fontSize = 12.sp)
-        if (m.apZoneModes.isNotEmpty()) {
-            Text("This game needs ${m.apZoneModes.size} zone(s). Pick a realm for each:", fontSize = 12.sp)
-            m.apZoneModes.forEachIndexed { i, mode ->
-                val options = m.shownRealms.filter { it.scannedAtMs != null }
+        Button(onClick = {
+            form.apZoneRealms.clear()
+            m.ap.connect(form.url, form.slot)
+        }) { Text("Connect") }
+        Text("Status: ${m.ap.status}${m.ap.goalSummary()?.let { "  ·  goal: $it" } ?: ""}", fontSize = 12.sp)
+        if (m.ap.zoneModes.isNotEmpty()) {
+            Text("This game needs ${m.ap.zoneModes.size} zone(s). Pick a realm for each:", fontSize = 12.sp)
+            m.ap.zoneModes.forEachIndexed { i, mode ->
+                val options = m.realmOps.shown.filter { it.scannedAtMs != null }
                 Text("Zone ${i + 1} (${modeLabel(mode)})", style = MaterialTheme.typography.titleSmall)
                 if (options.isEmpty()) Text("No scanned realm yet: create one first.", fontSize = 12.sp)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     options.forEach { r ->
-                        ApgoChip(r.name, apZoneRealms.getOrNull(i) == r.id, { onPickRealm(i, r.id) })
+                        ApgoChip(r.name, form.apZoneRealms.getOrNull(i) == r.id, { form.pickApRealm(i, r.id) })
                     }
                 }
             }
-            val complete = apZoneRealms.size == m.apZoneModes.size && apZoneRealms.none { it.isBlank() }
+            val complete = form.apZoneRealms.size == m.ap.zoneModes.size && form.apZoneRealms.none { it.isBlank() }
             Button(enabled = complete, onClick = {
-                m.startApGame(apZoneRealms.toList(), "Archipelago: $slot", awayZoneOnly, awayDistanceM)
+                m.ap.startGame(form.apZoneRealms.toList(), "Archipelago: ${form.slot}", form.awayZoneOnly, form.awayDistanceM())
             }) { Text("Start this game") }
         }
     }

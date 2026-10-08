@@ -1,19 +1,24 @@
 package dev.apgo2.presence
 
 /** Which debouncers to seed right now. */
-data class SeedPlan(
+internal data class SeedPlan(
     val home: Boolean,
     val car: Boolean,
 )
 
 /** Decides when each presence debouncer takes its first reading after a monitor (re)start. Pure: the caller supplies the clock. */
-class PresenceSeeding(
+internal class PresenceSeeding(
     private val timeoutMs: Long = 3_000,
 ) {
     private var started = false
     private var startMs = 0L
     private var homeDone = false
     private var carDone = false
+
+    val complete: Boolean get() = homeDone && carDone
+
+    /** A restart happened and not everything is seeded yet; false when the monitor was never started. */
+    val waiting: Boolean get() = started && !complete
 
     /** A monitor (re)start: nothing is seeded, the timeout counts from [nowMs]. */
     fun restart(nowMs: Long) {
@@ -37,9 +42,4 @@ class PresenceSeeding(
         carDone = carDone || car
         return SeedPlan(home, car)
     }
-
-    val complete: Boolean get() = homeDone && carDone
-
-    /** A restart happened and not everything is seeded yet; false when the monitor was never started. */
-    val waiting: Boolean get() = started && !complete
 }

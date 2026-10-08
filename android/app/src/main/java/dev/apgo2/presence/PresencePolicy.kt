@@ -1,18 +1,18 @@
 package dev.apgo2.presence
 
-enum class Zone { Inside, Near, Far, Unknown }
+internal enum class Zone { Inside, Near, Far, Unknown }
 
-enum class PresenceState { Stopped, InCar, AtHome, InZone, OutsideZones }
+internal enum class PresenceState { Stopped, InCar, AtHome, InZone, OutsideZones }
 
 /** What the phone currently knows. `null` for a signal means unavailable or not permitted: treated as "not present". */
-data class Signals(
+internal data class Signals(
     val playing: Boolean,
     val homeWifi: Boolean?,
     val carBluetooth: Boolean?,
     val zone: Zone,
 )
 
-sealed interface GpsMode {
+internal sealed interface GpsMode {
     object Off : GpsMode
 
     data class Rate(
@@ -21,14 +21,14 @@ sealed interface GpsMode {
     ) : GpsMode
 }
 
-data class Decision(
+internal data class Decision(
     val state: PresenceState,
     val gps: GpsMode,
     val counting: Boolean,
 )
 
 /** Presence rules (spec Part B): which state the player is in decides how GPS runs and whether progress counts. First match wins. */
-object PresencePolicy {
+internal object PresencePolicy {
     const val COARSE_MS = 90_000L
     private const val PRECISE_MS = 5_000L
 
@@ -46,7 +46,7 @@ object PresencePolicy {
  * Holds a signal steady: a change (including to unknown, `null`) only becomes the stable value after it has lasted [holdMs] (Wi-
  * Fi reaches past the door, Bluetooth flaps). The very first value is adopted at once.
  */
-class Debouncer(
+internal class Debouncer(
     private val holdMs: Long = 45_000,
 ) {
     private var stable: Boolean? = null
@@ -77,23 +77,26 @@ class Debouncer(
     ): Boolean? {
         if (adoptNext && raw != null) {
             adoptNext = false
-            stable = raw
-            candidate = raw
-            since = nowMs
-            return stable
-        }
-        if (!started) {
+            adopt(raw, nowMs)
+        } else if (!started) {
             started = true
-            stable = raw
-            candidate = raw
-            since = nowMs
-            return stable
+            adopt(raw, nowMs)
+        } else {
+            if (raw != candidate) {
+                candidate = raw
+                since = nowMs
+            }
+            if (candidate != stable && nowMs - since >= holdMs) stable = candidate
         }
-        if (raw != candidate) {
-            candidate = raw
-            since = nowMs
-        }
-        if (candidate != stable && nowMs - since >= holdMs) stable = candidate
         return stable
+    }
+
+    private fun adopt(
+        value: Boolean?,
+        nowMs: Long,
+    ) {
+        stable = value
+        candidate = value
+        since = nowMs
     }
 }

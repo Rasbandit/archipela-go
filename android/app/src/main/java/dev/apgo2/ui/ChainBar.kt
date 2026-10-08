@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 
 /** One bar with a mark at each check it unlocks: filled up to [fill], reached marks solid green, the others hollow. */
 @Composable
-fun ChainBar(
+internal fun ChainBar(
     fill: Float,
     fractions: List<Float>,
     reached: List<Boolean>,

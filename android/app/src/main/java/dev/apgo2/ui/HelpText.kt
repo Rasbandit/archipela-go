@@ -1,12 +1,12 @@
 package dev.apgo2.ui
 
 /** One explanation: a short title and the text. All of the app's help copy is in this file, so wording can be fixed in one place. */
-data class HelpTopic(
+internal data class HelpTopic(
     val title: String,
     val body: String,
 )
 
-object Help {
+internal object Help {
     // ---- zones
     val zones =
         HelpTopic(
@@ -141,7 +141,7 @@ object Help {
 }
 
 /** Explanatory copy of the setup wizard and its Home card nag, kept here with the rest of the app's help text. */
-object SetupText {
+internal object SetupText {
     const val HOME_BASE_NAME = "Home Base"
     const val HOME_BASE_CARD =
         "Distances in your games are measured from here. On your home Wi-Fi the game pauses and GPS turns " +

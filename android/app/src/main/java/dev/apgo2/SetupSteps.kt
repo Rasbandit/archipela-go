@@ -2,8 +2,7 @@ package dev.apgo2
 
 import android.Manifest
 import android.bluetooth.BluetoothManager
-import android.content.pm.PackageManager
-import android.os.Build
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,40 +96,49 @@ internal fun StepPage(
     }
 }
 
-/** Step 2: tick every Wi-Fi network your home uses. Saving a name covers every access point on it. */
-@Composable
-internal fun WifiStep(
-    m: AppModel,
-    onBack: () -> Unit,
-    onNext: () -> Unit,
+private const val SCAN_WAIT_MS = 3_000L
+
+// What the Wi-Fi step shows and does; it lives as long as the step is on screen.
+@Stable
+private class WifiStepState(
+    private val m: AppModel,
+    private val scanner: WifiScanner,
 ) {
-    val ctx = LocalContext.current
-    val scanner = remember { WifiScanner(ctx) }
-    var saved by remember { mutableStateOf(m.settings.homeNetworks) }
-    var nearby by remember { mutableStateOf(scanner.nearby()) }
-    var query by remember { mutableStateOf("") }
-    var typed by remember { mutableStateOf("") }
+    var saved by mutableStateOf(m.settings.homeNetworks)
+    var nearby by mutableStateOf(scanner.nearby())
+    var query by mutableStateOf("")
+    var typed by mutableStateOf("")
+
     // Names unticked during this visit stay listed (unticked) until the step closes, so a slip can be undone.
-    var removed by remember { mutableStateOf(emptyList<String>()) }
-    var note by remember { mutableStateOf<String?>(null) }
-    var scanning by remember { mutableStateOf(false) }
-    // The scan answers a moment later; read it then.
-    LaunchedEffect(scanning) {
-        if (scanning) {
-            delay(3_000)
-            nearby = scanner.nearby()
-            scanning = false
-        }
-    }
-    LaunchedEffect(m.locationPermitted) {
-        if (m.locationPermitted) {
-            nearby = scanner.nearby() // the last results are readable now
-            if (scanner.rescan()) scanning = true
-        }
+    var removed by mutableStateOf(emptyList<String>())
+    var note by mutableStateOf<String?>(null)
+    var scanning by mutableStateOf(false)
+
+    fun choices() = WifiChoices.merge(saved, m.presence.monitor.currentNetwork(), nearby + removed, query)
+
+    fun inRange() = nearby.mapNotNull { PresenceSignals.cleanSsid(it) }.toSet()
+
+    // Location was just allowed: the last results are readable now.
+    fun readLastResults() {
+        nearby = scanner.nearby()
+        if (scanner.rescan()) scanning = true
     }
 
-    val inRange = nearby.mapNotNull { PresenceSignals.cleanSsid(it) }.toSet()
-    val choices = WifiChoices.merge(saved, m.monitor.currentNetwork(), nearby + removed, query)
+    // The scan answers a moment later; read it then.
+    suspend fun readScanWhenDone() {
+        delay(SCAN_WAIT_MS)
+        nearby = scanner.nearby()
+        scanning = false
+    }
+
+    fun rescan() {
+        if (scanner.rescan()) {
+            scanning = true
+            note = null
+        } else {
+            note = "Android limits how often Wi-Fi can be scanned. Showing the last results."
+        }
+    }
 
     fun toggle(
         c: WifiChoice,
@@ -142,7 +151,7 @@ internal fun WifiStep(
             removed = removed + c.ssid
         }
         saved = m.settings.homeNetworks
-        m.evaluatePresence()
+        m.presence.evaluate()
     }
 
     fun addTyped() {
@@ -152,67 +161,92 @@ internal fun WifiStep(
         removed = removed - ssid
         typed = ""
         query = ""
-        m.evaluatePresence()
+        m.presence.evaluate()
     }
 
+    fun tagFor(c: WifiChoice) =
+        when {
+            c.connected -> "Connected now"
+            c.saved && nearby.isNotEmpty() && c.ssid !in inRange() -> "Saved, not in range"
+            else -> null
+        }
+}
+
+/** Step 2: tick every Wi-Fi network your home uses. Saving a name covers every access point on it. */
+@Composable
+internal fun WifiStep(
+    m: AppModel,
+    onBack: () -> Unit,
+    onNext: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    val state = remember { WifiStepState(m, WifiScanner(ctx)) }
+    LaunchedEffect(state.scanning) { if (state.scanning) state.readScanWhenDone() }
+    LaunchedEffect(m.presence.locationPermitted) { if (m.presence.locationPermitted) state.readLastResults() }
     StepPage(
         title = "Home Wi-Fi · step 2 of 3",
         why = SetupText.WIFI_WHY,
         next = "Next",
-        skip = if (saved.isEmpty()) "Skip, I'll do this at home" else null,
+        skip = if (state.saved.isEmpty()) "Skip, I'll do this at home" else null,
         onBack = onBack,
         onNext = onNext,
         header = {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(query, { query = it }, Modifier.weight(1f), label = { Text("Search networks") }, singleLine = true)
-                OutlinedButton(enabled = !scanning, onClick = {
-                    if (scanner.rescan()) {
-                        scanning = true
-                        note = null
-                    } else {
-                        note =
-                            "Android limits how often Wi-Fi can be scanned. Showing the last results."
-                    }
-                }) { Text(if (scanning) "Scanning…" else "Rescan") }
-            }
-            if (!m.locationPermitted) FeedbackText(SetupText.WIFI_NEEDS_LOCATION, Tone.Warning)
-            note?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            WifiSearch(state)
+            if (!m.presence.locationPermitted) FeedbackText(SetupText.WIFI_NEEDS_LOCATION, Tone.Warning)
+            state.note?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         },
-        footer = {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(typed, { typed = it }, Modifier.weight(1f), label = { Text("Add a network by name") }, singleLine = true)
-                OutlinedButton(enabled = PresenceSignals.cleanSsid(typed) != null, onClick = { addTyped() }) { Text("Add") }
-            }
-        },
+        footer = { WifiAdd(state) },
     ) {
-        if (choices.isEmpty()) {
-            Text(
-                if (query.isBlank()) SetupText.WIFI_NONE_FOUND else "Nothing matches \"$query\".",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        choices.forEach { c ->
-            Row(Modifier.fillMaxWidth().clickable { toggle(c, !c.saved) }, verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(c.saved, { toggle(c, it) })
-                Column {
-                    Text(c.ssid)
-                    val tag =
-                        when {
-                            c.connected -> "Connected now"
-                            c.saved && nearby.isNotEmpty() && c.ssid !in inRange -> "Saved, not in range"
-                            else -> null
-                        }
-                    tag?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                }
+        WifiChoiceList(state)
+    }
+}
+
+@Composable
+private fun WifiSearch(state: WifiStepState) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(state.query, { state.query = it }, Modifier.weight(1f), label = { Text("Search networks") }, singleLine = true)
+        OutlinedButton(enabled = !state.scanning, onClick = state::rescan) { Text(if (state.scanning) "Scanning…" else "Rescan") }
+    }
+}
+
+@Composable
+private fun WifiAdd(state: WifiStepState) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            state.typed,
+            { state.typed = it },
+            Modifier.weight(1f),
+            label = { Text("Add a network by name") },
+            singleLine = true,
+        )
+        OutlinedButton(enabled = PresenceSignals.cleanSsid(state.typed) != null, onClick = state::addTyped) { Text("Add") }
+    }
+}
+
+@Composable
+private fun WifiChoiceList(state: WifiStepState) {
+    val choices = state.choices()
+    if (choices.isEmpty()) {
+        Text(
+            if (state.query.isBlank()) SetupText.WIFI_NONE_FOUND else "Nothing matches \"${state.query}\".",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    choices.forEach { c ->
+        Row(Modifier.fillMaxWidth().clickable { state.toggle(c, !c.saved) }, verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(c.saved, { state.toggle(c, it) })
+            Column {
+                Text(c.ssid)
+                state.tagFor(c)?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
     }
@@ -228,35 +262,14 @@ internal fun CarStep(
     val ctx = LocalContext.current
     var car by remember { mutableStateOf(m.settings.carDevices) }
     var query by remember { mutableStateOf("") }
-    var btOk by remember {
-        mutableStateOf(
-            Build.VERSION.SDK_INT < 31 || ctx.checkSelfPermission(
-                Manifest.permission.BLUETOOTH_CONNECT,
-            ) == PackageManager.PERMISSION_GRANTED,
-        )
-    }
+    var btOk by remember { mutableStateOf(ctx.hasBluetoothConnect()) }
     // Tell the model too: it restarts the monitor so car detection works without leaving the app.
     val askBt =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
             btOk = it
-            m.ensureMonitor(it)
+            m.presence.ensureMonitor(it)
         }
-    val paired =
-        remember(btOk) {
-            if (!btOk) {
-                emptyList()
-            } else {
-                runCatching {
-                    ctx
-                        .getSystemService(
-                            BluetoothManager::class.java,
-                        )?.adapter
-                        ?.bondedDevices
-                        ?.map { CarDevice(it.name ?: it.address, it.address) }
-                        ?: emptyList()
-                }.getOrDefault(emptyList())
-            }
-        }
+    val paired = remember(btOk) { if (btOk) pairedDevices(ctx) else emptyList() }
 
     fun toggle(
         d: CarDevice,
@@ -265,7 +278,7 @@ internal fun CarStep(
         val now = m.settings.carDevices.filterNot { it.address == d.address }
         m.settings.setCar(if (on) now + d else now)
         car = m.settings.carDevices
-        m.evaluatePresence()
+        m.presence.evaluate()
     }
     StepPage(
         title = "Car Bluetooth · step 3 of 3",
@@ -287,9 +300,7 @@ internal fun CarStep(
         if (!btOk) {
             OutlinedButton(onClick = { askBt.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("Allow Bluetooth to pick your car") }
             Text(SetupText.CAR_NEEDS_BLUETOOTH, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else if (paired.isEmpty() &&
-            car.isEmpty()
-        ) {
+        } else if (paired.isEmpty() && car.isEmpty()) {
             Text(SetupText.CAR_NONE_PAIRED, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         CarChoices.merge(paired, car, query).forEach { d ->
@@ -301,3 +312,14 @@ internal fun CarStep(
         }
     }
 }
+
+// The phone's paired Bluetooth devices; empty when the adapter is missing or the system refuses.
+private fun pairedDevices(ctx: Context): List<CarDevice> =
+    runCatching {
+        ctx
+            .getSystemService(BluetoothManager::class.java)
+            ?.adapter
+            ?.bondedDevices
+            ?.map { CarDevice(it.name ?: it.address, it.address) }
+            ?: emptyList()
+    }.getOrDefault(emptyList())

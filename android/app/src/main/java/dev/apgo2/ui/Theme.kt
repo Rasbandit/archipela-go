@@ -69,6 +69,6 @@ private val DarkColors =
 
 /** The one place the app picks its look. Screens use MaterialTheme roles and the components in Components.kt, never raw colours. */
 @Composable
-fun ApgoTheme(content: @Composable () -> Unit) {
+internal fun ApgoTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors, content = content)
 }

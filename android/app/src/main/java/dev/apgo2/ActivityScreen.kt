@@ -26,12 +26,14 @@ import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 
+private const val REFRESH_MS = 3_000L
+
 /**
  * What happened in the game and why: quests with how they were done, rewards with where they came from, traps, and (optionally)
  * the technical notes.
  */
 @Composable
-fun ActivityScreen(
+internal fun ActivityScreen(
     m: AppModel,
     modifier: Modifier = Modifier,
 ) {
@@ -39,8 +41,8 @@ fun ActivityScreen(
     // Refresh while this tab is open: new events arrive as you play.
     LaunchedEffect(m.hud?.gameName) {
         while (true) {
-            m.refreshActivity()
-            delay(3_000)
+            m.library.refreshActivity()
+            delay(REFRESH_MS)
         }
     }
     val time = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM) }

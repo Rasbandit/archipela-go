@@ -10,11 +10,11 @@ import dev.apgo2.ui.SetupText
 
 /** First-run and edit wizard for Home Base: where home is, which Wi-Fi networks are home, which Bluetooth device is the car. */
 @Composable
-fun SetupFlow(m: AppModel) {
-    var step by rememberSaveable { mutableStateOf(m.setupStart) }
+internal fun SetupFlow(m: AppModel) {
+    var step by rememberSaveable { mutableStateOf(m.setup.startStep) }
     when (step) {
         SetupStep.Home -> {
-            HomePicker(m, title = "${SetupText.HOME_BASE_NAME} · step 1 of 3", onBack = { m.leaveSetup() }, onNext = {
+            HomePicker(m, title = "${SetupText.HOME_BASE_NAME} · step 1 of 3", onBack = { m.setup.leave() }, onNext = {
                 step =
                     SetupStep.Wifi
             })
@@ -25,7 +25,7 @@ fun SetupFlow(m: AppModel) {
         }
 
         SetupStep.Car -> {
-            CarStep(m, onBack = { step = SetupStep.Wifi }, onDone = { m.finishSetup() })
+            CarStep(m, onBack = { step = SetupStep.Wifi }, onDone = { m.setup.finish() })
         }
     }
 }

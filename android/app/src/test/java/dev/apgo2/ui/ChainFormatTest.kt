@@ -32,12 +32,12 @@ class ChainFormatTest {
     }
 
     @Test fun nextNamesTheFirstUnreachedMarkAndHowFarItIs() {
-        val c = chain("steps", 3400.0, 500.0 to true, 3000.0 to true, 8500.0 to false, 16500.0 to false)
+        val c = chain("steps", 3_400.0, 500.0 to true, 3_000.0 to true, 8_500.0 to false, 16_500.0 to false)
         assertEquals("next: 8,500 steps (5,100 to go)", ChainFormat.next(c))
     }
 
     @Test fun aFinishedChainSaysSo() {
-        val c = chain("steps", 9000.0, 500.0 to true, 8500.0 to true)
+        val c = chain("steps", 9_000.0, 500.0 to true, 8_500.0 to true)
         assertEquals("all 2 unlocked", ChainFormat.next(c))
     }
 

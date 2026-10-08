@@ -3,15 +3,17 @@ package dev.apgo2.ui
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 
+private const val RGB_MASK = 0xFFFFFF
+
 /** "#rrggbb" for MapLibre style expressions, which take strings rather than Compose colours. */
-fun Color.hex(): String = "#%06x".format(toArgb() and 0xFFFFFF)
+internal fun Color.hex(): String = "#%06x".format(toArgb() and RGB_MASK)
 
 /**
  * Every colour the app uses lives here, so Compose screens and the map draw from one source.
  * Brand colours come from Archipelago's web theme (ArchipelagoMW/Archipelago, WebHostLib/static/styles, MIT);
  * only colours are used, the Archipelago logo is CC BY-NC 4.0 and is deliberately not bundled.
  */
-object ApgoPalette {
+internal object ApgoPalette {
     // Archipelago ocean theme (#11233e panels, #93dcff headings, #fffc95 links) and header teals
     val navy = Color(0xFF11233E)
     val teal = Color(0xFF2F6B83)
@@ -26,15 +28,6 @@ object ApgoPalette {
     val questDone = Color(0xFF2E7D32)
     val questLocked = Color(0xFF9E9E9E)
     val questHidden = Color(0xFFBDBDBD)
-
-    fun quest(state: String): Color =
-        when (state) {
-            "done" -> questDone
-            "progress" -> questProgress
-            "locked" -> questLocked
-            "hidden" -> questHidden
-            else -> questTodo
-        }
 
     // Map and realm editor
     val me = Color(0xFF1565C0)
@@ -61,8 +54,6 @@ object ApgoPalette {
             "away" to Color(0xFFAD1457),
             "boss" to Color(0xFF8D6E00),
         )
-
-    fun family(family: String): Color = families[family] ?: teal
 
     // The landmark family is half the catalog, so it is split into sub-groups with a colour each.
     private val landmarkGroups: Map<Color, List<String>> =
@@ -136,12 +127,6 @@ object ApgoPalette {
         )
     private val kindColors: Map<String, Color> = landmarkGroups.flatMap { (color, ids) -> ids.map { it to color } }.toMap()
 
-    /** The colour of a find or quest of this kind: its landmark sub-group, else its family. */
-    fun kind(
-        kindId: String,
-        family: String,
-    ): Color = kindColors[kindId] ?: family(family)
-
     // Marks on places
     val favorite = Color(0xFFF9A825)
     val banned = Color(0xFFC62828)
@@ -151,4 +136,21 @@ object ApgoPalette {
     val danger = Color(0xFFC62828)
     val success = Color(0xFF2E7D32)
     val muted = Color(0xFF757575)
+
+    fun quest(state: String): Color =
+        when (state) {
+            "done" -> questDone
+            "progress" -> questProgress
+            "locked" -> questLocked
+            "hidden" -> questHidden
+            else -> questTodo
+        }
+
+    fun family(family: String): Color = families[family] ?: teal
+
+    /** The colour of a find or quest of this kind: its landmark sub-group, else its family. */
+    fun kind(
+        kindId: String,
+        family: String,
+    ): Color = kindColors[kindId] ?: family(family)
 }

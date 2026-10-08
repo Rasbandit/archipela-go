@@ -1,7 +1,9 @@
 package dev.apgo2
 
+import android.os.Build
+
 /** How often the phone is asked for a location fix. Finer while a game is running, relaxed otherwise (battery). */
-object GpsPolicy {
+internal object GpsPolicy {
     data class Rate(
         val intervalMs: Long,
         val minDistanceM: Float,
@@ -36,6 +38,10 @@ object GpsPolicy {
         enabled: Set<String>,
         sdk: Int,
     ): List<String> =
-        listOf("fused".takeIf { sdk >= 31 }, "gps", "network").filterNotNull().firstOrNull { it in enabled }?.let { listOf(it) }
+        listOf(
+            "fused".takeIf { sdk >= Build.VERSION_CODES.S },
+            "gps",
+            "network",
+        ).filterNotNull().firstOrNull { it in enabled }?.let { listOf(it) }
             ?: emptyList()
 }

@@ -1,22 +1,22 @@
 package dev.apgo2.presence
 
-data class WifiId(
+internal data class WifiId(
     val ssid: String?,
     val bssid: String?,
 )
 
-data class HomeNetwork(
+internal data class HomeNetwork(
     val ssid: String,
     val bssid: String?,
 )
 
-data class CarDevice(
+internal data class CarDevice(
     val name: String,
     val address: String,
 )
 
 /** Turning what Android reports into the `Boolean?` signals the policy reads. Pure. */
-object PresenceSignals {
+internal object PresenceSignals {
     /** Android quotes SSIDs and reports `<unknown ssid>` when it may not tell. */
     fun cleanSsid(raw: String?): String? {
         val s = raw?.trim()?.removeSurrounding("\"") ?: return null
@@ -37,8 +37,15 @@ object PresenceSignals {
         if (saved.isEmpty()) return null
         val ssid = cleanSsid(current?.ssid)
         val bssid = current?.bssid?.lowercase()?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }
-        if (ssid == null && bssid == null) return null
-        return saved.any { h -> (bssid != null && h.bssid?.lowercase() == bssid) || (ssid != null && h.ssid == ssid) }
+        val unreadable = ssid == null && bssid == null
+        return if (unreadable) {
+            null
+        } else {
+            saved.any { h ->
+                (bssid != null && h.bssid?.lowercase() == bssid) ||
+                    (ssid != null && h.ssid == ssid)
+            }
+        }
     }
 
     fun carConnected(
@@ -52,7 +59,7 @@ object PresenceSignals {
 }
 
 /** Words for the Play screen's presence chip. Pure. */
-object PresenceText {
+internal object PresenceText {
     /** "Protection off" when no home network or car is saved, since nothing can pause the game then (the Home card offers the setup). */
     fun chip(
         state: PresenceState,
