@@ -23,7 +23,7 @@ of one guided setup: shown on first launch, re-openable from the Home card to ed
    - Saved home networks (already ticked, removable).
    - The current connection (SSID and BSSID), pinned at the top.
    - Nearby networks from `WifiManager.scanResults` (SSID only, hidden/blank names dropped). Needs the location permission the app already asks for
-     (plus `NEARBY_WIFI_DEVICES` on API 33+, declared `neverForLocation`). A "Rescan" button calls `startScan()`; Android throttles it (about 4 per
+     and `CHANGE_WIFI_STATE` for rescans (add `NEARBY_WIFI_DEVICES` on API 33+ only if the phone check shows scans coming back empty). A "Rescan" button calls `startScan()`; Android throttles it (about 4 per
      2 minutes in the foreground), so the button shows the throttle result instead of failing silently.
    - Type the name by hand (SSID only). The way to set up while away from home.
    - Skip ("Do this when you're home").

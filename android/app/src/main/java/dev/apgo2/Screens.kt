@@ -125,7 +125,7 @@ import uniffi.apgo_ffi.SoloOptionsIn
 
 @Composable
 fun AppRoot(m: AppModel) {
-    if (m.showPresence) { BackHandler { m.showPresence = false }; Surface(Modifier.fillMaxSize()) { PresenceScreen(m) }; return }
+    if (m.showSetup) { Surface(Modifier.fillMaxSize()) { SetupFlow(m) }; return }
     m.away?.let { AwayDialog(it) { m.away = null } }
     // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves the app as usual.
     BackHandler(enabled = m.tab != 0) { m.tab = 0 }
@@ -180,7 +180,7 @@ fun AppRoot(m: AppModel) {
 /** Two views: the list of realms, and a full-page map editor for a new one. */
 @Composable
 fun RealmsScreen(m: AppModel) {
-    if (m.pickingHome) { HomePicker(m) { m.pickingHome = false }; return }
+    if (m.pickingHome) { HomePicker(m, onBack = { m.pickingHome = false }); return }
     m.editing?.let { id -> RealmEditor(m, id.ifEmpty { null }) { m.editing = null } } ?: RealmList(m, onNew = { m.editing = "" }, onEdit = { m.editing = it })
 }
 
@@ -234,6 +234,7 @@ private fun RealmList(m: AppModel, onNew: () -> Unit, onEdit: (String) -> Unit) 
 private fun HomeCard(m: AppModel, onClick: () -> Unit) {
     val context = LocalContext.current
     val home = m.home?.let { LatLng(it.lat, it.lon) }
+    val progress = m.setupProgress()
     val map by produceState<android.graphics.Bitmap?>(null, home) {
         value = null
         value = home?.let { runCatching { mapSnapshot(context, PreviewFrame(it, HOME_PREVIEW_ZOOM)) }.getOrNull() }
@@ -253,7 +254,8 @@ private fun HomeCard(m: AppModel, onClick: () -> Unit) {
                     if (home == null) "Not set yet. Tap to choose where distances are measured from." else "Distances are measured from here. Tap to move it.",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(onClick = { m.showPresence = true }) { Text("Presence") }
+                if (progress.missingWifi) FeedbackText("Add your home Wi-Fi so the game pauses at home", Tone.Warning)
+                OutlinedButton(onClick = { m.openSetup(if (progress.needsAttention()) progress.nextStep() else null) }) { Text(if (progress.needsAttention()) "Finish setup" else "Setup") }
             }
             if (home != null) HomePreview(map, Modifier.size(PREVIEW_DP.dp))
         }
@@ -301,7 +303,7 @@ private fun RealmCard(m: AppModel, r: RealmOut, onClick: () -> Unit) {
  * Done only closes.
  */
 @Composable
-private fun HomePicker(m: AppModel, onClose: () -> Unit) {
+internal fun HomePicker(m: AppModel, onBack: () -> Unit, onConfirm: () -> Unit = onBack, title: String = "Home", confirmLabel: String = "Done", requireHome: Boolean = false) {
     val start = remember { m.home?.let { LatLng(it.lat, it.lon) } ?: m.me ?: m.shownRealms.firstOrNull()?.let { r -> r.circle?.let { LatLng(it.center.lat, it.center.lon) } ?: r.polygon.firstOrNull()?.let { LatLng(it.lat, it.lon) } } }
     var pin by remember { mutableStateOf(start) }
     var saved by remember { mutableStateOf(m.home != null) }
@@ -320,7 +322,7 @@ private fun HomePicker(m: AppModel, onClose: () -> Unit) {
         if (pts.size >= 2) MapFit(pts, 1) else null
     }
     fun place(to: LatLng) { pin = to; m.setHome(to, announce = false); saved = true }
-    BackHandler { onClose() }
+    BackHandler { onBack() }
 
     Box(Modifier.fillMaxSize()) {
         QuestMap(
@@ -332,7 +334,7 @@ private fun HomePicker(m: AppModel, onClose: () -> Unit) {
             overlayTopDp = 16, overlayBottomDp = 150,
         )
         Row(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onClose, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)) { IconLabel("Done", ApgoIcons.Done, 14.sp) }
+            Button(onClick = onConfirm, enabled = !requireHome || saved, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)) { IconLabel(confirmLabel, ApgoIcons.Done, 14.sp) }
         }
         if (saved) {
             Row(
@@ -344,7 +346,7 @@ private fun HomePicker(m: AppModel, onClose: () -> Unit) {
             }
         }
         MapOverlayCard(Modifier.align(Alignment.BottomCenter)) {
-            Text("Home", style = MaterialTheme.typography.titleSmall)
+            Text(title, style = MaterialTheme.typography.titleSmall)
             Text(
                 if (pin == null) "Tap the map to put your home there." else "Drag the pin or tap the map to move it. Distances in your games are measured from here.",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,

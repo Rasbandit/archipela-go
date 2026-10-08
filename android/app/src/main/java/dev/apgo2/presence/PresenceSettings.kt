@@ -38,6 +38,11 @@ class PresenceSettings(ctx: Context) {
             (0 until a.length()).mapNotNull { i -> runCatching { a.getJSONObject(i).let { o -> CarDevice(o.getString("name"), o.getString("address")) } }.getOrNull() }
         }.getOrDefault(emptyList())
 
+    /** True once the player finished or explicitly skipped the setup wizard; until then it opens on every start. */
+    var setupDone: Boolean
+        get() = prefs.getBoolean("setup_done", false)
+        set(v) { prefs.edit().putBoolean("setup_done", v).apply() }
+
     fun addHome(n: HomeNetwork) {
         val key = PresenceSignals.cleanSsid(n.ssid) ?: n.ssid
         homeNetworks = homeNetworks.filterNot { (PresenceSignals.cleanSsid(it.ssid) ?: it.ssid) == key } + n

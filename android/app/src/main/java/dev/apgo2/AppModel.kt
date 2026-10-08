@@ -18,6 +18,8 @@ import dev.apgo2.presence.PresenceSeeding
 import dev.apgo2.presence.PresenceSettings
 import dev.apgo2.presence.PresenceSignals
 import dev.apgo2.presence.PresenceState
+import dev.apgo2.presence.SetupProgress
+import dev.apgo2.presence.SetupStep
 import dev.apgo2.presence.Signals
 import dev.apgo2.presence.Zone
 import java.util.UUID
@@ -73,7 +75,18 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     var editing by mutableStateOf<String?>(null)
     /** The home picker (a full-screen map with a draggable pin) is open. */
     var pickingHome by mutableStateOf(false)
-    var showPresence by mutableStateOf(false)
+    /** The setup wizard (home pin, home Wi-Fi, car Bluetooth) is open. It opens by itself on every start until it has been finished or skipped once. */
+    var showSetup by mutableStateOf(!settings.setupDone)
+        private set
+    /** The step the wizard opens on. */
+    var setupStart = SetupStep.Home
+        private set
+
+    fun setupProgress() = SetupProgress(home != null, settings.homeNetworks.size, settings.carDevices.size, settings.setupDone)
+    fun openSetup(from: SetupStep? = null) { setupStart = from ?: SetupStep.Home; showSetup = true }
+    /** Close without marking it done (Back on the first step): the Home card keeps offering it. */
+    fun leaveSetup() { showSetup = false }
+    fun finishSetup() { settings.setupDone = true; showSetup = false }
     var realms by mutableStateOf<List<RealmOut>>(emptyList())
     val offers = mutableStateMapOf<String, List<OfferOut>>()
     var busy by mutableStateOf<String?>(null)
