@@ -37,7 +37,7 @@ npm install -g --prefix ~/.local markdownlint-cli2@0.23.3
 - `just check-py` (needs `.ap/`): ruff (ALL, also over `scripts/*.py` via `scripts/ruff.toml`), pyright strict, pytest with a coverage floor of 99.
 - `just check-rust`: rustfmt, clippy (pedantic, deny), rustdoc `-D warnings`, cargo deny, cargo llvm-cov floor of 80.
 - `just check-android`: host-built bindings, Spotless/ktlint, detekt, Android Lint (warnings are errors), unit tests,
-  Kover floor of 7.
+  Kover floor of 17.
 - Coverage floors only go up (see `docs/context/working-in-this-repo.md`).
 
 ## Hooks

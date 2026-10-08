@@ -30,19 +30,19 @@ import androidx.compose.ui.unit.sp
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.History
 import dev.apgo2.ui.IconLabel
-import dev.apgo2.ui.METERS_PER_DEGREE
+import dev.apgo2.ui.MIN_POLYGON_CORNERS
 import dev.apgo2.ui.SavedBadge
 import dev.apgo2.ui.ToolButton
 import dev.apgo2.ui.ToolPill
 import dev.apgo2.ui.ToolPillRow
 import dev.apgo2.ui.circleExtremes
+import dev.apgo2.ui.insideShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.FindOut
 import uniffi.apgo_ffi.RealmOut
-import kotlin.math.cos
 
 /** The two tabs of the realm editor. */
 internal object EditorTab {
@@ -55,12 +55,20 @@ internal object FindFilter {
     const val ALL = "all"
     const val FAVORITE = "favorite"
     const val BANNED = "banned"
+
+    /** Whether [f] passes the mark [filter] and the search [query] (its name or a quest kind's name, ignoring case). */
+    fun matches(
+        f: FindOut,
+        filter: String,
+        query: String,
+    ): Boolean =
+        (filter == ALL || f.mark == filter) &&
+            (query.isBlank() || f.name.contains(query, true) || f.kinds.any { it.name.contains(query, true) })
 }
 
 private const val DEFAULT_RADIUS_M = 1500f
 private const val MIN_RADIUS_M = 300f
 private const val MAX_RADIUS_M = 8000f
-private const val MIN_CORNERS = 3
 private const val NAME_SAVE_DELAY_MS = 600L
 private const val OVERLAY_TOP_DP = 16
 
@@ -219,7 +227,14 @@ internal class RealmEditorState(
         if (deleted) return false
         val c = center ?: m.me // read now: the value captured when the screen was last drawn may be older than this edit
         val rid =
-            m.realmOps.save(id, name, icon, c?.let { it to radius.toDouble() }, m.draft.toList(), polygon && m.draft.size >= MIN_CORNERS)
+            m.realmOps.save(
+                id,
+                name,
+                icon,
+                c?.let { it to radius.toDouble() },
+                m.draft.toList(),
+                polygon && m.draft.size >= MIN_POLYGON_CORNERS,
+            )
         if (rid != null) {
             if (id == null) {
                 id = rid
@@ -416,60 +431,6 @@ private fun rememberFindsView(s: RealmEditorState): FindsView {
             visible.map { MapFind(it.id, LatLng(it.at.lat, it.at.lon), it.kindId, it.family, it.mark, it.id == s.finds.selected) }
         }
     val shown =
-        remember(visible, s.query, s.filter) {
-            visible.filter { f ->
-                (s.filter == FindFilter.ALL || f.mark == s.filter) &&
-                    (s.query.isBlank() || f.name.contains(s.query, true) || f.kinds.any { it.name.contains(s.query, true) })
-            }
-        }
+        remember(visible, s.query, s.filter) { visible.filter { FindFilter.matches(it, s.filter, s.query) } }
     return FindsView(visible, mapFinds, shown)
-}
-
-// Whether a point lies inside the shape being edited: the circle, or the polygon when it has 3 or more corners.
-private fun insideShape(
-    lat: Double,
-    lon: Double,
-    polygon: Boolean,
-    center: LatLng?,
-    radiusM: Double,
-    corners: List<LatLng>,
-): Boolean =
-    when {
-        polygon && corners.size < MIN_CORNERS -> true
-
-        // nothing drawn yet: do not hide everything
-        polygon -> insidePolygon(lat, lon, corners)
-
-        center == null -> true
-
-        else -> insideCircle(lat, lon, center, radiusM)
-    }
-
-// Ray casting.
-private fun insidePolygon(
-    lat: Double,
-    lon: Double,
-    corners: List<LatLng>,
-): Boolean {
-    var inside = false
-    var j = corners.lastIndex
-    for (i in corners.indices) {
-        val a = corners[i]
-        val b = corners[j]
-        val crosses = a.latitude > lat != b.latitude > lat
-        if (crosses && lon < (b.longitude - a.longitude) * (lat - a.latitude) / (b.latitude - a.latitude) + a.longitude) inside = !inside
-        j = i
-    }
-    return inside
-}
-
-private fun insideCircle(
-    lat: Double,
-    lon: Double,
-    c: LatLng,
-    radiusM: Double,
-): Boolean {
-    val dy = (lat - c.latitude) * METERS_PER_DEGREE
-    val dx = (lon - c.longitude) * METERS_PER_DEGREE * cos(Math.toRadians(c.latitude))
-    return dx * dx + dy * dy <= radiusM * radiusM
 }
