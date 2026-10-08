@@ -69,6 +69,7 @@ dependencies {
     implementation(libs.maplibre)
     implementation(libs.lucide)
     testImplementation(libs.junit)
+    testImplementation(libs.org.json) // android.jar stubs org.json out in local unit tests
 }
 
 kover {
