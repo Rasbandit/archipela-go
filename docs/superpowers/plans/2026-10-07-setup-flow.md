@@ -721,7 +721,7 @@ Grant the permission dialogs. Expected: the wizard opens at step 1 (map) instead
   - After Finish: the app is on the Realms list; relaunch the app and the wizard does not return.
 - [ ] **Step 3: Nag states** — clear Wi-Fi from the Home card flow (re-open Setup, untick, Finish): the Home card shows "Add your home Wi-Fi so the game pauses at home" and "Finish setup"; start a game and the Play chip reads "Protection off".
 - [ ] **Step 4: Upgrade case** — with the previous build's saved Wi-Fi (or `adb shell run-as dev.apgo2` prefs edited so `setup_done` is absent), launch: the wizard opens pre-filled and saved networks are ticked.
-- [ ] **Step 5: Phone check** — install on the Pixel 8 Pro (`ANDROID_SERIAL=10.0.20.151:40843`), open Setup at home, confirm all home SSIDs appear in the scan list. If the list is empty with location granted, add `<uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />` (and request it at runtime on API 33+) and re-check.
+- [ ] **Step 5: Phone check** — install on the Pixel 8 Pro (`ANDROID_SERIAL=10.0.20.151:40843`), open Setup at home, confirm all home SSIDs appear in the scan list. If the list is empty, first check that `ACCESS_FINE_LOCATION` is granted and the system location toggle is on. If it is still empty on API 33+, add `<uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />` (request it at runtime) WITHOUT `neverForLocation`, which would make Android strip location-derived data such as SSIDs from scan results, and re-check.
 - [ ] **Step 6: Report honestly** which of these were verified on the emulator only and which on the phone.
 
 ---
