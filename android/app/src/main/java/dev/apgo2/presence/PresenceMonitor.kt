@@ -29,6 +29,14 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
     /** Addresses of connected Bluetooth devices; `null` while BLUETOOTH_CONNECT is not granted. */
     var connectedCarCandidates: Set<String>? = null
         private set
+    /** True once a Wi-Fi callback has reported since [start] (even "not connected" is only reported by silence, see the app model's timeout). */
+    var wifiReported = false
+        private set
+
+    /** True once the Bluetooth device read has answered (or was skipped for lack of permission), so `connectedCarCandidates` is trustworthy. */
+    var bluetoothReady = false
+        private set
+    private var proxiesPending = 0
     private val bt = mutableSetOf<String>()
     private var started = false
 
@@ -46,7 +54,12 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
     private fun legacyWifi(): WifiId? = ctx.applicationContext.getSystemService(WifiManager::class.java)?.connectionInfo?.let { WifiId(it.ssid, it.bssid) }
 
     // Network callbacks are registered with the main handler, so this runs on the main thread.
-    private fun update(w: WifiId?) { if (started && w != currentWifi) { currentWifi = w; onChange() } }
+    private fun update(w: WifiId?) {
+        if (!started) return
+        val first = !wifiReported
+        wifiReported = true
+        if (w != currentWifi || first) { currentWifi = w; onChange() }
+    }
 
     private val btReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -73,12 +86,16 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ctx.registerReceiver(btReceiver, filter, Context.RECEIVER_EXPORTED) else ctx.registerReceiver(btReceiver, filter)
             connectedCarCandidates = bt.toSet()
             val adapter = ctx.getSystemService(BluetoothManager::class.java)?.adapter
-            for (profile in intArrayOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)) {
+            if (adapter == null) bluetoothReady = true
+            val profiles = intArrayOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)
+            proxiesPending = profiles.size
+            for (profile in profiles) {
                 adapter?.getProfileProxy(ctx, object : BluetoothProfile.ServiceListener {
                     override fun onServiceConnected(p: Int, proxy: BluetoothProfile) {
                         if (started) {
                             runCatching { proxy.connectedDevices.forEach { bt.add(it.address) } }
                             connectedCarCandidates = bt.toSet()
+                            if (--proxiesPending <= 0) bluetoothReady = true
                         }
                         adapter.closeProfileProxy(p, proxy)
                         if (started) onChange()
@@ -86,6 +103,8 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
                     override fun onServiceDisconnected(p: Int) {}
                 }, profile)
             }
+        } else {
+            bluetoothReady = true // nothing to wait for: car devices stay unknown
         }
     }
 
@@ -100,6 +119,9 @@ class PresenceMonitor(private val ctx: Context, private val onChange: () -> Unit
     /** Forget everything: no events arrive while stopped, so old values would go stale. */
     private fun reset() {
         bt.clear()
+        wifiReported = false
+        bluetoothReady = false
+        proxiesPending = 0
         currentWifi = null
         connectedCarCandidates = null
     }

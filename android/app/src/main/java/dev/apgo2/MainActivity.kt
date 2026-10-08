@@ -32,6 +32,8 @@ class MainActivity : ComponentActivity() {
     private fun hasBackgroundLocation() =
         Build.VERSION.SDK_INT < 29 || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
 
+    private fun has(permission: String) = ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
     private fun hasBluetoothConnect() =
         Build.VERSION.SDK_INT < 31 || ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
@@ -63,9 +65,10 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // Permissions, one after another: location, then step counter, then notifications (the tracking notification).
-                    var permitted by remember { mutableStateOf(false) }
+                    // Start from the real state: on an activity recreate "false" would stop tracking until the launcher answers.
+                    var permitted by remember { mutableStateOf(has(Manifest.permission.ACCESS_FINE_LOCATION)) }
                     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { Diag.i("permission", "notifications", "granted" to it) }
-                    var stepsOk by remember { mutableStateOf(false) }
+                    var stepsOk by remember { mutableStateOf(has(Manifest.permission.ACTIVITY_RECOGNITION)) }
                     val askSteps = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
                         stepsOk = it
         Diag.i("permission", "activity_recognition", "granted" to it)
