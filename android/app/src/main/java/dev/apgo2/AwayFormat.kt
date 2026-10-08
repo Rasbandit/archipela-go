@@ -14,7 +14,7 @@ object AwayFormat {
         "item_received" to "Items received",
         "fix_rejected" to "Bad GPS signal",
         "near_miss" to "Near a quest",
-        "play_paused" to "Paused",
+        "play_paused" to "Stopped playing",
         "play_resumed" to "Resumed",
         "app_foreground" to "App opened",
         "app_background" to "App left the screen",

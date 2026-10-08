@@ -318,7 +318,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         runCatching { engine.openGame(id) }.onSuccess { Diag.i("game", "opened", "id" to id); engine.logSession(true, now()); simClockMs = 0; refreshAll(); tab = 2 }.onFailure { fail("open_game", it); status = "Could not open: ${it.message}" }
     }
 
-    /** Stop tracking: log it, close the game view and go to the Play tab, which then lists the saved games to continue. */
+    /** Stop playing: log it, close the game and go to the Play tab, which then lists the saved games to continue. Tracking stops. */
     fun pause() {
         engine.logSession(false, now())
         Diag.i("game", "paused")
@@ -418,7 +418,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
                 "point", "area" -> a?.let { out += fix(it, 600_000); out += fix(it, 400_000) }
                 "dwell" -> a?.let { out += fix(it, 600_000); out += fix(it, 11 * 60_000L) }
                 "courier" -> { q.anchor?.let { out += fix(it, 600_000) }; q.anchorB?.let { out += fix(it, limitMs(q) / 2) } }
-                "roundtrip" -> { a?.let { out += fix(it, 600_000) }; out += fix(home, limitMs(q) / 2) }
+                "roundtrip" -> { a?.let { out += fix(it, 600_000) }; out += fix(home, 600_000) }
                 "line" -> {
                     out += fix(q.path.first(), 600_000)
                     for (i in 0 until q.path.size - 1) {

@@ -790,7 +790,7 @@ fun PlayScreen(m: AppModel) {
             Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
             OutlinedButton(onClick = { m.pause() }) {
                 Icon(ApgoIcons.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
-                Text(" Pause tracking", fontSize = 12.sp)
+                Text(" Stop playing", fontSize = 12.sp)
             }
         }
         if (hud.goals.size > 1) {
@@ -826,6 +826,14 @@ fun PlayScreen(m: AppModel) {
             }
         }
         (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let { FeedbackText(it.joinToString("  ·  "), Tone.Danger) }
+        val layout = remember(m.quests) { PlayLayout.split(m.quests) }
+        var allProgress by remember { mutableStateOf(false) }
+        var showPlaces by remember { mutableStateOf(false) }
+        if (layout.progress.isNotEmpty()) {
+            Text("Progress", style = MaterialTheme.typography.titleSmall)
+            (if (allProgress) layout.progress else layout.progress.take(PROGRESS_ROWS)).forEach { q -> ProgressRow(q) { m.selected = q.locationId } }
+            if (layout.progress.size > PROGRESS_ROWS) TextButton(onClick = { allProgress = !allProgress }) { Text(if (allProgress) "Show fewer" else "Show all ${layout.progress.size}", fontSize = 11.sp) }
+        }
         QuestMap(
             m.quests, m.realms.filter { r -> m.zones.any { it.realmId == r.id } }, emptyList(), m.me,
             hud.thaw?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) }, hud.waypoint?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) },
@@ -835,15 +843,10 @@ fun PlayScreen(m: AppModel) {
                     android.location.Location.distanceBetween(ll.latitude, ll.longitude, a.lat, a.lon, d); d[0]
                 }?.let { m.selected = it.locationId }
             },
-            Modifier.fillMaxWidth().height(260.dp),
+            if (showPlaces) Modifier.fillMaxWidth().height(200.dp) else Modifier.fillMaxWidth().weight(1f).heightIn(min = 180.dp),
             home = m.home?.let { LatLng(it.lat, it.lon) },
             trace = m.trace,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedButton(onClick = { m.devTeleportNext() }) { Text("DEV: do next", fontSize = 11.sp) }
-            OutlinedButton(onClick = { m.simPos = null }) { Text("Real GPS", fontSize = 11.sp) }
-            OutlinedButton(onClick = { runCatching { m.engine.reroll(emptyList(), (kotlin.random.Random.nextLong() ushr 1).toULong()) }; m.refreshPlay() }) { Text("Reroll all", fontSize = 11.sp) }
-        }
         selected?.let { q ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
@@ -853,20 +856,19 @@ fun PlayScreen(m: AppModel) {
                     Text(q.blurb, fontSize = 11.sp)
                     q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedButton(onClick = { m.devComplete(q) }) { Text("DEV: complete", fontSize = 11.sp) }
                         if (q.state != "done") OutlinedButton(onClick = { runCatching { m.engine.reroll(listOf(q.locationId), (kotlin.random.Random.nextLong() ushr 1).toULong()) }; m.refreshPlay() }) { Text("Reroll", fontSize = 11.sp) }
                     }
                 }
             }
         }
-        val order = listOf("progress", "open", "locked", "done", "hidden")
-        LazyColumn(Modifier.weight(1f)) {
-            items(m.quests.sortedBy { order.indexOf(it.state) }, key = { it.locationId }) { q ->
+        TextButton(onClick = { showPlaces = !showPlaces }) { Text("${if (showPlaces) "Hide" else "Show"} places on the map (${layout.places.size})", fontSize = 12.sp) }
+        if (showPlaces) LazyColumn(Modifier.weight(1f)) {
+            items(layout.places, key = { it.locationId }) { q ->
                 Row(Modifier.fillMaxWidth().clickable { m.selected = q.locationId }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(ApgoIcons.forKind(q.kindId, q.family), contentDescription = null, tint = ApgoPalette.quest(q.state), modifier = Modifier.size(20.dp))
                     Column(Modifier.weight(1f)) {
                         Text(if (q.state == "hidden") "??? (undiscovered)" else q.name, fontSize = 13.sp)
-                        if (q.state != "hidden") Text("${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min${if (q.state == "progress") " · ${(q.progress * 100).toInt()}%" else ""}", fontSize = 10.sp)
+                        if (q.state != "hidden") Text("${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min", fontSize = 10.sp)
                     }
                     Text(q.state, fontSize = 10.sp)
                 }
@@ -889,5 +891,22 @@ private fun GamesList(m: AppModel) {
                 OutlinedButton(onClick = { m.deleteGame(g.id) }) { Text("Delete", fontSize = 12.sp) }
             }
         }
+    }
+}
+
+/** Quests shown in the Progress section before "Show all". */
+private const val PROGRESS_ROWS = 3
+
+/** A quest you complete by accumulating something (steps, new squares, minutes away, ground covered): name, rule and a thin progress bar on two lines. */
+@Composable
+private fun ProgressRow(q: uniffi.apgo_ffi.QuestOut, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 1.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(ApgoIcons.forKind(q.kindId, q.family), contentDescription = null, tint = ApgoPalette.quest(q.state), modifier = Modifier.size(16.dp))
+            Text(q.name, fontSize = 13.sp, maxLines = 1)
+            Text(q.detail, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text("${(q.progress * 100).toInt()}%", fontSize = 11.sp)
+        }
+        LinearProgressIndicator(progress = { q.progress }, Modifier.fillMaxWidth())
     }
 }
