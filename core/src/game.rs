@@ -770,7 +770,11 @@ impl Game {
 
     /// Re-place unfinished quests (Shuffle trap or the player's reroll). Finished quests never change.
     pub fn reroll(&mut self, ids: &[i64], realms: &[(Realm, Atlas)], seed: u64, catalog: &Catalog) -> Result<usize, String> {
-        let todo: Vec<i64> = ids.iter().copied().filter(|i| !self.done.contains(i)).collect();
+        let todo: Vec<i64> = ids
+            .iter()
+            .copied()
+            .filter(|i| !self.done.contains(i) && !self.assignments.iter().any(|a| a.location_id == *i && is_chain_target(&a.target)))
+            .collect();
         let zones = zone_ctx(&self.slot, &self.zone_realms, realms)?;
         let params = AssignParams {
             home: self.home,
@@ -916,7 +920,22 @@ impl Game {
         let s = std::fs::read_to_string(Self::path_for(dir, id)).map_err(|e| e.to_string())?;
         let mut g: Game = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
         g.counters.steps_last = None; // steps taken while the game was closed are never credited
+        g.normalize_counters();
         Ok(g)
+    }
+
+    /// An old save has finished chain members but no counters: start each counter at its highest finished mark so nothing is lost or earned twice.
+    fn normalize_counters(&mut self) {
+        for c in self.chains() {
+            if c.unit == ChainUnit::Cells {
+                continue;
+            }
+            let floor = c.marks.iter().filter(|m| self.done.contains(&m.location_id)).map(|m| m.at).fold(0.0, f64::max);
+            let entry = self.counters.progress.entry(c.id).or_insert(0.0);
+            if *entry < floor {
+                *entry = floor;
+            }
+        }
     }
 
     pub fn list_ids(dir: &Path) -> Vec<(String, String)> {
@@ -1298,6 +1317,37 @@ mod tests {
             &Catalog::builtin(),
         );
         assert!(created.is_ok());
+    }
+
+    #[test]
+    fn chain_members_cannot_be_rerolled_and_counters_survive_a_reroll() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]);
+        g.on_steps(0, 1);
+        g.on_steps(400, 2);
+        let before = g.assignments.iter().map(|a| a.target.clone()).collect::<Vec<_>>();
+        let realms = vec![realm("r0", Mode::Walk)];
+        let n = g.reroll(&[1000, 1001], &realms, 9, &Catalog::builtin()).unwrap();
+        assert_eq!(n, 0, "nothing re-placed");
+        assert_eq!(g.assignments.iter().map(|a| a.target.clone()).collect::<Vec<_>>(), before);
+        assert_eq!(g.counters.progress["1:step_up"], 400.0);
+    }
+
+    #[test]
+    fn an_old_save_with_finished_chain_quests_keeps_them_and_earns_nothing_twice() {
+        let dir = std::env::temp_dir().join(format!("apgo-oldsave-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }, Target::Steps { n: 2000 }]);
+        g.done.insert(1000); // finished the old way, before chains existed
+        g.done.insert(1001);
+        g.counters = Counters::default();
+        g.save(&dir).unwrap();
+        let mut back = Game::load(&dir, "g1").unwrap();
+        assert!(back.done.contains(&1000) && back.done.contains(&1001), "nothing lost");
+        assert_eq!(back.counters.progress["1:step_up"], 1500.0, "the counter starts at the highest finished mark");
+        back.on_steps(10, 1);
+        let ev = back.on_steps(600, 2);
+        assert!(done_ids(&ev).is_empty(), "the 3rd mark is at 3,500; 590 more steps do not pay anything twice");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
