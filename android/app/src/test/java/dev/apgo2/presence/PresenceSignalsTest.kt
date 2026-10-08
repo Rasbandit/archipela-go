@@ -43,4 +43,23 @@ class PresenceSignalsTest {
         assertNull(PresenceSignals.carConnected(setOf("AA"), emptyList()))
         assertNull(PresenceSignals.carConnected(null, listOf(CarDevice("Subaru", "AA"))))
     }
+
+    @Test fun unknownSsidOrPlaceholderBssidIsUnknownNeverNotHome() {
+        val saved = listOf(HomeNetwork("HomeNet", "aa:bb:cc:dd:ee:01"))
+        assertNull(PresenceSignals.isHome(WifiId("<unknown ssid>", "02:00:00:00:00:00"), saved))
+        assertNull(PresenceSignals.isHome(WifiId("\"<unknown ssid>\"", null), saved))
+        assertNull(PresenceSignals.isHome(WifiId("", "  "), saved))
+    }
+
+    @Test fun aSavedNetworkWithoutBssidMatchesBySsidDespiteADifferentBssid() {
+        val saved = listOf(HomeNetwork("HomeNet", null))
+        assertEquals(true, PresenceSignals.isHome(WifiId("HomeNet", "11:22:33:44:55:66"), saved))
+    }
+
+    @Test fun anyOfSeveralSavedNetworksOrCarsMatches() {
+        val homes = listOf(HomeNetwork("Office", "aa:aa:aa:aa:aa:01"), HomeNetwork("HomeNet", "bb:bb:bb:bb:bb:02"))
+        assertEquals(true, PresenceSignals.isHome(WifiId("HomeNet", null), homes))
+        val cars = listOf(CarDevice("Subaru", "AA:01"), CarDevice("Truck", "BB:02"))
+        assertEquals(true, PresenceSignals.carConnected(setOf("bb:02"), cars))
+    }
 }
