@@ -71,6 +71,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     var editing by mutableStateOf<String?>(null)
     /** The home picker (a full-screen map with a draggable pin) is open. */
     var pickingHome by mutableStateOf(false)
+    var showPresence by mutableStateOf(false)
     var realms by mutableStateOf<List<RealmOut>>(emptyList())
     val offers = mutableStateMapOf<String, List<OfferOut>>()
     var busy by mutableStateOf<String?>(null)

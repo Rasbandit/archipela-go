@@ -15,6 +15,7 @@ import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
 import org.maplibre.android.geometry.LatLng
 import androidx.activity.compose.BackHandler
+import dev.apgo2.presence.PresenceText
 import androidx.compose.foundation.layout.Arrangement
 import dev.apgo2.ui.PreviewFrame
 import dev.apgo2.ui.HOME_PREVIEW_ZOOM
@@ -97,6 +98,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -123,6 +125,7 @@ import uniffi.apgo_ffi.SoloOptionsIn
 
 @Composable
 fun AppRoot(m: AppModel) {
+    if (m.showPresence) { BackHandler { m.showPresence = false }; Surface(Modifier.fillMaxSize()) { PresenceScreen(m) }; return }
     m.away?.let { AwayDialog(it) { m.away = null } }
     // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves the app as usual.
     BackHandler(enabled = m.tab != 0) { m.tab = 0 }
@@ -250,6 +253,7 @@ private fun HomeCard(m: AppModel, onClick: () -> Unit) {
                     if (home == null) "Not set yet. Tap to choose where distances are measured from." else "Distances are measured from here. Tap to move it.",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                OutlinedButton(onClick = { m.showPresence = true }) { Text("Presence") }
             }
             if (home != null) HomePreview(map, Modifier.size(PREVIEW_DP.dp))
         }
@@ -789,7 +793,10 @@ fun PlayScreen(m: AppModel) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // The map is the top of the screen; goals and progress-bar quests sit under it in a scrolling panel.
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
+            Column {
+                Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
+                Text(PresenceText.chip(m.presence.state, m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty()), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+            }
             OutlinedButton(onClick = { m.pause() }) {
                 Icon(ApgoIcons.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
                 Text(" Stop playing", fontSize = 12.sp)

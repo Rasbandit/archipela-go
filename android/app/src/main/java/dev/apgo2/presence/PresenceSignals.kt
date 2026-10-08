@@ -33,3 +33,15 @@ object PresenceSignals {
         return saved.any { it.address.lowercase() in connected }
     }
 }
+
+/** Words for the Play screen's presence chip. Pure. */
+object PresenceText {
+    /** Plain "Tracking" when no home network or car is saved, since nothing can pause the game then. */
+    fun chip(state: PresenceState, configured: Boolean): String = if (!configured) "Tracking" else when (state) {
+        PresenceState.InZone -> "Tracking"
+        PresenceState.AtHome -> "At home, paused"
+        PresenceState.InCar -> "In car, not counting"
+        PresenceState.OutsideZones -> "Outside zones, saving battery"
+        PresenceState.Stopped -> "Not playing"
+    }
+}

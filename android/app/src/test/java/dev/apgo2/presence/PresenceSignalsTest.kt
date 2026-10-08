@@ -69,4 +69,13 @@ class PresenceSignalsTest {
         assertNull(PresenceSignals.usableNetwork(WifiId(null, "aa:01")))
         assertNull(PresenceSignals.usableNetwork(null))
     }
+
+    @Test fun theChipSaysWhatIsHappeningAndIsPlainWhenNothingIsConfigured() {
+        assertEquals("At home, paused", PresenceText.chip(PresenceState.AtHome, configured = true))
+        assertEquals("In car, not counting", PresenceText.chip(PresenceState.InCar, configured = true))
+        assertEquals("Outside zones, saving battery", PresenceText.chip(PresenceState.OutsideZones, configured = true))
+        assertEquals("Tracking", PresenceText.chip(PresenceState.InZone, configured = true))
+        assertEquals("Tracking", PresenceText.chip(PresenceState.OutsideZones, configured = false))
+        assertEquals("Not playing", PresenceText.chip(PresenceState.Stopped, configured = true))
+    }
 }
