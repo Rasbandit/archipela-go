@@ -56,6 +56,9 @@ pub fn implied_speed_kmh(prev: &Fix, cur: &Fix) -> Option<f64> {
     let effective = (distance_m(prev.point(), cur.point()) - prev.accuracy_m - cur.accuracy_m).max(0.0);
     Some(effective / dt * 3.6)
 }
+
+/// Spacing of the samples a line quest is covered by, in metres.
+pub const LINE_SAMPLE_M: f64 = 20.0;
 const HOME_RADIUS_M: f64 = 100.0;
 const MAX_GAP_MS: i64 = 5 * 60_000;
 
@@ -94,7 +97,7 @@ impl Tracker {
             Target::Point { .. } => State::None,
             Target::Dwell { .. } | Target::DwellArea { .. } => State::Dwell { since: None, best_ms: 0 },
             Target::Line { pts, .. } => {
-                let dense = densify(pts, 20.0);
+                let dense = densify(pts, LINE_SAMPLE_M);
                 let covered = vec![false; dense.len()];
                 State::Line { dense, covered }
             }

@@ -74,11 +74,16 @@ pub struct Traps {
 fn pool_point(pool: &[Point], from: Point, min: f64, max: f64, rng: &mut StdRng) -> Point {
     let near: Vec<&Point> = pool.iter().filter(|p| (min..=max).contains(&distance_m(from, **p))).collect();
     let want = f64::midpoint(min, max);
-    // No street at the usual distance: the street point closest to it (#51: a point to reach is never made up off the streets).
-    let closest = || pool.iter().min_by(|a, b| (distance_m(from, **a) - want).abs().total_cmp(&(distance_m(from, **b) - want).abs())).copied();
+    // No street at the usual distance: the street point closest to it, if it is no more than twice as far as usual (#51: a point to reach
+    // is never made up off the streets). With no street that near (no map data around the player) a spot at the usual distance is used.
+    let closest = pool
+        .iter()
+        .filter(|p| distance_m(from, **p) <= 2.0 * max)
+        .min_by(|a, b| (distance_m(from, **a) - want).abs().total_cmp(&(distance_m(from, **b) - want).abs()))
+        .copied();
     match near.choose(rng) {
         Some(p) => **p,
-        None => closest().unwrap_or_else(|| destination(from, rng.random_range(0.0..360.0), want)),
+        None => closest.unwrap_or_else(|| destination(from, rng.random_range(0.0..360.0), want)),
     }
 }
 
@@ -236,11 +241,17 @@ mod tests {
     #[test]
     fn a_thaw_point_stays_on_a_street_even_when_no_street_is_at_the_usual_distance() {
         // #51: a point the player must reach is a street point, never a made-up spot in a backyard.
-        let far: Vec<Point> = (0..5).map(|i| destination(home(), 72.0 * f64::from(i), 2000.0 + 10.0 * f64::from(i))).collect();
+        let farther: Vec<Point> = (0..5).map(|i| destination(home(), 72.0 * f64::from(i), 1000.0 + 50.0 * f64::from(i))).collect();
         let mut t = Traps::default();
-        t.trigger("Freeze Trap", 0, Some(home()), home(), &far, &mut rng());
+        t.trigger("Freeze Trap", 0, Some(home()), home(), &farther, &mut rng());
         let thaw = t.thaw_point().unwrap();
-        assert!(far.iter().any(|p| distance_m(*p, thaw) < 1e-6), "thaw point {thaw:?} is not a street point");
+        assert!(distance_m(farther[0], thaw) < 1e-6, "the street point closest to the usual distance, got {thaw:?}");
+        // the only streets are 20 km away (the player is outside every zone): never send them there
+        let remote: Vec<Point> = (0..5).map(|i| destination(home(), 72.0 * f64::from(i), 20_000.0)).collect();
+        let mut t = Traps::default();
+        t.trigger("Freeze Trap", 0, Some(home()), home(), &remote, &mut rng());
+        let d = distance_m(home(), t.thaw_point().unwrap());
+        assert!((300.0..=800.0).contains(&d), "thaw point {d:.0} m away");
     }
 
     #[test]

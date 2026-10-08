@@ -426,6 +426,20 @@ fn streak(days: &BTreeSet<i64>, today: i64) -> u32 {
     n
 }
 
+/// About how many street points of each realm the trap pool keeps.
+const TRAP_POOL_PER_ZONE: usize = 600;
+
+/// Street and path points from every zone's realm (each realm once, thinned), so a trap's point to reach is on a street wherever the player is.
+fn trap_pool(zones: &[ZoneCtx<'_>]) -> Vec<Point> {
+    let mut seen = BTreeSet::new();
+    let mut pool = Vec::new();
+    for z in zones.iter().filter(|z| seen.insert(z.realm.id.as_str())) {
+        let all: Vec<Point> = z.atlas.streets.iter().chain(&z.atlas.streets_rough).copied().collect();
+        pool.extend(all.iter().step_by((all.len() / TRAP_POOL_PER_ZONE).max(1)).copied());
+    }
+    pool
+}
+
 fn zone_ctx<'a>(slot: &SlotData, zone_realms: &[String], realms: &'a [(Realm, Atlas)]) -> Result<Vec<ZoneCtx<'a>>, String> {
     let mut out = Vec::new();
     for (i, z) in slot.zones.iter().enumerate() {
@@ -461,8 +475,7 @@ impl Game {
             allow_progressive: true,
         };
         let assignments = assign(&slots_in(&n.slot, None), &zones, catalog, &params);
-        let pool: Vec<Point> =
-            zones.first().map(|z| z.atlas.streets.iter().step_by((z.atlas.streets.len() / 600).max(1)).copied().collect()).unwrap_or_default();
+        let pool = trap_pool(&zones);
         let away =
             AwayConfig { zone_only: n.away.zone_only, distance_m: zones.iter().map(|z| (z.zone, n.away.resolve(z.realm.shape.farthest_m(n.home)))).collect() };
         Ok(Self {
@@ -1272,6 +1285,19 @@ mod tests {
 
     fn fixat(p: Point, t_s: i64) -> Fix {
         Fix { lat: p.lat, lon: p.lon, t_ms: t_s * 1000, accuracy_m: 8.0 }
+    }
+
+    #[test]
+    fn the_trap_pool_has_streets_and_paths_from_every_zone() {
+        let (r0, a0) = realm("r0", Mode::Walk);
+        let (r1, mut a1) = realm("r1", Mode::Walk);
+        let far = destination(home(), 0.0, 30_000.0);
+        let trail = destination(far, 0.0, 60.0);
+        (a1.streets, a1.streets_rough) = (vec![far], vec![trail]);
+        let zones = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r0, atlas: &a0 }, ZoneCtx { zone: 2, mode: Mode::Bike, realm: &r1, atlas: &a1 }];
+        let pool = trap_pool(&zones);
+        assert!(pool.contains(&far) && pool.contains(&trail), "a trap in zone 2 finds zone 2's streets");
+        assert!(pool.len() <= 2 * TRAP_POOL_PER_ZONE + 2, "kept small: {}", pool.len());
     }
 
     /// A solo game whose quests are replaced by the given targets (all in zone 1, kind `kind`), each rewarding "Hydrate!".
