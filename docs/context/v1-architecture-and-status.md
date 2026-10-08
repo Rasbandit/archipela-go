@@ -56,6 +56,7 @@ Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone 
 - Every read of an atlas is restricted to the realm's current zone (`Atlas::restrict_to`); favorites/bans live in `marks/<realm>.json` per realm.
 - Trail finds are consolidated (30 m link, length gates, id-as-name ignored); a trail quest asks for the share of the line that fits the effort.
 - Walkable length = sum of unique street segments (sidewalks/crossings excluded), not points.
+- **Near-a-path rule (#51)**: every point a player must reach (Reach/Dwell targets, DwellArea marker, Courier A and B, RoundTrip far point, boss, Line start, Freeze thaw point) is within `near_path::NEAR_PATH_M` (30 m) of a scanned street/path point (`atlas.streets` + `streets_rough`, as the surface preference allows). `near_path::PathIndex` (30 m grid buckets) does `near_path`, `nearest`, `snap_into_area` (polygon places: a path point inside, else beside the edge) and `start_near_path` (loops rotate, open lines are cut). Places that cannot be reached from a path are not offered. A sparse zone uses the few street points it has (no grid fallback any more); when they run out a street quest shares a point, and only an empty pool gives the flagged home fallback. Applies to new games and rerolls; saved games keep their quests. Reuse `PathIndex` for future collectibles (#5).
 - Zone keys + tools gate zones; every trap has an exit; anti-cheat is light (accuracy 75 m, speed caps).
 
 ## Presence (home Wi-Fi, car Bluetooth, zone duty cycle)

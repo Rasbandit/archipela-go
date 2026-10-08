@@ -1,6 +1,6 @@
 //! Assign each apworld slot a concrete quest at a real place, using what the slot's realm offers.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use rand::rngs::StdRng;
 use rand::seq::{IndexedRandom, SliceRandom};
@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Catalog, Geom, Kind, Mode, Verify};
 use crate::effort::{cadence_steps_per_min, mid, travel_min};
-use crate::fill::lattice;
 use crate::geo::{bearing_deg, distance_m, point_inside, polyline_len_m, Point};
+use crate::near_path::PathIndex;
 use crate::num::round_u32;
 use crate::realm::Realm;
 use crate::scan::{Atlas, Feature};
@@ -229,18 +229,62 @@ const MIN_TRAIL_SHARE: f64 = 0.25;
 /// How many effort-minutes of misfit a favorite place can make up for.
 const FAVORITE_BONUS_MIN: f64 = 6.0;
 
+/// The street and path points quests in zone `z` may use. A sparse zone keeps the few it has: a quest point is never made up off the
+/// streets (it used to fall back to a grid over the whole realm, which put quests in backyards).
 fn street_pool(z: &ZoneCtx<'_>, pref: SurfacePref) -> Vec<Point> {
     let (paved, rough) = (&z.atlas.streets, &z.atlas.streets_rough);
-    let all = || paved.iter().chain(rough.iter()).copied().collect::<Vec<_>>();
-    let pool = match pref {
+    match pref {
         SurfacePref::PreferPaved if paved.len() >= 50 => paved.clone(),
         SurfacePref::PavedOnly => paved.clone(),
-        SurfacePref::Any | SurfacePref::PreferPaved => all(),
-    };
-    if pool.len() >= 20 {
-        pool
-    } else {
-        lattice(&z.realm.shape.to_zone(), 150.0).into_iter().map(|c| c.point).collect()
+        SurfacePref::Any | SurfacePref::PreferPaved => paved.iter().chain(rough.iter()).copied().collect(),
+    }
+}
+
+/// A zone's street points with their index, and where each of its places can be reached from a path (worked out once per place).
+struct ZonePaths {
+    pool: Vec<Point>,
+    index: PathIndex,
+    points: HashMap<usize, Option<Point>>,
+    centers: HashMap<usize, Option<Point>>,
+    lines: HashMap<usize, Option<Vec<Point>>>,
+}
+
+impl ZonePaths {
+    fn new(z: &ZoneCtx<'_>, pref: SurfacePref) -> Self {
+        let pool = street_pool(z, pref);
+        let index = PathIndex::new(&pool);
+        Self { pool, index, points: HashMap::new(), centers: HashMap::new(), lines: HashMap::new() }
+    }
+
+    /// The point to reach for place `f` (index `fi`): the place itself when it is near a path, else a path point in or beside its area.
+    fn point(&mut self, fi: usize, f: &Feature) -> Option<Point> {
+        let index = &self.index;
+        *self.points.entry(fi).or_insert_with(|| if index.near_path(f.point) { Some(f.point) } else { index.snap_into_area(&f.geometry, f.point) })
+    }
+
+    /// The marker of an area to spend time in: a point inside it near a path, or a path point at its edge. With no outline, the place
+    /// itself or the nearest path point within the circle (`r`) the quest uses.
+    fn center(&mut self, fi: usize, f: &Feature, r: f64) -> Option<Point> {
+        let index = &self.index;
+        *self.centers.entry(fi).or_insert_with(|| {
+            if f.geometry.len() >= 3 {
+                // The OSM "center" can fall outside a concave park; start from a point inside the outline.
+                let c = point_inside(&f.geometry);
+                if index.near_path(c) {
+                    Some(c)
+                } else {
+                    index.snap_into_area(&f.geometry, c)
+                }
+            } else {
+                index.nearest(f.point, r).map(|(q, _)| q)
+            }
+        })
+    }
+
+    /// The line of place `f`, starting where it first comes near a path.
+    fn line(&mut self, fi: usize, f: &Feature) -> Option<Vec<Point>> {
+        let index = &self.index;
+        self.lines.entry(fi).or_insert_with(|| index.start_near_path(&f.geometry)).clone()
     }
 }
 
@@ -255,23 +299,36 @@ fn best_point(pool: &[Point], origin: Point, mode: Mode, want_min: f64, min_dist
         .min_by(|a, b| (travel_min(distance_m(origin, *a), mode) - want_min).abs().total_cmp(&(travel_min(distance_m(origin, *b), mode) - want_min).abs()))
 }
 
-fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point, want: f64) -> Option<(Target, f64)> {
-    let to_f = distance_m(home, f.point);
+/// Radius of the circle used for an area to spend time in when the place has no outline, in metres.
+const AREA_CIRCLE_M: f64 = 80.0;
+
+/// The quest kind `k` makes of place `f` (index `fi`), with its effort. Every point to reach is near a path (see [`crate::near_path`]);
+/// a place that cannot be reached from one is not offered.
+fn feature_target(k: &Kind, fi: usize, f: &Feature, zp: &mut ZonePaths, mode: Mode, home: Point, want: f64) -> Option<(Target, f64)> {
     match &k.verify {
-        Verify::Reach { radius_m } => Some((Target::Point { p: f.point, r: *radius_m }, travel_min(to_f, mode))),
-        Verify::Dwell { minutes, radius_m } => Some((Target::Dwell { p: f.point, r: *radius_m, minutes: *minutes }, travel_min(to_f, mode) + minutes)),
+        Verify::Reach { radius_m } => {
+            let p = zp.point(fi, f)?;
+            Some((Target::Point { p, r: *radius_m }, travel_min(distance_m(home, p), mode)))
+        }
+        Verify::Dwell { minutes, radius_m } => {
+            let p = zp.point(fi, f)?;
+            Some((Target::Dwell { p, r: *radius_m, minutes: *minutes }, travel_min(distance_m(home, p), mode) + minutes))
+        }
         Verify::DwellInArea { minutes } => {
             let poly = if f.geometry.len() >= 3 { f.geometry.clone() } else { vec![] };
-            // The OSM "center" can fall outside a concave park; always target a point inside the outline.
-            let center = if poly.len() >= 3 { point_inside(&poly) } else { f.point };
-            Some((Target::DwellArea { poly, center, r: 80.0, minutes: *minutes }, travel_min(distance_m(home, center), mode) + minutes))
+            let center = zp.center(fi, f, AREA_CIRCLE_M)?;
+            Some((Target::DwellArea { poly, center, r: AREA_CIRCLE_M, minutes: *minutes }, travel_min(distance_m(home, center), mode) + minutes))
         }
         Verify::FollowLine { corridor_m, coverage, min_len_m, max_len_m } => {
-            let len = polyline_len_m(&f.geometry);
-            if f.geometry.len() < 2 || len < *min_len_m || len > *max_len_m {
+            if f.geometry.len() < 2 || polyline_len_m(&f.geometry) < *min_len_m {
                 return None;
             }
-            let nearest = f.geometry.iter().map(|p| distance_m(home, *p)).fold(f64::MAX, f64::min);
+            let pts = zp.line(fi, f)?;
+            let len = polyline_len_m(&pts);
+            if len < *min_len_m || len > *max_len_m {
+                return None;
+            }
+            let nearest = pts.iter().map(|p| distance_m(home, *p)).fold(f64::MAX, f64::min);
             let pace = mode.m_per_min() * if mode == Mode::Walk { 0.8 } else { 1.0 };
             // Ask for the share of the line that fits the effort wanted, so a long trail makes a fair quest too: never above the kind's own
             // share, and never less than a quarter of it (or 150 m).
@@ -279,7 +336,7 @@ fn feature_target(k: &Kind, f: &Feature, mode: Mode, home: Point, want: f64) -> 
             let full = len / pace;
             let floor = MIN_TRAIL_SHARE.max(150.0 / len).min(*coverage);
             let share = ((want - travel) / full).clamp(floor, *coverage);
-            Some((Target::Line { pts: f.geometry.clone(), corridor_m: *corridor_m, coverage: share }, travel + share * full))
+            Some((Target::Line { pts, corridor_m: *corridor_m, coverage: share }, travel + share * full))
         }
         _ => None,
     }
@@ -353,18 +410,19 @@ fn offered(k: &Kind, s: &SlotIn, z: &ZoneCtx<'_>, p: &AssignParams) -> bool {
         && (p.allow_progressive || !k.is_progressive())
 }
 
+#[allow(clippy::too_many_arguments)] // the per-run state (zone paths, rng, used places) is threaded explicitly, like free_candidate
 fn one(
     s: &SlotIn,
     z: &ZoneCtx<'_>,
     catalog: &Catalog,
     p: &AssignParams,
+    zp: &mut ZonePaths,
     rng: &mut StdRng,
     used_feat: &mut BTreeSet<String>,
     used_pts: &mut Vec<Point>,
 ) -> Assignment {
     let want = mid(s.tier, p.minutes_per_tier);
     let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| offered(k, s, z, p)).collect();
-    let pool = street_pool(z, p.surface);
     let mut cands: Vec<Cand> = Vec::new();
     for k in &kinds {
         if k.geom != Geom::None {
@@ -382,7 +440,7 @@ fn one(
                 if used_pts.iter().any(|u| distance_m(*u, f.point) < SPACING_M) {
                     continue;
                 }
-                if let Some((target, effort)) = feature_target(k, f, z.mode, p.home, want) {
+                if let Some((target, effort)) = feature_target(k, fi, f, zp, z.mode, p.home, want) {
                     cands.push(Cand {
                         // A favorite counts as a better fit than it is, so it is picked when it is anywhere near the right effort.
                         score: (effort - want).abs() - if z.atlas.favorites.contains(&f.id) { FAVORITE_BONUS_MIN } else { 0.0 },
@@ -395,7 +453,7 @@ fn one(
                     });
                 }
             }
-        } else if let Some((target, effort, place)) = free_candidate(k, z, &pool, p, want, rng, used_pts) {
+        } else if let Some((target, effort, place)) = free_candidate(k, z, &zp.pool, p, want, rng, used_pts) {
             // Generic quests are the backup: prefer real places when the realm has them.
             cands.push(Cand {
                 score: (effort - want).abs() + if s.boss { 6.0 } else { 3.0 },
@@ -412,7 +470,9 @@ fn one(
     if cands.is_empty() {
         fallback = true;
         if let Some(k) = catalog.kind("street_smarts") {
-            if let Some((target, effort, place)) = free_candidate(k, z, &pool, p, want, rng, used_pts) {
+            // A sparse zone can run out of street points spaced apart from the other quests: then share one rather than leave the streets.
+            let found = free_candidate(k, z, &zp.pool, p, want, rng, used_pts).or_else(|| free_candidate(k, z, &zp.pool, p, want, rng, &[]));
+            if let Some((target, effort, place)) = found {
                 cands.push(Cand { score: 0.0, kind: k.clone(), target, effort, place, feature_id: None, favorite: false });
             }
         }
@@ -468,13 +528,14 @@ pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx<'_>], catalog: &Catalog, p: &As
     let mut rng = StdRng::seed_from_u64(p.seed);
     let mut used_feat = BTreeSet::new();
     let mut used_pts: Vec<Point> = Vec::new();
+    let mut paths: Vec<ZonePaths> = zones.iter().map(|z| ZonePaths::new(z, p.surface)).collect();
     let mut order: Vec<usize> = (0..slots.len()).collect();
     order.sort_by_key(|&i| slots[i].boss);
     let mut done: Vec<(usize, Assignment)> = Vec::new();
     for i in order {
         let s = &slots[i];
-        if let Some(z) = zones.iter().find(|z| z.zone == s.zone) {
-            done.push((i, one(s, z, catalog, p, &mut rng, &mut used_feat, &mut used_pts)));
+        if let Some(zi) = zones.iter().position(|z| z.zone == s.zone) {
+            done.push((i, one(s, &zones[zi], catalog, p, &mut paths[zi], &mut rng, &mut used_feat, &mut used_pts)));
         }
     }
     done.sort_by_key(|(i, _)| *i);
@@ -482,7 +543,7 @@ pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx<'_>], catalog: &Catalog, p: &As
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_sign_loss, clippy::many_single_char_names)] // test code: short names for points and coordinates in test fixtures; test fixtures use small, known-positive numbers
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::many_single_char_names)] // test code: short names for points and coordinates in test fixtures; test fixtures use small, known-positive numbers and counts
 mod tests {
     use super::*;
     use crate::effort::tier_for;
@@ -630,7 +691,7 @@ mod tests {
         use crate::marks::{Mark, Marks};
         let cat = Catalog::builtin();
         let r = realm(Mode::Walk);
-        let bench = |id: &str, bearing: f64| feature(id, &[("amenity", "bench")], destination(home(), bearing, 1500.0), vec![]);
+        let bench = |id: &str, bearing: f64| feature(id, &[("amenity", "bench")], destination(home(), bearing, 1440.0), vec![]); // on a street point (#51: places off the streets are not used)
         let streets: Vec<Point> = atlas(&cat, false).streets;
         let mut a = crate::scan::build_atlas("r", 0, vec![bench("n1", 0.0), bench("n2", 180.0)], streets, &cat);
         let mut marks = Marks::default();
@@ -640,7 +701,7 @@ mod tests {
             let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
             let out = assign(&[slot(1, "dwell", 3, Mode::Walk)], &z, &cat, &params(seed));
             let Target::Dwell { p, .. } = &out[0].target else { panic!("expected a bench dwell, got {:?}", out[0].target) };
-            assert!(distance_m(*p, destination(home(), 180.0, 1500.0)) < 5.0, "seed {seed} did not pick the favorite");
+            assert!(distance_m(*p, destination(home(), 180.0, 1440.0)) < 5.0, "seed {seed} did not pick the favorite");
         }
     }
 
@@ -799,7 +860,185 @@ mod tests {
         let empty = Atlas::default();
         let z2 = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &empty }];
         let out = assign(&slots, &z2, &cat, &params(9));
-        assert_eq!(out.len(), 8, "an empty atlas must still yield playable (lattice) quests");
+        assert_eq!(out.len(), 8, "an empty atlas must still yield playable (fallback) quests");
+    }
+
+    // ---- The near-a-path rule (#51): every point a player must reach is within NEAR_PATH_M of a scanned street or path point. ----
+
+    use crate::near_path::NEAR_PATH_M;
+
+    /// A point `north_m` north and `east_m` east of `from`.
+    fn at(from: Point, north_m: f64, east_m: f64) -> Point {
+        destination(destination(from, 0.0, north_m), 90.0, east_m)
+    }
+
+    /// Street points every 60 m (like a scan) along a grid of streets 240 m apart, out to `half_m` from home.
+    fn town_streets(half_m: f64) -> Vec<Point> {
+        let (lines, steps) = ((half_m / 240.0) as i32, (half_m / 60.0) as i32);
+        let mut out = Vec::new();
+        for l in -lines..=lines {
+            for s in -steps..=steps {
+                let (a, b) = (f64::from(l) * 240.0, f64::from(s) * 60.0);
+                out.push(at(home(), a, b)); // an east-west street
+                out.push(at(home(), b, a)); // a north-south street
+            }
+        }
+        out
+    }
+
+    /// Every point the player must physically reach for a target.
+    fn must_reach(t: &Target) -> Vec<Point> {
+        match t {
+            Target::Point { p, .. } | Target::Dwell { p, .. } => vec![*p],
+            Target::DwellArea { center, .. } => vec![*center],
+            Target::Line { pts, .. } => pts.first().copied().into_iter().collect(),
+            Target::Courier { a, b, .. } => vec![*a, *b],
+            Target::RoundTrip { far, .. } => vec![*far],
+            Target::Cells { .. } | Target::Steps { .. } | Target::Away { .. } => vec![],
+        }
+    }
+
+    fn gap_to_street(p: Point, streets: &[Point]) -> f64 {
+        streets.iter().map(|s| distance_m(p, *s)).fold(f64::MAX, f64::min)
+    }
+
+    /// A square park of `half_m` around `c`, with the town's streets taken out of it (and `clear_m` around its centre).
+    fn park_hole(c: Point, half_m: f64, clear_m: f64, streets: Vec<Point>) -> (Feature, Vec<Point>) {
+        let (sw, ne) = (at(c, -clear_m, -clear_m), at(c, clear_m, clear_m));
+        let kept = streets.into_iter().filter(|p| !(sw.lat..=ne.lat).contains(&p.lat) || !(sw.lon..=ne.lon).contains(&p.lon)).collect();
+        let ring = vec![at(c, -half_m, -half_m), at(c, -half_m, half_m), at(c, half_m, half_m), at(c, half_m, -half_m), at(c, -half_m, -half_m)];
+        (feature("wpark", &[("leisure", "park"), ("name", "Big Park")], c, ring), kept)
+    }
+
+    /// A town with on-street and backyard places, a big park whose centre is far from any path but with a footpath around it,
+    /// a river that starts in backyards and a trail.
+    fn town(cat: &Catalog) -> Atlas {
+        let c = at(home(), 1320.0, 1320.0); // the middle of a block
+        let (park, mut streets) = park_hole(c, 250.0, 250.0, town_streets(6000.0));
+        for i in 0..36 {
+            // a footpath 10 m outside the park, sampled every 60 m along each side
+            let s = f64::from(i % 9) * 60.0 - 260.0;
+            streets.push(match i / 9 {
+                0 => at(c, -260.0, s),
+                1 => at(c, 260.0, s),
+                2 => at(c, s, -260.0),
+                _ => at(c, s, 260.0),
+            });
+        }
+        let mut features = vec![park];
+        for i in 0..40 {
+            let (n, e) = (f64::from(i % 8) * 240.0 - 960.0, f64::from(i / 8) * 240.0 - 480.0);
+            // half on a street corner, half in the middle of a block (120 m from every street)
+            let off = if i % 2 == 0 { 0.0 } else { 120.0 };
+            features.push(feature(&format!("b{i}"), &[("amenity", "bench")], at(home(), n + off, e + off), vec![]));
+            features.push(feature(&format!("m{i}"), &[("tourism", "museum"), ("name", &format!("Museum {i}"))], at(home(), n + off + 480.0, e + off), vec![]));
+            features.push(feature(&format!("g{i}"), &[("leisure", "park"), ("name", &format!("Green {i}"))], at(home(), n + off, e + off + 480.0), vec![]));
+        }
+        let r0 = at(home(), -1500.0, -1500.0 + 120.0); // starts mid-block, then runs east across many streets
+        features.push(feature("wriver", &[("waterway", "river"), ("name", "Long River")], r0, (0..20).map(|i| at(r0, 120.0, f64::from(i) * 100.0)).collect()));
+        let t0 = at(home(), -720.0, 0.0);
+        features.push(feature("wtrail", &[("highway", "path"), ("name", "Ridge Trail")], t0, (0..15).map(|i| at(t0, 0.0, f64::from(i) * 100.0)).collect()));
+        crate::scan::build_atlas("r", 0, features, streets, cat)
+    }
+
+    fn every_slot() -> Vec<SlotIn> {
+        let mut out = Vec::new();
+        for (z, mode) in [Mode::Walk, Mode::Run, Mode::Bike, Mode::Drive].into_iter().enumerate() {
+            let zone = z as u32 + 1;
+            for fam in crate::solo::FAMILIES {
+                for tier in [1, 3, 5, 8, 10] {
+                    let id = out.len() as i64 + 1;
+                    out.push(SlotIn { location_id: id, zone, mode, family: fam.into(), tier, boss: false });
+                }
+            }
+            out.push(SlotIn { location_id: out.len() as i64 + 1, zone, mode, family: "boss".into(), tier: 10, boss: true });
+        }
+        out
+    }
+
+    #[test]
+    fn every_quest_point_of_every_kind_and_mode_is_near_a_path() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        let a = town(&cat);
+        let all: Vec<Point> = a.streets.iter().chain(&a.streets_rough).copied().collect();
+        let zones: Vec<ZoneCtx<'_>> = [Mode::Walk, Mode::Run, Mode::Bike, Mode::Drive]
+            .into_iter()
+            .enumerate()
+            .map(|(i, mode)| ZoneCtx { zone: i as u32 + 1, mode, realm: &r, atlas: &a })
+            .collect();
+        let slots = every_slot();
+        let mut kinds = BTreeSet::new();
+        for seed in 1..=4 {
+            for o in assign(&slots, &zones, &cat, &params(seed)) {
+                kinds.insert(if matches!(o.target, Target::Courier { .. }) { "courier".to_string() } else { o.kind_id.clone() });
+                for q in must_reach(&o.target) {
+                    let gap = gap_to_street(q, &all);
+                    assert!(gap <= NEAR_PATH_M + 1e-6, "seed {seed}: {} ({}) at {}: point {gap:.0} m from any path", o.kind_id, o.place, o.location_id);
+                }
+            }
+        }
+        // the fixture really exercises feature places of every shape, not only street points
+        for want in ["bench_warmer", "museum_mile", "touch_grass", "perimeter_patrol", "follow_the_flow", "trail_boss", "courier"] {
+            assert!(kinds.contains(want), "{want} never placed: {kinds:?}");
+        }
+    }
+
+    #[test]
+    fn a_sparse_zone_never_gets_grid_points() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        // only 8 street points (fewer than the old 20-point threshold), along one short street 600 m east of home
+        let streets: Vec<Point> = (0..8).map(|i| at(home(), 0.0, 600.0 + 60.0 * f64::from(i))).collect();
+        let a = crate::scan::build_atlas("r", 0, vec![], streets.clone(), &cat);
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let slots: Vec<SlotIn> = (1..=12).map(|i| slot(i, ["reach", "dwell", "courier"][(i % 3) as usize], 2 + (i % 5) as u8, Mode::Walk)).collect();
+        let out = assign(&slots, &z, &cat, &params(4));
+        assert_eq!(out.len(), slots.len(), "every slot still gets a quest");
+        for o in &out {
+            for q in must_reach(&o.target) {
+                assert!(
+                    gap_to_street(q, &streets) <= NEAR_PATH_M,
+                    "{} at {}: a grid point {:.0} m from the street",
+                    o.kind_id,
+                    o.location_id,
+                    gap_to_street(q, &streets)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_big_park_gets_a_point_on_its_path_or_is_not_used() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        let c = at(home(), 1320.0, 1320.0);
+        let slots: Vec<SlotIn> = (1..=6).map(|i| slot(i, "park", 1 + i as u8, Mode::Walk)).collect();
+
+        // A footpath runs around the park: the quest is snapped onto it (or into the park next to it), never the far-away centre.
+        let (park, mut streets) = park_hole(c, 250.0, 250.0, town_streets(4000.0));
+        streets.extend((0..9).map(|i| at(c, -260.0, f64::from(i) * 60.0 - 240.0)));
+        assert!(gap_to_street(c, &streets) > 200.0, "the fixture centre is far from any path");
+        let a = crate::scan::build_atlas("r", 0, vec![park], streets.clone(), &cat);
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let mut used = 0;
+        for seed in 1..=6 {
+            for o in assign(&slots, &z, &cat, &params(seed)) {
+                used += usize::from(o.place == "Big Park");
+                for q in must_reach(&o.target) {
+                    assert!(gap_to_street(q, &streets) <= NEAR_PATH_M, "{} at {} is {:.0} m from a path", o.kind_id, o.place, gap_to_street(q, &streets));
+                }
+            }
+        }
+        assert!(used > 0, "a park with a path along it is still used");
+
+        // Nothing walkable within 30 m of the park at all: it is never a quest.
+        let (park, streets) = park_hole(c, 250.0, 320.0, town_streets(4000.0));
+        let a = crate::scan::build_atlas("r", 0, vec![park], streets, &cat);
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        for seed in 1..=6 {
+            assert!(assign(&slots, &z, &cat, &params(seed)).iter().all(|o| o.place != "Big Park"), "seed {seed} used an unreachable park");
+        }
     }
 }
 

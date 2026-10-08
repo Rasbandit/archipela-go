@@ -73,9 +73,12 @@ pub struct Traps {
 
 fn pool_point(pool: &[Point], from: Point, min: f64, max: f64, rng: &mut StdRng) -> Point {
     let near: Vec<&Point> = pool.iter().filter(|p| (min..=max).contains(&distance_m(from, **p))).collect();
+    let want = f64::midpoint(min, max);
+    // No street at the usual distance: the street point closest to it (#51: a point to reach is never made up off the streets).
+    let closest = || pool.iter().min_by(|a, b| (distance_m(from, **a) - want).abs().total_cmp(&(distance_m(from, **b) - want).abs())).copied();
     match near.choose(rng) {
         Some(p) => **p,
-        None => destination(from, rng.random_range(0.0..360.0), f64::midpoint(min, max)),
+        None => closest().unwrap_or_else(|| destination(from, rng.random_range(0.0..360.0), want)),
     }
 }
 
@@ -228,6 +231,16 @@ mod tests {
         assert!(t.blocks_checks(home()).is_none());
         t.trigger("Freeze Trap", 0, Some(home()), home(), &pool(), &mut rng());
         assert_eq!(t.tick(31 * 60_000, home(), 0.0).len(), 1, "the 30 minute safety valve frees you");
+    }
+
+    #[test]
+    fn a_thaw_point_stays_on_a_street_even_when_no_street_is_at_the_usual_distance() {
+        // #51: a point the player must reach is a street point, never a made-up spot in a backyard.
+        let far: Vec<Point> = (0..5).map(|i| destination(home(), 72.0 * f64::from(i), 2000.0 + 10.0 * f64::from(i))).collect();
+        let mut t = Traps::default();
+        t.trigger("Freeze Trap", 0, Some(home()), home(), &far, &mut rng());
+        let thaw = t.thaw_point().unwrap();
+        assert!(far.iter().any(|p| distance_m(*p, thaw) < 1e-6), "thaw point {thaw:?} is not a street point");
     }
 
     #[test]
