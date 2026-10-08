@@ -38,6 +38,15 @@ internal class PresenceSettings(
             prefs.edit { putBoolean("setup_done", v) }
         }
 
+    /** Networks the player answered "Not this one" for in the home Wi-Fi offer (cleaned SSIDs); they are never offered again. */
+    val mutedHomeOffers: Set<String>
+        get() = prefs.getStringSet("muted_home_offers", null)?.toSet() ?: emptySet()
+
+    /** [ssid] is the offer's already-cleaned name; it is stored as is. */
+    fun muteHomeOffer(ssid: String) {
+        prefs.edit { putStringSet("muted_home_offers", HomeWifiOffer.mute(mutedHomeOffers, ssid)) }
+    }
+
     private fun parseHome(): List<HomeNetwork> =
         runCatching {
             val a = JSONArray(prefs.getString("home", "[]"))

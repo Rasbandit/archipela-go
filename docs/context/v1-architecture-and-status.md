@@ -68,6 +68,14 @@ re-evaluation loop. Settings (home SSIDs with optional BSSID, car device name+ad
 Setup lives in `SetupFlow` (steps in `SetupSteps.kt`; pure helpers: `presence/SetupProgress.kt` (`SetupProgress`) and `presence/Choices.kt` (`WifiChoices`/`CarChoices`)).
 `PresenceSettings.setupDone` gates the first-run wizard; the Home Base tile has no button: tapping it opens the wizard (at the first missing step when it was never finished or home Wi-Fi is missing; a missing car never triggers that), and it shows a warning while home Wi-Fi is missing. Step 2 keeps search/Rescan at the top, the list scrolling in between, and "Add a network by name" pinned above the buttons. The Play chip reads
 "Protection off" when nothing is configured. Wi-Fi choices come from nearby scan results because Android exposes no saved-network list.
+**Home Wi-Fi offer (#11):** a player who skipped home Wi-Fi gets "You're home: add this Wi-Fi?" (`HomeWifiDialog`, text in `HomeOfferText`). The pure rule
+`presence/HomeWifiOffer.decide(OfferSignals)` offers when no home network is saved, a game is open, the last real fix is within 75 m of `realmOps.homePoint()` with
+accuracy at most 50 m, the Wi-Fi has a usable SSID that is not muted, no offer is showing and "Later" was not pressed in the last 10 minutes. `PresenceController`
+checks it in every `evaluate()` (after each fix, each Wi-Fi change and when the wizard closes) through `HomeWifiOffer.next`, which re-decides as if nothing were
+showing and keeps the offer only while the same SSID still qualifies (otherwise it is withdrawn, no cooldown). Add re-checks first, then saves (`addHome`) and
+re-evaluates; "Not this one" adds the already-cleaned SSID as is to `PresenceSettings.mutedHomeOffers` (a preferences string set, no settings UI); "Later" is an
+in-memory cooldown on the wall clock. The fix age uses the monotonic clock (`elapsedRealtimeNanos`, 0..120 s), so the cached last-known location loaded when GPS
+starts and future-stamped fixes cannot trigger it. `AppRoot` holds the dialog back while the away, scan, YAML or background-location dialog is up (`showHomeOffer`).
 Seeding at monitor start reads the signals for up to 3 s and trusts them at once (so a game opened at home shows "At home, paused" immediately); afterwards the
 **arrival** into AtHome/InCar is debounced 45 s (`Debouncer`) and leaving is immediate. A missing signal (no permission, Wi-Fi off) counts as "not present".
 Known limits: Bluetooth and the outside-zone duty cycle have no outdoor run yet; the SSID needs location permission; matching is by name (BSSID optional); the `gps` field in the

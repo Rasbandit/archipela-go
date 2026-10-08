@@ -161,3 +161,15 @@ internal object SetupText {
     const val CAR_NONE_PAIRED = "No paired Bluetooth devices found. Pair your car in the phone's Bluetooth settings first."
     const val HOME_NEEDS_WIFI = "Add your home Wi-Fi so the game pauses at home"
 }
+
+/** The "You're home: add this Wi-Fi?" dialog (see `HomeWifiDialog`). */
+internal object HomeOfferText {
+    const val TITLE = "You're home: add this Wi-Fi?"
+    const val ADD = "Add"
+    const val MUTE = "Not this one"
+    const val LATER = "Later"
+
+    fun body(ssid: String) =
+        "You are at your home pin and connected to \"$ssid\". Add it as home Wi-Fi so the game pauses and GPS turns off while you " +
+            "are on it. That saves battery, and nothing counts at home."
+}

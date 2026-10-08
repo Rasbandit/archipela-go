@@ -48,7 +48,7 @@ private fun MainContent(model: AppModel) {
     RequestPermissions(perms, model.setup.visible)
     BackgroundLocationPrompt(perms, model.setup.visible)
     TrackingEffects(model, perms, visible)
-    AppRoot(model)
+    AppRoot(model, backgroundPromptUp = perms.shouldExplainBackground(model.setup.visible))
 }
 
 // Whether the app is on screen. Also tells the model when it leaves and returns, and re-reads the permissions that are granted on a
