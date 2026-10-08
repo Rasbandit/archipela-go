@@ -1,8 +1,13 @@
 package dev.apgo2.ui
 
 import uniffi.apgo_ffi.ChainOut
+import kotlin.math.ceil
+import kotlin.math.roundToLong
 
 private const val MINUTES_PER_HOUR = 60
+
+// Counters are doubles; this much below a whole number still counts as that number when rounding up.
+private const val ROUNDING_SLACK = 1e-6
 
 /** Text and bar maths for a progressive quest (a chain). Pure, so it is unit-tested. */
 internal object ChainFormat {
@@ -11,16 +16,28 @@ internal object ChainFormat {
 
     fun thousands(n: Long): String = "%,d".format(java.util.Locale.US, n)
 
+    // A mark amount rounds to the nearest whole unit; an amount still to go rounds up, so a fraction left never reads 0.
+    private fun whole(
+        value: Double,
+        up: Boolean,
+    ): Long {
+        val v = value.coerceAtLeast(0.0)
+        return if (up) ceil(v - ROUNDING_SLACK).toLong().coerceAtLeast(0) else v.roundToLong()
+    }
+
     // The number with its unit word left off: "5,100", "1 h 30 min", "40".
     private fun bare(
         unit: String,
         value: Double,
-    ): String =
-        when (unit) {
-            "steps" -> thousands(value.toLong())
-            "minutes" -> minutes(value)
-            else -> value.toLong().toString()
+        up: Boolean = false,
+    ): String {
+        val n = whole(value, up)
+        return when (unit) {
+            "steps" -> thousands(n)
+            "minutes" -> minutes(n)
+            else -> n.toString()
         }
+    }
 
     /** "8,500 steps", "1 h 30 min", "40 squares". */
     fun amount(
@@ -33,8 +50,7 @@ internal object ChainFormat {
             else -> "${bare(unit, value)} squares"
         }
 
-    private fun minutes(m: Double): String {
-        val total = m.coerceAtLeast(0.0).toLong()
+    private fun minutes(total: Long): String {
         val (h, r) = total / MINUTES_PER_HOUR to total % MINUTES_PER_HOUR
         return when {
             h == 0L -> "$r min"
@@ -46,8 +62,7 @@ internal object ChainFormat {
     /** "next: 8,500 steps (5,100 to go)", or "all 4 unlocked" when every mark is reached. */
     fun next(c: ChainOut): String {
         val mark = c.marks.firstOrNull { !it.reached } ?: return "all ${c.marks.size} unlocked"
-        val left = (mark.at - c.counter).coerceAtLeast(0.0)
-        return "next: ${amount(c.unit, mark.at)} (${bare(c.unit, left)} to go)"
+        return "next: ${amount(c.unit, mark.at)} (${bare(c.unit, mark.at - c.counter, up = true)} to go)"
     }
 
     /**

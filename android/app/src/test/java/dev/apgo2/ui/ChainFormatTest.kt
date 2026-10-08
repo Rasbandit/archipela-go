@@ -75,6 +75,22 @@ class ChainFormatTest {
         f.zipWithNext().forEach { (a, b) -> assertEquals(1f / (n - 1), b - a, EPS) }
     }
 
+    @Test fun theAmountToGoRoundsUpSoAFractionLeftIsNotZero() {
+        val c = chain("minutes", 89.5, 30.0 to true, 90.0 to false)
+        assertEquals("next: 1 h 30 min (1 min to go)", ChainFormat.next(c))
+        val s = chain("steps", 8_499.2, 8_500.0 to false)
+        assertEquals("next: 8,500 steps (1 to go)", ChainFormat.next(s))
+        val noise = chain("steps", 3_400.0000001, 8_500.0 to false)
+        assertEquals("float noise does not add one", "next: 8,500 steps (5,100 to go)", ChainFormat.next(noise))
+    }
+
+    @Test fun markAmountsRoundToTheNearestNotDown() {
+        assertEquals("1 h 30 min", ChainFormat.amount("minutes", 89.99999))
+        assertEquals("8,500 steps", ChainFormat.amount("steps", 8_499.9999))
+        assertEquals("40 squares", ChainFormat.amount("cells", 39.9999))
+        assertEquals("0 min", ChainFormat.amount("minutes", -2.0))
+    }
+
     @Test fun theFillIsTheCounterShareClamped() {
         assertEquals(0.25f, ChainFormat.fill(25.0, 100.0))
         assertEquals(1f, ChainFormat.fill(500.0, 100.0))
