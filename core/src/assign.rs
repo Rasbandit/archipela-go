@@ -209,7 +209,7 @@ pub struct AssignParams {
     /// Whether quests with stairs are dropped.
     pub avoid_stairs: bool,
     /// Whether progressive (chain) kinds may be placed. Off for a reroll, so a re-placed quest never joins or starts a chain.
-    pub progressive: bool,
+    pub allow_progressive: bool,
 }
 
 struct Cand {
@@ -350,7 +350,7 @@ fn offered(k: &Kind, s: &SlotIn, z: &ZoneCtx<'_>, p: &AssignParams) -> bool {
         && k.family != "boss"
         && (s.boss || k.family == s.family)
         && !(p.avoid_stairs && k.id == "stairmaster")
-        && (p.progressive || !k.is_progressive())
+        && (p.allow_progressive || !k.is_progressive())
 }
 
 fn one(
@@ -539,7 +539,35 @@ mod tests {
     }
 
     fn params(seed: u64) -> AssignParams {
-        AssignParams { home: home(), minutes_per_tier: 10.0, min_distance_m: 150.0, seed, surface: SurfacePref::Any, avoid_stairs: false, progressive: true }
+        AssignParams {
+            home: home(),
+            minutes_per_tier: 10.0,
+            min_distance_m: 150.0,
+            seed,
+            surface: SurfacePref::Any,
+            avoid_stairs: false,
+            allow_progressive: true,
+        }
+    }
+
+    #[test]
+    fn a_kind_is_progressive_exactly_when_its_free_quest_is_a_chain_target() {
+        // Drift guard: Kind::is_progressive reads the Verify, chain membership reads the Target that free_candidate makes from it.
+        // The boss kind is only a label (the_big_one) and is never placed itself.
+        let cat = Catalog::builtin();
+        let (r, a) = (realm(Mode::Walk), atlas(&cat, false));
+        let mut checked = 0;
+        for k in cat.kinds.iter().filter(|k| k.geom == Geom::None && k.family != "boss") {
+            for mode in &k.modes {
+                let z = ZoneCtx { zone: 1, mode: *mode, realm: &r, atlas: &a };
+                let pool = street_pool(&z, SurfacePref::Any);
+                let mut rng = StdRng::seed_from_u64(1);
+                let (target, _, _) = free_candidate(k, &z, &pool, &params(1), 20.0, &mut rng, &[]).unwrap_or_else(|| panic!("{} gives no free quest", k.id));
+                assert_eq!(k.is_progressive(), crate::chain::is_chain_target(&target), "{} in {mode:?}", k.id);
+                checked += 1;
+            }
+        }
+        assert!(checked > 0);
     }
 
     fn slot(i: i64, fam: &str, tier: u8, mode: Mode) -> SlotIn {

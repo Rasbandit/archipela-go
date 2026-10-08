@@ -452,7 +452,7 @@ impl Game {
             seed: n.seed,
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
-            progressive: true,
+            allow_progressive: true,
         };
         let assignments = assign(&slots_in(&n.slot, None), &zones, catalog, &params);
         let pool: Vec<Point> =
@@ -965,7 +965,7 @@ impl Game {
             seed,
             surface: self.surface,
             avoid_stairs: self.avoid_stairs,
-            progressive: false,
+            allow_progressive: false,
         };
         let fresh = assign(&slots_in(&self.slot, Some(&todo)), &zones, catalog, &params);
         let n = fresh.len();
