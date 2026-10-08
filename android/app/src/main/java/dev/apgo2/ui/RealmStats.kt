@@ -13,8 +13,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private const val PERCENT = 100
-
 // One figure with its label under it.
 @Composable
 private fun RowScope.Stat(
@@ -62,7 +60,7 @@ internal fun RealmStatsBox(
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Stat("parks", scan?.parks?.toString() ?: waiting)
-            Stat("unpaved", scan?.let { "%.0f%%".format(it.roughShare * PERCENT) } ?: waiting)
+            Stat("unpaved", scan?.let { Units.percent(it.roughShare) } ?: waiting)
             Stat("", "")
         }
     }

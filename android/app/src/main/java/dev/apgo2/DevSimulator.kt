@@ -2,6 +2,7 @@ package dev.apgo2
 
 import android.annotation.SuppressLint
 import dev.apgo2.ui.METERS_PER_DEGREE
+import dev.apgo2.ui.METERS_PER_KM
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,7 +41,6 @@ private const val AWAY_EXTRA_FIXES = 3
 private const val AWAY_MARGIN_M = 600.0
 private const val DEFAULT_AWAY_KM = 2.0
 private const val DEFAULT_AWAY_MIN = 60
-private const val METERS_PER_KM = 1000
 private const val LOGGED_EVENTS = 4
 private const val TRAP_KIND_TOLL = "Toll"
 private const val TRAP_KIND_LEASH = "Leash"
