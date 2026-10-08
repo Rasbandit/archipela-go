@@ -5,10 +5,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GpsPolicyTest {
-    @Test fun playingPingsEveryFiveSecondsOrFiveMetres() {
+    @Test fun playingPingsEveryFiveSecondsEvenWhenStanding() {
+        // Dwell and Away quests accrue time from fixes: a distance filter would starve them while you stand still.
         val r = GpsPolicy.forState(playing = true)
         assertEquals(5_000L, r.intervalMs)
-        assertEquals(5f, r.minDistanceM)
+        assertEquals(0f, r.minDistanceM)
     }
 
     @Test fun idlePingsLessOften() {
@@ -20,7 +21,7 @@ class GpsPolicyTest {
     @Test fun playingIsAlwaysFinerThanIdle() {
         val p = GpsPolicy.forState(true)
         val i = GpsPolicy.forState(false)
-        assertTrue(p.intervalMs < i.intervalMs && p.minDistanceM < i.minDistanceM)
+        assertTrue(p.intervalMs < i.intervalMs && p.minDistanceM <= i.minDistanceM)
     }
 
     @Test fun playingStaysUnderTheCoreGapLimit() {

@@ -25,6 +25,15 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - **New Game**: zones added once (card = travel mode + quest types with live counts), several goals + rule, tooltips everywhere (`ui/Help*.kt`), Archipelago join.
 - **Play**: map with kind icons, per-goal progress, quest list, dev simulator buttons.
 
+## Track and audit journal (new, branch `feat/adaptive-gps-interval`)
+- `core/src/journal.rs`: one SQLite file `journal.db` (WAL) in the app files dir. `points` (+ `points_rt` R*Tree) = every accepted GPS fix, flagged
+  simulated or real; `events` = audit log (quests, checks, rewards, traps, rejected fixes throttled to 1/min, app foreground/background).
+- Trace = `Journal::segments`, split where two points are >2 min apart (phone off). Play map draws it (`trace` layer in `QuestMap.kt`).
+- "While you were out": on app start, if the last `app_background` is >=60 s old, `AwayDialog` shows time, distance, points and event counts.
+- GPS rate: `GpsPolicy.kt`, playing = every 5 s with NO distance filter (a filter starves Dwell/Away while standing), idle = 15 s / 20 m.
+- Gaps: the simulator advances a virtual clock 10 min per jump, so sim points never form a line. Real GPS untested outdoors. The trace is reloaded in full on every
+  fix (fine for a few thousand points; page or simplify later). Events are only logged while a game is open. No export/clear UI yet.
+
 ## Key design facts
 - Difficulty = active minutes; tier = ceil(minutes / minutes_per_tier); Easy 1-3, Medium 4-7, Hard 8-10. Locations `"{Easy|Medium|Hard} {Walk|Run|Bike|Drive} Quest #n"`.
 - **Travel mode belongs to the zone/game, not the realm.** Any realm can serve any mode. Car is hidden in the UI (core still has `Drive`).
