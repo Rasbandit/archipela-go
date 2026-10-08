@@ -9,7 +9,7 @@ ROOT = Path(__file__).parents[2]
 
 
 def test_build_produces_loadable_apworld() -> None:
-    subprocess.run(["bash", str(ROOT / "scripts" / "build_apworld.sh")], check=True)  # noqa: S603, S607
+    subprocess.run(["bash", str(ROOT / "scripts" / "build_apworld.sh")], check=True)  # noqa: S603, S607  # fixed argv, our own script; bash from PATH
     with zipfile.ZipFile(ROOT / "dist" / "ap_go2.apworld") as z:
         entries = set(z.namelist())
         manifest = json.loads(z.read("ap_go2/archipelago.json"))

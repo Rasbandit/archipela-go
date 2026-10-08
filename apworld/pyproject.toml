@@ -36,7 +36,6 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "D", "PLR2004", "ANN", "INP001", "SLF001"]
-"tests/world/test_world.py" = ["FBT003", "RUF012"]  # positional bools in unittest/Archipelago asserts; WorldTestBase `options` is a plain class attribute
 "ap_go2/options.py" = ["RUF012"]  # Archipelago option classes use plain class attributes
 
 [tool.pytest.ini_options]

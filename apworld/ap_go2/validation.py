@@ -126,7 +126,7 @@ def min_trips(goal: str | Iterable[str], zone_modes: Sequence[str]) -> int:
     return trips
 
 
-def validate_settings(  # noqa: PLR0913
+def validate_settings(  # noqa: PLR0913  # keyword-only, one argument per player option
     *,
     goal: str | Iterable[str],
     trips: int,
