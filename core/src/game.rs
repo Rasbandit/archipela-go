@@ -106,6 +106,13 @@ pub struct Stats {
 pub const DEFAULT_AWAY_M: f64 = 1000.0;
 const AUTO_AWAY_SHARE: f64 = 0.4;
 const AUTO_AWAY_MIN_M: f64 = 300.0;
+/// Longest gap between two fixes that still counts as time spent away.
+const AWAY_MAX_GAP_MS: i64 = 5 * 60_000;
+
+fn yes() -> bool {
+    true
+}
+
 const AUTO_AWAY_MAX_M: f64 = 3000.0;
 const CUSTOM_AWAY_MIN_M: f64 = 100.0;
 const CUSTOM_AWAY_MAX_M: f64 = 20_000.0;
@@ -194,6 +201,8 @@ pub struct Game {
     trackers: BTreeMap<i64, Tracker>,
     #[serde(skip)]
     last_fix: Option<Fix>,
+    #[serde(skip_serializing, default = "yes")]
+    in_zone: bool,
     #[serde(skip)]
     outlier_streak: u32,
     #[serde(skip)]
@@ -311,6 +320,7 @@ impl Game {
             counters: Counters::default(),
             trackers: BTreeMap::new(),
             last_fix: None,
+            in_zone: true,
             outlier_streak: 0,
             last_verdict: Verdict::Used,
             last_speed: None,
@@ -455,6 +465,25 @@ impl Game {
         self.complete_reached(t_ms, self.last_pos())
     }
 
+    /// The engine tells the game whether the player is inside the area of one of its zones.
+    pub fn set_in_zone(&mut self, inside: bool) {
+        self.in_zone = inside;
+    }
+
+    /// Add the time between two accepted fixes to every time-away chain whose rules the player meets.
+    fn accrue_away(&mut self, prev: &Fix, fix: &Fix) {
+        let dt = fix.t_ms - prev.t_ms;
+        if dt <= 0 || dt > AWAY_MAX_GAP_MS || (self.away.zone_only && !self.in_zone) {
+            return;
+        }
+        for c in self.chains().into_iter().filter(|c| c.unit == ChainUnit::Minutes) {
+            let d = self.away.distance_for(c.zone);
+            if distance_m(prev.point(), self.home) >= d && distance_m(fix.point(), self.home) >= d {
+                *self.counters.progress.entry(c.id).or_insert(0.0) += dt as f64 / 60_000.0;
+            }
+        }
+    }
+
     /// Complete every chain member whose mark the counter has passed (in unlocked zones, and not while a trap blocks checks).
     fn complete_reached(&mut self, t_ms: i64, pos: Option<Point>) -> Vec<Event> {
         if pos.is_some_and(|p| self.traps.blocks_checks(p).is_some()) {
@@ -568,6 +597,9 @@ impl Game {
         }
         for id in finished {
             ev.extend(self.complete(id, fix.t_ms, Some(pos)));
+        }
+        if let Some(prev) = self.last_fix {
+            self.accrue_away(&prev, &fix);
         }
         ev.extend(self.complete_reached(fix.t_ms, Some(pos)));
         self.last_fix = Some(fix);
@@ -887,6 +919,59 @@ mod tests {
 
     fn done_ids(ev: &[Event]) -> Vec<i64> {
         ev.iter().filter_map(|e| if let Event::QuestDone { location_id, .. } = e { Some(*location_id) } else { None }).collect()
+    }
+
+    fn away_game(minutes: &[f64], zone_only: bool, distance_m: f64) -> Game {
+        let mut g = chain_game("wanderlust", minutes.iter().map(|m| Target::Away { min_distance_m: 1.0, minutes: *m }).collect());
+        g.away = AwayConfig { zone_only, distance_m: [(1, distance_m)].into() };
+        g
+    }
+
+    /// Fixes every 60 s at `dist` metres east of home, `n` of them.
+    fn away_for(g: &mut Game, dist: f64, from_s: i64, n: i64) -> Vec<Event> {
+        let p = destination(g.home, 90.0, dist);
+        (0..n).flat_map(|i| g.on_fix(Fix { accuracy_m: 5.0, ..fixat(p, from_s + i * 60) }, None)).collect()
+    }
+
+    #[test]
+    fn minutes_away_accrue_only_beyond_the_distance_and_unlock_marks() {
+        let mut g = away_game(&[3.0, 2.0], false, 1000.0); // marks at 2 and 5 minutes
+        away_for(&mut g, 400.0, 0, 10);
+        assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "400 m is not away");
+        let ev = away_for(&mut g, 1500.0, 10_000, 4); // 3 intervals = 3 minutes
+        assert_eq!(done_ids(&ev), vec![1001], "the 2-minute member unlocks first");
+        assert!((g.counters.progress["1:wanderlust"] - 3.0).abs() < 0.01);
+        assert_eq!(done_ids(&away_for(&mut g, 1500.0, 20_000, 4)), vec![1000]);
+    }
+
+    #[test]
+    fn a_gap_over_five_minutes_does_not_count_as_time_away() {
+        let mut g = away_game(&[10.0], false, 1000.0);
+        away_for(&mut g, 1500.0, 0, 2); // 1 minute
+        away_for(&mut g, 1500.0, 3600, 1); // an hour later: the interval is not counted
+        assert!((g.counters.progress["1:wanderlust"] - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn inside_a_zone_mode_needs_the_engine_to_say_the_player_is_inside() {
+        let mut g = away_game(&[10.0], true, 1000.0);
+        g.set_in_zone(false);
+        away_for(&mut g, 1500.0, 0, 5);
+        assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0));
+        g.set_in_zone(true);
+        away_for(&mut g, 1500.0, 1000, 5);
+        assert!(g.counters.progress["1:wanderlust"] > 3.0);
+    }
+
+    #[test]
+    fn new_map_squares_unlock_marks_from_the_cells_the_game_has_seen() {
+        let mut g = chain_game("cartographer", vec![Target::Cells { n: 3, cell_m: 150.0 }, Target::Cells { n: 2, cell_m: 150.0 }]); // marks at 2 and 5
+        let mut done = Vec::new();
+        for i in 0..8 {
+            let p = destination(g.home, 90.0, 200.0 * f64::from(i)); // a new 150 m cell every fix
+            done.extend(done_ids(&g.on_fix(Fix { accuracy_m: 5.0, ..fixat(p, 1000 + i64::from(i) * 150) }, None)));
+        }
+        assert_eq!(done, vec![1001, 1000], "two cells unlock the 2-cell member, five the next");
     }
 
     #[test]
