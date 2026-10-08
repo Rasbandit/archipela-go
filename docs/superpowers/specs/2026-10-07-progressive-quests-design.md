@@ -125,7 +125,7 @@ Decision, first match wins:
 - **Zone proximity:** `Engine.zone_proximity(lat, lon)` in the core: the distance to each of the open game's zone realms' shapes (circle or polygon), `Inside` at 0, `Near` within 300 m, else `Far`. Computed on every fix from the coarse or precise location.
 
 ## B.4 Core changes
-- `Game::set_counting(bool)`. When it turns `false`, per-session fix state is cleared (`last_fix`, odometer anchor, outlier streak, step baseline `steps_last`) so the first fix or reading after a suppression is never judged against stale ones (no false jump, no steps credited for the suppressed period).
+- `Game::set_counting(bool)`. When it turns `false`, per-session fix state is cleared (`last_fix`, odometer anchor, outlier streak) so the first fix after a suppression is never judged against a stale one (no false jump). Step readings keep updating `steps_last` while suppressed without crediting anything, so no steps are credited for the suppressed period.
 - While `counting` is false, `on_fix` and `on_steps` do nothing except keep the step baseline current. Quest checks, distance, chain counters and fog discovery are all skipped.
 - Counting is not saved: a game always opens with `counting = true` until the presence layer says otherwise.
 - The journal gets presence events (`presence_changed`: "Home Wi-Fi connected, paused", "Car Bluetooth connected, not counting", "Left the zone area: saving battery") for the activity log.
