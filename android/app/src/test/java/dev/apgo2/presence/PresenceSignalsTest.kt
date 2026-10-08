@@ -70,7 +70,7 @@ class PresenceSignalsTest {
         assertNull(PresenceSignals.usableNetwork(null))
     }
 
-    @Test fun theChipSaysWhatIsHappeningAndIsPlainWhenNothingIsConfigured() {
+    @Test fun theChipSaysWhatIsHappeningAndReadsProtectionOffWhenNothingIsConfigured() {
         assertEquals("At home, paused", PresenceText.chip(PresenceState.AtHome, configured = true))
         assertEquals("In car, not counting", PresenceText.chip(PresenceState.InCar, configured = true))
         assertEquals("Outside zones, saving battery", PresenceText.chip(PresenceState.OutsideZones, configured = true))

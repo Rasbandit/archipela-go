@@ -9,6 +9,7 @@ import dev.apgo2.ui.PLAY_MODES
 import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.FeedbackText
+import dev.apgo2.ui.SetupText
 import dev.apgo2.ui.MapBubble
 import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.Tone
@@ -84,6 +85,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -255,7 +261,7 @@ private fun HomeCard(m: AppModel, onClick: () -> Unit) {
                     if (home == null) "Not set yet. Tap to choose where distances are measured from." else "Distances are measured from here. Tap to move it.",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (progress.missingWifi) FeedbackText("Add your home Wi-Fi so the game pauses at home", Tone.Warning)
+                if (progress.missingWifi) FeedbackText(SetupText.homeNeedsWifi, Tone.Warning)
                 OutlinedButton(onClick = { m.openSetup(if (progress.needsAttention()) progress.nextStep() else null) }) { Text(if (progress.needsAttention()) "Finish setup" else "Setup") }
             }
             if (home != null) HomePreview(map, Modifier.size(PREVIEW_DP.dp))
@@ -334,12 +340,12 @@ internal fun HomePicker(m: AppModel, onBack: () -> Unit, onConfirm: () -> Unit =
             focus = focus, fit = framing,
             overlayTopDp = 16, overlayBottomDp = 150,
         )
-        Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)).padding(top = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onConfirm, enabled = !requireHome || saved, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)) { IconLabel(confirmLabel, ApgoIcons.Done, 14.sp) }
         }
         if (saved) {
             Row(
-                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 72.dp, end = 16.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+                Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)).padding(top = 72.dp, end = 16.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Icon(ApgoIcons.Saved, contentDescription = null, tint = ApgoPalette.success, modifier = Modifier.size(14.dp))

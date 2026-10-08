@@ -55,6 +55,14 @@ class ChoicesTest {
         assertEquals("cc:dd", WifiChoices.merge(listOf(home("Home", "cc:dd")), null, emptyList(), "")[0].bssid)
     }
 
+    @Test fun savedAndConnectedNetworkIsListedOnceWithTheCurrentBssid() {
+        val r = WifiChoices.merge(listOf(home("Home", "old:bb")), WifiId("Home", "new:bb"), listOf("Home"), "")
+        assertEquals(1, r.size)
+        assertTrue(r[0].saved)
+        assertTrue(r[0].connected)
+        assertEquals("new:bb", r[0].bssid)
+    }
+
     private fun car(name: String, addr: String) = CarDevice(name, addr)
 
     @Test fun pairedCarsComeFirstAndSavedUnpairedStayListed() {
@@ -65,5 +73,10 @@ class ChoicesTest {
     @Test fun carQueryFiltersByNameCaseInsensitively() {
         val r = CarChoices.merge(listOf(car("Honda Civic", "A"), car("Buds", "B")), emptyList(), "CIV")
         assertEquals(listOf("Honda Civic"), r.map { it.name })
+    }
+
+    @Test fun carQueryAlsoFiltersSavedUnpairedDevices() {
+        val r = CarChoices.merge(listOf(car("Buds", "B")), listOf(car("Old car", "C"), car("Van", "D")), "van")
+        assertEquals(listOf("Van"), r.map { it.name })
     }
 }

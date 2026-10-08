@@ -75,7 +75,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     var editing by mutableStateOf<String?>(null)
     /** The home picker (a full-screen map with a draggable pin) is open. */
     var pickingHome by mutableStateOf(false)
-    /** The setup wizard (home pin, home Wi-Fi, car Bluetooth) is open. It opens by itself on every start until it has been finished or skipped once. */
+    /** The setup wizard (home pin, home Wi-Fi, car Bluetooth) is open. It opens by itself on each app (process) start until it has been finished or skipped once. */
     var showSetup by mutableStateOf(!settings.setupDone)
         private set
     /** The step the wizard opens on. */

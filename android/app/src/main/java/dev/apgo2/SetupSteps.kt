@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -45,13 +46,16 @@ import dev.apgo2.presence.PresenceSignals
 import dev.apgo2.presence.WifiChoice
 import dev.apgo2.presence.WifiChoices
 import dev.apgo2.presence.WifiScanner
+import dev.apgo2.ui.FeedbackText
+import dev.apgo2.ui.SetupText
+import dev.apgo2.ui.Tone
 import kotlinx.coroutines.delay
 
 /** The frame every text step shares: title, why it matters, a scrolling body, and Back / Skip / Next. */
 @Composable
 internal fun StepPage(title: String, why: String, next: String, skip: String?, onBack: () -> Unit, onNext: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     BackHandler { onBack() }
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge)
         Text(why, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
@@ -79,7 +83,12 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
     var scanning by remember { mutableStateOf(false) }
     // The scan answers a moment later; read it then.
     LaunchedEffect(scanning) { if (scanning) { delay(3_000); nearby = scanner.nearby(); scanning = false } }
-    LaunchedEffect(m.locationPermitted) { if (m.locationPermitted && scanner.rescan()) scanning = true }
+    LaunchedEffect(m.locationPermitted) {
+        if (m.locationPermitted) {
+            nearby = scanner.nearby() // the last results are readable now
+            if (scanner.rescan()) scanning = true
+        }
+    }
 
     val inRange = nearby.mapNotNull { PresenceSignals.cleanSsid(it) }.toSet()
     val choices = WifiChoices.merge(saved, m.monitor.currentNetwork(), nearby + removed, query)
@@ -100,13 +109,13 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
 
     StepPage(
         title = "Home Wi-Fi · step 2 of 3",
-        why = "While you are on any of these networks nothing counts and GPS turns off. That saves battery and stops cheating. Tick every network your home uses.",
+        why = SetupText.wifiWhy,
         next = "Next", skip = if (saved.isEmpty()) "Skip, I'll do this at home" else null, onBack = onBack, onNext = onNext,
     ) {
         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Search networks") }, singleLine = true)
         if (choices.isEmpty()) {
             Text(
-                if (query.isBlank()) "No networks found. Connect to your home Wi-Fi, or type its name below." else "Nothing matches \"$query\".",
+                if (query.isBlank()) SetupText.wifiNoneFound else "Nothing matches \"$query\".",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -115,12 +124,12 @@ internal fun WifiStep(m: AppModel, onBack: () -> Unit, onNext: () -> Unit) {
                 Checkbox(c.saved, { toggle(c, it) })
                 Column {
                     Text(c.ssid)
-                    val tag = when { c.connected -> "Connected now"; c.saved && c.ssid !in inRange -> "Saved, not in range"; else -> null }
+                    val tag = when { c.connected -> "Connected now"; c.saved && nearby.isNotEmpty() && c.ssid !in inRange -> "Saved, not in range"; else -> null }
                     tag?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         }
-        if (!m.locationPermitted) Text("Allow location to list nearby networks.", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+        if (!m.locationPermitted) FeedbackText(SetupText.wifiNeedsLocation, Tone.Warning)
         note?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         OutlinedButton(enabled = !scanning, onClick = {
             if (scanner.rescan()) { scanning = true; note = null } else note = "Android limits how often Wi-Fi can be scanned. Showing the last results."
@@ -153,14 +162,14 @@ internal fun CarStep(m: AppModel, onBack: () -> Unit, onDone: () -> Unit) {
     }
     StepPage(
         title = "Car Bluetooth · step 3 of 3",
-        why = "While your car is connected nothing counts, so rides do not turn into pickups. Skip this if you never drive while playing.",
+        why = SetupText.carWhy,
         next = "Finish", skip = if (car.isEmpty()) "Skip" else null, onBack = onBack, onNext = onDone,
     ) {
         if (!btOk) {
             OutlinedButton(onClick = { askBt.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("Allow Bluetooth to pick your car") }
-            Text("Bluetooth permission lets the app see your paired devices.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(SetupText.carNeedsBluetooth, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        else if (paired.isEmpty() && car.isEmpty()) Text("No paired Bluetooth devices found. Pair your car in the phone's Bluetooth settings first.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        else if (paired.isEmpty() && car.isEmpty()) Text(SetupText.carNonePaired, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Search devices") }, singleLine = true)
         CarChoices.merge(paired, car, query).forEach { d ->
             val on = car.any { it.address == d.address }

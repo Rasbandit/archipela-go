@@ -101,3 +101,14 @@ object Help {
             "Enter the server address and your slot name, connect, then pick a realm for each zone the game needs.",
     )
 }
+
+/** Explanatory copy of the setup wizard and its Home card nag, kept here with the rest of the app's help text. */
+object SetupText {
+    const val wifiWhy = "While you are on any of these networks nothing counts and GPS turns off. That saves battery and stops cheating. Tick every network your home uses."
+    const val carWhy = "While your car is connected nothing counts, so rides do not turn into pickups. Skip this if you never drive while playing."
+    const val wifiNoneFound = "No networks found. Connect to your home Wi-Fi, or type its name below."
+    const val wifiNeedsLocation = "Allow location to list nearby networks."
+    const val carNeedsBluetooth = "Bluetooth permission lets the app see your paired devices."
+    const val carNonePaired = "No paired Bluetooth devices found. Pair your car in the phone's Bluetooth settings first."
+    const val homeNeedsWifi = "Add your home Wi-Fi so the game pauses at home"
+}
