@@ -8,19 +8,35 @@ import org.json.JSONObject
 class PresenceSettings(ctx: Context) {
     private val prefs = ctx.getSharedPreferences("presence", Context.MODE_PRIVATE)
 
+    // Parsed lists are kept in memory (evaluation and the Play chip read them constantly); only this class writes the preferences.
+    private var homeCache: List<HomeNetwork>? = null
+    private var carCache: List<CarDevice>? = null
+
     var homeNetworks: List<HomeNetwork>
-        get() = runCatching {
+        get() = homeCache ?: parseHome().also { homeCache = it }
+        private set(v) {
+            prefs.edit().putString("home", JSONArray(v.map { JSONObject().put("ssid", it.ssid).put("bssid", it.bssid ?: "") }).toString()).apply()
+            homeCache = v
+        }
+
+    var carDevices: List<CarDevice>
+        get() = carCache ?: parseCar().also { carCache = it }
+        private set(v) {
+            prefs.edit().putString("car", JSONArray(v.map { JSONObject().put("name", it.name).put("address", it.address) }).toString()).apply()
+            carCache = v
+        }
+
+    private fun parseHome(): List<HomeNetwork> =
+        runCatching {
             val a = JSONArray(prefs.getString("home", "[]"))
             (0 until a.length()).mapNotNull { i -> runCatching { a.getJSONObject(i).let { o -> HomeNetwork(o.getString("ssid"), o.optString("bssid").takeIf { b -> b.isNotBlank() }) } }.getOrNull() }
         }.getOrDefault(emptyList())
-        private set(v) = prefs.edit().putString("home", JSONArray(v.map { JSONObject().put("ssid", it.ssid).put("bssid", it.bssid ?: "") }).toString()).apply()
 
-    var carDevices: List<CarDevice>
-        get() = runCatching {
+    private fun parseCar(): List<CarDevice> =
+        runCatching {
             val a = JSONArray(prefs.getString("car", "[]"))
             (0 until a.length()).mapNotNull { i -> runCatching { a.getJSONObject(i).let { o -> CarDevice(o.getString("name"), o.getString("address")) } }.getOrNull() }
         }.getOrDefault(emptyList())
-        private set(v) = prefs.edit().putString("car", JSONArray(v.map { JSONObject().put("name", it.name).put("address", it.address) }).toString()).apply()
 
     fun addHome(n: HomeNetwork) {
         val key = PresenceSignals.cleanSsid(n.ssid) ?: n.ssid
