@@ -44,6 +44,53 @@ class SessionSlotTest {
         assertEquals(made - closed.toSet(), listOf(slot.current?.name))
     }
 
+    // A reconnect restarts the poll loop while the old loop is still blocked in the old session's poll, so uses overlap.
+    @Test fun overlappingUsesEachKeepTheirSessionOpen() {
+        val made = mutableListOf<Fake>()
+
+        fun connect(n: String) = slot.replace(Fake(n).also { made += it })
+        connect("a")
+        slot.use {
+            connect("b")
+            slot.use {
+                // a's poll returns first, while b is still being polled
+            }
+        }
+        assertEquals(listOf("a"), closed)
+        connect("c")
+        assertEquals(listOf("a", "b"), closed) // b is idle now
+        closed.clear()
+
+        connect("d")
+        closed.clear()
+        // Interleaved, not nested: use(d) starts, d is replaced by e, use(e) starts, use(d) ends, e is replaced by f.
+        val holdD = Holder(slot)
+        holdD.begin()
+        connect("e")
+        val holdE = Holder(slot)
+        holdE.begin()
+        holdD.end()
+        assertEquals(listOf("d"), closed)
+        connect("f")
+        assertEquals("e is still being polled", listOf("d"), closed)
+        holdE.end()
+        assertEquals(listOf("d", "e"), closed)
+    }
+
+    // Starts and ends a use by hand, to interleave two of them the way two coroutines do.
+    private class Holder<S : Any>(
+        private val slot: SessionSlot<S>,
+    ) {
+        private lateinit var s: S
+
+        fun begin() {
+            s = requireNotNull(slot.current)
+            slot.begin(s)
+        }
+
+        fun end() = slot.end(s)
+    }
+
     @Test fun theSessionInUseIsNotClosedWhenNothingReplacesIt() {
         slot.replace(Fake("a"))
         assertEquals("a", slot.use { it.name })

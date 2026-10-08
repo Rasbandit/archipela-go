@@ -13,12 +13,16 @@ internal class SessionSlot<S : Any>(
 ) {
     var current by mutableStateOf<S?>(null)
         private set
-    private var inUse: S? = null
+
+    // Uses can overlap: a reconnect restarts the poll loop while the old one is still blocked in the old session's poll.
+    private val inUse = mutableListOf<S>()
+
+    private fun busy(s: S) = inUse.any { it === s }
 
     fun replace(next: S?) {
         val old = current
         current = next
-        if (old != null && old !== next && old !== inUse) close(old)
+        if (old != null && old !== next && !busy(old)) close(old)
     }
 
     /** Run [block] on the current session; inline so a suspending poll can run inside it. */
@@ -33,11 +37,11 @@ internal class SessionSlot<S : Any>(
     }
 
     @PublishedApi internal fun begin(s: S) {
-        inUse = s
+        inUse += s
     }
 
     @PublishedApi internal fun end(s: S) {
-        inUse = null
-        if (current !== s) close(s)
+        inUse.removeAt(inUse.indexOfFirst { it === s })
+        if (current !== s && !busy(s)) close(s)
     }
 }

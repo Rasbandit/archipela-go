@@ -155,6 +155,7 @@ internal class ApController(
 
     private suspend fun syncGame(s: ApSession) {
         val items = withContext(Dispatchers.IO) { runCatching { s.receivedItems().map { it.name } }.getOrDefault(emptyList()) }
+        if (session !== s) return // reconnected meanwhile: the old server's items and checks are not this game's
         if (!syncedChecked && slotJson != null) {
             model.engine.markChecked(s.checkedLocationIds(), model.now())
             syncedChecked = true
