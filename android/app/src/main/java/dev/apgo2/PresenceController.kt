@@ -9,18 +9,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.apgo2.presence.Debouncer
 import dev.apgo2.presence.Decision
+import dev.apgo2.presence.GeoFix
 import dev.apgo2.presence.GpsMode
+import dev.apgo2.presence.HomeNetwork
+import dev.apgo2.presence.HomeWifiOffer
+import dev.apgo2.presence.OfferSignals
 import dev.apgo2.presence.PresenceMonitor
 import dev.apgo2.presence.PresencePolicy
 import dev.apgo2.presence.PresenceSeeding
 import dev.apgo2.presence.PresenceSignals
 import dev.apgo2.presence.PresenceState
 import dev.apgo2.presence.Signals
+import dev.apgo2.presence.WifiId
 import dev.apgo2.presence.Zone
 
 private const val REEVALUATE_MS = 5_000L
 private const val SEED_TIMEOUT_MS = 3_000L
 private const val SEED_POLL_MS = 1_000L
+private const val TAG = "presence"
 
 /**
  * Decides, from the Wi-Fi, Bluetooth and zone signals, whether the player is playing, and applies it: the GPS rate, the
@@ -36,6 +42,11 @@ internal class PresenceController(
     var decision by mutableStateOf(Decision(PresenceState.Stopped, GpsMode.Off, counting = false))
         private set
     var locationPermitted by mutableStateOf(false)
+
+    /** The network the "You're home: add this Wi-Fi?" dialog offers, or `null` (see [HomeWifiOffer]). */
+    var homeOffer by mutableStateOf<WifiId?>(null)
+        private set
+    private var offerDismissedAtMs: Long? = null
     var appVisible = true
     private val homeDebounce = Debouncer()
     private val carDebounce = Debouncer()
@@ -59,7 +70,7 @@ internal class PresenceController(
         seeding.restart(SystemClock.elapsedRealtime())
         runCatching { monitor.start() }
             .onSuccess { monitorBluetooth = bluetoothGranted }
-            .onFailure { Diag.error("presence", "monitor start failed", it) }
+            .onFailure { Diag.error(TAG, "monitor start failed", it) }
         pollSeeding()
     }
 
@@ -85,6 +96,7 @@ internal class PresenceController(
             model.engine.setCounting(decision.counting)
             return
         }
+        checkHomeOffer(t)
         val home = if (seeding.complete) homeDebounce.feed(rawHome(), t) else rawHome()
         val car = if (seeding.complete) carDebounce.feed(rawCar(), t) else rawCar()
         // A debounced change gets no event of its own (GPS may be off), so look again until it has settled.
@@ -97,7 +109,7 @@ internal class PresenceController(
         val changedState = d.state != decision.state
         decision = d
         if (changedState) {
-            Diag.info("presence", d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
+            Diag.info(TAG, d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
             if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
         }
         applyLocation()
@@ -107,6 +119,50 @@ internal class PresenceController(
     fun applyLocation() {
         val rate = if (locationPermitted) GpsPolicy.forDecision(decision, appVisible) else null
         if (rate == null) model.sensors.stopLocation() else model.sensors.startLocation(rate)
+    }
+
+    // Runs after every fix and Wi-Fi change (both end in [evaluate]). A simulated position is not a real visit home.
+    private fun checkHomeOffer(t: Long) {
+        val loc = model.realLoc?.takeIf { it.hasAccuracy() && model.simPos == null }
+        val pin = model.realmOps.homePoint()
+        val offer =
+            HomeWifiOffer.decide(
+                OfferSignals(
+                    saved = model.settings.homeNetworks,
+                    playing = model.hud != null,
+                    fix = loc?.let { GeoFix(it.latitude, it.longitude, it.accuracy.toDouble()) },
+                    home = pin?.let { GeoFix(it.lat, it.lon, 0.0) },
+                    wifi = monitor.currentWifi,
+                    muted = model.settings.mutedHomeOffers,
+                    showing = homeOffer != null,
+                    dismissedAtMs = offerDismissedAtMs,
+                    nowMs = t,
+                ),
+            )
+        if (offer != null) {
+            Diag.info(TAG, "home wifi offer")
+            homeOffer = offer
+        }
+    }
+
+    /** "Add": save the offered network as home; the at-home rule takes over from here. */
+    fun acceptHomeOffer() {
+        val w = homeOffer ?: return
+        homeOffer = null
+        model.settings.addHome(HomeNetwork(w.ssid ?: return, w.bssid))
+        evaluate()
+    }
+
+    /** "Not this one": never offer this network again. */
+    fun muteHomeOffer() {
+        homeOffer?.ssid?.let { model.settings.muteHomeOffer(it) }
+        homeOffer = null
+    }
+
+    /** "Later": ask again in a while (in memory only). */
+    fun dismissHomeOffer() {
+        homeOffer = null
+        offerDismissedAtMs = model.now()
     }
 
     private fun rawHome() = PresenceSignals.isHome(monitor.currentWifi, model.settings.homeNetworks)
