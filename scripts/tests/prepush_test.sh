@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Tests for scripts/prepush.sh select: changed paths -> just recipes.
 set -euo pipefail
+# A git hook exports GIT_DIR and friends; drop them so the scratch repo below never resolves to the real one.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
 here="$(cd "$(dirname "$0")" && pwd)"
 sut="$here/../prepush.sh"
 fail=0

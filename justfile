@@ -45,6 +45,7 @@ check-hygiene: spell secrets
     shellcheck scripts/*.sh scripts/tests/*.sh
     markdownlint-cli2 "**/*.md" "#**/node_modules" "#.ap" "#core/vendor" "#core/target"
     bash scripts/tests/prepush_test.sh
+    bash scripts/tests/git_env_test.sh
 
 check: check-hygiene check-py check-rust check-android
 
