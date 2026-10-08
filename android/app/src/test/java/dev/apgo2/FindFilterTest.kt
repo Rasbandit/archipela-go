@@ -49,6 +49,9 @@ class FindFilterTest {
 
     @Test fun theQueryAlsoMatchesAQuestKindName() = assertEquals(listOf("Library"), shown(FindFilter.ALL, "WORM"))
 
+    // Keyboard autocomplete adds a trailing space.
+    @Test fun spacesAroundTheQueryAreIgnored() = assertEquals(listOf("Oak Bench"), shown(FindFilter.ALL, " bench "))
+
     @Test fun aBlankQueryCountsAsNoQuery() = assertEquals(3, shown(FindFilter.ALL, "   ").size)
 
     @Test fun filterAndQueryMustBothMatch() {

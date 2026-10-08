@@ -56,14 +56,16 @@ internal object FindFilter {
     const val FAVORITE = "favorite"
     const val BANNED = "banned"
 
-    /** Whether [f] passes the mark [filter] and the search [query] (its name or a quest kind's name, ignoring case). */
+    /** Whether [f] passes the mark [filter] and the search [query] (its name or a quest kind's name, ignoring case and outer spaces). */
     fun matches(
         f: FindOut,
         filter: String,
         query: String,
-    ): Boolean =
-        (filter == ALL || f.mark == filter) &&
-            (query.isBlank() || f.name.contains(query, true) || f.kinds.any { it.name.contains(query, true) })
+    ): Boolean {
+        val q = query.trim()
+        return (filter == ALL || f.mark == filter) &&
+            (q.isEmpty() || f.name.contains(q, true) || f.kinds.any { it.name.contains(q, true) })
+    }
 }
 
 private const val DEFAULT_RADIUS_M = 1500f

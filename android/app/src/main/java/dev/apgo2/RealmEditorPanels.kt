@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.IconChoices
+import dev.apgo2.ui.MIN_POLYGON_CORNERS
 import dev.apgo2.ui.MapBubble
 import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.MarkToggle
@@ -63,7 +64,6 @@ import uniffi.apgo_ffi.RealmStatsOut
 // Items above the finds in the Details list: name + mode, search + filters, count.
 internal const val HEADER_ITEMS = 3
 
-private const val MIN_CORNERS = 3
 private const val DETAILS_PANEL_FRACTION = 0.5f
 private const val BANNED_ALPHA = 0.5f
 private const val MAX_BUBBLE_KINDS = 2
@@ -72,9 +72,9 @@ private const val MAX_BUBBLE_KINDS = 2
 @Composable
 internal fun BoxScope.AreaPanel(s: RealmEditorState) {
     MapOverlayCard(Modifier.align(Alignment.BottomCenter).onSizeChanged { s.panelPx = it.height }) {
-        if (s.polygon && s.m.draft.size < MIN_CORNERS) {
+        if (s.polygon && s.m.draft.size < MIN_POLYGON_CORNERS) {
             Text(
-                "Tap the map to add corners (${s.m.draft.size} of at least $MIN_CORNERS).",
+                "Tap the map to add corners (${s.m.draft.size} of at least $MIN_POLYGON_CORNERS).",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -95,7 +95,7 @@ private fun ShapeStats(s: RealmEditorState) {
             m.engine.shapeStats(
                 circleOut,
                 corners.map { GeoPoint(it.latitude, it.longitude) },
-                s.polygon && corners.size >= MIN_CORNERS,
+                s.polygon && corners.size >= MIN_POLYGON_CORNERS,
                 m.home,
             )
         }

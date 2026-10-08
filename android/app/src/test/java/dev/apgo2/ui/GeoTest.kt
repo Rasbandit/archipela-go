@@ -76,10 +76,12 @@ class GeoTest {
         )
         assertTrue(inCircle(0.0, 0.0))
         assertTrue(inCircle(499.0, 0.0))
-        assertTrue(inCircle(0.0, -499.0)) // east-west is scaled by latitude
+        // East-west metres shrink with cos(latitude): without that scaling these would land ~500 * cos(40°) = 383 m out.
+        assertTrue(inCircle(0.0, -499.0))
         assertTrue(inCircle(300.0, 300.0))
         assertFalse(inCircle(501.0, 0.0))
         assertFalse(inCircle(0.0, 501.0))
+        assertFalse(inCircle(0.0, -501.0))
         assertFalse(inCircle(360.0, 360.0)) // ~509 m on the diagonal
     }
 
