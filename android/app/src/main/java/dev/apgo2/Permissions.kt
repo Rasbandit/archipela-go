@@ -59,8 +59,9 @@ internal class PermissionState(
         bluetooth = ctx.hasBluetoothConnect()
     }
 
-    /** True when the explanation for "Allow all the time" should be shown. */
-    fun shouldExplainBackground() = location && !background && !backgroundDeclined && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+    /** True when the explanation for "Allow all the time" should be shown; held while the setup wizard is open ([setupOpen]). */
+    fun shouldExplainBackground(setupOpen: Boolean) =
+        explainBackground(location, background, backgroundDeclined, Build.VERSION.SDK_INT, setupOpen)
 
     /** The system answered the "Allow all the time" request ([granted]); the settings page may have granted it as well. */
     fun onBackgroundAnswer(granted: Boolean) {
@@ -92,10 +93,16 @@ internal fun rememberPermissionState(): PermissionState {
     return remember { PermissionState(ctx) }
 }
 
-/** Asks for the permissions one after another: location, then step counter, then notifications (the tracking notification). */
+/**
+ * Asks for the permissions one after another: location at launch, then step counter, then notifications (the tracking
+ * notification). The last two wait until the setup wizard is closed ([setupOpen] false) so they do not stack over it.
+ */
 @Composable
 @SuppressLint("InlinedApi") // older Android treats the unknown permission string as denied
-internal fun RequestPermissions(perms: PermissionState) {
+internal fun RequestPermissions(
+    perms: PermissionState,
+    setupOpen: Boolean,
+) {
     val askNotifications =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
             Diag.info(LOG_TAG, "notifications", GRANTED to it)
@@ -112,16 +119,29 @@ internal fun RequestPermissions(perms: PermissionState) {
             Diag.info(LOG_TAG, "fine_location", GRANTED to it)
         }
     LaunchedEffect(Unit) { askLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
-    LaunchedEffect(perms.location) { if (perms.location) askSteps.launch(Manifest.permission.ACTIVITY_RECOGNITION) }
+    // Once per composition: asked when both conditions first hold, so closing the wizard later fires it without a restart.
+    var followUpsAsked by remember { mutableStateOf(false) }
+    LaunchedEffect(perms.location, setupOpen) {
+        if (!followUpsAsked && askFollowUps(perms.location, setupOpen)) {
+            followUpsAsked = true
+            askSteps.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+        }
+    }
 }
 
-/** Explains why "Allow all the time" is wanted, once location is allowed, until the player accepts or declines. */
+/**
+ * Explains why "Allow all the time" is wanted, once location is allowed and the setup wizard is closed ([setupOpen] false), until
+ * the player accepts or declines.
+ */
 @Composable
 @SuppressLint("InlinedApi") // shown only when shouldExplainBackground() is true, which needs Android 10
-internal fun BackgroundLocationPrompt(perms: PermissionState) {
+internal fun BackgroundLocationPrompt(
+    perms: PermissionState,
+    setupOpen: Boolean,
+) {
     val askBackground =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), perms::onBackgroundAnswer)
-    if (!perms.shouldExplainBackground()) return
+    if (!perms.shouldExplainBackground(setupOpen)) return
     AlertDialog(
         onDismissRequest = {},
         title = { Text("Track with the screen off") },

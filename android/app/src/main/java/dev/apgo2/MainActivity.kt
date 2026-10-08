@@ -45,8 +45,8 @@ class MainActivity : ComponentActivity() {
 private fun MainContent(model: AppModel) {
     val perms = rememberPermissionState()
     val visible = rememberScreenVisible(model, perms)
-    RequestPermissions(perms)
-    BackgroundLocationPrompt(perms)
+    RequestPermissions(perms, model.setup.visible)
+    BackgroundLocationPrompt(perms, model.setup.visible)
     TrackingEffects(model, perms, visible)
     AppRoot(model)
 }
