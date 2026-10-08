@@ -1,7 +1,7 @@
 [tools]
 python = "3.12"
 node = "24.21.0"
-java = "temurin-25.0.4.1"
+java = "temurin-25.0.4+101.0.LTS"
 uv = "0.11.2"
 just = "1.58.0"
 lefthook = "2.1.17"
