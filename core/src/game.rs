@@ -637,6 +637,17 @@ impl Game {
         dir.join("games").join(format!("{safe}.json"))
     }
 
+    /// Take a game out of the list but keep its save file in `games-archive/` (a played game's data is evidence, never thrown away).
+    pub fn archive(dir: &Path, id: &str) -> Result<(), String> {
+        let from = Self::path_for(dir, id);
+        if !from.exists() {
+            return Ok(());
+        }
+        let to = dir.join("games-archive").join(from.file_name().ok_or("bad game id")?);
+        std::fs::create_dir_all(dir.join("games-archive")).map_err(|e| e.to_string())?;
+        std::fs::rename(&from, &to).map_err(|e| e.to_string())
+    }
+
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         let path = Self::path_for(dir, &self.id);
         std::fs::create_dir_all(path.parent().unwrap_or(dir)).map_err(|e| e.to_string())?;
@@ -887,6 +898,19 @@ mod tests {
         std::fs::write(Game::path_for(&dir, "g1"), "{broken").unwrap();
         assert!(Game::load(&dir, "g1").is_err());
         assert!(Game::load(&dir, "missing").is_err());
+    }
+
+    #[test]
+    fn archiving_moves_the_save_out_of_the_list_but_keeps_it() {
+        let dir = std::env::temp_dir().join(format!("apgo-archive-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        g.save(&dir).unwrap();
+        Game::archive(&dir, "g1").unwrap();
+        assert!(Game::list_ids(&dir).is_empty());
+        assert!(dir.join("games-archive").join("g1.json").exists());
+        assert!(Game::archive(&dir, "g1").is_ok(), "archiving twice (or a missing game) is not an error");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn start_near_a_quest() -> (Game, i64, Point) {

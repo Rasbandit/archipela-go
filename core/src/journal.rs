@@ -58,6 +58,8 @@ pub mod kind {
     pub const FIX_REJECTED: &str = "fix_rejected";
     pub const APP_FOREGROUND: &str = "app_foreground";
     pub const APP_BACKGROUND: &str = "app_background";
+    /// Close to a quest that did not count; the detail says why.
+    pub const NEAR_MISS: &str = "near_miss";
 }
 
 /// What happened between two moments: the "while you were out" report.
@@ -180,11 +182,21 @@ impl Journal {
     fn events_between(&self, game: &str, from_ms: i64, to_ms: i64) -> rusqlite::Result<Vec<JournalEvent>> {
         self.conn
             .prepare("SELECT t_ms, kind, detail, lat, lon FROM events WHERE game = ?1 AND t_ms BETWEEN ?2 AND ?3 ORDER BY t_ms, id")?
-            .query_map((game, from_ms, to_ms), |r| {
-                let (lat, lon): (Option<f64>, Option<f64>) = (r.get(3)?, r.get(4)?);
-                Ok(JournalEvent { t_ms: r.get(0)?, kind: r.get(1)?, detail: r.get(2)?, at: lat.zip(lon) })
-            })?
+            .query_map((game, from_ms, to_ms), Self::event_row)?
             .collect()
+    }
+
+    /// The newest `limit` events of a game, newest first (the activity view).
+    pub fn recent_events(&self, game: &str, limit: u32) -> rusqlite::Result<Vec<JournalEvent>> {
+        self.conn
+            .prepare("SELECT t_ms, kind, detail, lat, lon FROM events WHERE game = ?1 ORDER BY t_ms DESC, id DESC LIMIT ?2")?
+            .query_map((game, limit), Self::event_row)?
+            .collect()
+    }
+
+    fn event_row(r: &rusqlite::Row) -> rusqlite::Result<JournalEvent> {
+        let (lat, lon): (Option<f64>, Option<f64>) = (r.get(3)?, r.get(4)?);
+        Ok(JournalEvent { t_ms: r.get(0)?, kind: r.get(1)?, detail: r.get(2)?, at: lat.zip(lon) })
     }
 
     /// Time of the newest event of this kind for a game.
@@ -334,6 +346,19 @@ mod tests {
             let got = JournalEvent::from_game_event(&e, 42, at);
             assert_eq!((got.kind.as_str(), got.detail.as_str(), got.t_ms, got.at), (k, d, 42, at), "{e:?}");
         }
+    }
+
+    #[test]
+    fn recent_events_are_newest_first_limited_and_scoped() {
+        let j = Journal::open_memory().unwrap();
+        for t in [100, 300, 200, 400] {
+            j.log("g", &ev(t, kind::INFO)).unwrap();
+        }
+        j.log("other", &ev(999, kind::INFO)).unwrap();
+        let got = j.recent_events("g", 3).unwrap();
+        assert_eq!(got.iter().map(|e| e.t_ms).collect::<Vec<_>>(), vec![400, 300, 200]);
+        assert!(j.recent_events("g", 0).unwrap().is_empty());
+        assert!(j.recent_events("nope", 10).unwrap().is_empty());
     }
 
     #[test]

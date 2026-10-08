@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use apgo_core::assign::SurfacePref;
 use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Mode};
-use apgo_core::game::{Backend, Event, Game, NewGame, QuestState};
+use apgo_core::game::{Backend, Event, Game, NearMiss, NewGame, QuestState};
 use apgo_core::geo::{distance_m, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
@@ -315,25 +315,17 @@ fn ev_out(e: Event) -> EventOut {
 }
 
 fn describe(t: &Target) -> (&'static str, Option<Point>, Option<Point>, f64, Vec<Point>, String) {
+    let text = t.goal_text();
     match t {
-        Target::Point { p, r } => ("point", Some(*p), None, *r, vec![], format!("Get within {r:.0} m")),
-        Target::Dwell { p, r, minutes } => ("dwell", Some(*p), None, *r, vec![], format!("Stay {minutes:.0} min within {r:.0} m")),
-        Target::DwellArea { poly, center, r, minutes } => ("area", Some(*center), None, *r, poly.clone(), format!("Spend {minutes:.0} min inside the area")),
-        Target::Line { pts, corridor_m, coverage } => {
-            let km = apgo_core::geo::polyline_len_m(pts) / 1000.0;
-            ("line", pts.first().copied(), None, *corridor_m, pts.clone(), format!("Cover {:.0}% of this {km:.1} km path", coverage * 100.0))
-        }
-        Target::Courier { a, b, r, time_limit_min } => {
-            ("courier", Some(*a), Some(*b), *r, vec![], format!("Pick up at A, deliver to B within {time_limit_min:.0} min"))
-        }
-        Target::RoundTrip { far, r, time_limit_min } => {
-            ("roundtrip", Some(*far), None, *r, vec![], format!("Reach the far point and be back home within {time_limit_min:.0} min"))
-        }
-        Target::Cells { n, cell_m } => ("cells", None, None, *cell_m, vec![], format!("Visit {n} new map cells")),
-        Target::Steps { n } => ("steps", None, None, 0.0, vec![], format!("Take {n} steps")),
-        Target::Away { min_distance_m, minutes } => {
-            ("away", None, None, *min_distance_m, vec![], format!("Spend {minutes:.0} min at least {:.1} km from home", min_distance_m / 1000.0))
-        }
+        Target::Point { p, r } => ("point", Some(*p), None, *r, vec![], text),
+        Target::Dwell { p, r, .. } => ("dwell", Some(*p), None, *r, vec![], text),
+        Target::DwellArea { poly, center, r, .. } => ("area", Some(*center), None, *r, poly.clone(), text),
+        Target::Line { pts, corridor_m, .. } => ("line", pts.first().copied(), None, *corridor_m, pts.clone(), text),
+        Target::Courier { a, b, r, .. } => ("courier", Some(*a), Some(*b), *r, vec![], text),
+        Target::RoundTrip { far, r, .. } => ("roundtrip", Some(*far), None, *r, vec![], text),
+        Target::Cells { cell_m, .. } => ("cells", None, None, *cell_m, vec![], text),
+        Target::Steps { .. } => ("steps", None, None, 0.0, vec![], text),
+        Target::Away { min_distance_m, .. } => ("away", None, None, *min_distance_m, vec![], text),
     }
 }
 
@@ -369,6 +361,9 @@ pub struct AwayReportOut {
     pub events: Vec<AuditEventOut>,
 }
 
+/// Quests this close to a fix get a line in the log saying whether they count.
+const NEAR_MISS_RADIUS_M: f64 = 100.0;
+
 #[derive(uniffi::Object)]
 pub struct Engine {
     dir: PathBuf,
@@ -376,6 +371,8 @@ pub struct Engine {
     journal: Option<Mutex<Journal>>,
     /// Messages from the core for the app's diagnostics log (stderr is lost on Android). Capped; drained by `take_diag`.
     diag: Mutex<Vec<String>>,
+    /// Per quest: the last near-miss reason logged and when, so a minute standing at a target is a few lines, not hundreds.
+    near_logged: Mutex<std::collections::HashMap<i64, (String, i64)>>,
     /// When a rejected fix was last logged, so a bad-signal stretch is one line, not thousands.
     last_reject_log_ms: std::sync::atomic::AtomicI64,
     catalog: Catalog,
@@ -401,6 +398,20 @@ impl Engine {
                 self.note(format!("journal write failed: {e}"));
             }
         }
+    }
+
+    /// Of the quests the player is near, those worth a log line now: the reason changed, or 30 s passed since the last line for it.
+    fn new_near_misses(&self, near: Vec<NearMiss>, t_ms: i64) -> Vec<NearMiss> {
+        let mut seen = self.near_logged.lock().unwrap_or_else(|e| e.into_inner());
+        near.into_iter()
+            .filter(|n| {
+                let fresh = seen.get(&n.location_id).is_none_or(|(reason, at)| *reason != n.reason || t_ms.saturating_sub(*at) >= 30_000);
+                if fresh {
+                    seen.insert(n.location_id, (n.reason.clone(), t_ms));
+                }
+                fresh
+            })
+            .collect()
     }
 
     /// Queue a message for the app's diagnostics log. Keeps the newest 200.
@@ -480,6 +491,7 @@ impl Engine {
             dir,
             journal,
             diag: Mutex::new(diag),
+            near_logged: Mutex::new(Default::default()),
             last_reject_log_ms: std::sync::atomic::AtomicI64::new(i64::MIN),
             catalog: Catalog::builtin(),
             game: Mutex::new(None),
@@ -803,8 +815,10 @@ impl Engine {
     }
 
     pub fn delete_game(&self, id: String) -> Result<(), CoreError> {
-        let _ = std::fs::remove_file(Game::path_for(&self.dir, &id));
-        self.journal_do(|j| j.clear_game(&id));
+        // The save moves to games-archive/ and the journal rows stay: a played game's data is evidence for diagnosing the next test.
+        if let Err(e) = Game::archive(&self.dir, &id) {
+            self.note(format!("could not archive game {id}: {e}"));
+        }
         let mut g = self.game.lock().unwrap_or_else(|e| e.into_inner());
         if g.as_ref().is_some_and(|x| x.id == id) {
             *g = None;
@@ -916,16 +930,20 @@ impl Engine {
 
     pub fn on_fix(&self, lat: f64, lon: f64, t_ms: i64, accuracy_m: f64, steps: Option<i64>, simulated: bool) -> Vec<EventOut> {
         let dir = self.dir.clone();
-        let Some((game_id, ev)) = self.with_game(|g| {
-            let ev = g.on_fix(Fix { lat, lon, t_ms, accuracy_m }, steps);
-            if !ev.is_empty() {
-                let _ = g.save(&dir);
-            }
-            (g.id.clone(), ev)
-        }) else {
+        let fix = Fix { lat, lon, t_ms, accuracy_m };
+        let at = Some((lat, lon));
+        let Some((game_id, ev, entries, near)) = self
+            .with_game(|g| {
+                let ev = g.on_fix(fix, steps);
+                if !ev.is_empty() {
+                    let _ = g.save(&dir);
+                }
+                (g.id.clone(), g.journal_events(&ev, t_ms, at), g.explain_near(&fix, NEAR_MISS_RADIUS_M), ev)
+            })
+            .map(|(id, entries, near, ev)| (id, ev, entries, near))
+        else {
             return Vec::new();
         };
-        let at = Some((lat, lon));
         self.journal_do(|j| {
             if accuracy_m > MAX_ACCURACY_M {
                 let last = self.last_reject_log_ms.load(std::sync::atomic::Ordering::Relaxed);
@@ -936,7 +954,10 @@ impl Engine {
             } else {
                 j.add_point(&game_id, &TrackPoint { t_ms, lat, lon, accuracy_m, simulated })?;
             }
-            ev.iter().try_for_each(|e| j.log(&game_id, &JournalEvent::from_game_event(e, t_ms, at)))
+            for n in self.new_near_misses(near, t_ms) {
+                j.log(&game_id, &JournalEvent { t_ms, kind: kind::NEAR_MISS.into(), detail: format!("{}: {} ({:.0} m)", n.name, n.reason, n.distance_m), at })?;
+            }
+            entries.iter().try_for_each(|e| j.log(&game_id, e))
         });
         ev.into_iter().map(ev_out).collect()
     }
@@ -944,17 +965,18 @@ impl Engine {
     /// Archipelago: pass the full received-item name list; new items trigger unlocks/traps.
     pub fn sync_items(&self, items: Vec<String>, now_ms: i64, pos: Option<GeoPoint>) -> Vec<EventOut> {
         let dir = self.dir.clone();
-        let Some((game_id, ev)) = self.with_game(|g| {
+        let at = pos.as_ref().map(|p| (p.lat, p.lon));
+        let Some((game_id, ev, entries)) = self.with_game(|g| {
             let ev = g.sync_items(&items, now_ms, pos.as_ref().map(pt));
             if !ev.is_empty() {
                 let _ = g.save(&dir);
             }
-            (g.id.clone(), ev)
+            let entries = g.journal_events(&ev, now_ms, at);
+            (g.id.clone(), ev, entries)
         }) else {
             return Vec::new();
         };
-        let at = pos.as_ref().map(|p| (p.lat, p.lon));
-        self.journal_do(|j| ev.iter().try_for_each(|e| j.log(&game_id, &JournalEvent::from_game_event(e, now_ms, at))));
+        self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&game_id, e)));
         ev.into_iter().map(ev_out).collect()
     }
 
@@ -977,6 +999,14 @@ impl Engine {
         let Some(id) = self.game_id() else { return };
         let k = if foreground { kind::APP_FOREGROUND } else { kind::APP_BACKGROUND };
         self.journal_do(|j| j.log(&id, &JournalEvent { t_ms, kind: k.into(), detail: String::new(), at: None }));
+    }
+
+    /// The newest `limit` things that happened in the open game, newest first: quests with how they were done, rewards with
+    /// where they came from, traps, near misses and notices.
+    pub fn activity(&self, limit: u32) -> Vec<AuditEventOut> {
+        let (Some(id), Some(j)) = (self.game_id(), self.journal.as_ref()) else { return Vec::new() };
+        let rows = j.lock().unwrap_or_else(|e| e.into_inner()).recent_events(&id, limit).unwrap_or_default();
+        rows.into_iter().map(|e| AuditEventOut { t_ms: e.t_ms, kind: e.kind, detail: e.detail, at: e.at.map(|(lat, lon)| GeoPoint { lat, lon }) }).collect()
     }
 
     /// When the app was last sent to the background in the open game: the start of "while you were out".
