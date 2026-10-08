@@ -15,6 +15,7 @@ composeRulesKtlint = "0.6.7"
 detekt = "2.0.0-alpha.6"
 composeRulesDetekt = "0.6.7"
 kover = "0.9.11"
+orgJson = "20250517"
 
 [libraries]
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
@@ -30,6 +31,7 @@ compose-rules-detekt = { module = "io.nlopez.compose.rules:detekt", version.ref 
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 junit = { module = "junit:junit", version.ref = "junit" }
 lucide = { module = "com.composables:icons-lucide-cmp", version.ref = "lucide" }
+org-json = { module = "org.json:json", version.ref = "orgJson" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
