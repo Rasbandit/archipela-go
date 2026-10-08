@@ -122,7 +122,12 @@ internal fun ChainRow(
             )
         }
         ChainBar(ChainFormat.fill(c.counter, c.total), ChainFormat.fractions(c.marks.map { it.at }, c.total), c.marks.map { it.reached })
-        Text(ChainFormat.next(c), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (ChainFormat.done(c)) {
+                Icon(ApgoIcons.Check, contentDescription = "Done", tint = ApgoPalette.questDone, modifier = Modifier.size(12.dp))
+            }
+            Text(ChainFormat.next(c), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

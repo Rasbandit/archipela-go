@@ -59,6 +59,9 @@ internal object ChainFormat {
         }
     }
 
+    /** Every mark of the chain is reached (the row shows a check). */
+    fun done(c: ChainOut): Boolean = c.marks.all { it.reached }
+
     /** "next: 8,500 steps (5,100 to go)", or "all 4 unlocked" when every mark is reached. */
     fun next(c: ChainOut): String {
         val mark = c.marks.firstOrNull { !it.reached } ?: return "all ${c.marks.size} unlocked"

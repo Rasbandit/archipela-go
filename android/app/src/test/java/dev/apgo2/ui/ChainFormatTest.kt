@@ -1,6 +1,7 @@
 package dev.apgo2.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.apgo_ffi.ChainOut
@@ -89,6 +90,11 @@ class ChainFormatTest {
         assertEquals("8,500 steps", ChainFormat.amount("steps", 8_499.9999))
         assertEquals("40 squares", ChainFormat.amount("cells", 39.9999))
         assertEquals("0 min", ChainFormat.amount("minutes", -2.0))
+    }
+
+    @Test fun doneMeansEveryMarkIsReached() {
+        assertTrue(ChainFormat.done(chain("steps", 9_000.0, 500.0 to true, 8_500.0 to true)))
+        assertFalse(ChainFormat.done(chain("steps", 600.0, 500.0 to true, 8_500.0 to false)))
     }
 
     @Test fun theFillIsTheCounterShareClamped() {
