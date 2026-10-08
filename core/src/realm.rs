@@ -69,6 +69,19 @@ impl Shape {
         }
     }
 
+    /// How far outside the shape `p` is, in metres; 0 when it is inside.
+    pub fn distance_m(&self, p: Point) -> f64 {
+        match self {
+            Shape::Circle { center, radius_m } => (crate::geo::distance_m(p, *center) - radius_m).max(0.0),
+            Shape::Polygon { vertices } => {
+                if crate::geo::point_in_polygon(p, vertices) || vertices.len() < 2 {
+                    return 0.0;
+                }
+                (0..vertices.len()).map(|i| crate::geo::distance_to_segment_m(p, vertices[i], vertices[(i + 1) % vertices.len()])).fold(f64::INFINITY, f64::min)
+            }
+        }
+    }
+
     pub fn is_valid(&self) -> bool {
         match self {
             Shape::Circle { radius_m, .. } => *radius_m >= 50.0,
@@ -365,5 +378,31 @@ mod tests {
         assert_eq!(store.home(), Some(Point::new(1.5, 2.5)));
         std::fs::write(store.dir().join("realms.json"), "not json").unwrap();
         assert!(store.list().is_empty(), "corrupt file must not crash");
+    }
+
+    #[test]
+    fn distance_to_a_circle_is_zero_inside_and_the_gap_outside() {
+        let c = Point::new(40.0, -111.0);
+        let s = Shape::Circle { center: c, radius_m: 500.0 };
+        assert_eq!(s.distance_m(crate::geo::destination(c, 90.0, 300.0)), 0.0);
+        let d = s.distance_m(crate::geo::destination(c, 90.0, 800.0));
+        assert!((d - 300.0).abs() < 2.0, "got {d}");
+    }
+
+    #[test]
+    fn distance_to_a_polygon_is_zero_inside_and_measured_to_the_nearest_edge_outside() {
+        let a = Point::new(40.0, -111.0);
+        let b = crate::geo::destination(a, 90.0, 1000.0);
+        let c = crate::geo::destination(b, 0.0, 1000.0);
+        let d = crate::geo::destination(a, 0.0, 1000.0);
+        let s = Shape::Polygon { vertices: vec![a, b, c, d] };
+        let inside = crate::geo::destination(crate::geo::destination(a, 90.0, 500.0), 0.0, 500.0);
+        assert_eq!(s.distance_m(inside), 0.0);
+        let east = crate::geo::destination(crate::geo::destination(a, 90.0, 1300.0), 0.0, 500.0);
+        assert!((s.distance_m(east) - 300.0).abs() < 3.0);
+        let corner = crate::geo::destination(crate::geo::destination(b, 90.0, 300.0), 0.0, 400.0);
+        assert!((s.distance_m(corner) - 300.0).abs() < 3.0, "nearest edge is the east side");
+        let beyond = crate::geo::destination(crate::geo::destination(b, 90.0, 300.0), 180.0, 400.0);
+        assert!((s.distance_m(beyond) - 500.0).abs() < 3.0, "nearest feature is the corner vertex");
     }
 }

@@ -71,6 +71,19 @@ pub fn centroid(pts: &[Point]) -> Point {
     Point::new(pts.iter().map(|p| p.lat).sum::<f64>() / n, pts.iter().map(|p| p.lon).sum::<f64>() / n)
 }
 
+/// Shortest distance from `p` to the segment `a`-`b`, in metres (flat approximation around `p`, fine at city scale).
+pub fn distance_to_segment_m(p: Point, a: Point, b: Point) -> f64 {
+    let k = 111_195.0;
+    let cos_lat = p.lat.to_radians().cos();
+    let xy = |q: Point| ((q.lon - p.lon) * k * cos_lat, (q.lat - p.lat) * k);
+    let ((ax, ay), (bx, by)) = (xy(a), xy(b));
+    let (dx, dy) = (bx - ax, by - ay);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 == 0.0 { 0.0 } else { (-(ax * dx + ay * dy) / len2).clamp(0.0, 1.0) };
+    let (cx, cy) = (ax + t * dx, ay + t * dy);
+    (cx * cx + cy * cy).sqrt()
+}
+
 /// Ray-casting point-in-polygon on lat/lon (planar; fine at city scale).
 pub fn point_in_polygon(p: Point, v: &[Point]) -> bool {
     let mut inside = false;
