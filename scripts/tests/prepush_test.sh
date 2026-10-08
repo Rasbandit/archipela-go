@@ -26,6 +26,8 @@ expect empty       ""                                         "check-hygiene"
 # core embeds these with include_str!, so they feed the Rust (and Android) builds too
 expect apworld-docs "apworld/docs/slot_data.sample.json"      "$ALL"
 expect ap-version  ".ap-version"                              "check-hygiene check-py"
+# android/.editorconfig is not root=true, so ktlint also reads the top-level one
+expect editorconfig ".editorconfig"                           "$ALL"
 
 # --- range logic: `prepush.sh files` (pre-push stdin lines -> changed paths) ---
 tmp="$(mktemp -d)"
