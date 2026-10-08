@@ -10,6 +10,21 @@
 - **Archipelago standards are the golden rule**: copy patterns from official worlds (see `archipelago-game-model.md`) and verify with real generation.
 - Be honest about what was verified; say plainly when something was only checked on the emulator.
 
+## Parallel sessions: always work in a worktree
+
+Several Claude sessions and agents run against this repo at once. The main checkout (`Archipela-Go/`) stays on `main` for the
+owner: never switch branches or edit files there. A `git switch` by one session changes the files under every other session
+(on 2026-10-08 one session switched the main checkout to its branch while another was mid-task in it).
+
+- New work: Claude Code's `EnterWorktree` (creates `.claude/worktrees/<name>` on a new branch from `origin/main`), then
+  `git branch -m feat/<name>`. Existing branch: `git worktree add .claude/worktrees/<name> <branch>`, then `EnterWorktree` with
+  that `path`. `.claude/worktrees/` is gitignored.
+- A fresh worktree has none of the gitignored state: run `just setup-ap` before `just check-py`; `just check-android` builds the
+  uniffi bindings itself; Gradle finds the SDK through `ANDROID_HOME` (the justfile exports it).
+- Shared across worktrees: branches, hooks and the stash stack. Never use a bare `git stash`/`git stash pop` (you can pop another
+  session's entry); use a WIP commit. A branch can be checked out in only one worktree at a time.
+- After the PR merges: `git worktree remove .claude/worktrees/<name>` and `git branch -d <branch>`.
+
 ## The loop
 
 | Task | Command |
@@ -35,7 +50,7 @@
 - MapLibre does not always repaint after a GeoJSON change on a still camera: call `map.triggerRepaint()`. A bounds fit REPLACES the map padding: include overlay padding.
 - Read editor state inside click handlers (not from vals captured at composition) or undo/redo saves stale values.
 - UniFFI: a record field named `message` clashes with Kotlin's Throwable.message; rustls needs the ring provider installed explicitly; generated Kotlin lives in `src/main/kotlin`.
-- Compose icons: Lucide names differ from memory (e.g. no `CloudCheck`, `CircleHelp` exists). A wrong name is a compile error: fix by trying the compiler.
+- Compose icons: Lucide names differ from memory (e.g. no `CloudCheck`; lucide 2 renamed `CircleHelp` to `CircleQuestionMark`). A wrong name is a compile error: fix by trying the compiler.
 - The commit hook wants imperative subjects (`feat: show finds`, not `feat: finds ...`) and lines under 72 chars in the body.
 - Generated `android/app/src/main/kotlin/uniffi/` is excluded from every Kotlin gate (Spotless, detekt, Lint, Kover); never edit or lint it. `core/vendor/` is likewise untouched.
 - `bash scripts/android_bindings.sh` builds the bindings on the host (no NDK) for `just check-android` and CI; `android_core.sh` is for device builds.
