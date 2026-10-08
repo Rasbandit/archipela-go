@@ -34,6 +34,7 @@ via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monore
 - TDD: failing tests first; never edit tests to fit bad code.
 - Upstream code is MIT (keep notice if copying); upstream apworld has NO license: reimplement, never copy.
 - Web research: use Perplexity, Firecrawl and GitHub MCPs, not built-in WebSearch/WebFetch.
+- Work tracking: GitHub issues on `Rasbandit/archipela-go` (`gh issue list`) are the backlog and todo list. Ideas, bugs and follow-ups become issues (label `enhancement` or `bug`); close them from the commit or PR that finishes them. Do not keep a TODO.md.
 - Life OS / work-log tagging is intentionally skipped in this project (owner decision).
 - apworld package code uses relative imports (Archipelago loads it as `worlds.ap_go2`); tests import `worlds.ap_go2`.
 - Parallel agents must not edit this file concurrently (two agents once overwrote each other's index lines).

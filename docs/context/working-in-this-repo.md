@@ -39,8 +39,10 @@
 `project-decisions.md` (decision log), `ui-design-system.md` (palette, components, icons, help, editor model), `scan-and-tile-cache.md`,
 `archipelago-game-model.md` (incl. several goals), `quest-catalog.md` (generated), `map-data-capabilities.md`, `progression-zones-and-tools.md`.
 
-## Backlog (suggested order)
-1. **Foreground service + background location**, then a real outdoor test with a short realm. Activity Recognition for mode proof.
+## Backlog
+**Tracking lives in GitHub issues** (`gh issue list` on `Rasbandit/archipela-go`); new ideas, bugs and follow-ups are filed there (label `enhancement` or `bug`). The list below is the
+older pre-issues backlog: file an issue when one of these is picked up, then delete it here.
+1. ~~Foreground service + background location~~ (done), **real outdoor test and retest** (see `outdoor-test-plan.md`). Activity Recognition for mode proof is still open. Street snapping of the displayed position/trace is an idea (after the retest).
 2. Rewrite `scripts/e2e_emulator.sh` for the current flows (editor, New Game zones, scan wait) and make it pass cleanly.
 3. Re-test the full Archipelago session (connect, checks, items, goal, several goals) against `ap_host.sh`; apply `return_home`, DeathLink, Effort Reduction items; chat/hints.
 4. About/attribution screen (OSM, OpenFreeMap, Lucide) and an own launcher icon; signing; release build size.
