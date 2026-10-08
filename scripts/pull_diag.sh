@@ -26,4 +26,4 @@ fi
 adb logcat -d -v threadtime > "$out/logcat.txt" 2>/dev/null || true
 adb shell getprop ro.product.model > "$out/device.txt" 2>/dev/null || true
 echo "pulled to $out"
-ls -la "$out/diag" | tail -n +2
+find "$out/diag" -mindepth 1 -maxdepth 1 -printf '%M %s %TY-%Tm-%Td %TH:%TM %f\n'

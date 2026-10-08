@@ -4,9 +4,11 @@
 usage: diag_report.py <pulled-dir>
 """
 
+import contextlib
 import json
 import sqlite3
 import sys
+from collections.abc import Sequence
 from datetime import datetime
 from itertools import pairwise
 from math import asin, cos, radians, sin, sqrt
@@ -19,20 +21,18 @@ def ts(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, tz=LOCAL_TZ).strftime("%H:%M:%S")
 
 
-def haversine_m(a, b) -> float:
+def haversine_m(a: Sequence[float], b: Sequence[float]) -> float:
     la1, lo1, la2, lo2 = map(radians, (a[0], a[1], b[0], b[1]))
     h = sin((la2 - la1) / 2) ** 2 + cos(la1) * cos(la2) * sin((lo2 - lo1) / 2) ** 2
     return 12_742_000 * asin(sqrt(h))
 
 
-def main(root: Path) -> None:
+def main(root: Path) -> None:  # noqa: C901, PLR0912  # linear one-shot report, splitting hurts readability
     entries = []
     for f in sorted((root / "diag").glob("diag-*.jsonl")):
         for line in f.read_text(errors="replace").splitlines():
-            try:
+            with contextlib.suppress(json.JSONDecodeError):
                 entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
     print(
         f"{len(entries)} log entries"
         + (f", {ts(entries[0]['t'])} to {ts(entries[-1]['t'])}" if entries else "")
@@ -83,31 +83,20 @@ def main(root: Path) -> None:
             "select t_ms, lat, lon, accuracy_m, simulated from points order by t_ms"
         ).fetchall()
         real = [p for p in pts if not p[4]]
-        dist = sum(
-            haversine_m(a[1:3], b[1:3])
-            for a, b in pairwise(real)
-            if b[0] - a[0] <= 120_000
-        )
-        print(
-            f"\n== journal: {len(pts)} points ({len(real)} real), walked {dist / 1000:.2f} km =="
-        )
+        dist = sum(haversine_m(a[1:3], b[1:3]) for a, b in pairwise(real) if b[0] - a[0] <= 120_000)
+        print(f"\n== journal: {len(pts)} points ({len(real)} real), walked {dist / 1000:.2f} km ==")
         if real:
             gaps = [(a[0], b[0]) for a, b in pairwise(real) if b[0] - a[0] > 120_000]
             print(
                 f"{len(gaps)} gaps over 2 min in the real track"
-                + "".join(
-                    f"\n  {ts(a)} -> {ts(b)} ({(b - a) // 60000} min)"
-                    for a, b in gaps[:20]
-                )
+                + "".join(f"\n  {ts(a)} -> {ts(b)} ({(b - a) // 60000} min)" for a, b in gaps[:20])
             )
             print(
                 f"accuracy m: median {sorted(p[3] for p in real)[len(real) // 2]:.0f}, worst {max(p[3] for p in real):.0f}"
             )
         print(
             "events:",
-            dict(
-                c.execute("select kind, count(*) from events group by kind").fetchall()
-            ),
+            dict(c.execute("select kind, count(*) from events group by kind").fetchall()),
         )
 
 

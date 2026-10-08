@@ -23,7 +23,7 @@ def nodes() -> list[dict]:
     adb("shell", "uiautomator", "dump", "/sdcard/ui.xml")
     adb("pull", "/sdcard/ui.xml", "/tmp/apgo-ui2.xml")
     out = []
-    for n in ET.parse("/tmp/apgo-ui2.xml").iter("node"):
+    for n in ET.parse("/tmp/apgo-ui2.xml").iter("node"):  # noqa: S314  # our own adb uiautomator dump
         text = n.get("text") or n.get("content-desc") or ""
         b = re.findall(r"\d+", n.get("bounds") or "")
         if text and len(b) == 4:
@@ -39,7 +39,7 @@ def screen_h() -> int:
 NAV = {"Realms", "New Game", "Play"}
 
 
-def tap(label: str, exact: bool = False, nth: int = 0) -> bool:
+def tap(label: str, *, exact: bool = False, nth: int = 0) -> bool:
     h = screen_h()
     limit = h - 20 if label in NAV else h - 260
     for _ in range(8):
@@ -47,7 +47,7 @@ def tap(label: str, exact: bool = False, nth: int = 0) -> bool:
         for n in nodes():
             hit = n["text"] == label if exact else label in n["text"]
             x1, y1, x2, y2 = n["box"]
-            if hit and 0 < y1 and y2 < limit and y2 > y1:
+            if hit and y1 > 0 and y2 < limit and y2 > y1:
                 if seen == nth:
                     adb(
                         "shell",

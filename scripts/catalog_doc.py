@@ -12,9 +12,9 @@ cat = json.loads((root / "core/data/quest_catalog.json").read_text(encoding="utf
 def filt(kind: dict) -> str:
     if not kind["any_of"]:
         return "(no map data needed)"
-    groups = []
-    for group in kind["any_of"]:
-        groups.append(" + ".join(f"{c['key']}={'/'.join(c['values'])}" for c in group))
+    groups = [
+        " + ".join(f"{c['key']}={'/'.join(c['values'])}" for c in group) for group in kind["any_of"]
+    ]
     out = " OR ".join(groups)
     if kind.get("none_of"):
         out += (

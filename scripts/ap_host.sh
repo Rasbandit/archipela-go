@@ -45,8 +45,8 @@ game: "$game"
 YAML
     run_ap Generate.py --player_files_path "$dev/players" --outputpath "$dev/out" --seed 7 >"$dev/generate.log" 2>&1 \
       || { tail -20 "$dev/generate.log"; exit 1; }
-    (cd "$dev/out" && unzip -q -o AP_*.zip '*.archipelago' && ls *.archipelago >/dev/null)
-    data="$(ls "$dev"/out/*.archipelago | head -1)"
+    (cd "$dev/out" && unzip -q -o AP_*.zip '*.archipelago' && ls -- *.archipelago >/dev/null)
+    data="$(find "$dev/out" -maxdepth 1 -name '*.archipelago' | sort | head -1)"
     nohup bash -c "cd '$root/.ap' && PYTHONPATH=. '$py' - MultiServer.py '$data' --host 0.0.0.0 --port $port --savefile '$dev/save' <<'PY'
 import runpy, sys
 import ModuleUpdate

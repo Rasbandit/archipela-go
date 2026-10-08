@@ -11,10 +11,14 @@ setup-ap:
 lint:
     uv run --project apworld ruff check apworld
     uv run --project apworld ruff format --check apworld
+    uv run --project apworld ruff check --config scripts/ruff.toml scripts/*.py
+    uv run --project apworld ruff format --config scripts/ruff.toml --check scripts/*.py
 
 fmt:
     uv run --project apworld ruff format apworld
     uv run --project apworld ruff check --fix apworld
+    uv run --project apworld ruff format --config scripts/ruff.toml scripts/*.py
+    uv run --project apworld ruff check --config scripts/ruff.toml --fix scripts/*.py
 
 typecheck:
     uv run --project apworld pyright --project apworld
@@ -35,9 +39,10 @@ ap-present:
 # apworld: lint, types, tests
 check-py: ap-present lint typecheck test
 
-# Repo-wide hygiene: spelling, secrets, workflows, docs, dispatcher tests
+# Repo-wide hygiene: spelling, secrets, workflows, shell, docs, dispatcher tests
 check-hygiene: spell secrets
     actionlint
+    shellcheck scripts/*.sh scripts/tests/*.sh
     markdownlint-cli2 "**/*.md" "#**/node_modules" "#.ap" "#core/vendor" "#core/target"
     bash scripts/tests/prepush_test.sh
 
@@ -52,7 +57,7 @@ check-rust:
     cd core && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings
     cd core && RUSTDOCFLAGS="-D warnings" cargo doc -p apgo-core -p apgo-ffi --no-deps -q
     cd core && cargo deny check
-    cd core && cargo llvm-cov -p apgo-core -p apgo-ffi -q --fail-under-lines 80
+    cd core && cargo llvm-cov -p apgo-core -p apgo-ffi --fail-under-lines 80
 
 # --- Android dev loop (phone paired over adb) ---
 export JAVA_HOME := env("JAVA_HOME", "/usr/lib/jvm/java-25-openjdk")
