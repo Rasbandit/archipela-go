@@ -10,6 +10,29 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  # Same path -> recipe mapping as the pre-push hook (scripts/prepush.sh select).
+  # PRs run only the languages they touch; pushes to main run everything.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      recipes: ${{ steps.select.outputs.recipes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            files="$(git -c core.quotePath=false diff --name-only --no-renames "origin/$BASE_REF...HEAD")"
+          else
+            files="__ALL__"
+          fi
+          recipes="$(printf '%s\n' "$files" | bash scripts/prepush.sh select)"
+          echo "recipes: $recipes"
+          echo "recipes=$recipes" >> "$GITHUB_OUTPUT"
   hygiene:
     runs-on: ubuntu-24.04
     steps:
@@ -19,6 +42,8 @@ jobs:
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
       - run: just check-hygiene
   python:
+    needs: changes
+    if: contains(needs.changes.outputs.recipes, 'check-py')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,6 +56,8 @@ jobs:
           name: ap_go2.apworld
           path: dist/ap_go2.apworld
   rust:
+    needs: changes
+    if: contains(needs.changes.outputs.recipes, 'check-rust')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -40,6 +67,8 @@ jobs:
           workspaces: core
       - run: just check-rust
   android:
+    needs: changes
+    if: contains(needs.changes.outputs.recipes, 'check-android')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
