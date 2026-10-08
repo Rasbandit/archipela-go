@@ -23,6 +23,9 @@ expect kotlin      "android/app/src/main/java/dev/apgo2/A.kt" "check-hygiene che
 expect justfile    "justfile"                                 "$ALL"
 expect mixed       $'apworld/a.py\nandroid/b.kt'              "check-hygiene check-py check-android"
 expect empty       ""                                         "check-hygiene"
+# core embeds these with include_str!, so they feed the Rust (and Android) builds too
+expect apworld-docs "apworld/docs/slot_data.sample.json"      "$ALL"
+expect ap-version  ".ap-version"                              "check-hygiene check-py"
 
 # --- range logic: `prepush.sh files` (pre-push stdin lines -> changed paths) ---
 tmp="$(mktemp -d)"

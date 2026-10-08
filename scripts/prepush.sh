@@ -9,7 +9,8 @@ select_recipes() {
     case "$path" in
       "") ;;
       __ALL__|justfile|lefthook.yml|mise.toml|scripts/*|.github/*) all=1 ;;
-      apworld/*) py=1 ;;
+      apworld/docs/*) all=1 ;; # core include_str!s the slot_data sample and example YAML
+      apworld/*|.ap-version) py=1 ;;
       core/*) rs=1; an=1 ;;
       android/*) an=1 ;;
     esac
