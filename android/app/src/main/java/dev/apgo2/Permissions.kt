@@ -23,7 +23,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 
-private const val PREFS = "prefs"
 private const val BG_DECLINED = "bg_declined"
 private const val LOG_TAG = "permission"
 private const val GRANTED = "granted"

@@ -5,8 +5,6 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -255,7 +253,7 @@ private fun WifiChoiceList(state: WifiStepState) {
 
 /** Step 3: tick the Bluetooth device that is your car. Optional. */
 @Composable
-@SuppressLint("InlinedApi") // only launched when hasBluetoothConnect() is false, which cannot happen before Android 12
+@SuppressLint("InlinedApi") // only asked when hasBluetoothConnect() is false, which cannot happen before Android 12
 internal fun CarStep(
     m: AppModel,
     onBack: () -> Unit,
@@ -264,13 +262,10 @@ internal fun CarStep(
     val ctx = LocalContext.current
     var car by remember { mutableStateOf(m.settings.carDevices) }
     var query by remember { mutableStateOf("") }
-    var btOk by remember { mutableStateOf(ctx.hasBluetoothConnect()) }
-    // Tell the model too: it restarts the monitor so car detection works without leaving the app.
-    val askBt =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-            btOk = it
-            m.presence.ensureMonitor(it)
-        }
+    // Tell the model too: it restarts the monitor so car detection works without leaving the app. A grant made on the settings page
+    // is picked up when the step resumes (and by the activity's own re-read on start).
+    val askBt = rememberPermissionAsk(Manifest.permission.BLUETOOTH_CONNECT, ctx::hasBluetoothConnect, m.presence::ensureMonitor)
+    val btOk = askBt.action == PermissionAsk.Granted
     val paired = remember(btOk) { if (btOk) pairedDevices(ctx) else emptyList() }
 
     fun toggle(
@@ -300,8 +295,7 @@ internal fun CarStep(
         },
     ) {
         if (!btOk) {
-            OutlinedButton(onClick = { askBt.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("Allow Bluetooth to pick your car") }
-            Text(SetupText.CAR_NEEDS_BLUETOOTH, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            AllowBluetooth(askBt)
         } else if (paired.isEmpty() && car.isEmpty()) {
             Text(SetupText.CAR_NONE_PAIRED, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -311,6 +305,20 @@ internal fun CarStep(
                 Checkbox(on, { toggle(d, it) })
                 Text(d.name)
             }
+        }
+    }
+}
+
+// The Allow button, or a link to the app's settings once Android no longer shows its dialog.
+@Composable
+private fun AllowBluetooth(ask: PermissionAskState) {
+    val blocked = ask.action == PermissionAsk.OpenSettings
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = ask::ask) { Text(if (blocked) "Open settings to allow Bluetooth" else "Allow Bluetooth to pick your car") }
+        if (blocked) {
+            FeedbackText(SetupText.CAR_BLUETOOTH_BLOCKED, Tone.Warning)
+        } else {
+            Text(SetupText.CAR_NEEDS_BLUETOOTH, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
