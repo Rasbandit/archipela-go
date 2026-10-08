@@ -27,7 +27,8 @@ internal class ApController(
     private val ctx: Context,
     private val scope: CoroutineScope,
 ) {
-    var session by mutableStateOf<ApSession?>(null)
+    private val sessions = SessionSlot<ApSession> { it.close() }
+    val session get() = sessions.current
     var status by mutableStateOf("not connected")
 
     // A line shown next to [status]; kept apart because tick() rewrites status from the session on every poll.
@@ -45,7 +46,7 @@ internal class ApController(
         slotJson = null
         hint = null
         val s = ApSession.connect(url, slot, null, ctx.cacheDir.resolve("ap").absolutePath)
-        session = s
+        sessions.replace(s)
         scope.launch {
             delay(LAN_HINT_AFTER_MS)
             if (session === s && s.status() == "connecting" && ctx.lacksLocalNetwork()) hint = LAN_HINT
@@ -54,14 +55,16 @@ internal class ApController(
 
     /** Called from a coroutine loop while a session exists. */
     suspend fun tick() {
-        val s = session ?: return
-        val events = withContext(Dispatchers.IO) { runCatching { s.poll() }.getOrDefault(emptyList()) }
-        events.forEach { handle(s, it) }
-        s.status().let {
-            if (it != status) Diag.info("ap", "status", "status" to it)
-            status = it
+        sessions.use { s ->
+            val events = withContext(Dispatchers.IO) { runCatching { s.poll() }.getOrDefault(emptyList()) }
+            if (session !== s) return // reconnected mid-poll: these events belong to the old server
+            events.forEach { handle(s, it) }
+            s.status().let {
+                if (it != status) Diag.info("ap", "status", "status" to it)
+                status = it
+            }
+            if (model.engine.hasGame() && model.hud?.backend == "archipelago") syncGame(s)
         }
-        if (model.engine.hasGame() && model.hud?.backend == "archipelago") syncGame(s)
     }
 
     /** Start a game from the connected slot's data. */
@@ -152,6 +155,7 @@ internal class ApController(
 
     private suspend fun syncGame(s: ApSession) {
         val items = withContext(Dispatchers.IO) { runCatching { s.receivedItems().map { it.name } }.getOrDefault(emptyList()) }
+        if (session !== s) return // reconnected meanwhile: the old server's items and checks are not this game's
         if (!syncedChecked && slotJson != null) {
             model.engine.markChecked(s.checkedLocationIds(), model.now())
             syncedChecked = true
