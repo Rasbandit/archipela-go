@@ -98,7 +98,7 @@ impl Verify {
             Verify::DwellInArea { minutes } => format!("Spend {} min inside it.", minutes.round()),
             Verify::FollowLine { coverage, .. } => format!("Walk {}% of its length.", (coverage * 100.0).round()),
             Verify::Courier { .. } => "Pick something up at one spot and deliver it to another.".to_string(),
-            Verify::RoundTrip => "Go out to a spot and come back home in time.".to_string(),
+            Verify::RoundTrip => "Go out to a spot, then come back home (no time limit).".to_string(),
             Verify::CoverCells { cells, .. } => format!("Visit {cells} new map cells."),
             Verify::Steps { steps } => format!("Take {steps} steps."),
             Verify::Away { min_distance_m, minutes } => format!("Get {} from home and stay {} min.", metres(*min_distance_m), minutes.round()),

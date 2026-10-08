@@ -53,7 +53,7 @@ enum State {
     Dwell { since: Option<i64>, best_ms: i64 },
     Line { dense: Vec<Point>, covered: Vec<bool> },
     Courier { picked_at: Option<i64> },
-    RoundTrip { start: Option<i64>, reached_far: bool },
+    RoundTrip { left_home: bool, reached_far: bool },
     Cells { seen: BTreeSet<(i64, i64)> },
     Steps { baseline: Option<i64>, now: i64 },
     Away { accum_ms: i64, last_t: Option<i64> },
@@ -84,7 +84,7 @@ impl Tracker {
                 State::Line { dense, covered }
             }
             Target::Courier { .. } => State::Courier { picked_at: None },
-            Target::RoundTrip { .. } => State::RoundTrip { start: None, reached_far: false },
+            Target::RoundTrip { .. } => State::RoundTrip { left_home: false, reached_far: false },
             Target::Cells { .. } => State::Cells { seen: BTreeSet::new() },
             Target::Steps { .. } => State::Steps { baseline: None, now: 0 },
             Target::Away { .. } => State::Away { accum_ms: 0, last_t: None },
@@ -158,22 +158,16 @@ impl Tracker {
                     0.0
                 };
             }
-            (Target::RoundTrip { far, r, time_limit_min }, State::RoundTrip { start, reached_far }) => {
-                // The clock starts when you leave home and stops when you are back (or the limit runs out and you start over).
-                let limit = (*time_limit_min * 60_000.0) as i64;
+            (Target::RoundTrip { far, r }, State::RoundTrip { left_home, reached_far }) => {
+                // No clock: reach the far point, then get home whenever you like. Coming home without the far point starts over.
                 if distance_m(p, self.home) <= HOME_RADIUS_M {
-                    if *reached_far && start.is_some_and(|t0| fix.t_ms - t0 <= limit) {
+                    if *reached_far {
                         self.done = true;
                     } else {
-                        *start = None;
-                        *reached_far = false;
+                        *left_home = false;
                     }
                 } else {
-                    if start.is_some_and(|t0| fix.t_ms - t0 > limit) {
-                        *start = None;
-                        *reached_far = false;
-                    }
-                    start.get_or_insert(fix.t_ms);
+                    *left_home = true;
                     if distance_m(p, *far) <= *r {
                         *reached_far = true;
                     }
@@ -182,7 +176,7 @@ impl Tracker {
                     1.0
                 } else if *reached_far {
                     0.5
-                } else if start.is_some() {
+                } else if *left_home {
                     0.1
                 } else {
                     0.0
@@ -327,32 +321,26 @@ mod tests {
     }
 
     #[test]
-    fn round_trip_needs_far_point_then_home_in_time() {
+    fn round_trip_is_done_on_getting_home_after_the_far_point_however_long_it_takes() {
         let far = destination(home(), 0.0, 1500.0);
-        let mut t = Tracker::new(Target::RoundTrip { far, r: 50.0, time_limit_min: 30.0 }, home());
+        let mut t = Tracker::new(Target::RoundTrip { far, r: 50.0 }, home());
         t.update(&fix(home(), 0), None);
         assert_ne!(t.update(&fix(home(), 60), None), Status::Done, "just being home is not a round trip");
         t.update(&fix(far, 600), None);
-        assert_eq!(t.update(&fix(destination(home(), 0.0, 40.0), 1200), None), Status::Done);
+        // six hours later: no time limit, the player is never rushed home
+        assert_eq!(t.update(&fix(destination(home(), 0.0, 40.0), 600 + 6 * 3600), None), Status::Done);
     }
 
     #[test]
-    fn round_trip_recovers_after_a_timed_out_attempt_and_times_from_leaving_home() {
+    fn round_trip_returning_without_the_far_point_starts_over_and_progress_shows_the_stages() {
         let far = destination(home(), 0.0, 1500.0);
-        let mut t = Tracker::new(Target::RoundTrip { far, r: 50.0, time_limit_min: 10.0 }, home());
-        // slow first attempt: leaves, reaches the far point, but is far too late getting back
-        t.update(&fix(destination(home(), 0.0, 300.0), 0), None);
-        t.update(&fix(far, 120), None);
-        assert_ne!(t.update(&fix(destination(home(), 0.0, 40.0), 120 + 700), None), Status::Done, "11+ minutes is over the 10 minute limit");
-        // second attempt starts fresh and succeeds; the far fix after a long idle must still count
-        t.update(&fix(far, 5000), None);
-        assert_eq!(t.update(&fix(home(), 5000 + 300), None), Status::Done);
-        // hanging around at home never starts the clock
-        let mut idle = Tracker::new(Target::RoundTrip { far, r: 50.0, time_limit_min: 10.0 }, home());
-        for i in 0..10 {
-            idle.update(&fix(home(), i * 600), None);
-        }
-        assert_eq!(idle.status(), Status::Idle);
+        let mut t = Tracker::new(Target::RoundTrip { far, r: 50.0 }, home());
+        assert_eq!(t.update(&fix(destination(home(), 0.0, 300.0), 0), None), Status::Active(0.1));
+        assert_ne!(t.update(&fix(home(), 100), None), Status::Done, "back home without the far point");
+        assert_eq!(t.status(), Status::Idle);
+        t.update(&fix(destination(home(), 0.0, 300.0), 200), None);
+        assert_eq!(t.update(&fix(far, 400), None), Status::Active(0.5));
+        assert_eq!(t.update(&fix(home(), 900), None), Status::Done);
     }
 
     #[test]

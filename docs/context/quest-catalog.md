@@ -110,7 +110,7 @@ A kind appears for a realm only if the scan found at least `min_features` matchi
 | Quest | What | Map data (OSM) | Proof | Modes |
 |--|--|--|--|--|
 | **Special Delivery** | Pick up at A, deliver to B before time runs out. | (no map data needed) | courier (legs=2) | walk, run, bike, drive |
-| **There and Back Again** | Go out far, then return home within the time limit. | (no map data needed) | round_trip | walk, run, bike, drive |
+| **There and Back Again** | Go out to a far spot, then come back home whenever you like. | (no map data needed) | round_trip | walk, run, bike, drive |
 
 ## explore (1)
 

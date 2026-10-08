@@ -31,7 +31,7 @@ pub enum Target {
     DwellArea { poly: Vec<Point>, center: Point, r: f64, minutes: f64 },
     Line { pts: Vec<Point>, corridor_m: f64, coverage: f64 },
     Courier { a: Point, b: Point, r: f64, time_limit_min: f64 },
-    RoundTrip { far: Point, r: f64, time_limit_min: f64 },
+    RoundTrip { far: Point, r: f64 },
     Cells { n: u32, cell_m: f64 },
     Steps { n: u32 },
     Away { min_distance_m: f64, minutes: f64 },
@@ -46,7 +46,7 @@ impl Target {
             Target::DwellArea { minutes, .. } => format!("Spend {minutes:.0} min inside the area"),
             Target::Line { pts, coverage, .. } => format!("Cover {:.0}% of this {:.1} km path", coverage * 100.0, crate::geo::polyline_len_m(pts) / 1000.0),
             Target::Courier { time_limit_min, .. } => format!("Pick up at A, deliver to B within {time_limit_min:.0} min"),
-            Target::RoundTrip { time_limit_min, .. } => format!("Reach the far point and be back home within {time_limit_min:.0} min"),
+            Target::RoundTrip { .. } => "Reach the far point, then come back home".to_string(),
             Target::Cells { n, .. } => format!("Visit {n} new map cells"),
             Target::Steps { n } => format!("Take {n} steps"),
             Target::Away { min_distance_m, minutes } => format!("Spend {minutes:.0} min at least {:.1} km from home", min_distance_m / 1000.0),
@@ -212,7 +212,7 @@ fn free_candidate(k: &Kind, z: &ZoneCtx, pool: &[Point], p: &AssignParams, want:
         Verify::RoundTrip => {
             let far = best_point(pool, p.home, mode, want / 2.0, p.min_distance_m, rng, &far_from_used)?;
             let one_way = travel_min(distance_m(p.home, far), mode);
-            Some((Target::RoundTrip { far, r: 50.0, time_limit_min: one_way * 2.0 * 1.5 + 5.0 }, one_way * 2.0, "Out and back".into()))
+            Some((Target::RoundTrip { far, r: 50.0 }, one_way * 2.0, "Out and back".into()))
         }
         Verify::CoverCells { cell_m, .. } => {
             let n = ((want * mode.m_per_min() * 0.7 / cell_m).round() as u32).clamp(3, 60);
@@ -659,6 +659,13 @@ mod goal_text_tests {
     use crate::geo::{destination, Point};
 
     #[test]
+    fn an_old_save_with_a_round_trip_time_limit_still_loads() {
+        let old = r#"{"RoundTrip":{"far":{"lat":40.0,"lon":-111.0},"r":50.0,"time_limit_min":42.4}}"#;
+        let t: Target = serde_json::from_str(old).expect("old saves must keep loading");
+        assert!(matches!(t, Target::RoundTrip { r, .. } if r == 50.0));
+    }
+
+    #[test]
     fn every_target_kind_says_what_to_do() {
         let p = Point::new(40.0, -111.0);
         let cases = [
@@ -667,7 +674,7 @@ mod goal_text_tests {
             (Target::DwellArea { poly: vec![], center: p, r: 40.0, minutes: 5.0 }, "Spend 5 min inside the area"),
             (Target::Line { pts: vec![p, destination(p, 0.0, 1000.0)], corridor_m: 25.0, coverage: 0.9 }, "Cover 90% of this 1.0 km path"),
             (Target::Courier { a: p, b: p, r: 40.0, time_limit_min: 12.0 }, "Pick up at A, deliver to B within 12 min"),
-            (Target::RoundTrip { far: p, r: 50.0, time_limit_min: 14.0 }, "Reach the far point and be back home within 14 min"),
+            (Target::RoundTrip { far: p, r: 50.0 }, "Reach the far point, then come back home"),
             (Target::Cells { n: 12, cell_m: 100.0 }, "Visit 12 new map cells"),
             (Target::Steps { n: 500 }, "Take 500 steps"),
             (Target::Away { min_distance_m: 1500.0, minutes: 20.0 }, "Spend 20 min at least 1.5 km from home"),
