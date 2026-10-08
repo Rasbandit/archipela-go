@@ -343,6 +343,9 @@ pub struct Game {
     trackers: BTreeMap<i64, Tracker>,
     #[serde(skip)]
     last_fix: Option<Fix>,
+    /// When each zone last unlocked in this session, so time away before it is not credited (a loaded game counts its open zones from the first fix).
+    #[serde(skip)]
+    unlocked_at: BTreeMap<u32, i64>,
     #[serde(skip_serializing, default = "yes")]
     in_zone: bool,
     #[serde(skip)]
@@ -482,6 +485,7 @@ impl Game {
             counters: Counters::default(),
             trackers: BTreeMap::new(),
             last_fix: None,
+            unlocked_at: BTreeMap::new(),
             in_zone: true,
             outlier_streak: 0,
             last_verdict: Verdict::Used,
@@ -734,15 +738,18 @@ impl Game {
         self.in_zone = inside;
     }
 
-    /// Add the time between two accepted fixes to every time-away chain (in an unlocked zone) whose rules the player meets.
+    /// Add the time between two accepted fixes to every time-away chain (in an unlocked zone) whose rules the player meets. A zone that unlocked
+    /// between the two fixes is credited only from its unlock (the unlock time is the item's clock, close enough for a clamp).
     fn accrue_away(&mut self, prev: &Fix, fix: &Fix) {
-        let dt = fix.t_ms - prev.t_ms;
-        if dt <= 0 || dt > AWAY_MAX_GAP_MS || (self.away.zone_only && !self.in_zone) {
+        let gap = fix.t_ms - prev.t_ms;
+        if gap <= 0 || gap > AWAY_MAX_GAP_MS || (self.away.zone_only && !self.in_zone) {
             return;
         }
         for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Minutes) {
+            let from = self.unlocked_at.get(&c.zone).map_or(prev.t_ms, |t| prev.t_ms.max(*t));
+            let dt = fix.t_ms - from;
             let d = self.away.distance_for(c.zone);
-            if distance_m(prev.point(), self.home) >= d && distance_m(fix.point(), self.home) >= d {
+            if dt > 0 && distance_m(prev.point(), self.home) >= d && distance_m(fix.point(), self.home) >= d {
                 *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64(dt) / 60_000.0;
             }
         }
@@ -913,6 +920,7 @@ impl Game {
         self.items.push(name.to_string());
         let mut ev = Vec::new();
         for z in self.unlocked_set().difference(&before) {
+            self.unlocked_at.insert(*z, now_ms);
             ev.push(Event::ZoneUnlocked { zone: *z });
         }
         if name.ends_with("Trap") {
@@ -1365,8 +1373,38 @@ mod tests {
         assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "a locked zone's chain must not fill");
         assert!(done_ids(&g.receive_item("Progressive Zone Key", 560_000, None)).is_empty());
         assert!(away_for(&mut g, 1500.0, 600, 1).is_empty(), "unlocking pays nothing out at once");
-        assert!((g.counters.progress["1:wanderlust"] - 1.0).abs() < 0.01, "only the minute after unlock counts");
-        assert_eq!(done_ids(&away_for(&mut g, 1500.0, 660, 1)), vec![1001]);
+        assert!((g.counters.progress["1:wanderlust"] - 40.0 / 60.0).abs() < 0.01, "only the 40 s after the unlock at 560 s count");
+        assert!(away_for(&mut g, 1500.0, 660, 1).is_empty());
+        assert_eq!(done_ids(&away_for(&mut g, 1500.0, 720, 1)), vec![1001]);
+    }
+
+    #[test]
+    fn a_reward_that_unlocks_the_zone_does_not_credit_the_locked_interval_before_it() {
+        let mut g = away_game(&[3.0, 2.0], false, 1000.0); // marks at 2 and 5 minutes
+        lock_zone_1(&mut g);
+        g.slot.zones.push(crate::slot::ZoneSlot { id: 2, mode: Mode::Walk, zone_keys_needed: 0, tool: None });
+        let key_spot = destination(g.home, 90.0, 1600.0); // 100 m beyond where `away_for` stands
+        g.assignments.push(chain::tests_support::member(2000, 2, "reach", Target::Point { p: key_spot, r: 50.0 }));
+        g.solo_rewards.insert(2000, "Progressive Zone Key".into());
+        away_for(&mut g, 1500.0, 0, 5); // locked, last fix at 240 s
+        let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(key_spot, 300) }, None);
+        assert!(ev.contains(&Event::ZoneUnlocked { zone: 1 }));
+        assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "the minute before the unlock was locked");
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(key_spot, 360) }, None);
+        assert!((g.counters.progress["1:wanderlust"] - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn steps_stop_counting_when_the_server_item_list_shrinks_and_relocks_the_zone() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]);
+        lock_zone_1(&mut g);
+        g.receive_item("Progressive Zone Key", 0, None);
+        g.on_steps(0, 1);
+        g.on_steps(100, 2);
+        g.sync_items(&[], 3, None);
+        assert!(!g.zone_unlocked(1));
+        g.on_steps(400, 4);
+        assert!((g.counters.progress["1:step_up"] - 100.0).abs() < 0.01);
     }
 
     #[test]
