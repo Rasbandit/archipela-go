@@ -60,7 +60,7 @@ Repeatable testing without a phone: `scripts/emu.sh create|start|stop`, `just em
 
 ## Setup (once)
 
-- JDK: `sudo dnf install java-25-openjdk-devel` (Gradle needs javac; the default headless JRE has none). `JAVA_HOME=/usr/lib/jvm/java-25-openjdk` is set in the justfile.
+- JDK: `sudo dnf install java-25-openjdk-devel` (Gradle needs javac; the default headless JRE has none). `scripts/java_home.sh` picks `$JAVA_HOME` (mise/CI) or the JDK owning `javac` on PATH; the justfile, lefthook and `emu.sh` use it.
 - Rust: official `rustup` (Fedora's rustc cannot add Android targets); `rustup target add aarch64-linux-android x86_64-linux-android`; `cargo install cargo-ndk`.
 - SDK (user space, no sudo): command-line tools zip into `~/Android/Sdk/cmdline-tools/latest`; `yes | sdkmanager --licenses` (owner accepts);
   install `platforms;android-37.0`, `build-tools;36.0.0`, `ndk;29.0.14206865`. `android/local.properties` has `sdk.dir` (git-ignored).

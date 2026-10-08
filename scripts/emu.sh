@@ -7,7 +7,8 @@
 set -euo pipefail
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
-export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-25-openjdk}"
+JAVA_HOME="$(bash "$(dirname "$0")/java_home.sh")"
+export JAVA_HOME
 sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
 log="${TMPDIR:-/tmp}/apgo-emulator.log"
 
