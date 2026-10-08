@@ -4,7 +4,7 @@
 
 ```bash
 mise install      # every pinned tool in mise.toml (python, uv, just, lefthook, gitleaks, typos, committed,
-                  # actionlint, shellcheck, cargo-deny, cargo-llvm-cov, cargo-mutants, markdownlint-cli2, node, java)
+                  # actionlint, shellcheck, cargo-deny, cargo-llvm-cov, markdownlint-cli2, node, java)
 just setup        # python env, pinned Archipelago checkout in .ap/, git hooks
 ```
 
@@ -12,13 +12,14 @@ Also needed, outside mise:
 
 - rustup: `core/rust-toolchain.toml` pins Rust 1.99.0 plus the Android targets; rustup installs them on first use.
 - Android SDK with `ANDROID_HOME` set (default `~/Android/Sdk`), and JDK 25 with `JAVA_HOME` (mise installs the JDK).
+- Only for `just mutate-rust`: `cargo install --locked cargo-mutants@27.1.0` (not in mise, so CI jobs do not compile it).
 - `just check` includes `check-android`, which needs the SDK. `just check-py` and `just check-rust` work without it.
 
 Without mise, install the pinned versions yourself: lefthook, typos, gitleaks, committed, actionlint, shellcheck
 (versions in `mise.toml`), then:
 
 ```bash
-cargo install --locked cargo-deny@0.20.2 cargo-llvm-cov@0.9.1 cargo-mutants@27.1.0
+cargo install --locked cargo-deny@0.20.2 cargo-llvm-cov@0.9.1
 npm install -g --prefix ~/.local markdownlint-cli2@0.23.3
 ```
 

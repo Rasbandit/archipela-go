@@ -23,7 +23,7 @@ fmt:
 typecheck:
     uv run --project apworld pyright --project apworld
 
-test:
+test: ap-present
     uv run --project apworld pytest apworld --cov --cov-config=apworld/pyproject.toml --cov-report=term-missing:skip-covered -q
 
 spell:
@@ -32,9 +32,16 @@ spell:
 secrets:
     gitleaks detect --no-banner
 
+# Also fails while .ap/worlds/ap_go2 points anywhere but apworld/ap_go2 (a killed `just mutate-py` leaves it on the mutants).
 [private]
 ap-present:
     @test -d .ap || { echo "Archipelago checkout missing: run 'just setup-ap'"; exit 1; }
+    @[ "$(readlink -f .ap/worlds/ap_go2)" = "$(readlink -f apworld/ap_go2)" ] || { echo ".ap/worlds/ap_go2 does not point at apworld/ap_go2 (an interrupted 'just mutate-py'?): run 'just setup-ap'"; exit 1; }
+
+# Fails while a mutation from an interrupted `just mutate-rust` is left in the core (cargo-mutants marks the line).
+[private]
+core-unmutated:
+    @! grep -rn "changed by cargo-mutants" core/src core/ffi/src || { echo "a mutation from an interrupted 'just mutate-rust' is left in: git restore core/src"; exit 1; }
 
 # apworld: lint, types, tests
 check-py: ap-present lint typecheck test
@@ -54,8 +61,7 @@ build:
     bash scripts/build_apworld.sh
 
 # Rust core: format, lint, docs, supply chain, tests with line-coverage floor
-check-rust:
-    @! grep -rn "changed by cargo-mutants" core/src core/ffi/src || { echo "a mutation from an interrupted 'just mutate-rust' is left in: git restore core/src"; exit 1; }
+check-rust: core-unmutated
     cd core && cargo fmt --all --check
     cd core && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings
     cd core && RUSTDOCFLAGS="-D warnings" cargo doc -p apgo-core -p apgo-ffi --no-deps -q
@@ -64,18 +70,21 @@ check-rust:
 
 # --- Mutation testing (slow, not in `check`): a surviving mutant is logic no test pins down ---
 # Python: `just mutate-py` (all), `just mutate-py run "worlds.ap_go2.zones*"`, `just mutate-py results`
+[positional-arguments]
 mutate-py *args: ap-present
-    bash scripts/mutate_py.sh {{args}}
+    bash scripts/mutate_py.sh "$@"
 
 # Rust core: `just mutate-rust -f src/goal.rs` (one file), `just mutate-rust` (all ~2000 mutants: hours). In place, because yaml.rs
-# includes a file outside core/ so the default temp copy cannot build: do not edit core/ while it runs. An interrupted run can
-# leave one mutant behind (marked `~ changed by cargo-mutants ~`; check-rust fails on it): `git restore core/src`.
-mutate-rust *args:
-    @git diff --quiet -- core || { echo "core/ has uncommitted changes: commit them first, the run mutates core/ in place"; exit 1; }
-    cd core && cargo mutants -p apgo-core --in-place {{args}}
+# and slot.rs include files outside core/ so the default temp copy cannot build: do not edit core/ while it runs. An interrupted
+# run can leave one mutant behind (marked `~ changed by cargo-mutants ~`; the check and Android recipes fail on it).
+[positional-arguments]
+mutate-rust *args: core-unmutated
+    @[ -z "$(git status --porcelain -- core)" ] || { echo "core/ has uncommitted or untracked changes: commit them first, the run mutates core/ in place"; exit 1; }
+    cd core && cargo mutants -p apgo-core --in-place "$@"
 
 # Rust core, only the lines this branch changed against origin/main: the quick one to run before a PR.
 mutate-rust-diff:
+    git fetch -q origin main
     git -C core diff --relative origin/main... > core/mutants.diff
     just mutate-rust --in-diff mutants.diff
 
@@ -87,11 +96,11 @@ apk := "android/app/build/outputs/apk/debug/app-debug.apk"
 app := "dev.apgo2.app"
 
 # Rust core for Android + Kotlin bindings (profile: debug|release)
-android-core profile="debug":
+android-core profile="debug": core-unmutated
     bash scripts/android_core.sh {{profile}}
 
 # Android: bindings (host build), format, static analysis, lint, unit tests
-check-android:
+check-android: core-unmutated
     bash scripts/android_bindings.sh
     cd android && ./gradlew :app:spotlessCheck :app:detekt :app:lintDebug :app:testDebugUnitTest :app:koverVerifyDebug --console=plain -q
 
@@ -136,7 +145,7 @@ emu-stop:
     bash scripts/emu.sh stop
 
 # Rebuild for phone + emulator ABIs and install on the emulator.
-emu-run:
+emu-run: core-unmutated
     APGO_ABIS="arm64-v8a x86_64" bash scripts/android_core.sh debug
     cd android && ./gradlew assembleDebug --console=plain -q
     ANDROID_SERIAL=emulator-5554 adb install -r {{apk}}
