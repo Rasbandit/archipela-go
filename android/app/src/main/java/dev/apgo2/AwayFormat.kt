@@ -15,6 +15,7 @@ object AwayFormat {
         "fix_rejected" to "Bad GPS signal",
         "near_miss" to "Near a quest",
         "play_paused" to "Stopped playing",
+        "presence" to "Presence",
         "play_resumed" to "Resumed",
         "app_foreground" to "App opened",
         "app_background" to "App left the screen",

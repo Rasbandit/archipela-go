@@ -32,6 +32,9 @@ class MainActivity : ComponentActivity() {
     private fun hasBackgroundLocation() =
         Build.VERSION.SDK_INT < 29 || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
 
+    private fun hasBluetoothConnect() =
+        Build.VERSION.SDK_INT < 31 || ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Transparent system bars, with dark or light icons chosen from the system theme (the app theme follows the same setting, so they agree).
@@ -45,11 +48,12 @@ class MainActivity : ComponentActivity() {
                     val owner = LocalLifecycleOwner.current
                     // "Allow all the time". Re-read on every start: the user grants it on a system settings page, not in a dialog.
                     var bgGranted by remember { mutableStateOf(hasBackgroundLocation()) }
+                    var btGranted by remember { mutableStateOf(hasBluetoothConnect()) }
                     var visible by remember { mutableStateOf(true) }
                     DisposableEffect(owner) {
                         val obs = LifecycleEventObserver { _, e ->
                             when (e) {
-                                Lifecycle.Event.ON_START -> { visible = true; bgGranted = hasBackgroundLocation(); model.onForeground() }
+                                Lifecycle.Event.ON_START -> { visible = true; bgGranted = hasBackgroundLocation(); btGranted = hasBluetoothConnect(); model.onForeground() }
                                 Lifecycle.Event.ON_STOP -> { visible = false; model.onBackground() }
                                 else -> {}
                             }
@@ -93,11 +97,15 @@ class MainActivity : ComponentActivity() {
                     }
 
                     LaunchedEffect(stepsOk) { if (stepsOk) model.sensors.startSteps() }
-                    val rate = GpsPolicy.forState(playing = model.quests.isNotEmpty())
-                    // Location runs while a game is open (tracking) or while the app is on screen (the map's "you" marker). Paused and hidden: off.
-                    val playingNow = model.hud != null
-                    LaunchedEffect(permitted, rate, visible, playingNow) {
-                        if (permitted && (playingNow || visible)) model.sensors.startLocation(rate) else model.sensors.stopLocation()
+                    // The presence decision picks the rate: precise in a zone, coarse outside, off at home or in the car. Stopped (no game) keeps the map marker while the app is on screen.
+                    LaunchedEffect(permitted, model.hud != null, visible, model.presence) {
+                        model.appVisible = visible
+                        if (permitted) model.applyLocation() else model.sensors.stopLocation()
+                    }
+                    // Wi-Fi names need location permission; Bluetooth devices need BLUETOOTH_CONNECT (re-read on every start, restarting the monitor when it appears).
+                    DisposableEffect(permitted, btGranted) {
+                        if (permitted) model.restartMonitor()
+                        onDispose { model.stopMonitor() }
                     }
                     // A game that is open is tracked in the foreground service, so fixes keep coming with the screen off.
                     val playing = model.hud != null

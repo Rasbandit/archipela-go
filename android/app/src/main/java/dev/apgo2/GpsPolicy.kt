@@ -9,6 +9,13 @@ object GpsPolicy {
 
     fun forState(playing: Boolean): Rate = if (playing) PLAYING else IDLE
 
+    /** The location rate a presence decision asks for; `null` means location is off. Stopped keeps the old "map marker while the app is on screen" rule. */
+    fun forDecision(d: dev.apgo2.presence.Decision, appVisible: Boolean): Rate? = when {
+        d.state == dev.apgo2.presence.PresenceState.Stopped -> if (appVisible) forState(playing = false) else null
+        d.gps is dev.apgo2.presence.GpsMode.Rate -> Rate(d.gps.intervalMs, d.gps.minDistanceM)
+        else -> null
+    }
+
     /**
      * The one provider to listen to. Mixing providers interleaves fixes of very different quality (network fixes can be hundreds of
      * metres off), which showed up as the position jumping between streets: take fused (Android 12+), else GPS, network only if nothing else.

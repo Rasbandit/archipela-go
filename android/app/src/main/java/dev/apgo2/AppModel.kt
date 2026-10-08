@@ -8,6 +8,16 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import dev.apgo2.presence.Debouncer
+import dev.apgo2.presence.Decision
+import dev.apgo2.presence.GpsMode
+import dev.apgo2.presence.PresenceMonitor
+import dev.apgo2.presence.PresencePolicy
+import dev.apgo2.presence.PresenceSettings
+import dev.apgo2.presence.PresenceSignals
+import dev.apgo2.presence.PresenceState
+import dev.apgo2.presence.Signals
+import dev.apgo2.presence.Zone
 import java.util.UUID
 import kotlin.math.cos
 import kotlin.random.Random
@@ -40,6 +50,14 @@ private const val AWAY_MIN_MS = 60_000L
 class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
     val engine = Engine(ctx.filesDir.absolutePath)
     val sensors = Sensors(ctx, this)
+    val settings = PresenceSettings(ctx)
+    val monitor = PresenceMonitor(ctx) { evaluatePresence() }
+    /** What the presence rules decided last (the status chip shows its state). */
+    var presence by mutableStateOf(Decision(PresenceState.Stopped, GpsMode.Off, counting = false))
+        private set
+    private val homeDebounce = Debouncer()
+    private val carDebounce = Debouncer()
+    private var zone = Zone.Unknown
     /** Reloading the whole trace on every fix gets slower as it grows; every 10 s is plenty for a line on a map. */
     private val traceThrottle = Throttle(10_000)
 
@@ -104,6 +122,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         games = engine.games()
         realms.forEach { offers[it.id] = engine.realmOffers(it.id) }
         refreshPlay()
+        evaluatePresence() // the `playing` signal follows `hud`, which every game start, open and pause goes through here
     }
 
     fun refreshPlay(withTrace: Boolean = true) {
@@ -135,6 +154,47 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
+    /** Recompute the presence decision from the current signals and apply it: GPS rate, the core's counting flag, and an activity-log line on change. */
+    fun evaluatePresence() {
+        val t = now()
+        val home = homeDebounce.feed(PresenceSignals.isHome(monitor.currentWifi, settings.homeNetworks), t)
+        val car = carDebounce.feed(PresenceSignals.carConnected(monitor.connectedCarCandidates, settings.carDevices), t)
+        val d = PresencePolicy.decide(Signals(playing = hud != null, homeWifi = home, carBluetooth = car, zone = zone))
+        if (d == presence) return
+        val changedState = d.state != presence.state
+        presence = d
+        engine.setCounting(d.counting)
+        if (changedState) {
+            Diag.i("presence", d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
+            if (hud != null) engine.logPresence(presenceText(d.state), t)
+        }
+        applyLocation()
+    }
+
+    private fun presenceText(s: PresenceState) = when (s) {
+        PresenceState.AtHome -> "Home Wi-Fi connected: paused"
+        PresenceState.InCar -> "Car Bluetooth connected: not counting"
+        PresenceState.OutsideZones -> "Outside every zone: saving battery"
+        PresenceState.InZone -> "Tracking"
+        PresenceState.Stopped -> "Stopped playing"
+    }
+
+    var appVisible = true
+    /** Start, change or stop location to match the presence decision. */
+    fun applyLocation() {
+        val rate = GpsPolicy.forDecision(presence, appVisible)
+        if (rate == null) sensors.stopLocation() else sensors.startLocation(rate)
+    }
+
+    /** (Re)start the Wi-Fi and Bluetooth watcher; restarting picks up a Bluetooth permission granted since the last start. */
+    fun restartMonitor() {
+        monitor.stop()
+        runCatching { monitor.start() }.onFailure { Diag.e("presence", "monitor start failed", it) }
+        evaluatePresence()
+    }
+
+    fun stopMonitor() = monitor.stop()
+
     /** One line a minute while a game is open: what the sensors delivered, power state and battery. Gaps in these lines are the story. */
     fun heartbeat() {
         val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
@@ -148,6 +208,7 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
             "screen_on" to pm.isInteractive, "power_save" to pm.isPowerSaveMode,
             "doze" to pm.isDeviceIdleMode, "bg_location" to (android.os.Build.VERSION.SDK_INT < 29 || ctx.checkSelfPermission(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED), "unrestricted" to pm.isIgnoringBatteryOptimizations(ctx.packageName),
             "quests" to quests.size, "done" to (hud?.done ?: 0),
+            "presence" to presence.state.name, "counting" to presence.counting,
         )
         fixesSinceBeat = 0; rejectedSinceBeat = 0; providerCounts.clear()
         drainCoreDiag()
@@ -390,6 +451,8 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         if (loc.accuracy > 35f) rejectedSinceBeat++ else fixesSinceBeat++
         providerCounts.merge(loc.provider ?: "?", 1, Int::plus)
         handle(engine.onFix(loc.latitude, loc.longitude, now(), loc.accuracy.toDouble(), stepsTotal, false))
+        zone = when (engine.zoneProximity(loc.latitude, loc.longitude)) { "inside" -> Zone.Inside; "near" -> Zone.Near; "far" -> Zone.Far; else -> Zone.Unknown }
+        evaluatePresence()
         refreshPlay(withTrace = traceThrottle.due(now()))
         logProgress()
     }

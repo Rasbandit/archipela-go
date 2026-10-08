@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import dev.apgo2.presence.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -40,5 +41,23 @@ class GpsProvidersTest {
     @Test fun networkIsTheLastResortAndNothingEnabledMeansNothing() {
         assertEquals(listOf("network"), GpsPolicy.providers(setOf("network"), sdk = 34))
         assertEquals(emptyList<String>(), GpsPolicy.providers(emptySet(), sdk = 34))
+    }
+}
+
+class GpsDecisionTest {
+    @Test fun aRateDecisionBecomesThatRate() {
+        val d = Decision(PresenceState.InZone, GpsMode.Rate(5_000L, 0f), counting = true)
+        assertEquals("rate", GpsPolicy.Rate(5_000L, 0f), GpsPolicy.forDecision(d, appVisible = false))
+    }
+
+    @Test fun offMeansNoLocationEvenWhenTheAppIsOnScreen() {
+        val d = Decision(PresenceState.AtHome, GpsMode.Off, counting = false)
+        assertEquals("off", null, GpsPolicy.forDecision(d, appVisible = true))
+    }
+
+    @Test fun stoppedUsesTheIdleRuleOnlyWhileTheAppIsVisible() {
+        val d = Decision(PresenceState.Stopped, GpsMode.Off, counting = false)
+        assertEquals("visible", GpsPolicy.forState(playing = false), GpsPolicy.forDecision(d, appVisible = true))
+        assertEquals("hidden", null, GpsPolicy.forDecision(d, appVisible = false))
     }
 }
