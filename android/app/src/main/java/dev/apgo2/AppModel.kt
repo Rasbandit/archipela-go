@@ -330,6 +330,12 @@ class AppModel(private val ctx: Context, private val scope: CoroutineScope) {
         tab = 2
     }
 
+    /** Give an unfinished quest a new place (the player's own reroll, not the Shuffle trap). */
+    fun reroll(id: Long) {
+        runCatching { engine.reroll(listOf(id), (Random.nextLong() ushr 1).toULong()) }.onFailure { fail("reroll", it) }
+        refreshPlay()
+    }
+
     fun refreshActivity() { activity = engine.activity(300u) }
 
     fun deleteGame(id: String) {

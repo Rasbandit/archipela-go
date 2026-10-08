@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -71,6 +75,42 @@ fun <T> ChoiceChips(
 fun MapOverlayCard(modifier: Modifier = Modifier, fillHeight: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     Card(modifier.fillMaxWidth().padding(8.dp)) {
         Column(Modifier.padding(10.dp).then(if (fillHeight) Modifier.fillMaxHeight() else Modifier), verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
+    }
+}
+
+/** Where a callout goes relative to the pin it describes. */
+object BubblePlacement {
+    /** Top-left of the bubble in the container's pixels: above the pin and centred on it when that fits, otherwise below, and always inside the container. */
+    fun place(pinX: Float, pinY: Float, width: Int, height: Int, containerW: Int, containerH: Int, margin: Int, gap: Int): Pair<Int, Int> {
+        val x = (pinX - width / 2f).toInt().coerceIn(margin, maxOf(margin, containerW - width - margin))
+        val above = pinY - height - gap
+        val y = if (above >= margin) above.toInt() else (pinY + gap / 2f).toInt().coerceAtMost(maxOf(margin, containerH - height - margin))
+        return x to y
+    }
+}
+
+/**
+ * A callout attached to a pin on a full map: [at] is the pin in the map's pixels, [onSize] reports the callout's measured size (so the map
+ * can make room for it). Used by the realm editor (a find) and the Play map (a quest).
+ */
+@Composable
+fun MapBubble(at: androidx.compose.ui.geometry.Offset, onSize: (androidx.compose.ui.unit.IntSize) -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val margin = with(density) { 8.dp.roundToPx() }
+    val gap = with(density) { 26.dp.roundToPx() }
+    val maxWidth = with(density) { 300.dp.roundToPx() }
+    Box(
+        Modifier.layout { measurable, constraints ->
+            val p = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0, maxWidth = minOf(maxWidth, constraints.maxWidth - 2 * margin)))
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                val (x, y) = BubblePlacement.place(at.x, at.y, p.width, p.height, constraints.maxWidth, constraints.maxHeight, margin, gap)
+                p.place(x, y)
+            }
+        },
+    ) {
+        Card(Modifier.onSizeChanged(onSize), elevation = CardDefaults.cardElevation(6.dp)) {
+            Column(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 10.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
+        }
     }
 }
 

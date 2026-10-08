@@ -7,6 +7,7 @@ import dev.apgo2.ui.PLAY_MODES
 import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.FeedbackText
+import dev.apgo2.ui.MapBubble
 import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.draw.alpha
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -703,42 +705,25 @@ private fun RealmEditorDialogs(
 /** A callout over the map for the selected find: what it is, what the quests mean, and how to complete them. */
 @Composable
 private fun FindBubble(f: FindOut, at: androidx.compose.ui.geometry.Offset, onSize: (androidx.compose.ui.unit.IntSize) -> Unit, onMark: (String) -> Unit, onClose: () -> Unit) {
-    val margin = with(LocalDensity.current) { 8.dp.roundToPx() }
-    val gap = with(LocalDensity.current) { 26.dp.roundToPx() }
-    val maxWidth = with(LocalDensity.current) { 300.dp.roundToPx() }
-    Box(
-        Modifier.layout { measurable, constraints ->
-            val p = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0, maxWidth = minOf(maxWidth, constraints.maxWidth - 2 * margin)))
-            layout(constraints.maxWidth, constraints.maxHeight) {
-                // Above the pin when it fits, else below it, and always inside the screen.
-                val x = (at.x - p.width / 2f).toInt().coerceIn(margin, maxOf(margin, constraints.maxWidth - p.width - margin))
-                val above = at.y - p.height - gap
-                p.place(x, if (above >= margin) above.toInt() else (at.y + gap / 2).toInt())
+    MapBubble(at, onSize) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(ApgoIcons.forKind(f.kindId, f.family), contentDescription = null, tint = ApgoPalette.kind(f.kindId, f.family), modifier = Modifier.size(24.dp))
+            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                Text(f.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("${distanceLabel(f.distanceM)} from home" + if (f.named) "" else " · unnamed", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        },
-    ) {
-        Card(Modifier.onSizeChanged(onSize), elevation = CardDefaults.cardElevation(6.dp)) {
-            Column(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 10.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(ApgoIcons.forKind(f.kindId, f.family), contentDescription = null, tint = ApgoPalette.kind(f.kindId, f.family), modifier = Modifier.size(24.dp))
-                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                        Text(f.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text("${distanceLabel(f.distanceM)} from home" + if (f.named) "" else " · unnamed", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    MarkToggle(ApgoIcons.Favorite, "Favorite", f.mark == FAVORITE, ApgoPalette.favorite) { onMark(FAVORITE) }
-                    MarkToggle(ApgoIcons.Banned, "Ban", f.mark == BANNED, ApgoPalette.banned) { onMark(BANNED) }
-                    IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = "Close") }
-                }
-                f.kinds.take(2).forEach { k ->
-                    Column(Modifier.padding(end = 8.dp)) {
-                        Text(k.name, style = MaterialTheme.typography.labelLarge, color = ApgoPalette.kind(k.id, k.family))
-                        Text("${k.blurb} ${k.how}", fontSize = 12.sp, lineHeight = 16.sp)
-                    }
-                }
-                if (f.kinds.size > 2) Text("+ ${f.kinds.size - 2} more quest types", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (f.tags.isNotEmpty()) Text("Mapped as ${f.tags.joinToString(" · ")}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
+            MarkToggle(ApgoIcons.Favorite, "Favorite", f.mark == FAVORITE, ApgoPalette.favorite) { onMark(FAVORITE) }
+            MarkToggle(ApgoIcons.Banned, "Ban", f.mark == BANNED, ApgoPalette.banned) { onMark(BANNED) }
+            IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = "Close") }
+        }
+        f.kinds.take(2).forEach { k ->
+            Column(Modifier.padding(end = 8.dp)) {
+                Text(k.name, style = MaterialTheme.typography.labelLarge, color = ApgoPalette.kind(k.id, k.family))
+                Text("${k.blurb} ${k.how}", fontSize = 12.sp, lineHeight = 16.sp)
             }
         }
+        if (f.kinds.size > 2) Text("+ ${f.kinds.size - 2} more quest types", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (f.tags.isNotEmpty()) Text("Mapped as ${f.tags.joinToString(" · ")}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
     }
 }
 
@@ -785,6 +770,17 @@ fun PlayScreen(m: AppModel) {
         return
     }
     val selected = m.quests.firstOrNull { it.locationId == m.selected }
+    // Selecting a quest brings its pin into view together with its popup, whose real height is measured once it is shown.
+    val screenDensity = LocalDensity.current.density
+    var bubblePx by remember { mutableIntStateOf(0) }
+    var focus by remember { mutableStateOf<MapFocus?>(null) }
+    var focusNonce by remember { mutableIntStateOf(0) }
+    var anchorPx by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
+    LaunchedEffect(m.selected, bubblePx) {
+        val a = selected?.anchor ?: return@LaunchedEffect
+        val room = (if (bubblePx > 0) bubblePx else (200 * screenDensity).toInt()) + (26 * screenDensity).toInt()
+        focus = MapFocus(LatLng(a.lat, a.lon), ++focusNonce, room)
+    }
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
@@ -834,31 +830,28 @@ fun PlayScreen(m: AppModel) {
             (if (allProgress) layout.progress else layout.progress.take(PROGRESS_ROWS)).forEach { q -> ProgressRow(q) { m.selected = q.locationId } }
             if (layout.progress.size > PROGRESS_ROWS) TextButton(onClick = { allProgress = !allProgress }) { Text(if (allProgress) "Show fewer" else "Show all ${layout.progress.size}", fontSize = 11.sp) }
         }
-        QuestMap(
-            m.quests, m.realms.filter { r -> m.zones.any { it.realmId == r.id } }, emptyList(), m.me,
-            hud.thaw?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) }, hud.waypoint?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) },
-            m.selected, { ll ->
-                m.quests.filter { it.anchor != null && it.state != "hidden" }.minByOrNull { q ->
-                    val a = q.anchor!!; val d = floatArrayOf(0f)
-                    android.location.Location.distanceBetween(ll.latitude, ll.longitude, a.lat, a.lon, d); d[0]
-                }?.let { m.selected = it.locationId }
-            },
-            if (showPlaces) Modifier.fillMaxWidth().height(200.dp) else Modifier.fillMaxWidth().weight(1f).heightIn(min = 180.dp),
-            home = m.home?.let { LatLng(it.lat, it.lon) },
-            trace = m.trace,
-        )
-        selected?.let { q ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(8.dp)) {
-                    Text("${q.name}${if (q.boss) "  (BOSS)" else ""}", style = MaterialTheme.typography.titleSmall)
-                    Text("${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min · ${q.mode}${if (q.fallback) " · fallback" else ""}", fontSize = 11.sp)
-                    Text(q.detail, fontSize = 12.sp)
-                    Text(q.blurb, fontSize = 11.sp)
-                    q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (q.state != "done") OutlinedButton(onClick = { runCatching { m.engine.reroll(listOf(q.locationId), (kotlin.random.Random.nextLong() ushr 1).toULong()) }; m.refreshPlay() }) { Text("Reroll", fontSize = 11.sp) }
-                    }
-                }
+        Box(if (showPlaces) Modifier.fillMaxWidth().height(200.dp) else Modifier.fillMaxWidth().weight(1f).heightIn(min = 180.dp)) {
+            QuestMap(
+                m.quests, m.realms.filter { r -> m.zones.any { it.realmId == r.id } }, emptyList(), m.me,
+                hud.thaw?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) }, hud.waypoint?.let { org.maplibre.android.geometry.LatLng(it.lat, it.lon) },
+                m.selected, { ll ->
+                    m.quests.filter { it.anchor != null && it.state != "hidden" }.minByOrNull { q ->
+                        val a = q.anchor!!; val d = floatArrayOf(0f)
+                        android.location.Location.distanceBetween(ll.latitude, ll.longitude, a.lat, a.lon, d); d[0]
+                    }?.let { m.selected = it.locationId }
+                },
+                Modifier.fillMaxSize(),
+                home = m.home?.let { LatLng(it.lat, it.lon) },
+                trace = m.trace,
+                focus = focus,
+                anchor = selected?.anchor?.let { LatLng(it.lat, it.lon) },
+                onAnchor = { anchorPx = it },
+            )
+            selected?.let { q ->
+                val at = anchorPx
+                // A quest with a pin gets a callout on it; one with no spot on the map (steps, squares, time away) gets the same card at the bottom.
+                if (q.anchor != null && at != null) MapBubble(at, onSize = { bubblePx = it.height }) { QuestDetails(q, { m.reroll(q.locationId) }, { m.selected = null }) }
+                else if (q.anchor == null) MapOverlayCard(Modifier.align(Alignment.BottomCenter)) { QuestDetails(q, { m.reroll(q.locationId) }, { m.selected = null }) }
             }
         }
         TextButton(onClick = { showPlaces = !showPlaces }) { Text("${if (showPlaces) "Hide" else "Show"} places on the map (${layout.places.size})", fontSize = 12.sp) }
@@ -909,4 +902,22 @@ private fun ProgressRow(q: uniffi.apgo_ffi.QuestOut, onClick: () -> Unit) {
         }
         LinearProgressIndicator(progress = { q.progress }, Modifier.fillMaxWidth())
     }
+}
+
+/** What a quest asks of you and what it pays: the content of the Play popup (a callout on the pin, or a card for quests with no pin). */
+@Composable
+private fun ColumnScope.QuestDetails(q: uniffi.apgo_ffi.QuestOut, onReroll: () -> Unit, onClose: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(ApgoIcons.forKind(q.kindId, q.family), contentDescription = null, tint = ApgoPalette.kind(q.kindId, q.family), modifier = Modifier.size(24.dp))
+        Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+            Text("${q.name}${if (q.boss) "  (BOSS)" else ""}", style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min · ${q.mode}${if (q.fallback) " · fallback" else ""}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = "Close") }
+    }
+    Text(q.detail, fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp))
+    if (q.state == "progress") LinearProgressIndicator(progress = { q.progress }, Modifier.fillMaxWidth().padding(end = 8.dp))
+    Text(q.blurb, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
+    q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
+    if (q.state != "done") OutlinedButton(onClick = onReroll) { Text("Reroll", fontSize = 11.sp) }
 }
