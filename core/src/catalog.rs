@@ -217,6 +217,12 @@ pub struct Kind {
 }
 
 impl Kind {
+    /// Whether quests of this kind are progressive: they share one counter (steps, minutes away, map squares) and form a chain.
+    #[must_use]
+    pub fn is_progressive(&self) -> bool {
+        matches!(self.verify, Verify::Steps { .. } | Verify::Away { .. } | Verify::CoverCells { .. })
+    }
+
     /// The `key=value` map tags this kind looked at on a place, so the player can see why it matched.
     #[must_use]
     pub fn evidence(&self, tags: &BTreeMap<String, String>) -> Vec<String> {
@@ -313,6 +319,13 @@ mod tests {
             assert!(c.families.contains(&k.family), "{} has unknown family {}", k.id, k.family);
             assert!(!k.modes.is_empty());
         }
+    }
+
+    #[test]
+    fn the_progressive_kinds_are_step_up_wanderlust_and_cartographer() {
+        let c = Catalog::builtin();
+        let ids: Vec<&str> = c.kinds.iter().filter(|k| k.is_progressive()).map(|k| k.id.as_str()).collect();
+        assert_eq!(ids, ["cartographer", "step_up", "wanderlust"]);
     }
 
     #[test]
