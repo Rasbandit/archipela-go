@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use apgo_core::assign::SurfacePref;
 use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Mode};
-use apgo_core::game::{Backend, Event, Game, NearMiss, NewGame, QuestState};
+use apgo_core::game::{AwayOptions, Backend, Event, Game, NearMiss, NewGame, QuestState};
 use apgo_core::geo::{distance_m, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
@@ -753,6 +753,7 @@ impl Engine {
                 solo_rewards: generated.rewards,
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
+                away: AwayOptions::default(),
             },
             &self.catalog,
         )
@@ -791,6 +792,7 @@ impl Engine {
                 solo_rewards: Default::default(),
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
+                away: AwayOptions::default(),
             },
             &self.catalog,
         )

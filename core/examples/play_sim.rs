@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Mode};
-use apgo_core::game::{Backend, Event, Game, NewGame, QuestState};
+use apgo_core::game::{AwayOptions, Backend, Event, Game, NewGame, QuestState};
 use apgo_core::geo::{destination, Point};
 use apgo_core::realm::{Realm, Shape};
 use apgo_core::scan::scan_realm;
@@ -67,6 +67,7 @@ fn main() {
             solo_rewards: sg.rewards,
             surface: apgo_core::assign::SurfacePref::Any,
             avoid_stairs: false,
+            away: AwayOptions::default(),
         },
         &catalog,
     )

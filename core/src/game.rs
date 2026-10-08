@@ -101,6 +101,67 @@ pub struct Stats {
     pub quest_days: BTreeSet<i64>,
 }
 
+/// Distance from home for time-away chains when nothing better is known (old saves).
+pub const DEFAULT_AWAY_M: f64 = 1000.0;
+const AUTO_AWAY_SHARE: f64 = 0.4;
+const AUTO_AWAY_MIN_M: f64 = 300.0;
+const AUTO_AWAY_MAX_M: f64 = 3000.0;
+const CUSTOM_AWAY_MIN_M: f64 = 100.0;
+const CUSTOM_AWAY_MAX_M: f64 = 20_000.0;
+
+/// What the player chose in New Game for time-away quests.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AwayOptions {
+    /// Count time away only inside a zone's area (false: anywhere).
+    pub zone_only: bool,
+    /// A fixed distance in metres; `None` picks one from the realm's size.
+    pub custom_m: Option<f64>,
+}
+
+impl Default for AwayOptions {
+    fn default() -> Self {
+        AwayOptions { zone_only: true, custom_m: None }
+    }
+}
+
+impl AwayOptions {
+    /// The away distance for a zone whose realm reaches `farthest_m` from home.
+    pub fn resolve(&self, farthest_m: f64) -> f64 {
+        match self.custom_m {
+            Some(m) => m.clamp(CUSTOM_AWAY_MIN_M, CUSTOM_AWAY_MAX_M),
+            None => (farthest_m * AUTO_AWAY_SHARE).clamp(AUTO_AWAY_MIN_M, AUTO_AWAY_MAX_M),
+        }
+    }
+}
+
+/// The saved form of [`AwayOptions`]: the distance is resolved per zone when the game is created.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AwayConfig {
+    pub zone_only: bool,
+    pub distance_m: BTreeMap<u32, f64>,
+}
+
+impl Default for AwayConfig {
+    fn default() -> Self {
+        AwayConfig { zone_only: true, distance_m: BTreeMap::new() }
+    }
+}
+
+impl AwayConfig {
+    pub fn distance_for(&self, zone: u32) -> f64 {
+        self.distance_m.get(&zone).copied().unwrap_or(DEFAULT_AWAY_M)
+    }
+}
+
+/// Saved progress of the progressive quests.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Counters {
+    /// Chain id -> steps credited or minutes away (map squares come from `Fog::cells`).
+    pub progress: BTreeMap<String, f64>,
+    /// The last step-counter reading seen this session (reset when a game is opened).
+    pub steps_last: Option<i64>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Game {
     pub id: String,
@@ -124,6 +185,10 @@ pub struct Game {
     pub surface: SurfacePref,
     #[serde(default)]
     pub avoid_stairs: bool,
+    #[serde(default)]
+    pub away: AwayConfig,
+    #[serde(default)]
+    pub counters: Counters,
     #[serde(skip)]
     trackers: BTreeMap<i64, Tracker>,
     #[serde(skip)]
@@ -153,6 +218,7 @@ pub struct NewGame<'a> {
     pub solo_rewards: BTreeMap<i64, String>,
     pub surface: SurfacePref,
     pub avoid_stairs: bool,
+    pub away: AwayOptions,
 }
 
 /// How close the player must get for the quest's checkpoint (None for quests without one).
@@ -218,6 +284,8 @@ impl Game {
         let assignments = assign(&slots_in(&n.slot, None), &zones, catalog, &params);
         let pool: Vec<Point> =
             zones.first().map(|z| z.atlas.streets.iter().step_by((z.atlas.streets.len() / 600).max(1)).copied().collect()).unwrap_or_default();
+        let away =
+            AwayConfig { zone_only: n.away.zone_only, distance_m: zones.iter().map(|z| (z.zone, n.away.resolve(z.realm.shape.farthest_m(n.home)))).collect() };
         Ok(Game {
             id: n.id,
             name: n.name,
@@ -238,6 +306,8 @@ impl Game {
             seed: n.seed,
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
+            away,
+            counters: Counters::default(),
             trackers: BTreeMap::new(),
             last_fix: None,
             outlier_streak: 0,
@@ -730,6 +800,7 @@ mod tests {
                 solo_rewards: g.rewards,
                 surface: SurfacePref::Any,
                 avoid_stairs: false,
+                away: AwayOptions::default(),
             },
             &Catalog::builtin(),
         )
@@ -860,6 +931,7 @@ mod tests {
                 solo_rewards: g1.rewards,
                 surface: SurfacePref::Any,
                 avoid_stairs: false,
+                away: AwayOptions::default(),
             },
             &Catalog::builtin(),
         );
@@ -1024,5 +1096,42 @@ mod tests {
         let mut f = fixat(q.anchor.unwrap(), 5);
         f.accuracy_m = 300.0;
         assert!(g.on_fix(f, None).is_empty());
+    }
+
+    #[test]
+    fn automatic_away_distance_is_40_percent_of_the_realm_reach_within_limits() {
+        let auto = AwayOptions { zone_only: true, custom_m: None };
+        assert_eq!(auto.resolve(1000.0), 400.0);
+        assert_eq!(auto.resolve(100.0), 300.0, "never below 300 m");
+        assert_eq!(auto.resolve(50_000.0), 3000.0, "never above 3 km");
+    }
+
+    #[test]
+    fn a_custom_away_distance_is_used_but_kept_sane() {
+        let custom = |m| AwayOptions { zone_only: false, custom_m: Some(m) };
+        assert_eq!(custom(1500.0).resolve(1000.0), 1500.0);
+        assert_eq!(custom(5.0).resolve(1000.0), 100.0);
+        assert_eq!(custom(1e9).resolve(1000.0), 20_000.0);
+    }
+
+    #[test]
+    fn a_new_game_gets_a_distance_for_every_zone_and_empty_counters() {
+        let g = game(&reach_only(&[Mode::Walk, Mode::Bike], 20, "all_trips"), Backend::Solo, 4);
+        assert!(g.away.zone_only);
+        assert_eq!(g.away.distance_m.len(), g.slot.zones.len());
+        assert!(g.away.distance_m.values().all(|d| (300.0..=3000.0).contains(d)), "{:?}", g.away);
+        assert!(g.counters.progress.is_empty() && g.counters.steps_last.is_none());
+    }
+
+    #[test]
+    fn a_saved_game_from_before_chains_loads_with_defaults() {
+        let g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let mut v = serde_json::to_value(&g).unwrap();
+        v.as_object_mut().unwrap().remove("away");
+        v.as_object_mut().unwrap().remove("counters");
+        let back: Game = serde_json::from_value(v).unwrap();
+        assert_eq!(back.away, AwayConfig::default());
+        assert!(back.counters.progress.is_empty());
+        assert_eq!(back.away.distance_for(1), DEFAULT_AWAY_M);
     }
 }
