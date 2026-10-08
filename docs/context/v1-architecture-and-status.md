@@ -39,6 +39,9 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - Activity tab + `Engine.activity`: journal entries with attribution (`Game::journal_events`, `items::blurb`). Pause tracking = `AppModel.pause()` (closes the game, stops the service).
   `delete_game` archives the save to `games-archive/` and keeps journal rows. Street snapping is NOT done yet (idea: display/trace only, sticky segment, after the retest).
 
+## Progressive chains
+Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone marks, "next: ..." text, tap for the milestone list) instead of many separate quests; members are hidden from "Show places on the map". Counters live in `Game.counters` (steps, seconds away, `steps_last` baseline) and `Fog::cells` (Cartographer squares); both are in the game file, old saves load with defaults. Steps count only while a game is open (`steps_last` is reset on load, so closed time is never credited). Away settings (only count time inside a zone, away distance auto or custom) are chosen in New Game and saved with the game. The game file is saved only when a fix produces events, so counters gained between milestones are lost on force-stop (seen on the emulator; `Engine.save_game` is never called from Kotlin).
+
 ## Key design facts
 - Difficulty = active minutes; tier = ceil(minutes / minutes_per_tier); Easy 1-3, Medium 4-7, Hard 8-10. Locations `"{Easy|Medium|Hard} {Walk|Run|Bike|Drive} Quest #n"`.
 - **Travel mode belongs to the zone/game, not the realm.** Any realm can serve any mode. Car is hidden in the UI (core still has `Drive`).
