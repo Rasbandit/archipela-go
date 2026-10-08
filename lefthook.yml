@@ -13,7 +13,7 @@ pre-commit:
       run: cd core && PATH=$HOME/.cargo/bin:$PATH cargo fmt --all --check
     ktlint:
       glob: "android/**/*.{kt,kts}"
-      run: cd android && JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-25-openjdk} ./gradlew :app:spotlessCheck --console=plain -q
+      run: cd android && JAVA_HOME="$(bash ../scripts/java_home.sh)" ./gradlew :app:spotlessCheck --console=plain -q
     typos:
       run: typos --force-exclude {staged_files}
     gitleaks:
