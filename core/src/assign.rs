@@ -208,6 +208,8 @@ pub struct AssignParams {
     pub surface: SurfacePref,
     /// Whether quests with stairs are dropped.
     pub avoid_stairs: bool,
+    /// Whether progressive (chain) kinds may be placed. Off for a reroll, so a re-placed quest never joins or starts a chain.
+    pub progressive: bool,
 }
 
 struct Cand {
@@ -342,6 +344,15 @@ fn free_candidate(
     }
 }
 
+/// Whether kind `k` may be placed in slot `s` of zone `z`.
+fn offered(k: &Kind, s: &SlotIn, z: &ZoneCtx<'_>, p: &AssignParams) -> bool {
+    k.allows(z.mode)
+        && k.family != "boss"
+        && (s.boss || k.family == s.family)
+        && !(p.avoid_stairs && k.id == "stairmaster")
+        && (p.progressive || !k.is_progressive())
+}
+
 fn one(
     s: &SlotIn,
     z: &ZoneCtx<'_>,
@@ -352,11 +363,7 @@ fn one(
     used_pts: &mut Vec<Point>,
 ) -> Assignment {
     let want = mid(s.tier, p.minutes_per_tier);
-    let kinds: Vec<&Kind> = catalog
-        .kinds
-        .iter()
-        .filter(|k| k.allows(z.mode) && k.family != "boss" && (s.boss || k.family == s.family) && !(p.avoid_stairs && k.id == "stairmaster"))
-        .collect();
+    let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| offered(k, s, z, p)).collect();
     let pool = street_pool(z, p.surface);
     let mut cands: Vec<Cand> = Vec::new();
     for k in &kinds {
@@ -532,7 +539,7 @@ mod tests {
     }
 
     fn params(seed: u64) -> AssignParams {
-        AssignParams { home: home(), minutes_per_tier: 10.0, min_distance_m: 150.0, seed, surface: SurfacePref::Any, avoid_stairs: false }
+        AssignParams { home: home(), minutes_per_tier: 10.0, min_distance_m: 150.0, seed, surface: SurfacePref::Any, avoid_stairs: false, progressive: true }
     }
 
     fn slot(i: i64, fam: &str, tier: u8, mode: Mode) -> SlotIn {
