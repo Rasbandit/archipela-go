@@ -13,7 +13,7 @@ android {
     defaultConfig {
         applicationId = "dev.apgo2.app"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "0.0.1"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
