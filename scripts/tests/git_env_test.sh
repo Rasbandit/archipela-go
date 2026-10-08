@@ -18,7 +18,11 @@ before="$(state)"
 for t in "$here"/*_test.sh; do
   [ "$t" = "$here/git_env_test.sh" ] && continue
   name="$(basename "$t")"
-  (cd "$v" && GIT_DIR="$v/.git" bash "$t" >/dev/null 2>&1) || { echo "FAIL $name: failed under hook env"; fail=1; }
-  if [ "$(state)" != "$before" ]; then echo "FAIL $name: changed the repo GIT_DIR points at"; fail=1; before="$(state)"; else echo "ok $name"; fi
+  # pre-commit also exports GIT_INDEX_FILE, and worktree hooks can carry GIT_WORK_TREE: aim all three at the victim.
+  verdict="ok"
+  (cd "$v" && GIT_DIR="$v/.git" GIT_INDEX_FILE="$v/.git/index" GIT_WORK_TREE="$v" bash "$t" >/dev/null 2>&1) ||
+    verdict="FAIL $name: failed under hook env"
+  if [ "$(state)" != "$before" ]; then verdict="FAIL $name: changed the repo the hook vars point at"; before="$(state)"; fi
+  if [ "$verdict" = ok ]; then echo "ok $name"; else echo "$verdict"; fail=1; fi
 done
 exit "$fail"
