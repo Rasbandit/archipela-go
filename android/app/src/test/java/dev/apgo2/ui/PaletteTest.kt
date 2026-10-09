@@ -3,6 +3,7 @@ package dev.apgo2.ui
 import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PaletteTest {
@@ -26,6 +27,18 @@ class PaletteTest {
     @Test fun questStateColoursAreDistinct() {
         val states = listOf("done", "progress", "locked", "hidden", "open")
         assertEquals(states.size, states.map { ApgoPalette.quest(it) }.toSet().size)
+    }
+
+    @Test fun notDoneDoesNotLookLikeAnError() {
+        val todo = ApgoPalette.quest("open")
+        assertNotEquals(ApgoPalette.danger, todo)
+        assertNotEquals(ApgoPalette.banned, todo)
+        assertTrue("not done reads as calm, not red", todo.blue > todo.red)
+    }
+
+    @Test fun notDoneStandsApartFromTheRealmAndTrace() {
+        assertNotEquals(ApgoPalette.realm, ApgoPalette.questTodo)
+        assertNotEquals(ApgoPalette.me, ApgoPalette.questTodo)
     }
 
     @Test fun everyFamilyHasItsOwnColourAndUnknownFallsBackToTeal() {

@@ -25,6 +25,7 @@ import org.maplibre.android.style.layers.PropertyFactory.iconOpacity
 import org.maplibre.android.style.layers.PropertyFactory.iconSize
 import org.maplibre.android.style.layers.PropertyFactory.lineCap
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
+import org.maplibre.android.style.layers.PropertyFactory.lineDasharray
 import org.maplibre.android.style.layers.PropertyFactory.lineJoin
 import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
@@ -45,7 +46,13 @@ import org.maplibre.android.style.sources.GeoJsonSource
 // How things look on the map. Sizes are in map pixels, opacities 0..1, icon sizes are factors of the bitmap.
 private const val REALM_FILL_OPACITY = 0.07f
 private const val REALM_LINE_WIDTH = 1.8f
-private const val AREA_FILL_OPACITY = 0.18f
+
+// Area quests fill in as they progress: empty until started, strongest while in progress, faint once done.
+private const val AREA_FILL_PROGRESS = 0.22f
+private const val AREA_FILL_DONE = 0.1f
+
+// Not-started routes and outlines are dashed (in line widths: dash, gap) so state reads without relying on colour alone.
+private val NOT_STARTED_DASH = arrayOf(2f, 1.5f)
 private const val TRACE_WIDTH = 3f
 private const val TRACE_OPACITY = 0.7f
 private const val QUEST_LINE_WIDTH = 4f
@@ -143,7 +150,25 @@ internal object MapStyle {
         listOf(
             FillLayer("realms-fill", MapSource.REALMS).withProperties(fillColor(ApgoPalette.realm.hex()), fillOpacity(REALM_FILL_OPACITY)),
             LineLayer("realms-line", MapSource.REALMS).withProperties(lineColor(ApgoPalette.realm.hex()), lineWidth(REALM_LINE_WIDTH)),
-            FillLayer("areas-fill", MapSource.AREAS).withProperties(fillColor(stateColor()), fillOpacity(AREA_FILL_OPACITY)),
+            FillLayer("areas-fill", MapSource.AREAS).withProperties(fillColor(stateColor()), fillOpacity(areaFillOpacity())),
+        )
+
+    private fun areaFillOpacity() =
+        Expression.match(
+            Expression.get(MapProp.STATE),
+            Expression.literal(0f),
+            Expression.stop("progress", Expression.literal(AREA_FILL_PROGRESS)),
+            Expression.stop("done", Expression.literal(AREA_FILL_DONE)),
+        )
+
+    // Open and locked quests have not been started. Two layers rather than a data-driven dash, which MapLibre Android does not
+    // reliably support.
+    private fun notStarted() =
+        Expression.match(
+            Expression.get(MapProp.STATE),
+            Expression.literal(false),
+            Expression.stop("open", Expression.literal(true)),
+            Expression.stop("locked", Expression.literal(true)),
         )
 
     private fun traceLayers() =
@@ -155,7 +180,12 @@ internal object MapStyle {
                 lineCap(ROUND),
                 lineJoin(ROUND),
             ),
-            LineLayer("lines-layer", MapSource.LINES).withProperties(lineColor(stateColor()), lineWidth(QUEST_LINE_WIDTH)),
+            LineLayer("lines-layer", MapSource.LINES)
+                .withFilter(Expression.not(notStarted()))
+                .withProperties(lineColor(stateColor()), lineWidth(QUEST_LINE_WIDTH)),
+            LineLayer("lines-dashed", MapSource.LINES)
+                .withFilter(notStarted())
+                .withProperties(lineColor(stateColor()), lineWidth(QUEST_LINE_WIDTH), lineDasharray(NOT_STARTED_DASH)),
         )
 
     // Quests are the same pins as finds (family colour, state as a badge). They thin out by collision, in-progress and open first;

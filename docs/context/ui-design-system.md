@@ -17,6 +17,9 @@ widgets or write colours themselves.
   and the map pin's state badge both use it, so they cannot drift apart. What a quest *is* is shown by family colour and icon (`ApgoPalette.kind`), on the map and in the realm editor alike.
 - A map pin is only ever built by `MapMarkers.render(MarkerSpec)`: `Find` (realm editor: family colour, ring for favorite, grey for banned) and `Quest` (Play map: family colour,
   corner badge for state: none = open, amber dot = in progress, green check = done, lock = locked; locked pins are grey). Size by difficulty (`iconScale`), collision order by state (`drawOrder`).
+- Red never means "not done": it is for errors and bans. Quest state colours are blue (open), amber (in progress), green (done), grey (locked). Area and route
+  quests on the map (`MapStyle`) also show state by line and fill, so it reads without colour: dashed and empty = not started (open or locked), solid with a
+  light fill = in progress, solid with a faint fill = done.
 - A callout attached to a pin is a `MapBubble` (placement in `BubblePlacement`, unit-tested): the realm editor's find callout and the Play quest popup both use it. Quests with no pin
   (steps, new squares, time away) show the same content in a `MapOverlayCard` at the bottom of the map.
 - Every distance, area and percentage the player sees goes through `ui/Units.kt` (`distance`, `area`, `percent`): km or mi by
