@@ -77,6 +77,38 @@ pub fn densify(pts: &[Point], step_m: f64) -> Vec<Point> {
     out
 }
 
+/// `pts` thinned for drawing, ends kept: first points closer than `min_step_m` to the last kept one are dropped (standing still or
+/// GPS scatter becomes one spot), then points within `tolerance_m` of the straight line between their neighbours (Douglas-Peucker;
+/// wobble goes, real corners stay).
+#[must_use]
+pub fn simplify(pts: &[Point], min_step_m: f64, tolerance_m: f64) -> Vec<Point> {
+    let (Some(&first), Some(&last)) = (pts.first(), pts.last()) else { return Vec::new() };
+    if pts.len() < 3 {
+        return pts.to_vec();
+    }
+    let mut spaced = vec![first];
+    for &p in &pts[1..pts.len() - 1] {
+        if spaced.last().is_some_and(|&q| distance_m(q, p) >= min_step_m) {
+            spaced.push(p);
+        }
+    }
+    spaced.push(last);
+    // Douglas-Peucker without recursion: a stack of (from, to) index ranges whose inner points are still undecided.
+    let mut keep = vec![false; spaced.len()];
+    keep[0] = true;
+    keep[spaced.len() - 1] = true;
+    let mut ranges = vec![(0, spaced.len() - 1)];
+    while let Some((a, b)) = ranges.pop() {
+        let far = (a + 1..b).map(|i| (i, distance_to_segment_m(spaced[i], spaced[a], spaced[b]))).max_by(|x, y| x.1.total_cmp(&y.1));
+        if let Some((i, _)) = far.filter(|(_, d)| *d > tolerance_m) {
+            keep[i] = true;
+            ranges.push((a, i));
+            ranges.push((i, b));
+        }
+    }
+    spaced.into_iter().zip(keep).filter_map(|(p, k)| k.then_some(p)).collect()
+}
+
 /// Average of the points (good enough as a polygon "center" at city scale).
 #[must_use]
 pub fn centroid(pts: &[Point]) -> Point {
@@ -158,6 +190,48 @@ pub fn destination(from: Point, bearing_deg: f64, dist_m: f64) -> Point {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn east(from: Point, m: f64) -> Point {
+        destination(from, 90.0, m)
+    }
+
+    #[test]
+    fn a_wobbly_straight_walk_simplifies_to_its_ends() {
+        let a = Point::new(45.5, -122.6);
+        // 20 fixes along 400 m east, each up to 2 m off the line: GPS wobble, not a turn
+        let pts: Vec<Point> = (0..20).map(|i| destination(east(a, f64::from(i) * 20.0), 0.0, if i % 2 == 0 { 2.0 } else { -2.0 })).collect();
+        let s = simplify(&pts, 8.0, 4.0);
+        assert_eq!(s.len(), 2, "{s:?}");
+        assert_eq!((s[0], s[1]), (pts[0], pts[19]), "the ends are kept as they are");
+    }
+
+    #[test]
+    fn a_real_corner_is_kept() {
+        let a = Point::new(45.5, -122.6);
+        let corner = east(a, 200.0);
+        let pts: Vec<Point> = (0..=10).map(|i| east(a, f64::from(i) * 20.0)).chain((1..=10).map(|i| destination(corner, 0.0, f64::from(i) * 20.0))).collect();
+        let s = simplify(&pts, 8.0, 4.0);
+        assert_eq!(s.len(), 3);
+        assert!(distance_m(s[1], corner) < 1.0);
+    }
+
+    #[test]
+    fn standing_still_collapses_to_one_spot() {
+        let a = Point::new(45.5, -122.6);
+        // 50 fixes scattered within 5 m of one spot (standing still, or at home), then a walk away
+        let mut pts: Vec<Point> = (0..50).map(|i| destination(a, f64::from(i * 37 % 360), f64::from(i % 5))).collect();
+        pts.extend((1..=5).map(|i| east(a, f64::from(i) * 30.0)));
+        let s = simplify(&pts, 8.0, 4.0);
+        assert!(s.len() <= 3, "the scribble is gone: {} points", s.len());
+    }
+
+    #[test]
+    fn short_lines_are_left_alone() {
+        let a = Point::new(45.5, -122.6);
+        assert_eq!(simplify(&[], 8.0, 4.0), Vec::<Point>::new());
+        assert_eq!(simplify(&[a], 8.0, 4.0), vec![a]);
+        assert_eq!(simplify(&[a, east(a, 1.0)], 8.0, 4.0), vec![a, east(a, 1.0)], "two points stay two, however close");
+    }
 
     #[test]
     fn one_degree_of_latitude_is_about_111_km() {

@@ -10,7 +10,7 @@ use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Kind, Mode};
 use apgo_core::chain::ChainUnit;
 use apgo_core::game::{AwayOptions, Backend, Event, Game, NearMiss, NewGame, QuestState};
-use apgo_core::geo::{distance_m, Point};
+use apgo_core::geo::{distance_m, simplify, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
 use apgo_core::num::count_u32;
@@ -579,6 +579,10 @@ pub struct AwayReportOut {
 const NEAR_MISS_RADIUS_M: f64 = 100.0;
 /// Longest the open game goes unsaved while the player moves without events.
 const SAVE_INTERVAL_MS: i64 = 30_000;
+/// The drawn trace drops fixes within this of the last kept one (standing still), in metres.
+const TRACE_MIN_STEP_M: f64 = 8.0;
+/// The drawn trace smooths out wobble smaller than this, in metres.
+const TRACE_TOLERANCE_M: f64 = 4.0;
 
 /// The game engine: realms, scanning, game setup and play. One per app, shared by all screens.
 #[derive(uniffi::Object)]
@@ -1453,11 +1457,19 @@ impl Engine {
         j.last_of_kind(&id, kind::APP_BACKGROUND).ok().flatten()
     }
 
-    /// The trace of the open game as separate lines.
+    /// The trace of the open game as separate lines, simplified for drawing: standing still collapses to one spot and GPS wobble is
+    /// smoothed out (the saved points are untouched).
     pub fn track(&self, from_ms: i64, to_ms: i64) -> Vec<TrackSegmentOut> {
         let (Some(id), Some(j)) = (self.game_id(), self.journal.as_ref()) else { return Vec::new() };
         let segs = j.lock().unwrap_or_else(std::sync::PoisonError::into_inner).segments(&id, from_ms, to_ms, DEFAULT_MAX_GAP_MS).unwrap_or_default();
-        segs.into_iter().map(|s| TrackSegmentOut { points: s.iter().map(|p| GeoPoint { lat: p.lat, lon: p.lon }).collect() }).collect()
+        segs.into_iter()
+            .map(|s| {
+                let pts: Vec<Point> = s.iter().map(|p| Point::new(p.lat, p.lon)).collect();
+                TrackSegmentOut {
+                    points: simplify(&pts, TRACE_MIN_STEP_M, TRACE_TOLERANCE_M).into_iter().map(|p| GeoPoint { lat: p.lat, lon: p.lon }).collect(),
+                }
+            })
+            .collect()
     }
 
     /// Everything that happened in the open game between two moments.
