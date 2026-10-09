@@ -78,6 +78,7 @@ import com.composables.icons.lucide.Rocket
 import com.composables.icons.lucide.Route
 import com.composables.icons.lucide.Sailboat
 import com.composables.icons.lucide.ScrollText
+import com.composables.icons.lucide.Settings
 import com.composables.icons.lucide.Ship
 import com.composables.icons.lucide.ShoppingBasket
 import com.composables.icons.lucide.Signpost
@@ -110,6 +111,7 @@ internal object ApgoIcons {
     val NewGame = Lucide.Sparkles
     val Play = Lucide.Flag
     val Activity = Lucide.ScrollText
+    val Settings = Lucide.Settings
     val Pause = Lucide.Pause
 
     // Marks on places

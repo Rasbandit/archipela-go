@@ -39,11 +39,12 @@ internal object AppTab {
     const val REALMS = 1
     const val NEW_GAME = 2
     const val ACTIVITY = 3
+    const val SETTINGS = 4
 }
 
 /**
  * The app's state, shared by every screen, and the engine behind it. Work is split over the collaborators it owns: [presence]
- * (is the player playing), [scans], [realmOps], [library] (games), [ap] (Archipelago), [setup], [sim] and [diag].
+ * (is the player playing), [scans], [realmOps], [library] (games), [ap] (Archipelago), [setup], [units], [sim] and [diag].
  */
 internal class AppModel(
     private val ctx: Context,
@@ -52,6 +53,7 @@ internal class AppModel(
     val engine = Engine(ctx.filesDir.absolutePath)
     val sensors = Sensors(ctx, this)
     val settings = PresenceSettings(ctx)
+    val units = UnitSettings(this)
     val presence = PresenceController(this, ctx)
     val setup = SetupWizard(this)
     val scans = ScanCoordinator(this, scope)

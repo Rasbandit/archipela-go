@@ -126,6 +126,14 @@ internal object Help {
             "Join a multiworld: your quests hold items for other players and theirs hold items for you. " +
                 "Enter the server address and your slot name, connect, then pick a realm for each zone the game needs.",
         )
+
+    // ---- settings
+    val units =
+        HelpTopic(
+            "Distance units",
+            "How distances are shown. Auto follows your phone's region: miles and feet in the US, UK, Liberia and Myanmar, " +
+                "kilometres and metres elsewhere.",
+        )
 }
 
 /** Explanatory copy of the setup wizard and its Home card nag, kept here with the rest of the app's help text. */

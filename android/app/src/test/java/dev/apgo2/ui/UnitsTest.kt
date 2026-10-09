@@ -4,24 +4,42 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import uniffi.apgo_ffi.UnitSystem
 import java.util.Locale
 
 private const val M_PER_MILE = 1609.344
 
 class UnitsTest {
     private lateinit var saved: Locale
+    private lateinit var savedSystem: UnitSystem
 
     @Before fun save() {
         saved = Locale.getDefault()
+        savedSystem = Units.system
     }
 
     @After fun restore() {
         Locale.setDefault(saved)
+        Units.system = savedSystem
     }
 
-    private fun metric() = Locale.setDefault(Locale.CANADA)
+    private fun metric() {
+        Units.system = UnitSystem.METRIC
+    }
 
-    private fun imperial() = Locale.setDefault(Locale.US)
+    private fun imperial() {
+        Units.system = UnitSystem.IMPERIAL
+    }
+
+    @Test fun theUnitSettingWinsOverThePhonesRegion() {
+        Locale.setDefault(Locale.US)
+        metric()
+        assertEquals("1.5 km", Units.distance(1_500.0))
+        Locale.setDefault(Locale.GERMANY)
+        imperial()
+        assertEquals("1.5 mi", Units.distance(1.5 * M_PER_MILE))
+        assertEquals("1.00 mi²", Units.area(M_PER_MILE * M_PER_MILE))
+    }
 
     @Test fun wholeKilometresKeepTheirZeros() {
         metric()
@@ -95,6 +113,7 @@ class UnitsTest {
     }
 
     @Test fun percentUsesWesternDigitsInEveryLocale() {
+        metric()
         Locale.setDefault(Locale.forLanguageTag("ar-EG"))
         assertEquals("38%", Units.percent(0.375))
         assertEquals("1.5 km", Units.distance(1_500.0))
@@ -107,6 +126,7 @@ class UnitsTest {
     }
 
     @Test fun decimalCommaLocaleStillUsesAPoint() {
+        metric()
         Locale.setDefault(Locale.GERMANY)
         assertEquals("1 km", Units.distance(1_000.0))
         assertEquals("1.5 km", Units.distance(1_500.0))

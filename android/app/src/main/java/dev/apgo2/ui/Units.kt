@@ -1,14 +1,21 @@
 package dev.apgo2.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import uniffi.apgo_ffi.UnitSystem
 import java.util.Locale
 import kotlin.math.roundToLong
 
 /**
- * Distances and areas in the units the player's region uses: miles in the US, UK and a few others, kilometres elsewhere.
+ * Distances and areas in the player's units ([system], resolved by the core from the unit setting and the phone's region).
  * Numbers are always formatted with Locale.US (a decimal point, Western digits), whatever the phone's locale: this is the
  * app's one number-locale policy, so every distance and percentage the player sees goes through here.
  */
 internal object Units {
+    /** The units to show; Compose state, so every distance on screen redraws when the setting changes. Set by UnitSettings. */
+    var system by mutableStateOf(UnitSystem.METRIC)
+
     private const val M_PER_MILE = 1609.344
     private const val M_PER_FOOT = 0.3048
     private const val NO_VALUE = "–"
@@ -17,9 +24,8 @@ internal object Units {
     private const val HUNDREDS = 100
     private const val TENS = 10
     private const val PERCENT = 100
-    private val imperialCountries = setOf("US", "GB", "LR", "MM")
 
-    private fun imperial() = Locale.getDefault().country in imperialCountries
+    private fun imperial() = system == UnitSystem.IMPERIAL
 
     private fun fmt(
         pattern: String,
