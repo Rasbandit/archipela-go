@@ -21,6 +21,7 @@ import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.layers.PropertyFactory.fillColor
 import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
 import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.iconAnchor
 import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.iconImage
 import org.maplibre.android.style.layers.PropertyFactory.iconOpacity
@@ -59,11 +60,10 @@ private val NOT_STARTED_DASH = arrayOf(2f, 1.5f)
 private const val TRACE_WIDTH = 3f
 private const val TRACE_OPACITY = 0.7f
 private const val QUEST_LINE_WIDTH = 4f
-private const val QUEST_HALO_RADIUS = 44f
+
+// The selected quest is marked on the ground too: a small ring at its pin's point.
+private const val QUEST_HALO_RADIUS = 9f
 private const val QUEST_HALO_STROKE = 3f
-private const val SELECTED_PIN_GROWTH = 1.25f
-private const val FIND_PIN_SIZE = 0.62f
-private const val FIND_PIN_SELECTED_SIZE = 0.92f
 private const val DRAFT_LINE_WIDTH = 3f
 private const val DRAFT_FILL_OPACITY = 0.15f
 private const val DRAFT_DOT_RADIUS = 5f
@@ -154,6 +154,9 @@ internal object MapStyle {
     /** The layers a tap on a find pin is looked up in. */
     val FIND_LAYERS = arrayOf("finds-layer", "finds-sel")
 
+    /** The layers a tap on a quest pin is looked up in. */
+    val QUEST_LAYERS = arrayOf("quests-pins", "quests-pins-sel")
+
     /** The cluster circle layer of each clustered source: a tap on one zooms in until it splits. */
     val CLUSTER_LAYERS = MapSource.CLUSTERED.associateBy { clusterLayer(it) }
 
@@ -243,6 +246,7 @@ internal object MapStyle {
                     iconImage(Expression.get(MapProp.IMAGE)),
                     iconSize(shrinkWhenZoomedOut(Expression.get(MapProp.SCALE))),
                     iconAllowOverlap(true),
+                    iconAnchor(Property.ICON_ANCHOR_BOTTOM),
                     symbolSortKey(Expression.get(MapProp.SORT)),
                 ),
                 CircleLayer("quests-sel", MapSource.QUEST_SEL).withProperties(
@@ -253,8 +257,9 @@ internal object MapStyle {
                 ),
                 SymbolLayer("quests-pins-sel", MapSource.QUEST_SEL).withProperties(
                     iconImage(Expression.get(MapProp.IMAGE)),
-                    iconSize(Expression.product(Expression.get(MapProp.SCALE), Expression.literal(SELECTED_PIN_GROWTH))),
+                    iconSize(Expression.product(Expression.get(MapProp.SCALE), Expression.literal(MapMarkers.SELECTED_GROWTH))),
                     iconAllowOverlap(true),
+                    iconAnchor(Property.ICON_ANCHOR_BOTTOM),
                     iconIgnorePlacement(true),
                 ),
             )
@@ -349,15 +354,17 @@ internal object MapStyle {
             listOf(
                 SymbolLayer(FIND_LAYERS[0], MapSource.FINDS).withFilter(notCluster()).withProperties(
                     iconImage(Expression.get(MapProp.IMAGE)),
-                    iconSize(shrinkWhenZoomedOut(Expression.literal(FIND_PIN_SIZE))),
+                    iconSize(shrinkWhenZoomedOut(Expression.literal(MapMarkers.FIND_SIZE))),
                     iconAllowOverlap(true),
+                    iconAnchor(Property.ICON_ANCHOR_BOTTOM),
                     symbolSortKey(Expression.get(MapProp.SORT)),
                     iconOpacity(Expression.get(MapProp.OPACITY)),
                 ),
                 SymbolLayer(FIND_LAYERS[1], MapSource.FIND_SEL).withProperties(
                     iconImage(Expression.get(MapProp.IMAGE)),
-                    iconSize(FIND_PIN_SELECTED_SIZE),
+                    iconSize(MapMarkers.FIND_SELECTED_SIZE),
                     iconAllowOverlap(true),
+                    iconAnchor(Property.ICON_ANCHOR_BOTTOM),
                     iconIgnorePlacement(true),
                 ),
             )

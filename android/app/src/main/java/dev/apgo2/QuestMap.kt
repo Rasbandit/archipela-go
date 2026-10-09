@@ -95,6 +95,7 @@ private class LatestInputs(
     val onLongClick: State<((LatLng) -> Unit)?>,
     val handles: State<List<LatLng>>,
     val onFindClick: State<((String) -> Unit)?>,
+    val onQuestClick: State<((Long) -> Unit)?>,
     val anchor: State<LatLng?>,
     val onAnchor: State<((Offset?) -> Unit)?>,
     val overlayTopDp: State<Int>,
@@ -339,8 +340,8 @@ private class MapHolder(
             pad + (inputs.overlayBottomDp.value * density).toInt(),
         )
 
-    // A tap on a cluster zooms in until it splits; on a find pin it selects it; any other tap goes to the screen (e.g. adding a
-    // polygon corner).
+    // A tap on a cluster zooms in until it splits; on a find or quest pin (anywhere on it, head included) it selects it; any other
+    // tap goes to the screen (e.g. adding a polygon corner).
     private fun onTap(
         m: MapLibreMap,
         ll: LatLng,
@@ -348,10 +349,22 @@ private class MapHolder(
         val at = m.projection.toScreenLocation(ll)
         if (zoomIntoCluster(m, at)) return true
         val onFind = inputs.onFindClick.value
-        val hit = onFind?.let { m.queryRenderedFeatures(at, *MapStyle.FIND_LAYERS).firstOrNull() }
-        if (hit != null) onFind.invoke(hit.getStringProperty(MapProp.ID)) else inputs.onClick.value(ll)
+        val onQuest = inputs.onQuestClick.value
+        val find = onFind?.let { pinId(m, at, MapStyle.FIND_LAYERS) }
+        val quest = onQuest?.let { pinId(m, at, MapStyle.QUEST_LAYERS)?.toLongOrNull() }
+        when {
+            find != null -> onFind(find)
+            quest != null -> onQuest(quest)
+            else -> inputs.onClick.value(ll)
+        }
         return true
     }
+
+    private fun pinId(
+        m: MapLibreMap,
+        at: PointF,
+        layers: Array<String>,
+    ): String? = m.queryRenderedFeatures(at, *layers).firstOrNull()?.getStringProperty(MapProp.ID)
 
     private fun zoomIntoCluster(
         m: MapLibreMap,
@@ -411,6 +424,8 @@ internal fun QuestMap(
     /** Finds drawn as icon pins; tapping one calls [onFindClick] with its id. */
     finds: List<MapFind> = emptyList(),
     onFindClick: ((String) -> Unit)? = null,
+    /** Tapping a quest pin calls this with its location id (a tap elsewhere goes to [onMapClick]). */
+    onQuestClick: ((Long) -> Unit)? = null,
     /** Fly the camera here (kept clear of the bottom overlay). */
     focus: MapFocus? = null,
     fit: MapFit? = null,
@@ -433,6 +448,7 @@ internal fun QuestMap(
             onLongClick = rememberUpdatedState(onMapLongClick),
             handles = rememberUpdatedState(handles),
             onFindClick = rememberUpdatedState(onFindClick),
+            onQuestClick = rememberUpdatedState(onQuestClick),
             anchor = rememberUpdatedState(anchor),
             onAnchor = rememberUpdatedState(onAnchor),
             overlayTopDp = rememberUpdatedState(overlayTopDp),

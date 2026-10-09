@@ -225,4 +225,5 @@ internal object MapFeatures {
         .put(MapProp.IMAGE, q.mapImageKey)
         .put(MapProp.SCALE, MapMarkers.iconScale(q.difficulty, q.boss).toDouble())
         .put(MapProp.SORT, MapMarkers.drawOrder(q.state))
+        .put(MapProp.ID, q.locationId.toString())
 }

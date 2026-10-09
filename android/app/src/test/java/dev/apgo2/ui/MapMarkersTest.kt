@@ -72,6 +72,20 @@ class MapMarkersTest {
         assertTrue("the smallest pin is drawn at least 96 px", scales.min() * MapMarkers.QUEST_PIN_PX >= 96f)
     }
 
+    @Test fun pinsAreTallerThanWideSoTheirPointSitsBelowTheHead() {
+        assertTrue(MapMarkers.PIN_HEIGHT_RATIO > 1f)
+    }
+
+    @Test fun aSelectedPinsHeightIsWhatACalloutMustClear() {
+        val easy = MapMarkers.selectedQuestPinHeightPx("easy", boss = false)
+        val boss = MapMarkers.selectedQuestPinHeightPx("easy", boss = true)
+        assertTrue("the boss pin is taller", boss > easy)
+        val expected =
+            MapMarkers.QUEST_PIN_PX * MapMarkers.PIN_HEIGHT_RATIO * MapMarkers.iconScale("easy", false) * MapMarkers.SELECTED_GROWTH
+        assertEquals(expected, easy, 0.01f)
+        assertTrue(MapMarkers.selectedFindPinHeightPx() > 0f)
+    }
+
     @Test fun inProgressAndOpenQuestsAreDrawnBeforeDoneOnes() {
         val order = listOf("progress", "open", "locked", "done").map { MapMarkers.drawOrder(it) }
         assertEquals(order.sorted(), order)

@@ -63,11 +63,32 @@ internal object MapMarkers {
     /** Pixel size of a quest pin's bitmap; [iconScale] is the factor the map draws it at. */
     const val QUEST_PIN_PX = 200
 
+    /** Pin images are this many times as tall as wide: the head, then the point below it that marks the spot. */
+    const val PIN_HEIGHT_RATIO = 1.3f
+
+    /** How much bigger the selected quest pin is drawn. */
+    const val SELECTED_GROWTH = 1.25f
+
+    /** The draw size factor of a find pin, and of the selected one. */
+    const val FIND_SIZE = 0.62f
+    const val FIND_SELECTED_SIZE = 0.92f
+
     /** The states a cluster ring shows, in drawing order (clockwise from the top): what you can act on first. */
     val RING_STATES = listOf(STATE_PROGRESS, "open", STATE_LOCKED, STATE_DONE)
 
     /** Bitmap size of a cluster ring. */
     const val RING_PX = 112
+
+    // A map image is drawn at its own pixel size times its size factor (its bitmap density is the screen's).
+
+    /** On-screen height of the selected quest's pin, head to point: what a callout above the point must clear. */
+    fun selectedQuestPinHeightPx(
+        difficulty: String,
+        boss: Boolean,
+    ): Float = QUEST_PIN_PX * PIN_HEIGHT_RATIO * iconScale(difficulty, boss) * SELECTED_GROWTH
+
+    /** On-screen height of the selected find's pin. */
+    fun selectedFindPinHeightPx(): Float = FIND_PIN_PX * PIN_HEIGHT_RATIO * FIND_SELECTED_SIZE
 
     fun parse(key: String): MarkerSpec? {
         val p = key.split("|")
@@ -130,7 +151,7 @@ internal object MapMarkers {
                 val fill = ApgoPalette.kind(spec.kindId, spec.family)
                 when (spec.mark) {
                     "favorite" -> {
-                        renderPin(
+                        renderFindPin(
                             icon,
                             FIND_PIN_PX,
                             fill = fill,
@@ -140,11 +161,11 @@ internal object MapMarkers {
                     }
 
                     "banned" -> {
-                        renderPin(icon, FIND_PIN_PX, fill = ApgoPalette.muted)
+                        renderFindPin(icon, FIND_PIN_PX, fill = ApgoPalette.muted)
                     }
 
                     else -> {
-                        renderPin(icon, FIND_PIN_PX, fill = fill)
+                        renderFindPin(icon, FIND_PIN_PX, fill = fill)
                     }
                 }
             }

@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import dev.apgo2.ui.BubblePlacement
+import dev.apgo2.ui.MapMarkers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
@@ -13,7 +15,6 @@ import uniffi.apgo_ffi.FindOut
 
 private const val NO_MARK = "none"
 private const val DEFAULT_BUBBLE_DP = 230
-private const val BUBBLE_GAP_DP = 26
 
 // What the player can do in the realm editor with the finds and with the shape, as seen from the screens.
 
@@ -85,7 +86,8 @@ internal class EditorFinds(
     private fun nextFocusNonce() = (focus?.nonce ?: 0) + 1
 
     private fun roomAbove(density: Float) =
-        (if (bubblePx > 0) bubblePx else (DEFAULT_BUBBLE_DP * density).toInt()) + (BUBBLE_GAP_DP * density).toInt()
+        (if (bubblePx > 0) bubblePx else (DEFAULT_BUBBLE_DP * density).toInt()) +
+            BubblePlacement.gapPx(MapMarkers.selectedFindPinHeightPx(), density)
 }
 
 /** Load what the scan found, once there is a scan. */
