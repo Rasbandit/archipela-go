@@ -124,7 +124,7 @@ internal class PresenceController(
 
     /** Start, change or stop location to match the presence decision. */
     fun applyLocation() {
-        val holding = seeding.waiting && model.hud != null
+        val holding = (seeding.waiting || seeding.unstarted) && model.hud != null
         val rate = if (locationPermitted) GpsPolicy.forDecision(decision, appVisible, holding) else null
         if (rate == null) model.sensors.stopLocation() else model.sensors.startLocation(rate)
     }

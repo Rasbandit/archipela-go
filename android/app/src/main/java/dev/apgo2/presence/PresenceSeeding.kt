@@ -17,11 +17,14 @@ internal class PresenceSeeding(
 
     val complete: Boolean get() = homeDone && carDone
 
+    /** A restart happened and not everything is seeded yet; false when the monitor was never started (e.g. no location permission). */
+    val waiting: Boolean get() = started && !complete
+
     /**
-     * Not everything is seeded yet, including before the monitor has ever started: until Wi-Fi and Bluetooth have been read, home and
-     * car are unknown, and deciding on that would start GPS (as if away from home) only to stop it a moment later.
+     * The monitor has not started yet (app start, or no permission). Presence still decides, but GPS for an open game is held off
+     * meanwhile: home is unknown, and starting GPS as if away only to stop it a moment later wastes battery.
      */
-    val waiting: Boolean get() = !complete
+    val unstarted: Boolean get() = !started
 
     /** How long until the seeding timeout (0 when overdue), or `null` when not started or already complete: schedule one look then. */
     fun timeoutInMs(nowMs: Long): Long? = if (!started || complete) null else (startMs + timeoutMs - nowMs).coerceAtLeast(0)
