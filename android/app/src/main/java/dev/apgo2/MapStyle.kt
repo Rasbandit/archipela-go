@@ -87,6 +87,7 @@ private const val ROUND = "round"
 private const val BADGE_ME = "badge-me"
 private const val BADGE_HOME = "marker-home"
 private const val GEOMETRY_POINT = "Point"
+private const val GEOMETRY_POLYGON = "Polygon"
 
 // Pins are full size from street level in and shrink to half by neighbourhood zoom: zooming out shrinks them first.
 private const val FULL_SIZE_ZOOM = 16f
@@ -249,6 +250,8 @@ internal object MapStyle {
                 ),
         )
 
+    private fun isPoint() = Expression.eq(Expression.geometryType(), Expression.literal(GEOMETRY_POINT))
+
     private fun isPark() = Expression.eq(Expression.get(MapProp.SHAPE), Expression.literal("area"))
 
     private fun isDone() = Expression.eq(Expression.get(MapProp.STATE), Expression.literal("done"))
@@ -397,12 +400,17 @@ internal object MapStyle {
                 ),
             )
 
+    // The draft source holds the outline and its corner dots: each layer takes only the geometry it can draw.
     private fun draftLayers() =
         listOf(
-            LineLayer("draft-line", MapSource.DRAFT).withProperties(lineColor(ApgoPalette.draft.hex()), scaledWidth(LineKind.DRAFT)),
-            FillLayer("draft-fill", MapSource.DRAFT).withProperties(fillColor(ApgoPalette.draft.hex()), fillOpacity(DRAFT_FILL_OPACITY)),
+            LineLayer("draft-line", MapSource.DRAFT)
+                .withFilter(Expression.not(isPoint()))
+                .withProperties(lineColor(ApgoPalette.draft.hex()), scaledWidth(LineKind.DRAFT)),
+            FillLayer("draft-fill", MapSource.DRAFT)
+                .withFilter(Expression.eq(Expression.geometryType(), Expression.literal(GEOMETRY_POLYGON)))
+                .withProperties(fillColor(ApgoPalette.draft.hex()), fillOpacity(DRAFT_FILL_OPACITY)),
             CircleLayer("draft-pts", MapSource.DRAFT)
-                .withFilter(Expression.eq(Expression.geometryType(), Expression.literal(GEOMETRY_POINT)))
+                .withFilter(isPoint())
                 .withProperties(
                     circleRadius(DRAFT_DOT_RADIUS),
                     circleColor(ApgoPalette.draft.hex()),
