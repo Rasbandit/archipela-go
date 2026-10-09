@@ -668,8 +668,7 @@ impl Engine {
                 game.zone_realms.iter().collect::<BTreeSet<_>>().into_iter().filter_map(|id| store.get(id)).filter_map(|r| self.zoned_atlas(&r)).collect();
             game.attach_streets(&atlases.iter().collect::<Vec<_>>());
         }
-        let shapes = game.zone_realms.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect();
-        self.set_zones(shapes);
+        self.set_zones(self.shapes_of(&game.zone_realms));
         self.save_policy.lock().unwrap_or_else(std::sync::PoisonError::into_inner).reset();
         // Only one game is played at a time; remember which, so closing the app without pausing resumes it on the next start.
         if let Err(e) = Game::mark_playing(&self.dir, &game.id) {
@@ -685,13 +684,19 @@ impl Engine {
         *slot = Some(game);
     }
 
-    /// Distance in metres from a point to the nearest zone area of the open game (0 inside), or `None` with no game.
+    /// The current shapes of the realms `ids` (the zones of a game), as saved now.
+    fn shapes_of(&self, ids: &[String]) -> Vec<Shape> {
+        let store = self.store();
+        ids.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect()
+    }
+
     // The open game's zone shapes; a new set (another game, or none) forgets where the last fix was relative to the old ones.
     fn set_zones(&self, shapes: Vec<Shape>) {
         *self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = shapes;
         *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 
+    /// Distance in metres from a point to the nearest zone area of the open game (0 inside), or `None` with no game.
     fn zone_distance_m(&self, p: Point) -> Option<f64> {
         let shapes = self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         shapes.iter().map(|s| s.distance_m(p)).reduce(f64::min)
@@ -825,7 +830,12 @@ impl Engine {
             _ => return Err(err("the active outline is missing")),
         };
         let prev = self.store().get(&id);
-        self.store().save(&Realm { id, name, icon, shape, spare, scanned_at_ms: prev.and_then(|p| p.scanned_at_ms) }).map_err(err)
+        self.store().save(&Realm { id: id.clone(), name, icon, shape, spare, scanned_at_ms: prev.and_then(|p| p.scanned_at_ms) }).map_err(err)?;
+        // A zone of the open game was redrawn: in-zone checks must use the new outline now, not after the game is reopened.
+        if let Some(zones) = self.with_game(|g| g.zone_realms.clone()).filter(|z| z.contains(&id)) {
+            self.set_zones(self.shapes_of(&zones));
+        }
+        Ok(())
     }
 
     /// Delete a realm with its scan and marks.
@@ -1538,5 +1548,80 @@ impl Engine {
                 self.note(format!("could not save game {}: {e}", g.id));
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use apgo_core::geo::destination;
+    use apgo_core::scan::build_atlas;
+
+    fn home() -> Point {
+        Point::new(40.0, -111.0)
+    }
+
+    fn circle(center: Point, radius_m: f64) -> CircleOut {
+        CircleOut { center: gp(center), radius_m }
+    }
+
+    /// An engine in a fresh directory with one scanned realm "r0" (a 2 km circle at `home`) and a walking game on it open.
+    fn engine_with_game(name: &str) -> Arc<Engine> {
+        let dir = std::env::temp_dir().join(format!("apgo-engine-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let e = Engine::new(dir.to_string_lossy().into_owned());
+        e.save_realm("r0".into(), "R0".into(), None, Some(circle(home(), 2000.0)), vec![], false).unwrap();
+        let streets = (-10..=10).flat_map(|n| (-10..=10).map(move |k| destination(destination(home(), 0.0, f64::from(n) * 150.0), 90.0, f64::from(k) * 150.0)));
+        e.store().save_atlas(&build_atlas("r0", 0, vec![], streets.collect(), &e.catalog)).unwrap();
+        let opts = SoloOptions {
+            zone_modes: vec![Mode::Walk],
+            number_of_trips: 5,
+            goal: "all_trips".into(),
+            quest_types: vec!["reach".into()],
+            ..SoloOptions::default()
+        };
+        let generated = generate(&opts, 1).unwrap();
+        let realms = e.realm_atlases(&["r0".into()]).unwrap();
+        let game = Game::create(
+            NewGame {
+                id: "g1".into(),
+                name: "Test".into(),
+                backend: Backend::Solo,
+                seed_name: "s".into(),
+                slot: generated.slot,
+                zone_realms: vec!["r0".into()],
+                realms: &realms,
+                home: home(),
+                seed: 1,
+                solo_rewards: generated.rewards,
+                surface: SurfacePref::Any,
+                avoid_stairs: false,
+            },
+            &e.catalog,
+        )
+        .unwrap();
+        e.install(game);
+        e
+    }
+
+    #[test]
+    fn editing_a_zone_realm_of_the_open_game_moves_its_zone() {
+        let e = engine_with_game("realm-edit");
+        let p = home();
+        e.on_fix(p.lat, p.lon, 1_000, 5.0, None, false);
+        assert_eq!(e.last_zone_proximity(), "inside");
+        let far = destination(home(), 0.0, 50_000.0);
+        e.save_realm("r0".into(), "R0".into(), None, Some(circle(far, 2000.0)), vec![], false).unwrap();
+        e.on_fix(p.lat, p.lon, 2_000, 5.0, None, false);
+        assert_eq!(e.last_zone_proximity(), "far");
+    }
+
+    #[test]
+    fn editing_another_realm_leaves_the_zones_alone() {
+        let e = engine_with_game("other-edit");
+        e.save_realm("r1".into(), "R1".into(), None, Some(circle(destination(home(), 0.0, 50_000.0), 2000.0)), vec![], false).unwrap();
+        let p = home();
+        e.on_fix(p.lat, p.lon, 1_000, 5.0, None, false);
+        assert_eq!(e.last_zone_proximity(), "inside");
     }
 }
