@@ -15,6 +15,8 @@ class MapMarkersTest {
                 MarkerSpec.Quest("street_smarts", "reach", "progress", pips = 1),
                 MarkerSpec.Quest("touch_grass", "park", "done", pips = 3),
                 MarkerSpec.Ring(listOf(1, 2, 0, 3)),
+                MarkerSpec.Item("pinecones", "open"),
+                MarkerSpec.Item("shells", "locked"),
             )
         specs.forEach { assertEquals(it, MapMarkers.parse(it.key)) }
         assertEquals("keys are distinct", specs.size, specs.map { it.key }.toSet().size)

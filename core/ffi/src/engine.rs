@@ -423,6 +423,14 @@ fn first_open(c: &CollectOut) -> Option<Point> {
     c.items.iter().find(|i| !i.picked).map(|i| pt(&i.at))
 }
 
+/// Where a quest's pin and popup sit: an unfinished forager's first item still out there, otherwise its own anchor.
+fn pin_at(collect: Option<&CollectOut>, state: QuestState, anchor: Option<Point>) -> Option<Point> {
+    match collect {
+        Some(c) if state != QuestState::Done => first_open(c).or(anchor),
+        _ => anchor,
+    }
+}
+
 /// A zone of the open game.
 #[derive(Debug, uniffi::Record)]
 pub struct ZoneOut {
@@ -1296,12 +1304,7 @@ impl Engine {
                 .map(|q| {
                     let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target, units);
                     let collect = collect_out(&q.target, q.collected.as_ref());
-                    // A finished forager has no items left to find, so it keeps no pin.
-                    let anchor = match (&collect, q.state) {
-                        (Some(_), QuestState::Done) => None,
-                        (Some(c), _) => first_open(c).or(anchor),
-                        (None, _) => anchor,
-                    };
+                    let anchor = pin_at(collect.as_ref(), q.state, anchor);
                     QuestOut {
                         location_id: q.location_id,
                         zone: q.zone,
@@ -1846,5 +1849,16 @@ mod tests {
         assert_eq!(collect_out(&t, None).unwrap().items.iter().filter(|i| i.picked).count(), 0, "nothing picked yet");
         assert!(collect_out(&Target::Point { p: a, r: 40.0 }, None).is_none());
         assert_eq!(first_open(&out).map(|p| p.lat), Some(40.01), "the pin to open is the first item still out there");
+    }
+
+    #[test]
+    fn a_done_forager_keeps_its_anchor_and_an_unfinished_one_sits_on_its_first_open_item() {
+        let (a, b) = (Point::new(40.0, -111.0), Point::new(40.01, -111.0));
+        let t = Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() };
+        let c = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }));
+        let lat = |s| pin_at(c.as_ref(), s, Some(a)).map(|p| p.lat);
+        assert_eq!(lat(QuestState::Done), Some(40.0), "a done forager stays in the places list like any done quest");
+        assert_eq!(lat(QuestState::InProgress), Some(40.01));
+        assert_eq!(pin_at(None, QuestState::Done, Some(b)).map(|p| p.lat), Some(40.01), "other quests keep their anchor");
     }
 }

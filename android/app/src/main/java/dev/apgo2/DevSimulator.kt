@@ -2,6 +2,7 @@ package dev.apgo2
 
 import android.annotation.SuppressLint
 import dev.apgo2.ui.METERS_PER_DEGREE
+import dev.apgo2.ui.openItems
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -160,6 +161,8 @@ internal class DevSimulator(
             // ~6 km/h, like a walk
             "away" -> awayFixes(q, home)
 
+            "collect" -> collectFixes(q, home)
+
             else -> visitFixes(q, home)
         }
 
@@ -176,6 +179,16 @@ internal class DevSimulator(
             "roundtrip" -> anchor?.let { fix(it, GAP_MS) }.orEmpty() + fix(home, GAP_MS)
             else -> null
         }.orEmpty()
+    }
+
+    // A forager: walk to as many items as are still needed, then home to bank them.
+    private fun collectFixes(
+        q: QuestOut,
+        home: GeoPoint,
+    ): List<EventOut> {
+        val c = q.collect ?: return emptyList()
+        val still = (c.need.toInt() - c.banked.toInt() - c.carried.toInt()).coerceAtLeast(0)
+        return q.openItems.take(still).flatMap { fix(it.at, GAP_MS) } + fix(home, GAP_MS)
     }
 
     private fun walkLine(q: QuestOut): List<EventOut> {

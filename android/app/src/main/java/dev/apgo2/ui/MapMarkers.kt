@@ -38,6 +38,14 @@ internal sealed interface MarkerSpec {
     ) : MarkerSpec {
         override val key get() = "ring|" + shares.joinToString("|")
     }
+
+    /** A forager item on the Play map: its theme's icon on a body in its quest's state colour (grey while locked), no pips. */
+    data class Item(
+        val theme: String,
+        val state: String,
+    ) : MarkerSpec {
+        override val key get() = "item|$theme|$state"
+    }
 }
 
 /**
@@ -100,6 +108,7 @@ internal object MapMarkers {
         return when {
             p[0] == "ring" -> parseRing(rest)
             p[0] == "quest" -> parseQuest(rest)
+            p[0] == "item" -> if (rest.size == 2) MarkerSpec.Item(rest[0], rest[1]) else null
             p.size != KEY_PARTS -> null
             p[0] == "pin" -> MarkerSpec.Find(rest[0], rest[1], rest[2])
             else -> null
@@ -193,6 +202,10 @@ internal object MapMarkers {
 
             is MarkerSpec.Ring -> {
                 renderRing(ringSegments(spec), RING_PX)
+            }
+
+            is MarkerSpec.Item -> {
+                renderQuestPin(ApgoIcons.collectible(spec.theme), QUEST_PIN_PX, fill = questFill(spec.state), badge = Badge.None, pips = 0)
             }
         }
 }
