@@ -32,7 +32,7 @@ internal object ApgoPalette {
 
     // Map and realm editor
     val me = Color(0xFF1565C0)
-    val trace = Color(0xFF5F6B70) // where you walked: a quiet grey that blends into the map
+    val trace = Color(0xFFA7B4BB) // where you walked: a pale, solid grey (no transparency: overlaps would darken)
     val realm = Color(0xFF78858C) // a neutral grey: the boundary is background, and blue is kept for you
     val home = Color(0xFF2E7D32)
     val draft = Color(0xFFEF6C00) // the shape being edited

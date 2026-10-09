@@ -62,8 +62,7 @@ private val PARK_DASH = arrayOf(3f, 2f)
 // A route (trail): its state colour on a white casing; done routes fade.
 private const val ROUTE_CASING_WIDTH = 7f
 private const val DONE_ROUTE_OPACITY = 0.5f
-private const val TRACE_WIDTH = 2f
-private const val TRACE_OPACITY = 0.45f
+private const val TRACE_WIDTH = 2.5f
 private const val QUEST_LINE_WIDTH = 4f
 
 // The selected quest is marked on the ground too: a small ring at its pin's point.
@@ -221,7 +220,6 @@ internal object MapStyle {
             LineLayer("trace-layer", MapSource.TRACE).withProperties(
                 lineColor(ApgoPalette.trace.hex()),
                 lineWidth(TRACE_WIDTH),
-                lineOpacity(TRACE_OPACITY),
                 lineCap(ROUND),
                 lineJoin(ROUND),
             ),
