@@ -92,9 +92,11 @@ impl Engine {
     /// # Errors
     /// Returns an error if the settings file cannot be written.
     pub fn set_unit_choice(&self, choice: UnitChoice) -> Result<(), CoreError> {
-        let mut settings = Settings::load(self.dir());
-        settings.units = choice.into();
-        settings.save(self.dir()).map_err(|detail| CoreError::Failed { detail })?;
+        Settings::update(self.dir(), |s| {
+            s.units = choice.into();
+            true
+        })
+        .map_err(|detail| CoreError::Failed { detail })?;
         self.refresh_units(None);
         Ok(())
     }
@@ -119,11 +121,12 @@ impl Engine {
     /// # Errors
     /// Returns an error if `at` is not a real coordinate or the settings file cannot be written.
     pub fn set_last_place(&self, at: GeoPoint) -> Result<(), CoreError> {
-        let mut settings = Settings::load(self.dir());
-        if !settings.remember_place(Point { lat: at.lat, lon: at.lon }) {
-            return Err(CoreError::Failed { detail: format!("not a real place: {}, {}", at.lat, at.lon) });
+        let saved = Settings::update(self.dir(), |s| s.remember_place(Point { lat: at.lat, lon: at.lon })).map_err(|detail| CoreError::Failed { detail })?;
+        if saved {
+            Ok(())
+        } else {
+            Err(CoreError::Failed { detail: format!("not a real place: {}, {}", at.lat, at.lon) })
         }
-        settings.save(self.dir()).map_err(|detail| CoreError::Failed { detail })
     }
 }
 

@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::{Mutex, PoisonError};
 
 use crate::geo::Point;
 use crate::units::UnitSystem;
@@ -58,6 +59,22 @@ impl Settings {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let body = serde_json::to_string(self).map_err(|e| e.to_string())?;
         std::fs::write(dir.join(FILE), body).map_err(|e| e.to_string())
+    }
+
+    /// Load, change with `change` and save, as one step: two updates at once (the units picked as the app leaves the screen and
+    /// saves the last place) never lose either change. Nothing is saved when `change` returns false; the result says whether it
+    /// saved.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be written.
+    pub fn update(dir: &Path, change: impl FnOnce(&mut Self) -> bool) -> Result<bool, String> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _held = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut s = Self::load(dir);
+        if !change(&mut s) {
+            return Ok(false);
+        }
+        s.save(dir).map(|()| true)
     }
 }
 
@@ -137,6 +154,39 @@ mod tests {
             assert!(!s.remember_place(Point { lat: bad.0, lon: bad.1 }), "{bad:?}");
             assert_eq!(s.last_place, Some(old));
         }
+    }
+
+    #[test]
+    fn updates_at_the_same_time_keep_both_changes() {
+        let dir = tmp("race");
+        let place = Point { lat: 1.0, lon: 2.0 };
+        for _ in 0..200 {
+            let _ = std::fs::remove_dir_all(&dir);
+            let start = std::sync::Barrier::new(2);
+            std::thread::scope(|s| {
+                s.spawn(|| {
+                    start.wait();
+                    Settings::update(&dir, |st| {
+                        st.units = UnitChoice::Imperial;
+                        true
+                    })
+                    .unwrap();
+                });
+                s.spawn(|| {
+                    start.wait();
+                    Settings::update(&dir, |st| st.remember_place(place)).unwrap();
+                });
+            });
+            assert_eq!(Settings::load(&dir), Settings { units: UnitChoice::Imperial, last_place: Some(place) });
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_update_that_changes_nothing_is_not_saved() {
+        let dir = tmp("no-change");
+        assert_eq!(Settings::update(&dir, |_| false), Ok(false));
+        assert!(!dir.join(FILE).exists());
     }
 
     #[test]
