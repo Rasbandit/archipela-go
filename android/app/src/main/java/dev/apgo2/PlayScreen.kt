@@ -351,6 +351,8 @@ private fun PlayMap(
     val spot = touched?.takeIf { it.first == m.selected }?.second
     val at = spot ?: selected?.anchor?.let { LatLng(it.lat, it.lon) }
     val pinPx = if (spot != null) 0f else MapMarkers.selectedQuestPinHeightPx()
+    // Forget the spot once its quest is closed or another is picked, so picking it again (from the list) opens at its start.
+    LaunchedEffect(m.selected) { if (touched?.first != m.selected) touched = null }
     LaunchedEffect(m.selected, spot, bubblePx) {
         val a = at ?: return@LaunchedEffect
         val room = (if (bubblePx > 0) bubblePx else (QUEST_BUBBLE_DP * density).toInt()) + BubblePlacement.gapPx(pinPx, density)
@@ -367,7 +369,8 @@ private fun PlayMap(
             m.selected,
             { m.selected = null }, // a tap on no pin, trail or park closes the popup
             Modifier.fillMaxSize(),
-            parkAt = { m.engine.parkAt(it.latitude, it.longitude, m.now()) },
+            // With a popup open, a tap inside a park (not on its outline) closes it, so there is always somewhere to tap away.
+            parkAt = { at -> if (m.selected != null) null else m.engine.parkAt(at.latitude, at.longitude, m.now()) },
             onQuestClick = { id, spotAt ->
                 touched = spotAt?.let { id to it }
                 m.selected = id
@@ -382,7 +385,7 @@ private fun PlayMap(
             anchor = at,
             onAnchor = { anchorPx = it },
         )
-        selected?.let { q -> QuestPopup(m, q, anchorPx, pinPx) { bubblePx = it } }
+        selected?.let { q -> QuestPopup(m, q, anchorPx, pinPx, coverDp) { bubblePx = it } }
         m.chains.firstOrNull { it.id == m.selectedChain }?.let { c ->
             MapOverlayCard(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = coverDp.dp),
@@ -391,20 +394,22 @@ private fun PlayMap(
     }
 }
 
-// A quest with a pin gets a callout on it; one with no spot on the map (steps, squares, time away) gets the same card at the bottom.
+// A quest with a pin gets a callout on it; one with no spot on the map (steps, squares, time away) gets the same card just above
+// the panel.
 @Composable
 private fun BoxScope.QuestPopup(
     m: AppModel,
     q: QuestOut,
     anchorPx: Offset?,
     pinPx: Float,
+    coverDp: Int,
     onBubbleSize: (Int) -> Unit,
 ) {
     val details: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
         QuestDetails(q) { m.selected = null }
     }
     if (q.anchor == null) {
-        MapOverlayCard(Modifier.align(Alignment.BottomCenter), content = details)
+        MapOverlayCard(Modifier.align(Alignment.BottomCenter).padding(bottom = coverDp.dp), content = details)
     } else if (anchorPx != null) {
         MapBubble(
             anchorPx,
