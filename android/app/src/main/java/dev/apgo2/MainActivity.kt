@@ -19,7 +19,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.apgo2.ui.ApgoTheme
-import kotlinx.coroutines.delay
 
 /** The single activity: hosts the Compose UI and handles the location and notification permission prompts. */
 class MainActivity : ComponentActivity() {
@@ -110,12 +109,6 @@ private fun TrackingEffects(
             runCatching { TrackingService.start(context.applicationContext) }
         } else {
             TrackingService.stop(context.applicationContext)
-        }
-    }
-    LaunchedEffect(model.ap.session) {
-        val poll = ApPoll()
-        while (model.ap.session != null) {
-            delay(poll.next(active = model.ap.tick()))
         }
     }
 }

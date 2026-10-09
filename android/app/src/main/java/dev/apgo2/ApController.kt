@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,6 +37,7 @@ internal class ApController(
     var slotJson by mutableStateOf<String?>(null)
     var zoneModes by mutableStateOf<List<String>>(emptyList())
     private var syncedChecked = false
+    private var pollJob: Job? = null
 
     // The game last synced with this session (its id), so a newly opened or started game syncs at once.
     private var syncedFor: String? = null
@@ -51,6 +53,14 @@ internal class ApController(
         hint = null
         val s = ApSession.connect(url, slot, null, ctx.cacheDir.resolve("ap").absolutePath)
         sessions.replace(s)
+        // Polled from the model's scope, not the screen: items keep arriving while the app tracks in the background. Ends by itself
+        // when this session is replaced.
+        pollJob?.cancel()
+        pollJob =
+            scope.launch {
+                val poll = ApPoll()
+                while (session === s) delay(poll.next(active = tick()))
+            }
         scope.launch {
             delay(LAN_HINT_AFTER_MS)
             if (session === s && s.status() == "connecting" && ctx.lacksLocalNetwork()) hint = LAN_HINT
@@ -58,7 +68,7 @@ internal class ApController(
     }
 
     /**
-     * Called from a coroutine loop while a session exists; true when the server sent anything (the loop then polls again soon, see
+     * Called from the poll loop started in [connect]; true when the server sent anything (the loop then polls again soon, see
      * [ApPoll]). The open game is synced only when items or server data changed, or it was never synced with this session.
      */
     suspend fun tick(): Boolean {
