@@ -243,6 +243,10 @@ pub struct Counters {
     /// While away from home: up to when time away has been credited (the next event credits from here). `None` at home.
     #[serde(default)]
     pub away_mark: Option<i64>,
+    /// Whether the last good fix was within reach of home. Unlike the last fix it survives counting going off and on (a car ride),
+    /// so counting coming back on at home does not start time away for a player with no saved home Wi-Fi.
+    #[serde(default)]
+    pub last_at_home: Option<bool>,
 }
 
 /// A game in progress: its quests, progress, rewards, fog, traps and goal. Saved as JSON.
@@ -702,7 +706,7 @@ impl Game {
     /// means away from home: time away runs from `t_ms` (unless the last fix put the player at home) until counting goes off.
     pub fn set_counting(&mut self, on: bool, t_ms: i64) {
         if on {
-            let at_home = self.last_pos().is_some_and(|p| distance_m(p, self.home) <= HOME_RADIUS_M);
+            let at_home = self.counters.last_at_home == Some(true);
             if self.counters.away_mark.is_none() && !at_home {
                 self.counters.away_mark = Some(t_ms);
             }
@@ -753,7 +757,9 @@ impl Game {
     /// Time away on a fix: one at home ends it (the stretch since the last event is not credited: when you got home is unknown);
     /// one elsewhere credits up to now (not while a trap blocks checks), or starts it.
     fn away_on_fix(&mut self, fix: &Fix, blocked: bool) {
-        if distance_m(fix.point(), self.home) <= HOME_RADIUS_M {
+        let at_home = distance_m(fix.point(), self.home) <= HOME_RADIUS_M;
+        self.counters.last_at_home = Some(at_home);
+        if at_home {
             self.counters.away_mark = None;
         } else if self.counters.away_mark.is_some() && !blocked {
             self.settle_away(fix.t_ms);
@@ -1499,6 +1505,19 @@ mod tests {
         assert_eq!(g.next_due_ms(200_000), None);
         away_for(&mut g, 400.0, 300, 1); // out again
         assert!((wanderlust(&g, 360_000) - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn counting_coming_back_on_at_home_does_not_start_time_away() {
+        // No home Wi-Fi: only fixes say you are home. A car ride ends in the driveway: counting goes off and on again with no new fix.
+        let mut g = away_game(&[10.0]);
+        away_for(&mut g, 30.0, 0, 1); // at home
+        g.set_counting(false, 60_000); // car Bluetooth connects
+        g.set_counting(true, 120_000); // and disconnects at home
+        assert!(g.counters.away_mark.is_none(), "the last fix said home, so time away does not start");
+        assert_eq!(g.next_due_ms(200_000), None);
+        away_for(&mut g, 400.0, 300, 1); // walking out starts it
+        assert!(g.counters.away_mark.is_some());
     }
 
     #[test]
