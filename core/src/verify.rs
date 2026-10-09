@@ -40,24 +40,8 @@ pub enum Status {
     Done,
 }
 
-/// Fixes less accurate than this are ignored (urban canyons, indoor).
-pub const MAX_ACCURACY_M: f64 = 35.0;
-/// A jump implying more than this is a bad fix (a network or cell fix hundreds of metres off), not movement.
-pub const MAX_PLAUSIBLE_KMH: f64 = 100.0;
-/// After this many bad-looking fixes in a row the newest one is believed (you really did move, e.g. a long gap or a lift).
-pub const MAX_OUTLIER_STREAK: u32 = 3;
-
-/// Speed between two fixes in km/h, ignoring the part of the distance that both fixes' error radii could explain.
-/// `None` when the gap is too short (< 1 s) or too long (> 2 min) to say anything.
-#[must_use]
-pub fn implied_speed_kmh(prev: &Fix, cur: &Fix) -> Option<f64> {
-    let dt = i64_to_f64(cur.t_ms - prev.t_ms) / 1000.0;
-    if !(1.0..=120.0).contains(&dt) {
-        return None;
-    }
-    let effective = (distance_m(prev.point(), cur.point()) - prev.accuracy_m - cur.accuracy_m).max(0.0);
-    Some(effective / dt * 3.6)
-}
+/// Fixes (now estimates) less sure than this are ignored by a tracker; the location filter applies the same limit first.
+pub const MAX_ACCURACY_M: f64 = crate::loc::MAX_UNCERTAINTY_M;
 
 /// Spacing of the samples a line quest is covered by, in metres.
 pub const LINE_SAMPLE_M: f64 = 20.0;
@@ -497,25 +481,6 @@ mod tests {
         assert_eq!(c.picked, BTreeSet::from([0, 1, 2]), "banking keeps the picked set");
         c.bank();
         assert_eq!((c.carried, c.banked), (0, 3), "banking twice adds nothing");
-    }
-
-    #[test]
-    fn implied_speed_discounts_the_error_radii() {
-        let a = Fix { accuracy_m: 5.0, ..fix(home(), 0) };
-        let b = Fix { accuracy_m: 5.0, ..fix(destination(home(), 0.0, 100.0), 10) };
-        let v = implied_speed_kmh(&a, &b).unwrap();
-        assert!((v - 32.4).abs() < 0.5, "(100 - 10) m in 10 s is 32.4 km/h, got {v}");
-        let jitter = Fix { accuracy_m: 5.0, ..fix(destination(home(), 0.0, 8.0), 5) };
-        assert_eq!(implied_speed_kmh(&a, &jitter), Some(0.0), "movement inside the error radii is noise");
-    }
-
-    #[test]
-    fn implied_speed_needs_a_sensible_gap() {
-        let a = fix(home(), 0);
-        let far = destination(home(), 0.0, 500.0);
-        assert_eq!(implied_speed_kmh(&a, &fix(far, 0)), None, "same instant");
-        assert_eq!(implied_speed_kmh(&a, &fix(far, 121)), None, "too long ago to compare");
-        assert!(implied_speed_kmh(&a, &fix(far, 60)).is_some());
     }
 
     #[test]

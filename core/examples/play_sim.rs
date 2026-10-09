@@ -17,10 +17,10 @@ use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Mode};
 use apgo_core::game::{Backend, Event, Game, NewGame, QuestState};
 use apgo_core::geo::{destination, Point};
+use apgo_core::loc::{Provider, RawFix};
 use apgo_core::realm::{Realm, Shape};
 use apgo_core::scan::scan_realm;
 use apgo_core::solo::{generate, SoloOptions};
-use apgo_core::verify::Fix;
 
 fn main() {
     let a: Vec<String> = std::env::args().collect();
@@ -157,7 +157,7 @@ fn main() {
             }
         }
         for (p, ts, st) in fixes {
-            for e in g.on_fix(Fix { lat: p.lat, lon: p.lon, t_ms: ts, accuracy_m: 5.0 }, st) {
+            for e in g.on_fix(&RawFix { provider: Provider::Sim, ..RawFix::at(p.lat, p.lon, ts, 5.0) }, st) {
                 match e {
                     Event::QuestDone { .. } => done_events += 1,
                     Event::GoalAchieved { label } => won = Some(label),
