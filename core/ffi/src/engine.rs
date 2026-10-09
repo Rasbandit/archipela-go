@@ -405,6 +405,8 @@ pub struct ZoneOut {
 /// Everything the Play screen shows besides the quest list.
 #[derive(Debug, uniffi::Record)]
 pub struct HudOut {
+    /// Whether time away is running, so its live value moves with the clock (the Play screen redraws it now and then while shown).
+    pub away_running: bool,
     /// Each goal with its own progress (one entry for a single-goal game).
     pub goals: Vec<GoalLineOut>,
     /// Short text describing the win condition.
@@ -1257,6 +1259,7 @@ impl Engine {
             letters.sort_unstable();
             let tools: Vec<String> = ["Running Shoes", "Bike", "Car"].iter().filter(|t| g.items.iter().any(|i| i == *t)).map(ToString::to_string).collect();
             HudOut {
+                away_running: g.away_running(),
                 goals: g
                     .goal_statuses(now_ms)
                     .into_iter()

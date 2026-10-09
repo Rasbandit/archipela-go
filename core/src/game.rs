@@ -783,6 +783,12 @@ impl Game {
         })
     }
 
+    /// Whether time away is running right now (its live value moves with the clock): a screen showing it may redraw now and then.
+    #[must_use]
+    pub fn away_running(&self) -> bool {
+        self.counters.away_mark.is_some() && !self.checks_blocked()
+    }
+
     /// When the next time-away mark will be reached if nothing changes, so the app can schedule one wake-up then; `None` at home.
     #[must_use]
     pub fn next_due_ms(&self, now_ms: i64) -> Option<i64> {
@@ -1475,12 +1481,14 @@ mod tests {
         g.set_counting(false, 0); // at home (Wi-Fi connected)
         g.set_counting(true, 60_000); // Wi-Fi dropped: away from minute 1
         assert!((wanderlust(&g, 150_000) - 1.5).abs() < 0.01, "worked out when asked; nothing ran meanwhile");
+        assert!(g.away_running(), "a screen showing it may redraw now and then");
         assert_eq!(g.next_due_ms(150_000), Some(180_000), "the 2-minute mark falls due at minute 3");
         assert_eq!(done_ids(&g.tick(180_000)), vec![1001]);
         assert_eq!(g.next_due_ms(180_000), Some(360_000));
         g.set_counting(false, 240_000); // home again at minute 4: three minutes banked
         assert!((g.counters.progress["1:wanderlust"] - 3.0).abs() < 0.01);
         assert_eq!(g.next_due_ms(300_000), None, "at home nothing falls due");
+        assert!(!g.away_running(), "at home the live value is not moving");
         assert!((wanderlust(&g, 999_000) - 3.0).abs() < 0.01, "time at home does not count");
     }
 

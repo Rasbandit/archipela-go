@@ -33,6 +33,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import dev.apgo2.presence.PresenceText
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
@@ -44,6 +47,7 @@ import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.Tone
 import dev.apgo2.ui.Units
+import kotlinx.coroutines.delay
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.GameInfo
 import uniffi.apgo_ffi.GoalLineOut
@@ -53,6 +57,7 @@ import uniffi.apgo_ffi.ZoneOut
 
 // Quests shown in the Progress section before "Show all".
 private const val PROGRESS_ROWS = 3
+private const val LIVE_REDRAW_MS = 60_000L
 private const val HIDDEN = "hidden"
 private const val LOG_LINES = 3
 private const val MAP_WEIGHT = 0.55f
@@ -66,6 +71,20 @@ internal fun PlayScreen(
     modifier: Modifier = Modifier,
 ) {
     val hud = m.hud
+    // Time away moves with the clock, but nothing ticks in the core: while it runs and this screen is on show, redraw once a minute
+    // (display only: no GPS, and nothing while the app is in the background).
+    val owner = LocalLifecycleOwner.current
+    val awayRunning = hud?.awayRunning == true
+    LaunchedEffect(owner, awayRunning) {
+        if (awayRunning) {
+            owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    delay(LIVE_REDRAW_MS)
+                    m.refreshPlay(withTrace = false)
+                }
+            }
+        }
+    }
     if (hud == null) NoGameOpen(m, modifier) else GameView(m, hud, modifier)
 }
 
