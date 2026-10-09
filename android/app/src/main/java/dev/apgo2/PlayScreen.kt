@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -159,12 +160,14 @@ private fun GameView(
             val bodyHeight = maxHeight * BODY_SHARE
             var shown by rememberSaveable { mutableStateOf(true) }
             var topPx by remember { mutableIntStateOf(0) }
-            // How much of the map the panel covers once it has settled. It changes as a slide starts, so the map pans (keeping the
-            // middle of what you see in the middle of what stays visible) alongside the slide, in the same time and curve.
-            val coverDp = GRIP_DP + (topPx / LocalDensity.current.density).toInt() + if (shown) bodyHeight.value.toInt() else 0
+            // How open the panel's lower part is: it follows the finger during a drag and eases to 1 or 0 on a tap or a release.
+            val open = remember { Animatable(if (shown) 1f else 0f) }
+            // How much of the map the panel covers right now. The map follows it step by step (during a drag too), keeping the
+            // middle of what you see in the middle of what stays visible.
+            val coverDp = GRIP_DP + (topPx / LocalDensity.current.density).toInt() + (bodyHeight.value * open.value).toInt()
             // The map fills the whole area and never resizes; the panel slides over its bottom.
             PlayMap(m, hud, onShow, coverDp, Modifier.fillMaxSize())
-            PlaySheet(m, hud, bodyHeight, shown, { shown = it }, { topPx = it }, Modifier.align(Alignment.BottomCenter))
+            PlaySheet(m, hud, bodyHeight, open, shown, { shown = it }, { topPx = it }, Modifier.align(Alignment.BottomCenter))
         }
     }
 }
@@ -176,13 +179,13 @@ private fun PlaySheet(
     m: AppModel,
     hud: HudOut,
     bodyHeight: Dp,
+    open: Animatable<Float, AnimationVector1D>,
     shown: Boolean,
     onShowChange: (Boolean) -> Unit,
     onTopHeight: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val open = remember { Animatable(if (shown) 1f else 0f) }
     val slide = tween<Float>(OVERLAY_EASE_MS, easing = OverlayEasing)
     LaunchedEffect(shown) { open.animateTo(if (shown) 1f else 0f, slide) }
     val scope = rememberCoroutineScope()
@@ -374,6 +377,7 @@ private fun PlayMap(
             lastPlace = m.lastPlace,
             onShow = onShow,
             overlayBottomDp = coverDp,
+            overlaysFollowed = true,
             focus = focus,
             anchor = at,
             onAnchor = { anchorPx = it },

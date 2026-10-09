@@ -269,17 +269,19 @@ private class MapHolder(
     fun repaint() = map?.triggerRepaint()
 
     // The map's padding is the part of it covered by overlays. Changing it keeps the camera target, so the point that was at the
-    // centre of the visible map slides to the centre of the new visible area. The first value is applied at once, later ones ease.
+    // centre of the visible map slides to the centre of the new visible area. The first value is applied at once, later ones ease,
+    // unless the overlay moves smoothly by itself ([follow]): then each step is applied at once, so the map moves with it.
     fun applyPadding(
         topDp: Int,
         bottomDp: Int,
+        follow: Boolean,
     ) {
         val m = map ?: return
         liftMarks(m, bottomDp)
         if (topDp == 0 && bottomDp == 0 && !padApplied) return
         val top = (topDp * density).toDouble()
         val bottom = (bottomDp * density).toDouble()
-        if (padApplied) {
+        if (padApplied && !follow) {
             m.easeCamera(CameraUpdateFactory.paddingTo(0.0, top, 0.0, bottom), OVERLAY_EASE_MS)
         } else {
             m.moveCamera(CameraUpdateFactory.paddingTo(0.0, top, 0.0, bottom))
@@ -493,6 +495,8 @@ internal fun QuestMap(
     /** Height of overlays covering the top and bottom of the map, so framing keeps the circle clear of them. */
     overlayTopDp: Int = 0,
     overlayBottomDp: Int = 0,
+    /** True when the overlays slide smoothly by themselves (a dragged panel): the map follows each step instead of easing. */
+    overlaysFollowed: Boolean = false,
     /** Points the user can pick up and drag; [onHandleMove] gets the handle index and its new position. */
     handles: List<LatLng> = emptyList(),
     onHandleMove: ((Int, LatLng) -> Unit)? = null,
@@ -550,7 +554,7 @@ internal fun QuestMap(
     SyncContent(holder, quests, realms, selected, finds, trace)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
     SyncPins(holder, thaw, waypoint, home, me)
-    MapCamera(holder, overlayTopDp, overlayBottomDp, fit, focus, anchor)
+    MapCamera(holder, overlayTopDp, overlayBottomDp, overlaysFollowed, fit, focus, anchor)
     MapFraming(holder, circle, me, quests, realms, points)
     // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
     // tiles loading happen out of sight.
@@ -666,12 +670,13 @@ private fun MapCamera(
     holder: MapHolder,
     overlayTopDp: Int,
     overlayBottomDp: Int,
+    overlaysFollowed: Boolean,
     fit: MapFit?,
     focus: MapFocus?,
     anchor: LatLng?,
 ) {
     val map = holder.map
-    LaunchedEffect(map, overlayTopDp, overlayBottomDp) { holder.applyPadding(overlayTopDp, overlayBottomDp) }
+    LaunchedEffect(map, overlayTopDp, overlayBottomDp) { holder.applyPadding(overlayTopDp, overlayBottomDp, overlaysFollowed) }
     LaunchedEffect(fit) { fit?.let { holder.fit(it) } }
     LaunchedEffect(anchor, map) { map?.let { holder.reportAnchor(it) } }
     LaunchedEffect(focus) { focus?.let { holder.focusOn(it) } }
