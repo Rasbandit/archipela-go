@@ -72,6 +72,13 @@ class MapMarkersTest {
         assertTrue("the smallest pin is drawn at least 96 px", scales.min() * MapMarkers.QUEST_PIN_PX >= 96f)
     }
 
+    @Test fun aQuestPinIsColouredByItsStateNotItsKind() {
+        assertEquals(ApgoPalette.questTodo, MapMarkers.questFill("open"))
+        assertEquals(ApgoPalette.questProgress, MapMarkers.questFill("progress"))
+        assertEquals(ApgoPalette.questDone, MapMarkers.questFill("done"))
+        assertEquals(ApgoPalette.muted, MapMarkers.questFill("locked"))
+    }
+
     @Test fun pinsAreTallerThanWideSoTheirPointSitsBelowTheHead() {
         assertTrue(MapMarkers.PIN_HEIGHT_RATIO > 1f)
     }

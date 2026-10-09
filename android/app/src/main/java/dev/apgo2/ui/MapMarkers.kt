@@ -114,6 +114,9 @@ internal object MapMarkers {
         return RING_STATES.zip(ring.shares).filter { it.second > 0 }.map { (state, n) -> ApgoPalette.quest(state) to FULL_TURN * n / total }
     }
 
+    /** A quest pin's body colour: its state (the icon on it says what kind of quest it is). Locked pins are grey. */
+    fun questFill(state: String): Color = if (state == STATE_LOCKED) ApgoPalette.muted else ApgoPalette.quest(state)
+
     fun badge(state: String): Badge =
         when (state) {
             STATE_PROGRESS -> Badge.Progress
@@ -171,11 +174,10 @@ internal object MapMarkers {
             }
 
             is MarkerSpec.Quest -> {
-                val locked = spec.state == STATE_LOCKED
                 renderQuestPin(
                     ApgoIcons.forKind(spec.kindId, spec.family),
                     QUEST_PIN_PX,
-                    fill = if (locked) ApgoPalette.muted else ApgoPalette.kind(spec.kindId, spec.family),
+                    fill = questFill(spec.state),
                     badge = badge(spec.state),
                 )
             }

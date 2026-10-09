@@ -36,6 +36,19 @@ class PaletteTest {
         assertTrue("not done reads as calm, not red", todo.blue > todo.red)
     }
 
+    @Test fun blueMeansOnlyYou() {
+        val realm = ApgoPalette.realm
+        assertTrue(
+            "the realm boundary is a neutral grey",
+            maxOf(realm.red, realm.green, realm.blue) - minOf(realm.red, realm.green, realm.blue) < 0.12f,
+        )
+        val todo = ApgoPalette.questTodo
+        assertTrue(
+            "to do is violet: red and blue both strong, green weak",
+            todo.red > todo.green && todo.blue > todo.green && todo.red > 0.35f,
+        )
+    }
+
     @Test fun notDoneStandsApartFromTheRealmAndTrace() {
         assertNotEquals(ApgoPalette.realm, ApgoPalette.questTodo)
         assertNotEquals(ApgoPalette.me, ApgoPalette.questTodo)
