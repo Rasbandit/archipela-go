@@ -116,6 +116,7 @@ internal class PresenceController(
         if (changedState) {
             Diag.info(TAG, d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
             if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
+            model.noteJournal()
         }
         applyLocation()
     }

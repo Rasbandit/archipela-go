@@ -22,11 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
-
-private const val REFRESH_MS = 3_000L
 
 /**
  * What happened in the game and why: quests with how they were done, rewards with where they came from, traps, and (optionally)
@@ -38,13 +35,8 @@ internal fun ActivityScreen(
     modifier: Modifier = Modifier,
 ) {
     var details by remember { mutableStateOf(false) }
-    // Refresh while this tab is open: new events arrive as you play.
-    LaunchedEffect(m.hud?.gameName) {
-        while (true) {
-            m.library.refreshActivity()
-            delay(REFRESH_MS)
-        }
-    }
+    // Reload when the activity log changed (new events as you play), not on a timer.
+    LaunchedEffect(m.hud?.gameName, m.journalRev) { m.library.refreshActivity() }
     val time = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM) }
     val rows = m.activity.filter { ActivityFormat.shown(it.kind, details) }
     Column(modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

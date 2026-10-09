@@ -4,6 +4,7 @@ import android.content.Context
 import android.location.Location
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -82,6 +83,10 @@ internal class AppModel(
 
     /** What happened in the open (or last paused) game, newest first; see [GameLibrary.refreshActivity]. */
     var activity by mutableStateOf<List<AuditEventOut>>(emptyList())
+
+    /** Moves whenever the engine wrote to the activity log; the Activity tab reloads on a change instead of on a timer. */
+    var journalRev by mutableLongStateOf(0L)
+        private set
     val log = mutableStateListOf<String>()
     var realLoc by mutableStateOf<Location?>(null)
     var simPos by mutableStateOf<LatLng?>(null)
@@ -146,6 +151,12 @@ internal class AppModel(
             hud = null
             trace = emptyList()
         }
+        noteJournal()
+    }
+
+    /** Pick up whether the activity log changed (a cheap read; call after anything that may have logged). */
+    fun noteJournal() {
+        journalRev = engine.journalRevision().toLong()
     }
 
     /** The phone's step counter changed: credit it to the open game (the engine ignores it when no game is open). */
@@ -173,6 +184,7 @@ internal class AppModel(
     fun onBackground() {
         engine.saveGame()
         engine.logAppState(false, now())
+        noteJournal()
         Diag.info("lifecycle", "background")
         diag.drainCore()
     }
@@ -182,11 +194,13 @@ internal class AppModel(
         val left = engine.lastBackgroundMs()
         val t = now()
         engine.logAppState(true, t)
+        noteJournal()
         Diag.info("lifecycle", "foreground", "away_ms" to (left?.let { t - it } ?: -1L))
     }
 
     /** Show what the engine reported, and pass on to Archipelago what it needs to hear. */
     fun handle(events: List<EventOut>) {
+        noteJournal()
         events.forEach { Diag.info("event", it.toString().take(EVENT_LOG_CHARS)) }
         for (e in events) {
             when (e) {

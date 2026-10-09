@@ -112,6 +112,8 @@ pub struct Summary {
 /// The on-device SQLite journal of GPS fixes and events.
 pub struct Journal {
     conn: Connection,
+    // Bumped on every logged event, so the app reloads the activity log only when it changed (instead of on a timer).
+    revision: std::cell::Cell<u64>,
 }
 
 /// Gaps longer than this split the trace into separate line segments (phone off, app closed).
@@ -150,7 +152,7 @@ fn point_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<TrackPoint> {
 impl Journal {
     fn init(conn: Connection) -> rusqlite::Result<Self> {
         conn.execute_batch(SCHEMA)?;
-        Ok(Self { conn })
+        Ok(Self { conn, revision: std::cell::Cell::new(0) })
     }
 
     /// Open (or create) the journal database at `path`.
@@ -233,7 +235,14 @@ impl Journal {
         let (lat, lon) = e.at.unzip();
         self.conn
             .execute("INSERT INTO events (game, t_ms, kind, detail, lat, lon) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", (game, e.t_ms, &e.kind, &e.detail, lat, lon))?;
+        self.revision.set(self.revision.get() + 1);
         Ok(())
+    }
+
+    /// A number that changes whenever an event is logged (points and reads leave it alone).
+    #[must_use]
+    pub fn revision(&self) -> u64 {
+        self.revision.get()
     }
 
     /// Events of a game with `t_ms >= since_ms`, oldest first.
@@ -320,6 +329,18 @@ mod tests {
     }
     fn ev(t_ms: i64, k: &str) -> JournalEvent {
         JournalEvent { t_ms, kind: k.into(), detail: format!("{k} detail"), at: Some((40.0, -111.0)) }
+    }
+
+    #[test]
+    fn the_revision_moves_on_every_logged_event_and_only_then() {
+        let j = Journal::open_memory().unwrap();
+        let r0 = j.revision();
+        j.add_point("g", &pt(1, 40.0, -111.0)).unwrap();
+        let _ = j.recent_events("g", 10).unwrap();
+        assert_eq!(j.revision(), r0, "points and reads leave the activity log as it was");
+        j.log("g", &ev(2, "quest_done")).unwrap();
+        j.log("g", &ev(3, "reward")).unwrap();
+        assert_eq!(j.revision(), r0 + 2);
     }
 
     #[test]

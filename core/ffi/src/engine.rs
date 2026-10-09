@@ -1457,6 +1457,11 @@ impl Engine {
         j.last_of_kind(&id, kind::APP_BACKGROUND).ok().flatten()
     }
 
+    /// A number that changes whenever something is written to the activity log: reload it only when this moves.
+    pub fn journal_revision(&self) -> u64 {
+        self.journal.as_ref().map_or(0, |j| j.lock().unwrap_or_else(std::sync::PoisonError::into_inner).revision())
+    }
+
     /// The trace of the open game as separate lines, simplified for drawing: standing still collapses to one spot and GPS wobble is
     /// smoothed out (the saved points are untouched).
     pub fn track(&self, from_ms: i64, to_ms: i64) -> Vec<TrackSegmentOut> {
