@@ -70,6 +70,19 @@ pub fn closest_proximity(shapes: &[Shape], p: Point) -> Option<Proximity> {
     shapes.iter().map(|s| s.proximity(p)).min()
 }
 
+/// Which of `pts` (finds) lie inside the outline being drawn in the realm editor, in order: the polygon of `corners` when
+/// `polygon_active`, else the `circle` (centre, radius in metres). An outline not drawn yet (fewer than three corners, no centre)
+/// hides nothing, so every find shows until there is one. Works across the antimeridian.
+#[must_use]
+pub fn inside_draft(pts: &[Point], circle: Option<(Point, f64)>, corners: &[Point], polygon_active: bool) -> Vec<bool> {
+    let outline = match (polygon_active, circle) {
+        (true, _) if corners.len() >= 3 => Some(Zone::Polygon(corners.to_vec())),
+        (false, Some((center, radius_m))) => Some(Zone::Circle { center, radius_m }),
+        _ => None,
+    };
+    pts.iter().map(|p| outline.as_ref().is_none_or(|z| z.contains(*p))).collect()
+}
+
 impl Shape {
     /// The shape as a play zone.
     #[must_use]
@@ -332,6 +345,76 @@ impl RealmStore {
 #[allow(clippy::assert_is_empty, clippy::many_single_char_names)] // test code: `is_empty()` reads better in assertions than comparing with a typed empty array; short names for points and coordinates in test fixtures
 mod tests {
     use super::*;
+
+    fn home() -> Point {
+        Point::new(40.0, -111.0)
+    }
+
+    // A 0.02 x 0.02 degree square around (40, -111), drawn counter-clockwise.
+    fn square() -> Vec<Point> {
+        vec![Point::new(39.99, -111.01), Point::new(39.99, -110.99), Point::new(40.01, -110.99), Point::new(40.01, -111.01)]
+    }
+
+    fn in_polygon(p: Point, corners: &[Point]) -> bool {
+        inside_draft(&[p], None, corners, true)[0]
+    }
+
+    fn in_circle(p: Point, center: Option<Point>, radius_m: f64) -> bool {
+        inside_draft(&[p], center.map(|c| (c, radius_m)), &square(), false)[0] // the corners are ignored for a circle
+    }
+
+    #[test]
+    fn a_find_is_inside_a_drawn_polygon_only_within_its_outline() {
+        let sq = square();
+        assert!(in_polygon(home(), &sq));
+        assert!(!in_polygon(Point::new(40.02, -111.0), &sq)); // north
+        assert!(!in_polygon(Point::new(40.0, -110.98), &sq)); // east
+        let rev: Vec<Point> = sq.iter().rev().copied().collect();
+        assert!(in_polygon(home(), &rev), "winding order does not matter");
+        // An L: the square without its north-east quarter.
+        let l = [
+            Point::new(39.99, -111.01),
+            Point::new(39.99, -110.99),
+            Point::new(40.0, -110.99),
+            Point::new(40.0, -111.0),
+            Point::new(40.01, -111.0),
+            Point::new(40.01, -111.01),
+        ];
+        assert!(in_polygon(Point::new(39.995, -110.995), &l));
+        assert!(!in_polygon(Point::new(40.005, -110.995), &l), "the notch");
+    }
+
+    #[test]
+    fn a_shape_not_drawn_yet_hides_nothing() {
+        assert!(in_polygon(Point::new(50.0, 0.0), &[]));
+        assert!(in_polygon(Point::new(50.0, 0.0), &square()[..2]));
+        assert!(in_circle(Point::new(50.0, 0.0), None, 1.0));
+    }
+
+    #[test]
+    fn a_find_is_inside_a_drawn_circle_up_to_its_radius() {
+        let at = |north: f64, east: f64| crate::geo::destination(crate::geo::destination(home(), 0.0, north), 90.0, east);
+        assert!(in_circle(home(), Some(home()), 500.0));
+        assert!(in_circle(at(499.0, 0.0), Some(home()), 500.0));
+        assert!(in_circle(at(0.0, -499.0), Some(home()), 500.0));
+        assert!(!in_circle(at(501.0, 0.0), Some(home()), 500.0));
+        assert!(!in_circle(at(360.0, 360.0), Some(home()), 500.0)); // ~509 m on the diagonal
+    }
+
+    #[test]
+    fn a_drawn_shape_across_the_antimeridian_reaches_the_other_side() {
+        let fiji = [Point::new(-17.1, 179.9), Point::new(-17.1, -179.9), Point::new(-16.9, -179.9), Point::new(-16.9, 179.9)];
+        assert!(in_polygon(Point::new(-17.0, -179.95), &fiji));
+        assert!(!in_polygon(Point::new(-17.0, 0.0), &fiji));
+        assert!(in_circle(Point::new(0.0, -179.995), Some(Point::new(0.0, 179.995)), 2000.0));
+        assert!(!in_circle(Point::new(0.0, -179.9), Some(Point::new(0.0, 179.995)), 2000.0));
+    }
+
+    #[test]
+    fn every_find_gets_an_answer_in_order() {
+        let pts = [home(), Point::new(41.0, -111.0), home()];
+        assert_eq!(inside_draft(&pts, None, &square(), true), vec![true, false, true]);
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("apgo-test-{name}-{}", std::process::id()));

@@ -36,12 +36,13 @@ import dev.apgo2.ui.ToolButton
 import dev.apgo2.ui.ToolPill
 import dev.apgo2.ui.ToolPillRow
 import dev.apgo2.ui.circleExtremes
-import dev.apgo2.ui.insideShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
+import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.FindOut
+import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.RealmOut
 
 /** The two tabs of the realm editor. */
@@ -426,7 +427,10 @@ private fun rememberFindsView(s: RealmEditorState): FindsView {
     val circleCenter = s.circleCenter
     val visible =
         remember(s.finds.version, s.polygon, s.radius, circleCenter, draftKey) {
-            s.finds.all.filter { f -> insideShape(f.at.lat, f.at.lon, s.polygon, circleCenter, s.radius.toDouble(), draftKey) }
+            val circle = circleCenter?.let { CircleOut(GeoPoint(it.latitude, it.longitude), s.radius.toDouble()) }
+            val corners = draftKey.map { GeoPoint(it.latitude, it.longitude) }
+            val inside = s.m.engine.insideDraft(s.finds.all.map { it.at }, circle, corners, s.polygon)
+            s.finds.all.filterIndexed { i, _ -> inside[i] }
         }
     val mapFinds =
         remember(visible, s.finds.selected) {

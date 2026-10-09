@@ -867,6 +867,14 @@ impl Engine {
         ShapeStatsOut { area_m2: shape.area_m2(), perimeter_m: shape.perimeter_m(), farthest_m: shape.farthest_m(from) }
     }
 
+    /// For each of `finds`, whether it lies inside the outline being drawn (the editor shows only those); see
+    /// `apgo_core::realm::inside_draft`. One call for all finds.
+    pub fn inside_draft(&self, finds: Vec<GeoPoint>, circle: Option<CircleOut>, polygon: Vec<GeoPoint>, polygon_active: bool) -> Vec<bool> {
+        let pts: Vec<Point> = finds.iter().map(pt).collect();
+        let corners: Vec<Point> = polygon.iter().map(pt).collect();
+        apgo_core::realm::inside_draft(&pts, circle.map(|c| (pt(&c.center), c.radius_m)), &corners, polygon_active)
+    }
+
     /// What the scan found in the realm (inside its current shape), or none if it has not been scanned.
     pub fn realm_stats(&self, id: String) -> Option<RealmStatsOut> {
         let store = self.store();

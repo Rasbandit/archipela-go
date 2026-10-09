@@ -1,7 +1,6 @@
 package dev.apgo2.ui
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.maplibre.android.geometry.LatLng
@@ -11,100 +10,12 @@ import kotlin.math.hypot
 class GeoTest {
     private val eps = 1e-9
 
-    // A 0.02 x 0.02 degree square around (40, -111), drawn counter-clockwise.
-    private val square = listOf(LatLng(39.99, -111.01), LatLng(39.99, -110.99), LatLng(40.01, -110.99), LatLng(40.01, -111.01))
-
     // Flat-earth distance in metres, the same approximation the production code makes.
     private fun metres(
         lat: Double,
         lon: Double,
         p: Pair<Double, Double>,
     ) = hypot((p.first - lat) * METERS_PER_DEGREE, (p.second - lon) * METERS_PER_DEGREE * cos(Math.toRadians(lat)))
-
-    private fun inPolygon(
-        lat: Double,
-        lon: Double,
-        corners: List<LatLng> = square,
-    ) = insideShape(lat, lon, polygon = true, center = null, radiusM = 0.0, corners = corners)
-
-    @Test fun aPointIsInsideAPolygonOnlyWithinItsOutline() {
-        assertTrue(inPolygon(40.0, -111.0))
-        assertFalse(inPolygon(40.02, -111.0)) // north
-        assertFalse(inPolygon(40.0, -110.98)) // east
-        assertFalse(inPolygon(39.98, -111.02)) // south-west
-    }
-
-    @Test fun windingOrderDoesNotMatter() {
-        assertTrue(inPolygon(40.0, -111.0, square.reversed()))
-        assertFalse(inPolygon(40.02, -111.0, square.reversed()))
-    }
-
-    @Test fun aConcavePolygonExcludesItsNotch() {
-        // An L: the square without its north-east quarter.
-        val l =
-            listOf(
-                LatLng(39.99, -111.01),
-                LatLng(39.99, -110.99),
-                LatLng(40.0, -110.99),
-                LatLng(40.0, -111.0),
-                LatLng(40.01, -111.0),
-                LatLng(40.01, -111.01),
-            )
-        assertTrue(inPolygon(39.995, -110.995, l)) // south-east arm
-        assertTrue(inPolygon(40.005, -111.005, l)) // north-west arm
-        assertFalse(inPolygon(40.005, -110.995, l)) // the notch
-    }
-
-    @Test fun aPolygonAcrossTheAntimeridianContainsPointsOnBothSides() {
-        // A 0.2 x 0.2 degree square straddling lon 180 (Fiji).
-        val fiji = listOf(LatLng(-17.1, 179.9), LatLng(-17.1, -179.9), LatLng(-16.9, -179.9), LatLng(-16.9, 179.9))
-        assertTrue(inPolygon(-17.0, 179.95, fiji))
-        assertTrue(inPolygon(-17.0, -179.95, fiji))
-        assertFalse(inPolygon(-17.0, 179.0, fiji)) // west of it
-        assertFalse(inPolygon(-17.0, -179.0, fiji)) // east of it
-        assertFalse(inPolygon(-17.0, 0.0, fiji)) // the long way round
-    }
-
-    @Test fun aCircleAcrossTheAntimeridianReachesTheOtherSide() {
-        val c = LatLng(0.0, 179.995)
-        // ~1.1 km east, past lon 180.
-        assertTrue(insideShape(0.0, -179.995, polygon = false, center = c, radiusM = 2000.0, corners = emptyList()))
-        assertFalse(insideShape(0.0, -179.9, polygon = false, center = c, radiusM = 2000.0, corners = emptyList()))
-    }
-
-    @Test fun aPolygonWithFewerThanThreeCornersHidesNothing() {
-        assertTrue(inPolygon(50.0, 0.0, emptyList()))
-        assertTrue(inPolygon(50.0, 0.0, square.take(2)))
-    }
-
-    @Test fun aPointIsInsideACircleUpToItsRadius() {
-        val c = LatLng(40.0, -111.0)
-
-        fun inCircle(
-            dNorthM: Double,
-            dEastM: Double,
-        ) = insideShape(
-            40.0 + dNorthM / METERS_PER_DEGREE,
-            -111.0 + dEastM / (METERS_PER_DEGREE * cos(Math.toRadians(40.0))),
-            polygon = false,
-            center = c,
-            radiusM = 500.0,
-            corners = square, // ignored for a circle
-        )
-        assertTrue(inCircle(0.0, 0.0))
-        assertTrue(inCircle(499.0, 0.0))
-        // East-west metres shrink with cos(latitude): without that scaling these would land ~500 * cos(40°) = 383 m out.
-        assertTrue(inCircle(0.0, -499.0))
-        assertTrue(inCircle(300.0, 300.0))
-        assertFalse(inCircle(501.0, 0.0))
-        assertFalse(inCircle(0.0, 501.0))
-        assertFalse(inCircle(0.0, -501.0))
-        assertFalse(inCircle(360.0, 360.0)) // ~509 m on the diagonal
-    }
-
-    @Test fun aCircleWithNoCentreYetHidesNothing() {
-        assertTrue(insideShape(50.0, 0.0, polygon = false, center = null, radiusM = 1.0, corners = emptyList()))
-    }
 
     @Test fun ringHas48PointsAllOnTheRadius() {
         val ring = circleRing(40.0, -111.0, 500.0)
