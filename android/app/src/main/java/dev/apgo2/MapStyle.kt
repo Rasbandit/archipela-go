@@ -59,7 +59,7 @@ private val NOT_STARTED_DASH = arrayOf(2f, 1.5f)
 private const val TRACE_WIDTH = 3f
 private const val TRACE_OPACITY = 0.7f
 private const val QUEST_LINE_WIDTH = 4f
-private const val QUEST_HALO_RADIUS = 36f
+private const val QUEST_HALO_RADIUS = 44f
 private const val QUEST_HALO_STROKE = 3f
 private const val SELECTED_PIN_GROWTH = 1.25f
 private const val FIND_PIN_SIZE = 0.62f
@@ -94,7 +94,7 @@ private const val SHRUNK_FACTOR = 0.5f
 
 // Then, still too close, they collapse: pins nearer than this (map pixels) merge into a cluster. Clusters only form below
 // FULL_SIZE_ZOOM, so at street level every pin shows on its own, big.
-private const val CLUSTER_RADIUS = 24
+private const val CLUSTER_RADIUS = 16
 private const val CLUSTER_MAX_ZOOM = 15
 private const val CLUSTER_CIRCLE_RADIUS = 20f
 private const val CLUSTER_STROKE = 3f

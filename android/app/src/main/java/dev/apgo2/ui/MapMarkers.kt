@@ -43,7 +43,7 @@ internal sealed interface MarkerSpec {
  */
 internal object MapMarkers {
     private const val KEY_PARTS = 4
-    private const val FIND_PIN_PX = 144
+    private const val FIND_PIN_PX = 180
     private const val FAVORITE_RING_FRACTION = 0.13f
 
     // At most 1: a bigger factor would blur the bitmap. The boss is drawn at full size.
@@ -61,7 +61,7 @@ internal object MapMarkers {
     enum class Badge { None, Progress, Done, Locked }
 
     /** Pixel size of a quest pin's bitmap; [iconScale] is the factor the map draws it at. */
-    const val QUEST_PIN_PX = 160
+    const val QUEST_PIN_PX = 200
 
     /** The states a cluster ring shows, in drawing order (clockwise from the top): what you can act on first. */
     val RING_STATES = listOf(STATE_PROGRESS, "open", STATE_LOCKED, STATE_DONE)
