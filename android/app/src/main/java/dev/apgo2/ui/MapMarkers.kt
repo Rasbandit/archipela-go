@@ -1,6 +1,7 @@
 package dev.apgo2.ui
 
 import android.graphics.Bitmap
+import androidx.compose.ui.graphics.Color
 
 /** What a map pin shows. The [key] names its bitmap in the map style, so equal specs share one image. */
 internal sealed interface MarkerSpec {
@@ -26,6 +27,13 @@ internal sealed interface MarkerSpec {
     ) : MarkerSpec {
         override val key get() = "quest|$kindId|$family|$state"
     }
+
+    /** A cluster of quests: a ring split by how many are in each of [MapMarkers.RING_STATES], around the count. */
+    data class Ring(
+        val shares: List<Int>,
+    ) : MarkerSpec {
+        override val key get() = "ring|" + shares.joinToString("|")
+    }
 }
 
 /**
@@ -48,21 +56,41 @@ internal object MapMarkers {
     private const val STATE_PROGRESS = "progress"
     private const val STATE_LOCKED = "locked"
     private const val STATE_DONE = "done"
+    private const val FULL_TURN = 360f
 
     enum class Badge { None, Progress, Done, Locked }
 
     /** Pixel size of a quest pin's bitmap; [iconScale] is the factor the map draws it at. */
     const val QUEST_PIN_PX = 160
 
+    /** The states a cluster ring shows, in drawing order (clockwise from the top): what you can act on first. */
+    val RING_STATES = listOf(STATE_PROGRESS, "open", STATE_LOCKED, STATE_DONE)
+
+    /** Bitmap size of a cluster ring. */
+    const val RING_PX = 112
+
     fun parse(key: String): MarkerSpec? {
         val p = key.split("|")
-        if (p.size != KEY_PARTS) return null
-        val (kindId, family, extra) = p.drop(1)
-        return when (p[0]) {
-            "pin" -> MarkerSpec.Find(kindId, family, extra)
-            "quest" -> MarkerSpec.Quest(kindId, family, extra)
+        val rest = p.drop(1)
+        return when {
+            p[0] == "ring" -> parseRing(rest)
+            p.size != KEY_PARTS -> null
+            p[0] == "pin" -> MarkerSpec.Find(rest[0], rest[1], rest[2])
+            p[0] == "quest" -> MarkerSpec.Quest(rest[0], rest[1], rest[2])
             else -> null
         }
+    }
+
+    private fun parseRing(parts: List<String>): MarkerSpec.Ring? {
+        val shares = parts.map { it.toIntOrNull() ?: -1 }
+        val valid = shares.size == RING_STATES.size && shares.all { it >= 0 } && shares.sum() > 0
+        return if (valid) MarkerSpec.Ring(shares) else null
+    }
+
+    /** The arcs of a ring, clockwise from the top: each non-empty state's colour and its sweep in degrees (summing to 360). */
+    fun ringSegments(ring: MarkerSpec.Ring): List<Pair<Color, Float>> {
+        val total = ring.shares.sum().toFloat()
+        return RING_STATES.zip(ring.shares).filter { it.second > 0 }.map { (state, n) -> ApgoPalette.quest(state) to FULL_TURN * n / total }
     }
 
     fun badge(state: String): Badge =
@@ -129,6 +157,10 @@ internal object MapMarkers {
                     fill = if (locked) ApgoPalette.muted else ApgoPalette.kind(spec.kindId, spec.family),
                     badge = badge(spec.state),
                 )
+            }
+
+            is MarkerSpec.Ring -> {
+                renderRing(ringSegments(spec), RING_PX)
             }
         }
 }

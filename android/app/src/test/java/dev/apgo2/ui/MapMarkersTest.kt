@@ -13,6 +13,7 @@ class MapMarkersTest {
                 MarkerSpec.Find("hydrant_hunter", "landmark", "favorite"),
                 MarkerSpec.Quest("street_smarts", "reach", "progress"),
                 MarkerSpec.Quest("touch_grass", "park", "done"),
+                MarkerSpec.Ring(listOf(1, 2, 0, 3)),
             )
         specs.forEach { assertEquals(it, MapMarkers.parse(it.key)) }
         assertEquals("keys are distinct", specs.size, specs.map { it.key }.toSet().size)
@@ -22,6 +23,29 @@ class MapMarkersTest {
         assertNull(MapMarkers.parse("glyph|a|b"))
         assertNull(MapMarkers.parse("quest|only|two"))
         assertNull(MapMarkers.parse(""))
+    }
+
+    @Test fun aRingKeyNeedsOneNonNegativeSharePerStateAndSomethingToShow() {
+        assertEquals(MarkerSpec.Ring(listOf(0, 4, 0, 0)), MapMarkers.parse("ring|0|4|0|0"))
+        assertNull("nothing to draw", MapMarkers.parse("ring|0|0|0|0"))
+        assertNull("one share per state", MapMarkers.parse("ring|1|1|1"))
+        assertNull(MapMarkers.parse("ring|1|x|1|1"))
+        assertNull(MapMarkers.parse("ring|1|-1|1|1"))
+    }
+
+    @Test fun ringStatesRunFromMostActionableToDone() {
+        assertEquals(listOf("progress", "open", "locked", "done"), MapMarkers.RING_STATES)
+    }
+
+    @Test fun ringSegmentsSkipEmptySharesAndFillTheCircleInStateColours() {
+        val segs = MapMarkers.ringSegments(MarkerSpec.Ring(listOf(1, 0, 1, 2)))
+        assertEquals(listOf(ApgoPalette.questProgress, ApgoPalette.questLocked, ApgoPalette.questDone), segs.map { it.first })
+        assertEquals(listOf(90f, 90f, 180f), segs.map { it.second })
+        assertEquals(360f, MapMarkers.ringSegments(MarkerSpec.Ring(listOf(1, 1, 1, 0))).sumOf { it.second.toDouble() }.toFloat(), 0.01f)
+    }
+
+    @Test fun aRingWithOneStateIsAFullCircle() {
+        assertEquals(listOf(ApgoPalette.questDone to 360f), MapMarkers.ringSegments(MarkerSpec.Ring(listOf(0, 0, 0, 7))))
     }
 
     @Test fun eachQuestStateHasItsBadge() {

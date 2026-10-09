@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import androidx.compose.ui.graphics.Color
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.MapMarkers
@@ -92,6 +93,7 @@ private const val CLUSTER_MAX_ZOOM = 17
 private const val CLUSTER_CIRCLE_RADIUS = 20f
 private const val CLUSTER_STROKE = 3f
 private const val CLUSTER_TEXT_SIZE = 15f
+private const val RING_STEPS = 12
 private const val BOLD_FONT = "Noto Sans Bold"
 
 // The quest states drawn on the map, each in its ApgoPalette.quest colour.
@@ -229,7 +231,7 @@ internal object MapStyle {
     // Quests are the same pins as finds (family colour, state as a badge). Every pin shows; pins too close to tell apart merge into
     // a numbered cluster. The selected one has its own source (never clustered), a halo, and is drawn larger.
     private fun questLayers() =
-        clusterLayers(MapSource.QUESTS, questClusterColor()) +
+        questClusterLayers() +
             listOf(
                 SymbolLayer("quests-pins", MapSource.QUESTS).withFilter(notCluster()).withProperties(
                     iconImage(Expression.get(MapProp.IMAGE)),
@@ -256,7 +258,19 @@ internal object MapStyle {
             .withCluster(true)
             .withClusterRadius(CLUSTER_RADIUS)
             .withClusterMaxZoom(CLUSTER_MAX_ZOOM)
-            .withClusterProperty(MapProp.BEST, Expression.literal("min"), Expression.get(MapProp.SORT))
+            .apply {
+                // How many pins of each state a cluster holds, for its ring (finds have no state, so theirs stay 0).
+                MapMarkers.RING_STATES.forEach { state ->
+                    val isState = Expression.eq(Expression.get(MapProp.STATE), Expression.literal(state))
+                    withClusterProperty(
+                        countProp(state),
+                        Expression.literal("+"),
+                        Expression.switchCase(isState, Expression.literal(1), Expression.literal(0)),
+                    )
+                }
+            }
+
+    private fun countProp(state: String) = "n_$state"
 
     private fun clusterLayer(source: String) = "$source-cluster"
 
@@ -264,39 +278,58 @@ internal object MapStyle {
 
     private fun notCluster() = Expression.not(isCluster())
 
-    // A quest cluster takes the colour of its most actionable pin: amber if any is in progress, else open, locked, and green when
-    // all are done.
-    private fun questClusterColor() =
-        Expression.match(
-            Expression.get(MapProp.BEST),
-            Expression.literal(ApgoPalette.questTodo.hex()),
-            *PIN_STATES.map { Expression.stop(MapMarkers.drawOrder(it), Expression.literal(ApgoPalette.quest(it).hex())) }.toTypedArray(),
+    // The ring image of a quest cluster: "ring|p|o|l|d", each state's share in twelfths, rounded up so even one in-progress quest
+    // shows. Few distinct keys come out of that, and each is drawn once, when the map first asks for it (see MarkerSpec.Ring).
+    private fun ringKey(): Expression {
+        val parts = MapMarkers.RING_STATES.flatMap { listOf(Expression.literal("|"), Expression.toString(Expression.ceil(ringShare(it)))) }
+        return Expression.concat(Expression.literal("ring"), *parts.toTypedArray())
+    }
+
+    private fun ringShare(state: String) =
+        Expression.division(
+            Expression.product(Expression.get(countProp(state)), Expression.literal(RING_STEPS)),
+            Expression.get(MapProp.POINT_COUNT),
         )
 
-    private fun clusterLayers(
+    // A quest cluster is a ring split by state (amber in progress, blue open, grey locked, green done) around a dark count.
+    private fun questClusterLayers() =
+        listOf(
+            SymbolLayer(clusterLayer(MapSource.QUESTS), MapSource.QUESTS).withFilter(isCluster()).withProperties(
+                iconImage(ringKey()),
+                iconAllowOverlap(true),
+                iconIgnorePlacement(true),
+            ),
+            countLayer(MapSource.QUESTS, ApgoPalette.navy),
+        )
+
+    // A find cluster is a plain teal disc with a white count: finds have no progress to show.
+    private fun findClusterLayers() =
+        listOf(
+            CircleLayer(clusterLayer(MapSource.FINDS), MapSource.FINDS).withFilter(isCluster()).withProperties(
+                circleRadius(CLUSTER_CIRCLE_RADIUS),
+                circleColor(ApgoPalette.teal.hex()),
+                circleStrokeColor(ApgoPalette.onMap.hex()),
+                circleStrokeWidth(CLUSTER_STROKE),
+            ),
+            countLayer(MapSource.FINDS, ApgoPalette.onMap),
+        )
+
+    private fun countLayer(
         source: String,
-        color: Expression,
-    ) = listOf(
-        CircleLayer(clusterLayer(source), source).withFilter(isCluster()).withProperties(
-            circleRadius(CLUSTER_CIRCLE_RADIUS),
-            circleColor(color),
-            circleStrokeColor(ApgoPalette.onMap.hex()),
-            circleStrokeWidth(CLUSTER_STROKE),
-        ),
-        SymbolLayer("$source-count", source).withFilter(isCluster()).withProperties(
-            textField(Expression.toString(Expression.get(MapProp.POINT_COUNT))),
-            textFont(arrayOf(BOLD_FONT)),
-            textSize(CLUSTER_TEXT_SIZE),
-            textColor(ApgoPalette.onMap.hex()),
-            textAllowOverlap(true),
-            textIgnorePlacement(true),
-        ),
+        color: Color,
+    ) = SymbolLayer("$source-count", source).withFilter(isCluster()).withProperties(
+        textField(Expression.toString(Expression.get(MapProp.POINT_COUNT))),
+        textFont(arrayOf(BOLD_FONT)),
+        textSize(CLUSTER_TEXT_SIZE),
+        textColor(color.hex()),
+        textAllowOverlap(true),
+        textIgnorePlacement(true),
     )
 
     // Finds: every pin shows, favorites drawn over plain ones and banned ones; close pins merge into a neutral cluster (finds have
     // no progress to show). The selected find has its own unclustered source and is drawn larger.
     private fun findLayers() =
-        clusterLayers(MapSource.FINDS, Expression.literal(ApgoPalette.teal.hex())) +
+        findClusterLayers() +
             listOf(
                 SymbolLayer(FIND_LAYERS[0], MapSource.FINDS).withFilter(notCluster()).withProperties(
                     iconImage(Expression.get(MapProp.IMAGE)),

@@ -86,6 +86,28 @@ internal fun renderPin(
         icon(icon, (s - inner) / 2, inner, glyph)
     }
 
+/**
+ * A cluster: a white disc (the count is drawn over it by the map) inside a ring of [segments], each a colour and its sweep in
+ * degrees, clockwise from the top. Segments are split by a thin white gap so neighbouring colours stay distinct.
+ */
+internal fun renderRing(
+    segments: List<Pair<Color, Float>>,
+    sizePx: Int,
+): Bitmap =
+    render(sizePx) {
+        val s = sizePx.toFloat()
+        val band = s * 0.2f
+        val gap = if (segments.size > 1) 4f else 0f
+        drawCircle(Color.White, radius = s / 2)
+        val arc = Size(s - band - 4f, s - band - 4f)
+        val topLeft = Offset((s - arc.width) / 2, (s - arc.height) / 2)
+        var start = -90f
+        segments.forEach { (color, sweep) ->
+            drawArc(color, start + gap / 2, sweep - gap, useCenter = false, topLeft = topLeft, size = arc, style = Stroke(width = band))
+            start += sweep
+        }
+    }
+
 /** Just the icon, for drawing a glyph on top of another marker. */
 internal fun renderGlyph(
     icon: ImageVector,

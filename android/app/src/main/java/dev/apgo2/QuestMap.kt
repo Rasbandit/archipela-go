@@ -205,6 +205,8 @@ private class MapHolder(
         m.addOnCameraMoveListener { reportAnchor(m) }
         m.addOnCameraIdleListener { reportAnchor(m) }
         m.addOnMapLongClickListener { ll -> inputs.onLongClick.value?.invoke(ll) != null }
+        // Cluster rings appear as the camera moves, so their images are drawn when the map first asks for them.
+        view.addOnStyleImageMissingListener { id -> m.style?.let { ensureImage(it, id) } }
         m.setStyle(Style.Builder().fromUri(MapStyle.URL)) { s ->
             MapStyle.install(s)
             style = s

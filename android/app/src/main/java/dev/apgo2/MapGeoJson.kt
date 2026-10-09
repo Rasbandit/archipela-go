@@ -31,9 +31,6 @@ internal object MapProp {
     const val LABEL = "label"
     const val NAME = "name"
 
-    /** On a cluster: the lowest [SORT] inside it, i.e. its most actionable member. */
-    const val BEST = "best"
-
     /** On a cluster (set by MapLibre): how many pins it holds. */
     const val POINT_COUNT = "point_count"
 }
