@@ -133,8 +133,15 @@ internal class PresenceController(
             if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
             model.noteJournal()
         }
-        if (arrived && model.hud != null) model.bankAtHome()
+        if (arrived && model.hud != null) bankAtHome()
         applyLocation()
+    }
+
+    // Presence arrived home (home Wi-Fi): forager quests bank what they carry, even with no GPS fix.
+    private fun bankAtHome() {
+        if (!model.engine.hasGame()) return
+        model.handle(model.engine.bankAtHome(model.now()))
+        model.refreshPlay(withTrace = false)
     }
 
     /** Start, change or stop location to match the presence decision. */

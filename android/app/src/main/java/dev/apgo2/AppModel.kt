@@ -200,13 +200,6 @@ internal class AppModel(
         if (events.isNotEmpty() || stepRefresh.due(total, engine.openGameId())) refreshPlay(withTrace = false)
     }
 
-    /** Presence arrived home (home Wi-Fi): forager quests bank what they carry, even with no GPS fix. */
-    fun bankAtHome() {
-        if (!engine.hasGame()) return
-        handle(engine.bankAtHome(now()))
-        refreshPlay(withTrace = false)
-    }
-
     /** A location fix arrived: feed the engine, update presence and the screen. */
     fun onFix(loc: Location) {
         if (!engine.hasGame() || simPos != null) return
