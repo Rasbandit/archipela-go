@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PointF
 import android.view.MotionEvent
+import android.view.View
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -25,7 +26,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.apgo2.ui.METERS_PER_DEGREE
@@ -461,6 +461,8 @@ internal fun QuestMap(
     trace: List<List<LatLng>> = emptyList(),
     /** Where to start when there is nothing to frame yet (the last place you were). */
     lastPlace: LatLng? = null,
+    /** False while the map is kept but hidden (another tab is up): it stops drawing and keeps its camera, style and tiles. */
+    onShow: Boolean = true,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -481,7 +483,7 @@ internal fun QuestMap(
         )
     val points = framePoints(quests, realms, me, home, draft)
     val holder = remember { MapHolder(context, density, inputs, MapStart.center(listOfNotNull(circle?.first) + points, lastPlace)) }
-    MapLifecycle(holder.view)
+    MapLifecycle(holder.view, onShow)
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
     SyncContent(holder, quests, realms, selected, finds, trace)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
@@ -498,43 +500,30 @@ internal fun QuestMap(
     }
 }
 
-// Hands the map view the activity's lifecycle events.
+// Hands the map view the activity's lifecycle events while it is on show; a hidden map is stopped and made invisible (so it stops
+// drawing), and a map leaving the screen is destroyed.
 @Composable
-private fun MapLifecycle(mapView: MapView) {
+private fun MapLifecycle(
+    mapView: MapView,
+    onShow: Boolean,
+) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, mapView) {
-        val observer =
-            LifecycleEventObserver { _, event ->
-                when (event) {
-                    Lifecycle.Event.ON_CREATE -> {
-                        mapView.onCreate(null)
-                    }
-
-                    Lifecycle.Event.ON_START -> {
-                        mapView.onStart()
-                    }
-
-                    Lifecycle.Event.ON_RESUME -> {
-                        mapView.onResume()
-                    }
-
-                    Lifecycle.Event.ON_PAUSE -> {
-                        mapView.onPause()
-                    }
-
-                    Lifecycle.Event.ON_STOP -> {
-                        mapView.onStop()
-                    }
-
-                    Lifecycle.Event.ON_DESTROY -> {
-                        mapView.onDestroy()
-                    }
-
-                    else -> {}
-                }
-            }
+    val life =
+        remember(mapView) {
+            MapLife({ mapView.onCreate(null) }, mapView::onStart, mapView::onResume, mapView::onPause, mapView::onStop, mapView::onDestroy)
+        }
+    val shown by rememberUpdatedState(onShow)
+    DisposableEffect(lifecycle, life) {
+        val observer = LifecycleEventObserver { _, _ -> life.update(lifecycle.currentState, shown) }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycle.removeObserver(observer)
+            life.destroy()
+        }
+    }
+    LaunchedEffect(life, onShow) {
+        mapView.visibility = if (onShow) View.VISIBLE else View.INVISIBLE
+        life.update(lifecycle.currentState, onShow)
     }
 }
 

@@ -64,17 +64,21 @@ private const val MAP_WEIGHT = 0.55f
 private const val PANEL_WEIGHT = 0.45f
 private const val QUEST_BUBBLE_DP = 200
 
-/** The Play tab: the open game with its map, goals and progress; without one, the saved games. */
+/**
+ * The Play tab: the open game with its map, goals and progress; without one, the saved games. It stays composed under the other
+ * tabs so the map comes back as it was; [onShow] is false meanwhile, and then nothing in it runs.
+ */
 @Composable
 internal fun PlayScreen(
     m: AppModel,
     modifier: Modifier = Modifier,
+    onShow: Boolean = true,
 ) {
     val hud = m.hud
     // Time away moves with the clock, but nothing ticks in the core: while it runs and this screen is on show, redraw once a minute
     // (display only: no GPS, and nothing while the app is in the background).
     val owner = LocalLifecycleOwner.current
-    val awayRunning = hud?.awayRunning == true
+    val awayRunning = hud?.awayRunning == true && onShow
     LaunchedEffect(owner, awayRunning) {
         if (awayRunning) {
             owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -85,7 +89,7 @@ internal fun PlayScreen(
             }
         }
     }
-    if (hud == null) NoGameOpen(m, modifier) else GameView(m, hud, modifier)
+    if (hud == null) NoGameOpen(m, modifier) else GameView(m, hud, onShow, modifier)
 }
 
 @Composable
@@ -108,12 +112,13 @@ private fun NoGameOpen(
 private fun GameView(
     m: AppModel,
     hud: HudOut,
+    onShow: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         GameHeader(m, hud)
         // The map is the top of the screen; goals and progress-bar quests sit under it in a scrolling panel.
-        PlayMap(m, hud, Modifier.fillMaxWidth().weight(MAP_WEIGHT))
+        PlayMap(m, hud, onShow, Modifier.fillMaxWidth().weight(MAP_WEIGHT))
         GamePanel(
             m,
             hud,
@@ -156,6 +161,7 @@ private fun GameHeader(
 private fun PlayMap(
     m: AppModel,
     hud: HudOut,
+    onShow: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val selected = m.quests.firstOrNull { it.locationId == m.selected }
@@ -186,6 +192,7 @@ private fun PlayMap(
             home = m.home?.let { LatLng(it.lat, it.lon) },
             trace = m.trace,
             lastPlace = m.lastPlace,
+            onShow = onShow,
             focus = focus,
             anchor = selected?.anchor?.let { LatLng(it.lat, it.lon) },
             onAnchor = { anchorPx = it },
