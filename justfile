@@ -101,6 +101,7 @@ android-core profile="debug": core-unmutated
 
 # Android: bindings (host build), format, static analysis, lint, unit tests
 check-android: core-unmutated
+    bash scripts/check_color_tokens.sh
     bash scripts/android_bindings.sh
     cd android && ./gradlew :app:spotlessCheck :app:detekt :app:lintDebug :app:testDebugUnitTest :app:koverVerifyDebug --console=plain -q
 
