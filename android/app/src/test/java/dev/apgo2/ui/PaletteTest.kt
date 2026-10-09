@@ -39,9 +39,17 @@ class PaletteTest {
     @Test fun doableIsBlueAndYourTrailAndTheRealmBlendIn() {
         val todo = ApgoPalette.questTodo
         assertTrue("doable is blue", todo.blue > todo.red && todo.blue > todo.green)
-        listOf(ApgoPalette.trace, ApgoPalette.realm).forEach {
-            assertTrue("$it is a neutral grey", maxOf(it.red, it.green, it.blue) - minOf(it.red, it.green, it.blue) < 0.12f)
-        }
+        val realm = ApgoPalette.realm
+        assertTrue(
+            "the realm boundary is a neutral grey",
+            maxOf(realm.red, realm.green, realm.blue) - minOf(realm.red, realm.green, realm.blue) < 0.12f,
+        )
+    }
+
+    @Test fun yourTrailIsAPaleColourOfItsOwn() {
+        val trace = ApgoPalette.trace
+        assertTrue("pale: every channel light", minOf(trace.red, trace.green, trace.blue) > 0.55f)
+        listOf("open", "progress", "done", "locked").forEach { assertNotEquals("never a quest state ($it)", ApgoPalette.quest(it), trace) }
     }
 
     @Test fun notDoneStandsApartFromTheRealmAndTrace() {
