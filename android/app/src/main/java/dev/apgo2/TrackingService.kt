@@ -21,17 +21,19 @@ internal enum class ServiceStart {
     /** Restarted by Android with a game open and no screen: start tracking from the service. */
     ResumeHeadless,
 
-    /** Restarted with no game to track: stop, so no notification lingers. */
+    /** Restarted with no game to track, or no location access from the background: stop, so no notification lingers. */
     Stop,
     ;
 
     companion object {
+        /** [backgroundLocation]: "Allow all the time"; a restart from the background gets no fixes with "while using the app". */
         fun decide(
             restarted: Boolean,
             playing: Boolean,
+            backgroundLocation: Boolean,
         ) = when {
             !restarted -> FromApp
-            playing -> ResumeHeadless
+            playing && backgroundLocation -> ResumeHeadless
             else -> Stop
         }
     }
@@ -61,17 +63,25 @@ class TrackingService : Service() {
                 .setOngoing(true)
                 .setContentIntent(open)
                 .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-        } else {
-            startForeground(ID, n) // the foreground service type only exists from Android 10
+        // A location service started from the background without location access is refused (SecurityException, Android 14+).
+        val started =
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                } else {
+                    startForeground(ID, n) // the foreground service type only exists from Android 10
+                }
+            }.onFailure { Diag.error(TAG, "foreground start refused", it) }
+        if (started.isFailure) {
+            stopSelf()
+            return START_NOT_STICKY
         }
         val restarted = intent == null
         Diag.info(TAG, "started", "restart" to restarted)
         // A restart by Android (START_STICKY) comes with no activity: loading the model resumes the saved game, then tracking is
         // started here instead of by the screen's effects.
         val model = (application as ApgoApp).model
-        when (ServiceStart.decide(restarted, playing = model.hud != null)) {
+        when (ServiceStart.decide(restarted, playing = model.hud != null, backgroundLocation = hasBackgroundLocation())) {
             ServiceStart.FromApp -> Unit
             ServiceStart.ResumeHeadless -> resumeWithoutScreen(model)
             ServiceStart.Stop -> stopSelf()

@@ -47,6 +47,10 @@ internal fun Context.hasFineLocation() = hasPermission(Manifest.permission.ACCES
 
 internal fun Context.hasActivityRecognition() = hasPermission(ACTIVITY_RECOGNITION_PERMISSION)
 
+/** "Allow all the time" (always true before Android 10, which split it out). */
+internal fun Context.hasBackgroundLocation() =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || hasPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+
 /** True when the app may read Bluetooth connections (always before Android 12, which introduced the permission). */
 internal fun Context.hasBluetoothConnect() =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.S || hasPermission(Manifest.permission.BLUETOOTH_CONNECT)
@@ -99,8 +103,7 @@ internal class PermissionState(
 
     private fun hasActivityRecognition() = ctx.hasActivityRecognition()
 
-    private fun hasBackgroundLocation() =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || ctx.hasPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    private fun hasBackgroundLocation() = ctx.hasBackgroundLocation()
 }
 
 /**
