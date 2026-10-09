@@ -1,18 +1,25 @@
 package dev.apgo2
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -22,9 +29,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,8 +69,9 @@ private const val PROGRESS_ROWS = 3
 private const val LIVE_REDRAW_MS = 60_000L
 private const val HIDDEN = "hidden"
 private const val LOG_LINES = 3
-private const val MAP_WEIGHT = 0.55f
-private const val PANEL_WEIGHT = 0.45f
+
+// What stays of the panel when it is slid down: the handle and the goal's first line.
+private const val PEEK_DP = 72
 private const val QUEST_BUBBLE_DP = 200
 
 /**
@@ -118,17 +128,49 @@ private fun GameView(
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         GameHeader(m, hud)
         // The map is the top of the screen; goals and progress-bar quests sit under it in a scrolling panel.
-        PlayMap(m, hud, onShow, Modifier.fillMaxWidth().weight(MAP_WEIGHT))
-        GamePanel(
-            m,
-            hud,
-            Modifier
-                .fillMaxWidth()
-                .weight(PANEL_WEIGHT)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp),
-        )
+        // The panel slides over the map's height: drag its handle, or tap it to slide the panel down to a peek and back.
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+            val totalPx = constraints.maxHeight.toFloat()
+            val max = PaneSplit.maxMap(totalPx, PEEK_DP * LocalDensity.current.density)
+            var mapShare by rememberSaveable { mutableFloatStateOf(PaneSplit.DEFAULT_MAP) }
+            val share = mapShare.coerceIn(PaneSplit.MIN_MAP, max)
+            val mapHeight = maxHeight * share
+            Column(Modifier.fillMaxSize()) {
+                PlayMap(m, hud, onShow, Modifier.fillMaxWidth().height(mapHeight))
+                PaneHandle(
+                    collapsed = share >= max,
+                    onDrag = { mapShare = PaneSplit.dragged(share, it, totalPx, max) },
+                    onTap = { mapShare = PaneSplit.toggled(share, max) },
+                )
+                GamePanel(
+                    m,
+                    hud,
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 8.dp),
+                )
+            }
+        }
     }
+}
+
+// The grip between the map and the panel: drag it to resize them, tap it to slide the panel down or back up.
+@OptIn(ExperimentalMaterial3Api::class) // the stock bottom-sheet grip
+@Composable
+private fun PaneHandle(
+    collapsed: Boolean,
+    onDrag: (Float) -> Unit,
+    onTap: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .draggable(rememberDraggableState(onDrag), Orientation.Vertical)
+            .clickable(onClickLabel = if (collapsed) "Show the panel" else "Show more map", onClick = onTap),
+        contentAlignment = Alignment.Center,
+    ) { BottomSheetDefaults.DragHandle() }
 }
 
 @Composable
