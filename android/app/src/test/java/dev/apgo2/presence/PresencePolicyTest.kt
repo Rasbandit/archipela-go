@@ -186,4 +186,16 @@ class DebouncerTest {
         d.seed(null)
         assertEquals(false, d.pending)
     }
+
+    @Test fun aPendingChangeSaysExactlyWhenItWillSettle() {
+        val d = Debouncer(holdMs = 45_000)
+        d.feed(false, 0)
+        assertEquals("nothing pending", null, d.settlesInMs(1_000))
+        d.feed(true, 10_000)
+        assertEquals(45_000L, d.settlesInMs(10_000))
+        assertEquals(15_000L, d.settlesInMs(40_000))
+        assertEquals("overdue is now", 0L, d.settlesInMs(60_000))
+        d.feed(true, 55_000)
+        assertEquals("settled", null, d.settlesInMs(55_000))
+    }
 }

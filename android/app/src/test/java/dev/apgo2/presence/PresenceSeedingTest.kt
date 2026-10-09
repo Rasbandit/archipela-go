@@ -53,4 +53,14 @@ class PresenceSeedingTest {
         assertEquals("never started: still waiting", true, PresenceSeeding().waiting)
         assertEquals("started and incomplete", true, started().waiting)
     }
+
+    @Test fun theSeedTimeoutSaysWhenItWillFire() {
+        val s = started(1_000)
+        assertEquals(3_000L, s.timeoutInMs(1_000))
+        assertEquals(1_000L, s.timeoutInMs(3_000))
+        assertEquals("overdue is now", 0L, s.timeoutInMs(9_000))
+        s.poll(9_000, wifiReported = false, bluetoothReady = false)
+        assertEquals("all seeded: nothing to wait for", null, s.timeoutInMs(9_000))
+        assertEquals("never started: nothing scheduled", null, PresenceSeeding(3_000).timeoutInMs(0))
+    }
 }

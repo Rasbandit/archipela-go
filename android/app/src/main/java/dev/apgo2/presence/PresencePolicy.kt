@@ -59,6 +59,9 @@ internal class Debouncer(
 
     private var adoptNext = false
 
+    /** How long until a pending change becomes stable (0 when overdue), or `null` when nothing is pending: schedule one look then. */
+    fun settlesInMs(nowMs: Long): Long? = if (pending) (since + holdMs - nowMs).coerceAtLeast(0) else null
+
     /**
      * Forget the history and start from [value]: a non-null value is stable at once and later changes are debounced; `null` means
      * "no history: the next real value is adopted at once". That differs from a fresh debouncer fed `null`, which stays unknown but

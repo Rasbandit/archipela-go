@@ -23,6 +23,9 @@ internal class PresenceSeeding(
      */
     val waiting: Boolean get() = !complete
 
+    /** How long until the seeding timeout (0 when overdue), or `null` when not started or already complete: schedule one look then. */
+    fun timeoutInMs(nowMs: Long): Long? = if (!started || complete) null else (startMs + timeoutMs - nowMs).coerceAtLeast(0)
+
     /** A monitor (re)start: nothing is seeded, the timeout counts from [nowMs]. */
     fun restart(nowMs: Long) {
         started = true
