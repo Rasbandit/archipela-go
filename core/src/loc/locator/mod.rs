@@ -383,6 +383,10 @@ impl Locator {
         let d2 = if quiet_hold { imm::d2(&preds[S], &meas).unwrap_or(f64::INFINITY) } else { imm::min_d2(&preds, &meas) };
         match imm::gate(d2, meas.vel.is_some(), &self.params) {
             Gate::Reject => {
+                // A gated fix in the warm-up restarts it: ghosts that alternate with gated ones must not run it down (re-review N2').
+                if self.reanchor_warmup > 0 {
+                    self.reanchor_warmup = gap::REANCHOR_WARMUP_FIXES;
+                }
                 // A rejected fix is no part of the line fit (finding M3): coast on the ordinary prediction and judge the maneuver again
                 // on the used fixes alone.
                 let (preds, c) = if inflated { imm.predict_to(f.t_ms, mode, &self.params) } else { (preds, c) };

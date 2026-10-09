@@ -653,6 +653,27 @@ mod tests {
     }
 
     #[test]
+    fn alternating_close_multipath_after_a_bridged_gap_never_counts_far_from_the_truth() {
+        // Re-review N2': a ghost 30 to 60 m off passes the cloud gate (about twice the accuracy), and the opposite one is gated; a gated
+        // fix between two taken ones must not let the warm-up run down, or the estimates count 31 to 62 m off.
+        for (acc, off) in [(15.0, 30.0), (20.0, 40.0), (30.0, 45.0), (30.0, 60.0)] {
+            let mut l = Locator::default();
+            l.set_graph(grid());
+            walk_into_a_gap(&mut l, 40, 70, |_| 90.0);
+            let far: Vec<(i64, f64)> = (70..100)
+                .filter_map(|t| {
+                    let truth = on_street(1.4 * i64_to_f64(t));
+                    let ghost = destination(truth, if t % 2 == 1 { 180.0 } else { 0.0 }, off);
+                    let e = walking_fix(&mut l, t, &fix(ghost, t, acc));
+                    let d = distance_m(e.point(), truth);
+                    (e.accepted && d > 25.0).then_some((t, d))
+                })
+                .collect();
+            assert!(far.is_empty(), "acc {acc} off {off}: accepted far from the truth: {far:?}");
+        }
+    }
+
+    #[test]
     fn one_multipath_fix_after_a_bridged_gap_does_not_drag_the_pin() {
         // Adversarial re-review N2: a single 30 m fix 100 m off pulled the pin about 70 m, and the good fixes after it were gated.
         let mut l = Locator::default();
