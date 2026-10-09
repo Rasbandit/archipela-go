@@ -153,7 +153,7 @@ internal object ApgoIcons {
         val builder = ImageVector.Builder("Runner", 24.dp, 24.dp, 24f, 24f)
         builder.path(
             fill = null,
-            stroke = SolidColor(Color.Black),
+            stroke = SolidColor(ApgoPalette.iconStroke),
             strokeLineWidth = 2f,
             strokeLineCap = StrokeCap.Round,
             strokeLineJoin = StrokeJoin.Round,

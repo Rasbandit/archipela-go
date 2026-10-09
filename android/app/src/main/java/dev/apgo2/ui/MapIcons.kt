@@ -121,7 +121,7 @@ internal fun renderFindPin(
     icon: ImageVector,
     sizePx: Int,
     fill: Color,
-    ring: Color = Color.White,
+    ring: Color = ApgoPalette.onPin,
     ringFraction: Float = 0.07f,
 ): Bitmap {
     val s = sizePx.toFloat()
@@ -129,7 +129,7 @@ internal fun renderFindPin(
     return render(sizePx, h.toInt()) {
         pinBody(s / 2, s / 2, s / 2, h, s * ringFraction, ring, fill)
         val inner = s * 0.54f
-        icon(icon, (s - inner) / 2, inner, Color.White)
+        icon(icon, (s - inner) / 2, inner, ApgoPalette.onPin)
     }
 }
 
@@ -138,8 +138,8 @@ internal fun renderPin(
     icon: ImageVector,
     sizePx: Int,
     fill: Color,
-    glyph: Color = Color.White,
-    ring: Color = Color.White,
+    glyph: Color = ApgoPalette.onPin,
+    ring: Color = ApgoPalette.onPin,
     ringFraction: Float = 0.07f,
 ): Bitmap =
     render(sizePx) {
@@ -162,7 +162,7 @@ internal fun renderRing(
         val s = sizePx.toFloat()
         val band = s * 0.2f
         val gap = if (segments.size > 1) 4f else 0f
-        drawCircle(Color.White, radius = s / 2)
+        drawCircle(ApgoPalette.onMap, radius = s / 2)
         val arc = Size(s - band - 4f, s - band - 4f)
         val topLeft = Offset((s - arc.width) / 2, (s - arc.height) / 2)
         var start = -90f
@@ -176,7 +176,7 @@ internal fun renderRing(
 internal fun renderGlyph(
     icon: ImageVector,
     sizePx: Int,
-    color: Color = Color.White,
+    color: Color = ApgoPalette.onPin,
 ): Bitmap = render(sizePx) { icon(icon, 0f, sizePx.toFloat(), color) }
 
 /**
@@ -187,7 +187,7 @@ internal fun renderMarker(
     icon: ImageVector,
     sizePx: Int,
     color: Color,
-    outline: Color = Color.White,
+    outline: Color = ApgoPalette.onMap,
 ): Bitmap =
     render(sizePx) {
         val s = sizePx.toFloat()
@@ -212,27 +212,27 @@ internal fun renderQuestPin(
     return render(sizePx, h.toInt()) {
         val body = s * 0.86f // leave room for the badge beside the head
         val head = Offset(s / 2, body / 2)
-        pinBody(head.x, head.y, body / 2, h, body * PIN_RING_FRACTION, Color.White, fill)
+        pinBody(head.x, head.y, body / 2, h, body * PIN_RING_FRACTION, ApgoPalette.onPin, fill)
         // The icon sits a little high so a row of difficulty dots fits under it, inside the head.
         val inner = body * 0.46f
-        icon(icon, head.x - inner / 2, inner, Color.White, top = head.y - inner / 2 - body * 0.07f)
+        icon(icon, head.x - inner / 2, inner, ApgoPalette.onPin, top = head.y - inner / 2 - body * 0.07f)
         val dot = body * 0.045f
         val gap = body * 0.13f
         val row = head.y + body * PIP_ROW_FRACTION
         repeat(pips) { i ->
-            drawCircle(Color.White, radius = dot, center = Offset(head.x + (i - (pips - 1) / 2f) * gap, row))
+            drawCircle(ApgoPalette.onPin, radius = dot, center = Offset(head.x + (i - (pips - 1) / 2f) * gap, row))
         }
         if (badge != MapMarkers.Badge.None) {
             val r = s * 0.2f
             val c = Offset(s - r, body - r)
-            drawCircle(Color.White, radius = r, center = c)
+            drawCircle(ApgoPalette.onPin, radius = r, center = c)
             val locked = badge == MapMarkers.Badge.Locked
             drawCircle(if (locked) ApgoPalette.questLocked else ApgoPalette.questProgress, radius = r - s * 0.025f, center = c)
             val g = r * 1.15f
             if (locked) {
-                icon(ApgoIcons.Locked, c.x - g / 2, g, Color.White, width = 2.6f, top = c.y - g / 2)
+                icon(ApgoIcons.Locked, c.x - g / 2, g, ApgoPalette.onPin, width = 2.6f, top = c.y - g / 2)
             } else {
-                drawCircle(Color.White, radius = r * 0.35f, center = c)
+                drawCircle(ApgoPalette.onPin, radius = r * 0.35f, center = c)
             }
         }
     }
