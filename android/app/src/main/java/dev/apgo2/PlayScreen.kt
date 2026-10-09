@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -163,7 +164,10 @@ private fun GameView(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .shadow(SHEET_SHADOW_DP.dp, SheetShape, clip = false) // no clip: the grip's touch area reaches up over the map
-                    .background(MaterialTheme.colorScheme.surface, SheetShape),
+                    .background(MaterialTheme.colorScheme.surface, SheetShape)
+                    // A hit target as a whole (as a Material Surface is): a touch anywhere on the sheet, even on plain text, never
+                    // reaches the map under it. The controls inside still get their touches first.
+                    .pointerInput(Unit) {},
             ) {
                 PaneGrip(shown) { shown = it }
                 PanelTop(hud, shown, Modifier.onSizeChanged { topPx = it.height })
