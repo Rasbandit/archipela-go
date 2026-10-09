@@ -72,4 +72,5 @@ in the same pull request.
 | `core/vendor/`, other third-party code | its own licence (`THIRD_PARTY_NOTICES.md`) |
 
 Contributions are accepted under the licence of the directory they touch. Changes to `android/` also need
-the maintainer's contributor agreement before merge, so the app can still be distributed commercially.
+a contributor agreement before merge, so the app can still be distributed commercially. There is no
+agreement text yet (#82): contact the maintainer before opening an `android/` pull request.

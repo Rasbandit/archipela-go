@@ -102,4 +102,4 @@ first diag line prints `GpsMode$Off@hash` (cosmetic, no toString).
 - No attribution/About screen yet (OSM, OpenFreeMap, Lucide ISC are required for a store release). No APK signing; debug APK is ~90 MB.
 - The apworld has no tutorial/game-info pages (WebWorld only carries option groups).
 - Launcher icon is the default; our own icon is not designed. The Archipelago logo (CC BY-NC) must not be bundled (`ui-design-system.md`).
-- Licensing: repo is MIT today. The owner wants to monetize the app: change the app's license before making the repo public (see `working-in-this-repo.md`).
+- Licensing: `android/` is PolyForm Noncommercial 1.0.0, everything else MIT; no contributor agreement yet (#82, see `working-in-this-repo.md`).

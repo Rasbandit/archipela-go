@@ -88,6 +88,6 @@ older pre-issues backlog: file an issue when one of these is picked up, then del
 
 The owner wants to monetize the app and also show it on a portfolio, so the licence is split: `android/` is **PolyForm Noncommercial 1.0.0**
 (`android/LICENSE`, source-available, only the owner may sell it); everything else (`apworld/`, `core/`, `docs/`, `scripts/`) stays **MIT** (root `LICENSE`).
-The repo is being made public after a history check (gitleaks, personal data such as home coordinates or Wi-Fi names). Outside contributions to `android/`
-need a CLA or rights assignment before merge, or the owner cannot sell that code. Upstream `aki665/react-native-archipelago` is MIT and no code was copied;
+Before the repo goes public (as of 2026-10-08 still private), scan the full history with gitleaks and for personal data (home coordinates, Wi-Fi names).
+Outside contributions to `android/` need a CLA or rights assignment before merge, or the owner cannot sell that code (#82). Upstream `aki665/react-native-archipelago` is MIT and no code was copied;
 its apworld has no licence and was reimplemented.
