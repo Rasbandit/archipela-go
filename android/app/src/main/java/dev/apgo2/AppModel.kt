@@ -126,13 +126,6 @@ internal class AppModel(
         while (log.size > LOG_LIMIT) log.removeAt(log.lastIndex)
     }
 
-    /** Android restarted the tracking service with no screen: start what the activity's effects would (steps, presence, GPS). */
-    fun resumeInBackground() {
-        Diag.info("service", "resume without screen")
-        if (ctx.hasActivityRecognition()) sensors.startSteps()
-        presence.startHeadless(ctx.hasFineLocation(), ctx.hasBluetoothConnect())
-    }
-
     /** Reload everything shown from the engine. */
     fun refreshAll() {
         realms = engine.realms()

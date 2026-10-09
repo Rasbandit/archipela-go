@@ -49,7 +49,7 @@ internal fun insideShape(
 private const val HALF_TURN = 180.0
 private const val FULL_TURN = 360.0
 
-/** [lon] moved by whole turns to within 180° of [around], so a shape across the antimeridian is one piece. */
+// lon moved by whole turns to within 180° of around, so a shape across the antimeridian is one piece.
 private fun unwrapLon(
     lon: Double,
     around: Double,

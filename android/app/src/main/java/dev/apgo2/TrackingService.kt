@@ -11,6 +11,8 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 
+private const val TAG = "service"
+
 /** What a start of [TrackingService] has to do besides showing its notification. */
 internal enum class ServiceStart {
     /** Started by the app: the activity's effects run presence, steps and GPS. */
@@ -24,7 +26,7 @@ internal enum class ServiceStart {
     ;
 
     companion object {
-        fun of(
+        fun decide(
             restarted: Boolean,
             playing: Boolean,
         ) = when {
@@ -65,20 +67,27 @@ class TrackingService : Service() {
             startForeground(ID, n) // the foreground service type only exists from Android 10
         }
         val restarted = intent == null
-        Diag.info("service", "started", "restart" to restarted)
+        Diag.info(TAG, "started", "restart" to restarted)
         // A restart by Android (START_STICKY) comes with no activity: loading the model resumes the saved game, then tracking is
         // started here instead of by the screen's effects.
         val model = (application as ApgoApp).model
-        when (ServiceStart.of(restarted, playing = model.hud != null)) {
+        when (ServiceStart.decide(restarted, playing = model.hud != null)) {
             ServiceStart.FromApp -> Unit
-            ServiceStart.ResumeHeadless -> model.resumeInBackground()
+            ServiceStart.ResumeHeadless -> resumeWithoutScreen(model)
             ServiceStart.Stop -> stopSelf()
         }
         return START_STICKY
     }
 
+    // What the activity's effects would start: steps, presence and GPS.
+    private fun resumeWithoutScreen(model: AppModel) {
+        Diag.info(TAG, "resume without screen")
+        if (hasActivityRecognition()) model.sensors.startSteps()
+        model.presence.startHeadless(hasFineLocation(), hasBluetoothConnect())
+    }
+
     override fun onDestroy() {
-        Diag.info("service", "stopped")
+        Diag.info(TAG, "stopped")
         super.onDestroy()
     }
 
