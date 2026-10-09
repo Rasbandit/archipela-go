@@ -299,7 +299,8 @@ pub struct Game {
     /// Saved progress of progressive quests.
     #[serde(default)]
     pub counters: Counters,
-    #[serde(skip)]
+    /// Progress of each started quest (a courier pickup, a dwell's best stretch, coverage); missing in old saves.
+    #[serde(default)]
     trackers: BTreeMap<i64, Tracker>,
     #[serde(skip)]
     last_fix: Option<Fix>,
@@ -1268,6 +1269,7 @@ impl Game {
         let mut g: Self = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
         g.counters.steps_last = None; // steps taken while the game was closed are never credited
         g.counters.away_mark = None; // nor time away: where the player was while the app was dead is unknown (presence restarts it)
+        g.trackers.values_mut().for_each(Tracker::resume); // nor dwell time or steps; what each quest reached is kept
         g.normalize_counters();
         Ok(g)
     }
@@ -2186,6 +2188,47 @@ mod tests {
         g.set_counting(true, 0); // e.g. a ride in the car with Bluetooth connected
         let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(b, 300) }, None);
         assert_eq!(done_ids(&ev), vec![1000], "the pickup is kept: {ev:?}");
+    }
+
+    /// Save `g` and load it back, as an app restart does.
+    fn restarted(g: &Game, name: &str) -> Game {
+        let dir = std::env::temp_dir().join(format!("apgo-restart-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        g.save(&dir).unwrap();
+        let back = Game::load(&dir, &g.id).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        back
+    }
+
+    #[test]
+    fn a_courier_pickup_survives_a_restart() {
+        let (a, b) = (destination(home(), 0.0, 400.0), destination(home(), 90.0, 800.0));
+        let mut g = chain_game("courier", vec![Target::Courier { a, b, r: 40.0, time_limit_min: 30.0 }]);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(a, 10) }, None); // picked up
+        let mut back = restarted(&g, "courier");
+        let ev = back.on_fix(Fix { accuracy_m: 5.0, ..fixat(b, 300) }, None);
+        assert_eq!(done_ids(&ev), vec![1000], "the pickup is kept: {ev:?}");
+    }
+
+    #[test]
+    fn a_dwells_best_stretch_survives_a_restart_but_its_running_timer_does_not() {
+        let mut g = chain_game("dwell", vec![Target::Dwell { p: home(), r: 50.0, minutes: 10.0 }]);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 0) }, None);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 300) }, None); // 5 of 10 minutes
+        let mut back = restarted(&g, "dwell");
+        assert_eq!(back.next_due_ms(400_000), None, "where the player was while the app was dead is unknown");
+        let ev = back.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 3600) }, None);
+        assert!(ev.is_empty(), "an hour with the app dead is not dwell time: {ev:?}");
+        assert!(matches!(back.trackers.get(&1000).map(Tracker::status), Some(Status::Active(p)) if p >= 0.5), "the best stretch is kept");
+    }
+
+    #[test]
+    fn a_save_without_trackers_still_loads() {
+        let g = chain_game("courier", vec![Target::Courier { a: home(), b: home(), r: 40.0, time_limit_min: 30.0 }]);
+        let mut json: serde_json::Value = serde_json::to_value(&g).unwrap();
+        json.as_object_mut().unwrap().remove("trackers");
+        let old: Game = serde_json::from_value(json).unwrap();
+        assert!(old.trackers.is_empty());
     }
 
     #[test]

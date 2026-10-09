@@ -2,6 +2,8 @@
 
 use std::collections::BTreeSet;
 
+use serde::{Deserialize, Serialize};
+
 use crate::assign::Target;
 use crate::geo::{densify, distance_m, point_in_polygon, Point};
 use crate::num::{count_f32, count_f64, count_u32, floor_i64, i64_to_f64, to_f32, trunc_i64};
@@ -62,7 +64,8 @@ pub const LINE_SAMPLE_M: f64 = 20.0;
 const HOME_RADIUS_M: f64 = 100.0;
 const MAX_GAP_MS: i64 = 5 * 60_000;
 
-#[derive(Debug, Clone)]
+// Saved with the game (#76), so an in-progress quest survives an app restart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 enum State {
     None,
     Dwell { since: Option<i64>, best_ms: i64 },
@@ -75,6 +78,7 @@ enum State {
 }
 
 /// Watches phone signals and decides whether one quest has been completed.
+#[derive(Serialize, Deserialize)]
 pub struct Tracker {
     target: Target,
     home: Point,
@@ -210,7 +214,7 @@ impl Tracker {
             }
             (Target::Steps { n }, State::Steps { baseline, now }) => {
                 if let Some(total) = steps_total {
-                    let b = *baseline.get_or_insert(total);
+                    let b = *baseline.get_or_insert(total - *now); // `now` > 0 only after `resume`: keep the steps already counted
                     *now = total - b;
                     self.progress = (to_f32(i64_to_f64(*now)) / to_f32(f64::from(*n))).clamp(0.0, 1.0);
                     self.done = *now >= i64::from(*n);
@@ -273,6 +277,15 @@ impl Tracker {
             State::Dwell { since, .. } => *since = None,
             State::Away { last_t, .. } => *last_t = None,
             _ => {}
+        }
+    }
+
+    /// The game was loaded after the app stopped: like [`Self::pause`], and the step counter is re-based on its next reading,
+    /// so steps taken while the app was closed are not credited (the steps already counted are kept).
+    pub fn resume(&mut self) {
+        self.pause();
+        if let State::Steps { baseline, .. } = &mut self.state {
+            *baseline = None;
         }
     }
 
@@ -367,6 +380,18 @@ mod tests {
             done = t.update(&fix(destination(home(), 0.0, 20.0 * f64::from(i)), 200 + i64::from(i)), None) == Status::Done;
         }
         assert!(done);
+    }
+
+    #[test]
+    fn resume_after_a_restart_keeps_steps_taken_but_not_steps_while_closed() {
+        let mut t = Tracker::new(Target::Steps { n: 1000 }, home());
+        t.update(&fix(home(), 0), Some(5000));
+        t.update(&fix(home(), 60), Some(5400)); // 400 steps
+        let mut back: Tracker = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+        back.resume();
+        // The counter moved on 2000 while the app was closed; the next reading is the new base, 400 are kept.
+        assert_eq!(back.update(&fix(home(), 3600), Some(7400)), Status::Active(0.4));
+        assert_eq!(back.update(&fix(home(), 3660), Some(8000)), Status::Done);
     }
 
     #[test]
