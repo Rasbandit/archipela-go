@@ -110,6 +110,7 @@ class MapFeaturesTest {
         blurb = "",
         reward = null,
         chainId = null,
+        collect = null,
     )
 
     private fun realm(

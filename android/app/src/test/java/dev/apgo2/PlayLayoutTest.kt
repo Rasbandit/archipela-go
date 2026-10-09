@@ -35,6 +35,7 @@ class PlayLayoutTest {
         blurb = "",
         reward = null,
         chainId = chainId,
+        collect = null,
     )
 
     private fun ids(l: List<QuestOut>) = l.map { it.locationId }
