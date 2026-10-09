@@ -41,6 +41,13 @@ class MapMarkersTest {
         assertEquals("unknown difficulty reads as medium", medium, MapMarkers.iconScale("unknown", boss = false))
     }
 
+    @Test fun questPinsAreBigEnoughToReadAndNeverUpscaled() {
+        val scales =
+            listOf("easy", "medium", "hard").map { MapMarkers.iconScale(it, boss = false) } + MapMarkers.iconScale("easy", boss = true)
+        assertTrue("a scale over 1 blurs the bitmap", scales.all { it <= 1f })
+        assertTrue("the smallest pin is drawn at least 96 px", scales.min() * MapMarkers.QUEST_PIN_PX >= 96f)
+    }
+
     @Test fun inProgressAndOpenQuestsAreDrawnBeforeDoneOnes() {
         val order = listOf("progress", "open", "locked", "done").map { MapMarkers.drawOrder(it) }
         assertEquals(order.sorted(), order)

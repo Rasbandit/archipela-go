@@ -35,12 +35,14 @@ internal sealed interface MarkerSpec {
  */
 internal object MapMarkers {
     private const val KEY_PARTS = 4
-    private const val FIND_PIN_PX = 96
+    private const val FIND_PIN_PX = 144
     private const val FAVORITE_RING_FRACTION = 0.13f
-    private const val SCALE_BOSS = 0.85f
-    private const val SCALE_EASY = 0.55f
-    private const val SCALE_MEDIUM = 0.62f
-    private const val SCALE_HARD = 0.7f
+
+    // At most 1: a bigger factor would blur the bitmap. The boss is drawn at full size.
+    private const val SCALE_BOSS = 1f
+    private const val SCALE_EASY = 0.62f
+    private const val SCALE_MEDIUM = 0.7f
+    private const val SCALE_HARD = 0.78f
     private const val ORDER_DONE = 3
     private const val ORDER_OTHER = 4
     private const val STATE_PROGRESS = "progress"
@@ -50,7 +52,7 @@ internal object MapMarkers {
     enum class Badge { None, Progress, Done, Locked }
 
     /** Pixel size of a quest pin's bitmap; [iconScale] is the factor the map draws it at. */
-    const val QUEST_PIN_PX = 120
+    const val QUEST_PIN_PX = 160
 
     fun parse(key: String): MarkerSpec? {
         val p = key.split("|")
