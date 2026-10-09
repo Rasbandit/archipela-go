@@ -87,7 +87,7 @@ private const val BADGE_HOME = "marker-home"
 private const val GEOMETRY_POINT = "Point"
 
 // Pins closer than this (map pixels) merge into a cluster; past this zoom every pin shows on its own, overlapping if it must.
-private const val CLUSTER_RADIUS = 44
+private const val CLUSTER_RADIUS = 28
 private const val CLUSTER_MAX_ZOOM = 17
 private const val CLUSTER_CIRCLE_RADIUS = 20f
 private const val CLUSTER_STROKE = 3f
