@@ -236,6 +236,35 @@ impl Tracker {
         self.status()
     }
 
+    /// When a running dwell completes if nothing changes (inside since its stretch began, no fix said otherwise); `None` when
+    /// none is running. The app schedules one wake-up then instead of needing fixes while the player stands still.
+    #[must_use]
+    pub fn due_ms(&self) -> Option<i64> {
+        if self.done {
+            return None;
+        }
+        match (&self.target, &self.state) {
+            (Target::Dwell { minutes, .. } | Target::DwellArea { minutes, .. }, State::Dwell { since: Some(s), .. }) => Some(s + trunc_i64(minutes * 60_000.0)),
+            _ => None,
+        }
+    }
+
+    /// A scheduled wake-up: a running dwell is credited up to `now_ms` (the player is still inside: no fix said otherwise).
+    pub fn tick(&mut self, now_ms: i64) -> Status {
+        if self.done {
+            return Status::Done;
+        }
+        if let (Target::Dwell { minutes, .. } | Target::DwellArea { minutes, .. }, State::Dwell { since, best_ms }) = (&self.target, &mut self.state) {
+            if since.is_some() {
+                Self::dwell(true, now_ms, *minutes, since, best_ms, &mut self.progress, &mut self.done);
+            }
+        }
+        if self.done {
+            return self.finish();
+        }
+        self.status()
+    }
+
     /// Counting was switched off (car, home): forget only running timers, so what happened before the pause is not
     /// stitched to what happens after it. Progress (a courier pickup, a round trip's far point, coverage, cells) stays;
     /// a dwell keeps its best stretch (`best_ms` is progress) but its current stretch starts over.
@@ -350,6 +379,16 @@ mod tests {
         assert_eq!(dwell.update(&fix(home(), 1300), None), Status::Done);
 
         let far = destination(home(), 0.0, 1000.0);
+        let mut quiet = Tracker::new(Target::Dwell { p: home(), r: 40.0, minutes: 10.0 }, home());
+        quiet.update(&fix(home(), 0), None);
+        assert_eq!(quiet.due_ms(), Some(600_000), "inside since 0: done at minute 10 if nothing changes");
+        assert_ne!(quiet.tick(300_000), Status::Done);
+        assert_eq!(quiet.tick(600_000), Status::Done, "standing still needs no more fixes to finish");
+        let mut left = Tracker::new(Target::Dwell { p: home(), r: 40.0, minutes: 10.0 }, home());
+        left.update(&fix(home(), 0), None);
+        left.update(&fix(far, 60), None);
+        assert_eq!(left.due_ms(), None, "outside: nothing will fall due");
+        assert_ne!(left.tick(900_000), Status::Done);
         let mut away = Tracker::new(Target::Away { minutes: 10.0 }, home());
         away.update(&fix(far, 0), None);
         away.update(&fix(far, 60), None); // one minute counted

@@ -771,22 +771,37 @@ impl Game {
     /// When the next time-away mark will be reached if nothing changes, so the app can schedule one wake-up then; `None` at home.
     #[must_use]
     pub fn next_due_ms(&self, now_ms: i64) -> Option<i64> {
-        self.counters.away_mark?;
-        self.unlocked_chains()
-            .into_iter()
-            .filter(|c| c.unit == ChainUnit::Minutes)
-            .filter_map(|c| {
-                let live = self.counter_at(&c, now_ms);
-                let next = c.marks.iter().filter(|m| !self.done.contains(&m.location_id) && m.at > live).map(|m| m.at).reduce(f64::min)?;
-                Some(now_ms + round_i64(((next - live) * 60_000.0).ceil()))
-            })
-            .min()
+        if self.checks_blocked() {
+            return None; // a trap holds every check; the fix or item that ends it reschedules
+        }
+        let away = self.counters.away_mark.and_then(|_| {
+            self.unlocked_chains()
+                .into_iter()
+                .filter(|c| c.unit == ChainUnit::Minutes)
+                .filter_map(|c| {
+                    let live = self.counter_at(&c, now_ms);
+                    let next = c.marks.iter().filter(|m| !self.done.contains(&m.location_id) && m.at > live).map(|m| m.at).reduce(f64::min)?;
+                    Some(now_ms + round_i64(((next - live) * 60_000.0).ceil()))
+                })
+                .min()
+        });
+        // A dwell the player is standing in finishes then too, with no more fixes needed.
+        let dwell = self.trackers.values().filter_map(Tracker::due_ms).min();
+        away.into_iter().chain(dwell).min()
     }
 
-    /// A scheduled wake-up (see [`Self::next_due_ms`]): settle time away and complete what fell due.
+    /// A scheduled wake-up (see [`Self::next_due_ms`]): settle time away, finish dwells still running, complete what fell due.
     pub fn tick(&mut self, t_ms: i64) -> Vec<Event> {
         self.settle_away(t_ms);
-        self.complete_reached(t_ms, self.last_pos())
+        let mut ev = Vec::new();
+        if self.counting && !self.checks_blocked() {
+            let finished: Vec<i64> = self.trackers.iter_mut().filter_map(|(id, t)| (t.tick(t_ms) == Status::Done).then_some(*id)).collect();
+            for id in finished {
+                ev.extend(self.complete(id, t_ms, self.last_pos()));
+            }
+        }
+        ev.extend(self.complete_reached(t_ms, self.last_pos()));
+        ev
     }
 
     /// Complete every chain member whose mark the counter has passed (in unlocked zones, and not while a trap blocks checks).
@@ -1445,6 +1460,16 @@ mod tests {
         assert!((g.counters.progress["1:wanderlust"] - 3.0).abs() < 0.01);
         assert_eq!(g.next_due_ms(300_000), None, "at home nothing falls due");
         assert!((wanderlust(&g, 999_000) - 3.0).abs() < 0.01, "time at home does not count");
+    }
+
+    #[test]
+    fn a_dwell_quest_finishes_on_its_scheduled_tick_without_new_fixes() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let spot = destination(g.home, 90.0, 1200.0);
+        g.assignments.push(chain::tests_support::member(9000, 1, "bench_warmer", Target::Dwell { p: spot, r: 40.0, minutes: 3.0 }));
+        assert!(g.on_fix(Fix { accuracy_m: 5.0, ..fixat(spot, 1000) }, None).iter().all(|e| !matches!(e, Event::QuestDone { location_id: 9000, .. })));
+        assert_eq!(g.next_due_ms(1_000_000), Some(1_180_000), "three minutes after arriving");
+        assert!(g.tick(1_180_000).contains(&Event::QuestDone { location_id: 9000, name: g.assignments.last().unwrap().quest_name.clone() }));
     }
 
     #[test]
