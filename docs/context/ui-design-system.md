@@ -33,8 +33,9 @@ widgets or write colours themselves.
   white casing, never dashed (the base map draws footpaths dashed) and without direction arrows (coverage counts either way); done trails fade.
 - A callout attached to a pin is a `MapBubble` (placement in `BubblePlacement`, unit-tested): the realm editor's find callout and the Play quest popup both use it. Quests with no pin
   (steps, new squares, time away) show the same content in a `MapOverlayCard` at the bottom of the map.
-- Every distance, area and percentage the player sees goes through `ui/Units.kt` (`distance`, `area`, `percent`): km or mi by
-  region, and always `Locale.US` digits and decimal point. Never `"%.1f".format(...)` a shown number. Dates and times stay localized.
+- Every distance, area and percentage the player sees goes through `ui/Units.kt` (`distance`, `area`, `percent`): km or mi from
+  `Units.system`, which `UnitSettings` sets from the core (Settings tab choice Auto/Kilometres/Miles; Auto resolves by region in
+  `core/src/settings.rs`). Always `Locale.US` digits and decimal point. Never `"%.1f".format(...)` a shown number. Dates and times stay localized.
 - Compose text colours come from `MaterialTheme.colorScheme` roles or `FeedbackText(Tone.*)`.
 - A pattern used twice becomes a component in `Components.kt`. Selected chips are a solid `primary` fill because the Material default
   (`secondaryContainer`) blended into the card behind it.
