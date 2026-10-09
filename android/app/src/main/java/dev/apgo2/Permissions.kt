@@ -43,6 +43,14 @@ private const val BACKGROUND_LOCATION_PERMISSION = Manifest.permission.ACCESS_BA
 internal fun Context.hasPermission(permission: String) =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
+internal fun Context.hasFineLocation() = hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+
+internal fun Context.hasActivityRecognition() = hasPermission(ACTIVITY_RECOGNITION_PERMISSION)
+
+/** "Allow all the time" (always true before Android 10, which split it out). */
+internal fun Context.hasBackgroundLocation() =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || hasPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+
 /** True when the app may read Bluetooth connections (always before Android 12, which introduced the permission). */
 internal fun Context.hasBluetoothConnect() =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.S || hasPermission(Manifest.permission.BLUETOOTH_CONNECT)
@@ -53,7 +61,7 @@ internal class PermissionState(
     private val ctx: Context,
 ) {
     // Start from the real state: on an activity recreate "false" would stop tracking until the launcher answers.
-    var location by mutableStateOf(ctx.hasPermission(Manifest.permission.ACCESS_FINE_LOCATION))
+    var location by mutableStateOf(ctx.hasFineLocation())
 
     var steps by mutableStateOf(hasActivityRecognition())
 
@@ -93,10 +101,9 @@ internal class PermissionState(
 
     private fun prefs() = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    private fun hasActivityRecognition() = ctx.hasPermission(ACTIVITY_RECOGNITION_PERMISSION)
+    private fun hasActivityRecognition() = ctx.hasActivityRecognition()
 
-    private fun hasBackgroundLocation() =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || ctx.hasPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    private fun hasBackgroundLocation() = ctx.hasBackgroundLocation()
 }
 
 /**

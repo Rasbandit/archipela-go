@@ -74,6 +74,19 @@ internal class PresenceController(
         pollSeeding()
     }
 
+    /**
+     * Start presence with no screen (the tracking service was restarted by Android): take the grants the activity would pass in,
+     * start the watcher and the GPS rate the decision calls for. The activity takes over again when it comes up.
+     */
+    fun startHeadless(
+        locationGranted: Boolean,
+        bluetoothGranted: Boolean,
+    ) {
+        appVisible = false
+        locationPermitted = locationGranted
+        if (locationGranted) ensureMonitor(bluetoothGranted) else applyLocation()
+    }
+
     /** Where the last fix put the player relative to the game's zones ("inside", "near", "far"; anything else is unknown). */
     fun updateZone(proximity: String) {
         zone =

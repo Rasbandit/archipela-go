@@ -1,0 +1,25 @@
+package dev.apgo2
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class ServiceStartTest {
+    @Test fun aStartFromTheAppNeedsNothingMore() {
+        // The activity is up: its effects start presence, steps and GPS.
+        assertEquals(ServiceStart.FromApp, ServiceStart.decide(restarted = false, playing = true, backgroundLocation = false))
+    }
+
+    @Test fun aRestartWithAGameStartsTrackingWithoutTheScreen() {
+        assertEquals(ServiceStart.ResumeHeadless, ServiceStart.decide(restarted = true, playing = true, backgroundLocation = true))
+    }
+
+    @Test fun aRestartWithNoGameStopsTheService() {
+        // Nothing to track: no lingering notification.
+        assertEquals(ServiceStart.Stop, ServiceStart.decide(restarted = true, playing = false, backgroundLocation = true))
+    }
+
+    @Test fun aRestartWithoutBackgroundLocationStops() {
+        // "While using the app" gives a restarted service no fixes: stop rather than show a notification that tracks nothing.
+        assertEquals(ServiceStart.Stop, ServiceStart.decide(restarted = true, playing = true, backgroundLocation = false))
+    }
+}
