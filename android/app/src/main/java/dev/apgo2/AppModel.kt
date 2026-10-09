@@ -37,9 +37,33 @@ private const val EVENT_LOG_CHARS = 300
 internal object AppTab {
     const val PLAY = 0
     const val REALMS = 1
-    const val NEW_GAME = 2
-    const val ACTIVITY = 3
-    const val SETTINGS = 4
+    const val ACTIVITY = 2
+    const val SETTINGS = 3
+}
+
+/** Which tab is showing, and whether New Game is open over Play (it has no tab: the empty Play screen opens it). */
+internal class AppNav {
+    /** One of [AppTab]. */
+    var tab by mutableIntStateOf(AppTab.PLAY)
+        private set
+    var newGameOpen by mutableStateOf(false)
+        private set
+
+    val canGoBack get() = newGameOpen || tab != AppTab.PLAY
+
+    /** Shows [t]; New Game closes, so tapping Play there goes back to the games list. */
+    fun show(t: Int) {
+        tab = t
+        newGameOpen = false
+    }
+
+    fun openNewGame() {
+        tab = AppTab.PLAY
+        newGameOpen = true
+    }
+
+    /** New Game closes to the games list first; any other tab goes back to Play. */
+    fun back() = show(AppTab.PLAY)
 }
 
 /**
@@ -66,8 +90,7 @@ internal class AppModel(
     private val traceThrottle = Throttle(TRACE_REFRESH_MS)
     private val stepRefresh = StepRefresh(STEP_REFRESH_STEPS)
 
-    /** The tab showing, one of [AppTab]. */
-    var tab by mutableIntStateOf(AppTab.PLAY)
+    val nav = AppNav()
 
     /** The realm editor: null shows the realm list, "" a new realm, otherwise the id of the realm being edited. */
     var editing by mutableStateOf<String?>(null)
