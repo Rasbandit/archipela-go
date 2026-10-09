@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -126,7 +127,7 @@ private class LatestInputs(
     val anchor: State<LatLng?>,
     val onAnchor: State<((Offset?) -> Unit)?>,
     val overlayTopDp: State<Int>,
-    val overlayBottomDp: State<Int>,
+    val overlayBottomDp: State<() -> Int>,
     val onHandleMove: State<((Int, LatLng) -> Unit)?>,
     val onHandleRelease: State<(() -> Unit)?>,
     val circle: State<Pair<LatLng, Double>?>,
@@ -335,7 +336,7 @@ private class MapHolder(
                 width = view.width.toFloat(),
                 height = view.height.toFloat(),
                 top = inputs.overlayTopDp.value * density,
-                bottom = inputs.overlayBottomDp.value * density,
+                bottom = inputs.overlayBottomDp.value() * density,
                 margin = FOCUS_MARGIN_DP * density,
             )
         val above = f.roomAbovePx.toFloat()
@@ -408,7 +409,7 @@ private class MapHolder(
             pad,
             pad + (inputs.overlayTopDp.value * density).toInt(),
             pad,
-            pad + (inputs.overlayBottomDp.value * density).toInt(),
+            pad + (inputs.overlayBottomDp.value() * density).toInt(),
         )
 
     // A tap on a cluster zooms in until it splits; on a find or quest pin (anywhere on it, head included) it selects it; any other
@@ -497,7 +498,8 @@ internal fun QuestMap(
     circle: Pair<LatLng, Double>? = null,
     /** Height of overlays covering the top and bottom of the map, so framing keeps the circle clear of them. */
     overlayTopDp: Int = 0,
-    overlayBottomDp: Int = 0,
+    /** Read only where it is used (not while composing), so an overlay that slides moves the map without recomposing it. */
+    overlayBottomDp: () -> Int = { 0 },
     /** True when the overlays slide smoothly by themselves (a dragged panel): the map follows each step instead of easing. */
     overlaysFollowed: Boolean = false,
     /** Points the user can pick up and drag; [onHandleMove] gets the handle index and its new position. */
@@ -550,14 +552,14 @@ internal fun QuestMap(
             onHandleRelease = rememberUpdatedState(onHandleRelease),
             circle = rememberUpdatedState(circle),
         )
-    val points = framePoints(quests, realms, me, home, draft)
+    val points = remember(quests, realms, me, home, draft) { framePoints(quests, realms, me, home, draft) }
     val holder = remember { MapHolder(context, density, inputs, MapStart.center(listOfNotNull(circle?.first) + points, lastPlace)) }
     MapLifecycle(holder.view, onShow)
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
     SyncContent(holder, quests, realms, selected, finds, trace)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
     SyncPins(holder, thaw, waypoint, home, me)
-    MapCamera(holder, overlayTopDp, overlayBottomDp, overlaysFollowed, fit, focus, anchor)
+    MapCamera(holder, inputs, overlaysFollowed, fit, focus, anchor)
     MapFraming(holder, circle, me, quests, realms, points)
     // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
     // tiles loading happen out of sight. A map that fails to load is shown as it is rather than covered for good.
@@ -691,15 +693,19 @@ private fun SyncPins(
 @Composable
 private fun MapCamera(
     holder: MapHolder,
-    overlayTopDp: Int,
-    overlayBottomDp: Int,
+    inputs: LatestInputs,
     overlaysFollowed: Boolean,
     fit: MapFit?,
     focus: MapFocus?,
     anchor: LatLng?,
 ) {
     val map = holder.map
-    LaunchedEffect(map, overlayTopDp, overlayBottomDp) { holder.applyPadding(overlayTopDp, overlayBottomDp, overlaysFollowed) }
+    val follow by rememberUpdatedState(overlaysFollowed)
+    // The overlays are read here, outside composition: each change (every frame of a slide) only moves the camera.
+    LaunchedEffect(map) {
+        snapshotFlow { inputs.overlayTopDp.value to inputs.overlayBottomDp.value() }
+            .collect { (top, bottom) -> holder.applyPadding(top, bottom, follow) }
+    }
     LaunchedEffect(fit) { fit?.let { holder.fit(it) } }
     LaunchedEffect(anchor, map) { map?.let { holder.reportAnchor(it) } }
     LaunchedEffect(focus) { focus?.let { holder.focusOn(it) } }

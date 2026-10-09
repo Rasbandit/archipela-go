@@ -115,7 +115,7 @@ internal fun HomePicker(
             focus = s.focus,
             fit = s.framing,
             overlayTopDp = OVERLAY_TOP_DP,
-            overlayBottomDp = OVERLAY_BOTTOM_DP,
+            overlayBottomDp = { OVERLAY_BOTTOM_DP },
             lastPlace = m.lastPlace,
         )
         Row(

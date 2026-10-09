@@ -369,7 +369,7 @@ private fun EditorMap(
         onMapLongClick = { m.realmOps.setHome(it) },
         circle = if (s.polygon) null else s.circleCenter?.let { it to s.radius.toDouble() },
         overlayTopDp = OVERLAY_TOP_DP,
-        overlayBottomDp = (s.panelPx / density).toInt(),
+        overlayBottomDp = { (s.panelPx / density).toInt() },
         handles = s.handles(),
         onHandleMove = if (editing) s::moveHandle else null,
         onHandleRelease = s::commit,

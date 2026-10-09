@@ -32,7 +32,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +55,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.offset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
@@ -77,6 +80,7 @@ import uniffi.apgo_ffi.GoalLineOut
 import uniffi.apgo_ffi.HudOut
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.ZoneOut
+import kotlin.math.roundToInt
 
 // Quests shown in the Progress section before "Show all".
 private const val PROGRESS_ROWS = 3
@@ -111,7 +115,9 @@ internal fun PlayScreen(
     modifier: Modifier = Modifier,
     onShow: Boolean = true,
 ) {
-    val hud = m.hud
+    val hud = held(onShow) { m.hud }
+    // Another game gets a view of its own: its map frames it afresh instead of keeping the last game's camera.
+    val gameId = held(onShow) { m.engine.openGameId() }
     // Time away moves with the clock, but nothing ticks in the core: while it runs and this screen is on show, redraw once a minute
     // (display only: no GPS, and nothing while the app is in the background).
     val owner = LocalLifecycleOwner.current
@@ -126,8 +132,27 @@ internal fun PlayScreen(
             }
         }
     }
-    if (hud == null) NoGameOpen(m, modifier) else GameView(m, hud, onShow, modifier)
+    when {
+        hud != null -> key(gameId) { GameView(m, hud, onShow, modifier) }
+        onShow -> NoGameOpen(m, modifier)
+    }
 }
+
+// Hidden, the Play screen keeps what it last showed and reads nothing new, so GPS fixes and data changes cost it no redraw. On
+// show again it reads the latest.
+@Composable
+private fun <T> held(
+    onShow: Boolean,
+    read: () -> T,
+): T {
+    val last = remember { Held(read()) }
+    if (onShow) last.value = read()
+    return last.value
+}
+
+private class Held<T>(
+    var value: T,
+)
 
 @Composable
 private fun NoGameOpen(
@@ -163,11 +188,14 @@ private fun GameView(
             // How open the panel's lower part is: it follows the finger during a drag and eases to 1 or 0 on a tap or a release.
             val open = remember { Animatable(if (shown) 1f else 0f) }
             // How much of the map the panel covers right now. The map follows it step by step (during a drag too), keeping the
-            // middle of what you see in the middle of what stays visible.
-            val coverDp = GRIP_DP + (topPx / LocalDensity.current.density).toInt() + (bodyHeight.value * open.value).toInt()
-            // The map fills the whole area and never resizes; the panel slides over its bottom.
+            // middle of what you see in the middle of what stays visible. It changes every frame of a slide, so it is read only
+            // where it is used (the map's padding, the cards' layout), never while composing.
+            val density = LocalDensity.current.density
+            val coverDp =
+                remember(bodyHeight, density) { { GRIP_DP + (topPx / density).toInt() + (bodyHeight.value * open.value).toInt() } }
+            // The map fills the whole area and never resizes; the panel slides over its bottom (and is left out while hidden).
             PlayMap(m, hud, onShow, coverDp, Modifier.fillMaxSize())
-            PlaySheet(m, hud, bodyHeight, open, shown, { shown = it }, { topPx = it }, Modifier.align(Alignment.BottomCenter))
+            if (onShow) PlaySheet(m, hud, bodyHeight, open, shown, { shown = it }, { topPx = it }, Modifier.align(Alignment.BottomCenter))
         }
     }
 }
@@ -212,19 +240,27 @@ private fun PlaySheet(
             },
         )
         PanelTop(hud, shown, Modifier.onSizeChanged { onTopHeight(it.height) })
-        if (open.value > 0f) PanelBody(m, hud, bodyHeight, open.value)
+        val bodyOn by remember { derivedStateOf { open.value > 0f } }
+        if (bodyOn) PanelBody(m, hud, bodyHeight) { open.value }
     }
 }
 
 // The lower part of the panel, [open] of [height] tall: its content keeps its full height, pinned to the top and cut off below.
+// [open] is read when laying out, so a slide resizes it without recomposing.
 @Composable
 private fun PanelBody(
     m: AppModel,
     hud: HudOut,
     height: Dp,
-    open: Float,
+    open: () -> Float,
 ) {
-    Box(Modifier.fillMaxWidth().height(height * open).clipToBounds()) {
+    val cut =
+        Modifier.layout { measurable, constraints ->
+            val h = (height.toPx() * open()).roundToInt()
+            val p = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+            layout(p.width, h) { p.place(0, 0) }
+        }
+    Box(Modifier.fillMaxWidth().then(cut).clipToBounds()) {
         GamePanel(
             m,
             hud,
@@ -278,6 +314,15 @@ private fun PaneGrip(
         )
     }
 }
+
+// Room below for [coverDp] (the panel, read when laying out): a card at the bottom of the map sits just above the panel, and
+// follows it as it slides without recomposing.
+private fun Modifier.above(coverDp: () -> Int) =
+    layout { measurable, constraints ->
+        val lift = coverDp().dp.roundToPx()
+        val p = measurable.measure(constraints.offset(vertical = -lift))
+        layout(p.width, p.height + lift) { p.place(0, 0) }
+    }
 
 // Takes [thin] of the layout but reaches [above] higher and [below] lower for what follows (drawing and touches).
 private fun Modifier.overhang(
@@ -336,10 +381,15 @@ private fun PlayMap(
     m: AppModel,
     hud: HudOut,
     onShow: Boolean,
-    coverDp: Int,
+    coverDp: () -> Int,
     modifier: Modifier = Modifier,
 ) {
-    val selected = m.quests.firstOrNull { it.locationId == m.selected }
+    val quests = held(onShow) { m.quests }
+    val realms = held(onShow) { m.realms.filter { r -> m.zones.any { it.realmId == r.id } } }
+    val me = held(onShow) { m.me }
+    val trace = held(onShow) { m.trace }
+    val chain = held(onShow) { m.chains.firstOrNull { it.id == m.selectedChain } }
+    val selected = quests.firstOrNull { it.locationId == m.selected }
     // Selecting a quest brings its pin into view together with its popup, whose real height is measured once it is shown.
     val density = LocalDensity.current.density
     var bubblePx by remember { mutableIntStateOf(0) }
@@ -360,10 +410,10 @@ private fun PlayMap(
     }
     Box(modifier) {
         QuestMap(
-            m.quests,
-            m.realms.filter { r -> m.zones.any { it.realmId == r.id } },
+            quests,
+            realms,
             emptyList(),
-            m.me,
+            me,
             hud.thaw?.let { LatLng(it.lat, it.lon) },
             hud.waypoint?.let { LatLng(it.lat, it.lon) },
             m.selected,
@@ -376,7 +426,7 @@ private fun PlayMap(
                 m.selected = id
             },
             home = m.home?.let { LatLng(it.lat, it.lon) },
-            trace = m.trace,
+            trace = trace,
             lastPlace = m.lastPlace,
             onShow = onShow,
             overlayBottomDp = coverDp,
@@ -386,10 +436,8 @@ private fun PlayMap(
             onAnchor = { anchorPx = it },
         )
         selected?.let { q -> QuestPopup(m, q, anchorPx, pinPx, coverDp) { bubblePx = it } }
-        m.chains.firstOrNull { it.id == m.selectedChain }?.let { c ->
-            MapOverlayCard(
-                Modifier.align(Alignment.BottomCenter).padding(bottom = coverDp.dp),
-            ) { ChainDetails(c) { m.selectedChain = null } }
+        chain?.let { c ->
+            MapOverlayCard(Modifier.align(Alignment.BottomCenter).above(coverDp)) { ChainDetails(c) { m.selectedChain = null } }
         }
     }
 }
@@ -402,14 +450,14 @@ private fun BoxScope.QuestPopup(
     q: QuestOut,
     anchorPx: Offset?,
     pinPx: Float,
-    coverDp: Int,
+    coverDp: () -> Int,
     onBubbleSize: (Int) -> Unit,
 ) {
     val details: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
         QuestDetails(q) { m.selected = null }
     }
     if (q.anchor == null) {
-        MapOverlayCard(Modifier.align(Alignment.BottomCenter).padding(bottom = coverDp.dp), content = details)
+        MapOverlayCard(Modifier.align(Alignment.BottomCenter).above(coverDp), content = details)
     } else if (anchorPx != null) {
         MapBubble(
             anchorPx,
