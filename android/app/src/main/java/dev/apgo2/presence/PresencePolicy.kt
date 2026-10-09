@@ -44,6 +44,12 @@ internal object PresencePolicy {
             s.zone == Zone.Far -> Decision(PresenceState.OutsideZones, GpsMode.Rate(COARSE_MS, FAR_MOVE_M), counting = true)
             else -> Decision(PresenceState.InZone, GpsMode.Rate(PRECISE_MS, ZONE_MOVE_M), counting = true)
         }
+
+    /** Whether presence just arrived home (home Wi-Fi joined): the moment forager quests bank what they carry. */
+    fun arrivedHome(
+        before: PresenceState,
+        after: PresenceState,
+    ): Boolean = after == PresenceState.AtHome && before != PresenceState.AtHome
 }
 
 /**

@@ -1,7 +1,9 @@
 package dev.apgo2.presence
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PresencePolicyTest {
@@ -16,6 +18,16 @@ class PresencePolicyTest {
         val d = PresencePolicy.decide(signals(playing = false))
         assertEquals(PresenceState.Stopped, d.state)
         assertEquals(false, d.counting)
+    }
+
+    @Test fun arrivingHomeIsOnlyTheChangeIntoAtHome() {
+        assertTrue(PresencePolicy.arrivedHome(PresenceState.InZone, PresenceState.AtHome))
+        assertTrue(PresencePolicy.arrivedHome(PresenceState.OutsideZones, PresenceState.AtHome))
+        assertTrue("from the car to home", PresencePolicy.arrivedHome(PresenceState.InCar, PresenceState.AtHome))
+        assertTrue("opening a game at home", PresencePolicy.arrivedHome(PresenceState.Stopped, PresenceState.AtHome))
+        assertFalse("still home", PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.AtHome))
+        assertFalse("leaving home", PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.InZone))
+        assertFalse(PresencePolicy.arrivedHome(PresenceState.InZone, PresenceState.InCar))
     }
 
     @Test fun theCarBeatsEverythingElse() {
