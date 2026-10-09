@@ -161,6 +161,21 @@ class MapFeaturesTest {
         assertTrue("in progress is drawn first", hard.getInt(MapProp.SORT) < boss.getInt(MapProp.SORT))
     }
 
+    @Test fun theSelectedPinIsKeptOutOfTheClusteredSet() {
+        val pins = MapFeatures.quests(listOf(quest(1), quest(2, shape = "courier", anchorB = geo(5.0, 6.0)), quest(3)), selected = 2L)
+        val (rest, selected) = MapFeatures.splitSelected(pins)
+        assertEquals("both courier stops stay with the selection", 2, selected.size)
+        assertEquals(2, rest.size)
+        rest.forEach { assertFalse(it.props().getBoolean(MapProp.SELECTED)) }
+    }
+
+    @Test fun nothingSelectedLeavesEveryPinClustered() {
+        val (rest, selected) = MapFeatures.splitSelected(MapFeatures.quests(listOf(quest(1), quest(2)), selected = null))
+        assertEquals(2, rest.size)
+        assertTrue(selected.isEmpty())
+        assertTrue(MapFeatures.splitSelected(emptyList()).let { it.first.isEmpty() && it.second.isEmpty() })
+    }
+
     @Test fun linesAreDrawnForLineAndAreaQuestsWithAPath() {
         val two = listOf(geo(0.0, 0.0), geo(1.0, 1.0))
         val lines =

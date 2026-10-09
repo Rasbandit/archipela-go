@@ -30,6 +30,12 @@ internal object MapProp {
     const val COLOR = "color"
     const val LABEL = "label"
     const val NAME = "name"
+
+    /** On a cluster: the lowest [SORT] inside it, i.e. its most actionable member. */
+    const val BEST = "best"
+
+    /** On a cluster (set by MapLibre): how many pins it holds. */
+    const val POINT_COUNT = "point_count"
 }
 
 /** Builders for the GeoJSON the map sources are fed. */
@@ -108,6 +114,10 @@ internal object MapFeatures {
         val dropOffs = visible.filter { it.shape == "courier" }.mapNotNull { q -> q.anchorB?.let { q to it } }
         return (anchored + dropOffs).map { (q, p) -> GeoJson.pointFeature(p.lat, p.lon, questProps(q, q.locationId == selected)) }
     }
+
+    /** [pins] split into the rest (a clustered source) and the selected ones (their own source, so they never vanish into a cluster). */
+    fun splitSelected(pins: List<JSONObject>): Pair<List<JSONObject>, List<JSONObject>> =
+        pins.partition { !it.getJSONObject("properties").optBoolean(MapProp.SELECTED) }
 
     /** The routes of line and area quests. */
     fun lines(quests: List<QuestOut>): List<JSONObject> =

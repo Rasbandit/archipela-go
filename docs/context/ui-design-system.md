@@ -16,7 +16,10 @@ widgets or write colours themselves.
 - A colour is added to `ApgoPalette`, never inlined (`Color(0x...)` or `"#rrggbb"`). Quest state has one colour set, `ApgoPalette.quest(state)`: the list icon tint
   and the map pin's state badge both use it, so they cannot drift apart. What a quest *is* is shown by family colour and icon (`ApgoPalette.kind`), on the map and in the realm editor alike.
 - A map pin is only ever built by `MapMarkers.render(MarkerSpec)`: `Find` (realm editor: family colour, ring for favorite, grey for banned) and `Quest` (Play map: family colour,
-  corner badge for state: none = open, amber dot = in progress, green check = done, lock = locked; locked pins are grey). Size by difficulty (`iconScale`), collision order by state (`drawOrder`).
+  corner badge for state: none = open, amber dot = in progress, green check = done, lock = locked; locked pins are grey). Size by difficulty (`iconScale`), draw order by state (`drawOrder`).
+- Pins are never hidden by collision. Pins too close to tell apart merge into a numbered cluster (MapLibre source clustering,
+  `MapSource.CLUSTERED`), coloured by its most actionable pin (lowest `drawOrder`: amber > blue > grey > green). Tapping a cluster zooms in until it
+  splits. The selected pin lives in its own unclustered source (`MapFeatures.splitSelected`) so it never disappears into a cluster.
 - Red never means "not done": it is for errors and bans. Quest state colours are blue (open), amber (in progress), green (done), grey (locked). Area and route
   quests on the map (`MapStyle`) also show state by line and fill, so it reads without colour: dashed and empty = not started (open or locked), solid with a
   light fill = in progress, solid with a faint fill = done.

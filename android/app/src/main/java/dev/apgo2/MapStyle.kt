@@ -2,6 +2,7 @@ package dev.apgo2
 
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.hex
 import dev.apgo2.ui.renderMarker
 import dev.apgo2.ui.renderPin
@@ -41,6 +42,7 @@ import org.maplibre.android.style.layers.PropertyFactory.textIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.textOffset
 import org.maplibre.android.style.layers.PropertyFactory.textSize
 import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.android.style.sources.GeoJsonSource
 
 // How things look on the map. Sizes are in map pixels, opacities 0..1, icon sizes are factors of the bitmap.
@@ -84,6 +86,17 @@ private const val BADGE_ME = "badge-me"
 private const val BADGE_HOME = "marker-home"
 private const val GEOMETRY_POINT = "Point"
 
+// Pins closer than this (map pixels) merge into a cluster; past this zoom every pin shows on its own, overlapping if it must.
+private const val CLUSTER_RADIUS = 44
+private const val CLUSTER_MAX_ZOOM = 17
+private const val CLUSTER_CIRCLE_RADIUS = 20f
+private const val CLUSTER_STROKE = 3f
+private const val CLUSTER_TEXT_SIZE = 15f
+private const val BOLD_FONT = "Noto Sans Bold"
+
+// The quest states drawn on the map, each in its ApgoPalette.quest colour.
+private val PIN_STATES = listOf("progress", "open", "locked", "done")
+
 /** The names of the map's GeoJSON sources. */
 internal object MapSource {
     const val REALMS = "realms"
@@ -91,6 +104,7 @@ internal object MapSource {
     const val LINES = "lines"
     const val TRACE = "trace"
     const val QUESTS = "quests"
+    const val QUEST_SEL = "quest-sel"
     const val FINDS = "finds"
     const val DRAFT = "draft"
     const val MARKS = "marks"
@@ -101,7 +115,10 @@ internal object MapSource {
     const val RING_LABEL = "ringlabel"
     const val ME = "me"
     val ALL =
-        listOf(REALMS, AREAS, LINES, TRACE, QUESTS, FINDS, DRAFT, MARKS, HOME, HANDLES, RADIUS, RING_KNOBS, RING_LABEL, ME)
+        listOf(REALMS, AREAS, LINES, TRACE, QUESTS, QUEST_SEL, FINDS, DRAFT, MARKS, HOME, HANDLES, RADIUS, RING_KNOBS, RING_LABEL, ME)
+
+    /** Pin sources that merge pins too close to tell apart into one numbered circle. */
+    val CLUSTERED = setOf(QUESTS)
 }
 
 /** The base map and the sources and layers drawn over it. */
@@ -111,10 +128,15 @@ internal object MapStyle {
     /** The layers a tap on a find pin is looked up in. */
     val FIND_LAYERS = arrayOf("finds-layer", "finds-sel")
 
+    /** The cluster circle layer of each clustered source: a tap on one zooms in until it splits. */
+    val CLUSTER_LAYERS = MapSource.CLUSTERED.associateBy { clusterLayer(it) }
+
     /** Add every source and layer to a freshly loaded style, in drawing order. */
     fun install(style: Style) {
         val empty = GeoJson.collection(emptyList())
-        MapSource.ALL.forEach { style.addSource(GeoJsonSource(it, empty)) }
+        MapSource.ALL.forEach { id ->
+            style.addSource(if (id in MapSource.CLUSTERED) GeoJsonSource(id, empty, clusterOptions()) else GeoJsonSource(id, empty))
+        }
         addLayers(style, realmLayers() + traceLayers() + questLayers() + findLayers() + draftLayers() + markLayers())
         addLayers(style, radiusLayers())
         // You and home are badges: a person on blue, a house on green.
@@ -141,9 +163,7 @@ internal object MapStyle {
         Expression.match(
             Expression.get(MapProp.STATE),
             Expression.literal(ApgoPalette.questTodo.hex()),
-            Expression.stop("locked", Expression.literal(ApgoPalette.questLocked.hex())),
-            Expression.stop("done", Expression.literal(ApgoPalette.questDone.hex())),
-            Expression.stop("progress", Expression.literal(ApgoPalette.questProgress.hex())),
+            *PIN_STATES.map { Expression.stop(it, Expression.literal(ApgoPalette.quest(it).hex())) }.toTypedArray(),
         )
 
     private fun realmLayers() =
@@ -188,28 +208,67 @@ internal object MapStyle {
                 .withProperties(lineColor(stateColor()), lineWidth(QUEST_LINE_WIDTH), lineDasharray(NOT_STARTED_DASH)),
         )
 
-    // Quests are the same pins as finds (family colour, state as a badge). They thin out by collision, in-progress and open first;
-    // the selected one gets a halo and is always drawn, larger.
+    // Quests are the same pins as finds (family colour, state as a badge). Every pin shows; pins too close to tell apart merge into
+    // a numbered cluster. The selected one has its own source (never clustered), a halo, and is drawn larger.
     private fun questLayers() =
+        clusterLayers(MapSource.QUESTS) +
+            listOf(
+                SymbolLayer("quests-pins", MapSource.QUESTS).withFilter(notCluster()).withProperties(
+                    iconImage(Expression.get(MapProp.IMAGE)),
+                    iconSize(Expression.get(MapProp.SCALE)),
+                    iconAllowOverlap(true),
+                    symbolSortKey(Expression.get(MapProp.SORT)),
+                ),
+                CircleLayer("quests-sel", MapSource.QUEST_SEL).withProperties(
+                    circleRadius(QUEST_HALO_RADIUS),
+                    circleColor(ApgoPalette.onMap.hex()),
+                    circleStrokeColor(ApgoPalette.realm.hex()),
+                    circleStrokeWidth(QUEST_HALO_STROKE),
+                ),
+                SymbolLayer("quests-pins-sel", MapSource.QUEST_SEL).withProperties(
+                    iconImage(Expression.get(MapProp.IMAGE)),
+                    iconSize(Expression.product(Expression.get(MapProp.SCALE), Expression.literal(SELECTED_PIN_GROWTH))),
+                    iconAllowOverlap(true),
+                    iconIgnorePlacement(true),
+                ),
+            )
+
+    private fun clusterOptions() =
+        GeoJsonOptions()
+            .withCluster(true)
+            .withClusterRadius(CLUSTER_RADIUS)
+            .withClusterMaxZoom(CLUSTER_MAX_ZOOM)
+            .withClusterProperty(MapProp.BEST, Expression.literal("min"), Expression.get(MapProp.SORT))
+
+    private fun clusterLayer(source: String) = "$source-cluster"
+
+    private fun isCluster() = Expression.has(MapProp.POINT_COUNT)
+
+    private fun notCluster() = Expression.not(isCluster())
+
+    // A cluster takes the colour of its most actionable pin: amber if any is in progress, else open, locked, and green when all are done.
+    private fun clusterColor() =
+        Expression.match(
+            Expression.get(MapProp.BEST),
+            Expression.literal(ApgoPalette.questTodo.hex()),
+            *PIN_STATES.map { Expression.stop(MapMarkers.drawOrder(it), Expression.literal(ApgoPalette.quest(it).hex())) }.toTypedArray(),
+        )
+
+    private fun clusterLayers(source: String) =
         listOf(
-            CircleLayer("quests-sel", MapSource.QUESTS).withFilter(selectedOnly()).withProperties(
-                circleRadius(QUEST_HALO_RADIUS),
-                circleColor(ApgoPalette.onMap.hex()),
-                circleStrokeColor(ApgoPalette.realm.hex()),
-                circleStrokeWidth(QUEST_HALO_STROKE),
+            CircleLayer(clusterLayer(source), source).withFilter(isCluster()).withProperties(
+                circleRadius(CLUSTER_CIRCLE_RADIUS),
+                circleColor(clusterColor()),
+                circleStrokeColor(ApgoPalette.onMap.hex()),
+                circleStrokeWidth(CLUSTER_STROKE),
             ),
-            SymbolLayer("quests-pins", MapSource.QUESTS).withProperties(
-                iconImage(Expression.get(MapProp.IMAGE)),
-                iconSize(Expression.get(MapProp.SCALE)),
-                iconAllowOverlap(false),
-                iconIgnorePlacement(false),
-                symbolSortKey(Expression.get(MapProp.SORT)),
-            ),
-            SymbolLayer("quests-pins-sel", MapSource.QUESTS).withFilter(selectedOnly()).withProperties(
-                iconImage(Expression.get(MapProp.IMAGE)),
-                iconSize(Expression.product(Expression.get(MapProp.SCALE), Expression.literal(SELECTED_PIN_GROWTH))),
-                iconAllowOverlap(true),
-                iconIgnorePlacement(true),
+            SymbolLayer("$source-count", source).withFilter(isCluster()).withProperties(
+                textField(Expression.toString(Expression.get(MapProp.POINT_COUNT))),
+                textFont(arrayOf(BOLD_FONT)),
+                textSize(CLUSTER_TEXT_SIZE),
+                textColor(ApgoPalette.onMap.hex()),
+                textAllowOverlap(true),
+                textIgnorePlacement(true),
             ),
         )
 
@@ -279,7 +338,7 @@ internal object MapStyle {
             ),
             SymbolLayer("ringlabel-layer", MapSource.RING_LABEL).withProperties(
                 textField(Expression.get(MapProp.LABEL)),
-                textFont(arrayOf("Noto Sans Bold")),
+                textFont(arrayOf(BOLD_FONT)),
                 textSize(LABEL_SIZE),
                 textColor(ApgoPalette.draftStrong.hex()),
                 textHaloColor(ApgoPalette.onMap.hex()),

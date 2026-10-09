@@ -37,6 +37,8 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.Point
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
 import kotlin.math.abs
@@ -335,15 +337,47 @@ private class MapHolder(
             pad + (inputs.overlayBottomDp.value * density).toInt(),
         )
 
-    // A tap on a find pin selects it; any other tap goes to the screen (e.g. adding a polygon corner).
+    // A tap on a cluster zooms in until it splits; on a find pin it selects it; any other tap goes to the screen (e.g. adding a
+    // polygon corner).
     private fun onTap(
         m: MapLibreMap,
         ll: LatLng,
     ): Boolean {
+        val at = m.projection.toScreenLocation(ll)
+        if (zoomIntoCluster(m, at)) return true
         val onFind = inputs.onFindClick.value
-        val hit = onFind?.let { m.queryRenderedFeatures(m.projection.toScreenLocation(ll), *MapStyle.FIND_LAYERS).firstOrNull() }
+        val hit = onFind?.let { m.queryRenderedFeatures(at, *MapStyle.FIND_LAYERS).firstOrNull() }
         if (hit != null) onFind.invoke(hit.getStringProperty(MapProp.ID)) else inputs.onClick.value(ll)
         return true
+    }
+
+    private fun zoomIntoCluster(
+        m: MapLibreMap,
+        at: PointF,
+    ): Boolean {
+        val target =
+            MapStyle.CLUSTER_LAYERS.firstNotNullOfOrNull { (layer, source) ->
+                m.queryRenderedFeatures(at, layer).firstOrNull()?.let { expandCamera(m, it, source) }
+            }
+        target?.let { m.animateCamera(it, FIT_ANIM_MS) }
+        return target != null
+    }
+
+    // Centre on the cluster at the zoom where it splits.
+    private fun expandCamera(
+        m: MapLibreMap,
+        cluster: Feature,
+        source: String,
+    ): CameraUpdate? {
+        val point = cluster.geometry() as? Point
+        val zoom = m.style?.getSourceAs<GeoJsonSource>(source)?.getClusterExpansionZoom(cluster)
+        return if (point == null ||
+            zoom == null
+        ) {
+            null
+        } else {
+            CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude(), point.longitude()), zoom.toDouble())
+        }
     }
 }
 
@@ -474,7 +508,9 @@ private fun SyncContent(
     }
     LaunchedEffect(style, quests, selected) {
         style?.let { st -> quests.forEach { holder.ensureImage(st, it.mapImageKey) } }
-        holder.show(MapSource.QUESTS, MapFeatures.quests(quests, selected))
+        val (rest, picked) = MapFeatures.splitSelected(MapFeatures.quests(quests, selected))
+        holder.show(MapSource.QUESTS, rest)
+        holder.show(MapSource.QUEST_SEL, picked)
         holder.show(MapSource.LINES, MapFeatures.lines(quests))
         holder.show(MapSource.AREAS, MapFeatures.areas(quests))
     }
