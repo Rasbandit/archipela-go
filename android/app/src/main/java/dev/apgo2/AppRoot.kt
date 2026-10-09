@@ -55,8 +55,7 @@ internal fun AppRoot(
     } else {
         // One root for the screen and its dialogs (dialogs open their own windows, so this adds nothing visible).
         Box(modifier) {
-            m.away?.let { AwayDialog(it) { m.away = null } }
-            val othersUp = listOf(m.away != null, m.scans.ask != null, m.yamlText != null, backgroundPromptUp)
+            val othersUp = listOf(m.scans.ask != null, m.yamlText != null, backgroundPromptUp)
             if (showHomeOffer(othersUp)) HomeWifiDialog(m.presence)
             // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves
             // the app as usual.

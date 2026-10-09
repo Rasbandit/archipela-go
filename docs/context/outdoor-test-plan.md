@@ -23,7 +23,6 @@ honest about items not applied yet) and, with "Show GPS and app notes", why a ne
 - Walk with the screen off in a pocket for 10 min, then look at the map: the trace line should cover the walk.
 - A Point quest (walk to it), an Away quest (be away from home for the minutes it asks), a Steps quest.
 - Stand still 3 min inside a Dwell place: progress must continue (no distance filter while playing).
-- Leave the app (Home), come back after more than 1 min: the "While you were out" dialog shows time, distance, points, events.
 
 ## Presence checklist (home Wi-Fi, car, zones)
 

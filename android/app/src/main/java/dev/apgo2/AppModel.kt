@@ -12,7 +12,6 @@ import dev.apgo2.presence.PresenceSettings
 import kotlinx.coroutines.CoroutineScope
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.AuditEventOut
-import uniffi.apgo_ffi.AwayReportOut
 import uniffi.apgo_ffi.ChainOut
 import uniffi.apgo_ffi.Engine
 import uniffi.apgo_ffi.EventOut
@@ -24,8 +23,6 @@ import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
 import uniffi.apgo_ffi.ZoneOut
 import kotlin.random.Random
-
-private const val AWAY_MIN_MS = 60_000L
 
 // Reloading the whole trace on every fix gets slower as it grows; every 10 s is plenty for a line on a map.
 private const val TRACE_REFRESH_MS = 10_000L
@@ -81,8 +78,6 @@ internal class AppModel(
     /** Where you have been in this game: one line per unbroken stretch of GPS. */
     var trace by mutableStateOf<List<List<LatLng>>>(emptyList())
 
-    /** Set when you come back to the app after being away; shown once. */
-    var away by mutableStateOf<AwayReportOut?>(null)
     var games by mutableStateOf<List<GameInfo>>(emptyList())
 
     /** What happened in the open (or last paused) game, newest first; see [GameLibrary.refreshActivity]. */
@@ -182,13 +177,12 @@ internal class AppModel(
         diag.drainCore()
     }
 
-    /** Back on screen: if you were gone a while, build the report of what the phone recorded. */
+    /** Back on screen: log it, and how long the app was away. */
     fun onForeground() {
         val left = engine.lastBackgroundMs()
         val t = now()
         engine.logAppState(true, t)
         Diag.info("lifecycle", "foreground", "away_ms" to (left?.let { t - it } ?: -1L))
-        if (left != null && t - left >= AWAY_MIN_MS) away = engine.awayReport(left, t)
     }
 
     /** Show what the engine reported, and pass on to Archipelago what it needs to hear. */
