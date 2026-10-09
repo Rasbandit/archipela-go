@@ -71,8 +71,8 @@ internal const val OVERLAY_EASE_MS = 350
 /** MapLibre's own camera easing curve, so a sliding overlay keeps pace with the map. */
 internal val OverlayEasing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
 private const val FIT_ANIM_MS = 500
-private const val FOCUS_ZOOM_IN = 17.0
-private const val FOCUS_MIN_ZOOM = 16.0
+private const val FOCUS_MARGIN_DP = 16
+private const val FOCUS_SCROLL_MS = 300L
 private const val CALLOUT_PIN_DP = 20f
 private const val NEIGHBOURHOOD_ZOOM = 14.0
 private const val TIGHT_SPAN_DEG = 0.004
@@ -97,8 +97,8 @@ internal data class MapFit(
 
 /**
  * Ask the map to bring a point into view; [nonce] changes each time so the same point can be asked for twice. [roomAbovePx] is
- * the height of a callout that sits above the point: the point and its callout are centred together in the visible area. Zooms in
- * only when the map is zoomed out.
+ * the height of a callout that sits above the point. The map scrolls only as far as it takes to show the point and its callout in
+ * the visible area, and not at all when they already show; it never zooms.
  */
 internal data class MapFocus(
     val at: LatLng,
@@ -113,7 +113,7 @@ private class LatestInputs(
     val onLongClick: State<((LatLng) -> Unit)?>,
     val handles: State<List<LatLng>>,
     val onFindClick: State<((String) -> Unit)?>,
-    val onQuestClick: State<((Long) -> Unit)?>,
+    val onQuestClick: State<((Long, LatLng?) -> Unit)?>,
     val anchor: State<LatLng?>,
     val onAnchor: State<((Offset?) -> Unit)?>,
     val overlayTopDp: State<Int>,
@@ -317,22 +317,41 @@ private class MapHolder(
     // target sits at the centre of the padded view, so the top padding is chosen to put the target (the point) where it belongs.
     fun focusOn(f: MapFocus) {
         val m = map ?: return
-        val height = view.height.toFloat()
-        if (height <= 0f) return
-        val bottom = inputs.overlayBottomDp.value * density
-        val top0 = inputs.overlayTopDp.value * density
-        val block = f.roomAbovePx + CALLOUT_PIN_DP * density // the callout, then the pin itself
-        val pinY = top0 + (height - bottom - top0 - block).coerceAtLeast(0f) / 2f + f.roomAbovePx
-        val top = (2f * pinY - height + bottom).coerceAtLeast(top0)
-        val zoom = if (m.cameraPosition.zoom < FOCUS_MIN_ZOOM) FOCUS_ZOOM_IN else m.cameraPosition.zoom
-        val camera =
-            CameraPosition
-                .Builder()
-                .target(f.at)
-                .zoom(zoom)
-                .padding(0.0, top.toDouble(), 0.0, bottom.toDouble())
-                .build()
-        m.animateCamera(CameraUpdateFactory.newCameraPosition(camera))
+        if (view.height <= 0) return
+        // A refocus (the callout got measured) can come while the last one still moves: stop it and measure from where it is, so
+        // the two do not add up.
+        m.cancelTransitions()
+        val p = m.projection.toScreenLocation(f.at)
+        val visible =
+            FocusShift.View(
+                width = view.width.toFloat(),
+                height = view.height.toFloat(),
+                top = inputs.overlayTopDp.value * density,
+                bottom = inputs.overlayBottomDp.value * density,
+                margin = FOCUS_MARGIN_DP * density,
+            )
+        val shift = FocusShift.needed(p.x, p.y, f.roomAbovePx.toFloat(), CALLOUT_PIN_DP * density, visible)
+        when {
+            // Far away: centre it in the visible area (the camera's padding is the overlays), at the same zoom.
+            FocusShift.far(shift, visible) -> {
+                m.animateCamera(CameraUpdateFactory.newLatLng(f.at), FOCUS_SCROLL_MS.toInt())
+            }
+
+            shift != 0f to 0f -> {
+                nudge(m, shift)
+            }
+        }
+    }
+
+    // Move the camera's centre by [shift] screen pixels. animateCamera, unlike scrollBy, reports the move, which keeps a callout on
+    // its point.
+    private fun nudge(
+        m: MapLibreMap,
+        shift: Pair<Float, Float>,
+    ) {
+        val c = m.projection.toScreenLocation(m.cameraPosition.target ?: return)
+        val to = m.projection.fromScreenLocation(PointF(c.x + shift.first, c.y + shift.second))
+        m.animateCamera(CameraUpdateFactory.newLatLng(to), FOCUS_SCROLL_MS.toInt())
     }
 
     // Keep a circle being edited fully in view as its radius changes (not when it only moves).
@@ -400,17 +419,22 @@ private class MapHolder(
         val near = RectF(at.x - slop, at.y - slop, at.x + slop, at.y + slop)
         val find = onFind?.let { featureId(m, near, MapStyle.FIND_LAYERS) }
         // A pin wins over a trail, a trail over the park it may cross; only a tap inside a park picks the park.
-        val quest =
-            onQuest?.let {
+        val pin = onQuest?.let { featureId(m, near, MapStyle.QUEST_LAYERS)?.toLongOrNull() }
+        val shape =
+            onQuest?.takeIf { pin == null }?.let {
                 (
-                    featureId(m, near, MapStyle.QUEST_LAYERS)
-                        ?: featureId(m, near, MapStyle.QUEST_LINE_LAYERS)
+                    featureId(m, near, MapStyle.QUEST_LINE_LAYERS)
                         ?: featureId(m, RectF(at.x, at.y, at.x, at.y), MapStyle.QUEST_AREA_LAYERS)
                 )?.toLongOrNull()
             }
         when {
             find != null -> onFind(find)
-            quest != null -> onQuest(quest)
+
+            pin != null -> onQuest(pin, null)
+
+            shape != null -> onQuest(shape, ll)
+
+            // a trail or park: its details show where it was touched
             else -> inputs.onClick.value(ll)
         }
         return true
@@ -481,7 +505,7 @@ internal fun QuestMap(
     finds: List<MapFind> = emptyList(),
     onFindClick: ((String) -> Unit)? = null,
     /** Tapping a quest pin calls this with its location id (a tap elsewhere goes to [onMapClick]). */
-    onQuestClick: ((Long) -> Unit)? = null,
+    onQuestClick: ((Long, LatLng?) -> Unit)? = null,
     /** Fly the camera here (kept clear of the bottom overlay). */
     focus: MapFocus? = null,
     fit: MapFit? = null,

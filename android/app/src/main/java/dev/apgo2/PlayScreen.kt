@@ -279,11 +279,15 @@ private fun PlayMap(
     var focus by remember { mutableStateOf<MapFocus?>(null) }
     var focusNonce by remember { mutableIntStateOf(0) }
     var anchorPx by remember { mutableStateOf<Offset?>(null) }
-    LaunchedEffect(m.selected, bubblePx) {
-        val a = selected?.anchor ?: return@LaunchedEffect
-        val pin = MapMarkers.selectedQuestPinHeightPx()
-        val room = (if (bubblePx > 0) bubblePx else (QUEST_BUBBLE_DP * density).toInt()) + BubblePlacement.gapPx(pin, density)
-        focus = MapFocus(LatLng(a.lat, a.lon), ++focusNonce, room)
+    // Where a trail or park was touched: its details show there instead of at its start (only while that quest stays selected).
+    var touched by remember { mutableStateOf<Pair<Long, LatLng>?>(null) }
+    val spot = touched?.takeIf { it.first == m.selected }?.second
+    val at = spot ?: selected?.anchor?.let { LatLng(it.lat, it.lon) }
+    val pinPx = if (spot != null) 0f else MapMarkers.selectedQuestPinHeightPx()
+    LaunchedEffect(m.selected, spot, bubblePx) {
+        val a = at ?: return@LaunchedEffect
+        val room = (if (bubblePx > 0) bubblePx else (QUEST_BUBBLE_DP * density).toInt()) + BubblePlacement.gapPx(pinPx, density)
+        focus = MapFocus(a, ++focusNonce, room)
     }
     Box(modifier) {
         QuestMap(
@@ -296,17 +300,20 @@ private fun PlayMap(
             m.selected,
             { m.selected = null }, // a tap on no pin, trail or park closes the popup
             Modifier.fillMaxSize(),
-            onQuestClick = { m.selected = it },
+            onQuestClick = { id, spotAt ->
+                touched = spotAt?.let { id to it }
+                m.selected = id
+            },
             home = m.home?.let { LatLng(it.lat, it.lon) },
             trace = m.trace,
             lastPlace = m.lastPlace,
             onShow = onShow,
             overlayBottomDp = coverDp,
             focus = focus,
-            anchor = selected?.anchor?.let { LatLng(it.lat, it.lon) },
+            anchor = at,
             onAnchor = { anchorPx = it },
         )
-        selected?.let { q -> QuestPopup(m, q, anchorPx) { bubblePx = it } }
+        selected?.let { q -> QuestPopup(m, q, anchorPx, pinPx) { bubblePx = it } }
         m.chains.firstOrNull { it.id == m.selectedChain }?.let { c ->
             MapOverlayCard(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = coverDp.dp),
@@ -321,6 +328,7 @@ private fun BoxScope.QuestPopup(
     m: AppModel,
     q: QuestOut,
     anchorPx: Offset?,
+    pinPx: Float,
     onBubbleSize: (Int) -> Unit,
 ) {
     val details: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
@@ -331,7 +339,7 @@ private fun BoxScope.QuestPopup(
     } else if (anchorPx != null) {
         MapBubble(
             anchorPx,
-            MapMarkers.selectedQuestPinHeightPx(),
+            pinPx,
             onSize = { onBubbleSize(it.height) },
             content = details,
         )
