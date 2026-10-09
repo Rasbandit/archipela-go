@@ -41,7 +41,7 @@ ap-present:
 # Fails while a mutation from an interrupted `just mutate-rust` is left in the core (cargo-mutants marks the line).
 [private]
 core-unmutated:
-    @! grep -rn "changed by cargo-mutants" core/src core/ffi/src || { echo "a mutation from an interrupted 'just mutate-rust' is left in: git restore core/src"; exit 1; }
+    @bash scripts/core_unmutated.sh
 
 # apworld: lint, types, tests
 check-py: ap-present lint typecheck test
@@ -54,6 +54,7 @@ check-hygiene: spell secrets
     bash scripts/tests/prepush_test.sh
     bash scripts/tests/git_env_test.sh
     bash scripts/tests/java_home_test.sh
+    bash scripts/tests/core_unmutated_test.sh
     bash scripts/tests/pull_diag_test.sh
 
 check: check-hygiene check-py check-rust check-android

@@ -9,6 +9,9 @@ export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)}"
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# Gradle's releaseCore runs this script without `just`, so the guard lives here too (re-review N4).
+bash "$root/scripts/core_unmutated.sh"
+
 flag=()
 [ "$profile" = release ] && flag=(--release)
 
