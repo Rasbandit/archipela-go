@@ -28,8 +28,8 @@ import kotlin.random.Random
 // Reloading the whole trace on every fix gets slower as it grows; every 10 s is plenty for a line on a map.
 private const val TRACE_REFRESH_MS = 10_000L
 
-// Step readings without events only refresh the Play screen this often.
-private const val STEP_REFRESH_MS = 5_000L
+// Step readings without events refresh the Play screen only once the count moved this much (a visible change).
+private const val STEP_REFRESH_STEPS = 50L
 private const val LOG_LIMIT = 60
 private const val EVENT_LOG_CHARS = 300
 
@@ -61,7 +61,7 @@ internal class AppModel(
     val sim = DevSimulator(this, scope)
     val diag = FieldDiagnostics(this, ctx)
     private val traceThrottle = Throttle(TRACE_REFRESH_MS)
-    private val stepRefreshThrottle = Throttle(STEP_REFRESH_MS)
+    private val stepRefresh = StepRefresh(STEP_REFRESH_STEPS)
 
     /** The tab showing, one of [AppTab]. */
     var tab by mutableIntStateOf(AppTab.PLAY)
@@ -165,8 +165,8 @@ internal class AppModel(
         if (!engine.hasGame()) return
         val events = engine.onSteps(total, now())
         handle(events)
-        // The counter reports about twice a second: refresh the screen when something happened, otherwise only now and then.
-        if (events.isNotEmpty() || stepRefreshThrottle.due(now())) refreshPlay(withTrace = false)
+        // The counter reports in batches: refresh when something happened or the count moved enough to show, never on a timer.
+        if (events.isNotEmpty() || stepRefresh.due(total)) refreshPlay(withTrace = false)
     }
 
     /** A location fix arrived: feed the engine, update presence and the screen. */
