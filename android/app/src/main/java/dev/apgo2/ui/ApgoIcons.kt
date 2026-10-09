@@ -28,6 +28,7 @@ import com.composables.icons.lucide.Circle
 import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.CircleQuestionMark
 import com.composables.icons.lucide.Clock
+import com.composables.icons.lucide.Clover
 import com.composables.icons.lucide.Coffee
 import com.composables.icons.lucide.Compass
 import com.composables.icons.lucide.Croissant
@@ -38,6 +39,7 @@ import com.composables.icons.lucide.Droplets
 import com.composables.icons.lucide.Dumbbell
 import com.composables.icons.lucide.EllipsisVertical
 import com.composables.icons.lucide.Eraser
+import com.composables.icons.lucide.Feather
 import com.composables.icons.lucide.FerrisWheel
 import com.composables.icons.lucide.Flag
 import com.composables.icons.lucide.Flame
@@ -45,6 +47,7 @@ import com.composables.icons.lucide.Flower2
 import com.composables.icons.lucide.Footprints
 import com.composables.icons.lucide.Fuel
 import com.composables.icons.lucide.Gamepad2
+import com.composables.icons.lucide.Gem
 import com.composables.icons.lucide.GlassWater
 import com.composables.icons.lucide.GraduationCap
 import com.composables.icons.lucide.Grape
@@ -54,6 +57,7 @@ import com.composables.icons.lucide.Hourglass
 import com.composables.icons.lucide.House
 import com.composables.icons.lucide.IceCreamCone
 import com.composables.icons.lucide.Landmark
+import com.composables.icons.lucide.Leaf
 import com.composables.icons.lucide.List
 import com.composables.icons.lucide.ListChecks
 import com.composables.icons.lucide.Lock
@@ -63,6 +67,7 @@ import com.composables.icons.lucide.MapPin
 import com.composables.icons.lucide.MapPinned
 import com.composables.icons.lucide.Mountain
 import com.composables.icons.lucide.Music
+import com.composables.icons.lucide.Nut
 import com.composables.icons.lucide.Package
 import com.composables.icons.lucide.Palette
 import com.composables.icons.lucide.Pause
@@ -79,10 +84,12 @@ import com.composables.icons.lucide.Route
 import com.composables.icons.lucide.Sailboat
 import com.composables.icons.lucide.ScrollText
 import com.composables.icons.lucide.Settings
+import com.composables.icons.lucide.Shell
 import com.composables.icons.lucide.Ship
 import com.composables.icons.lucide.ShoppingBasket
 import com.composables.icons.lucide.Signpost
 import com.composables.icons.lucide.Sparkles
+import com.composables.icons.lucide.Sprout
 import com.composables.icons.lucide.Star
 import com.composables.icons.lucide.Store
 import com.composables.icons.lucide.Sun
@@ -91,6 +98,7 @@ import com.composables.icons.lucide.TrainFront
 import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.TreeDeciduous
 import com.composables.icons.lucide.TreePalm
+import com.composables.icons.lucide.TreePine
 import com.composables.icons.lucide.Trees
 import com.composables.icons.lucide.TriangleAlert
 import com.composables.icons.lucide.Trophy
@@ -309,7 +317,23 @@ internal object ApgoIcons {
             "compass_rose" to Lucide.Compass,
             "special_delivery" to Lucide.Package,
             "there_and_back" to Lucide.ArrowLeftRight,
+            "forager" to Lucide.Sprout,
         )
+
+    // What a forager quest's items are (core `FORAGE_THEMES`); an unknown theme gets the courier icon.
+    private val collectibles: Map<String, ImageVector> =
+        mapOf(
+            "pinecones" to Lucide.TreePine,
+            "shells" to Lucide.Shell,
+            "acorns" to Lucide.Nut,
+            "leaves" to Lucide.Leaf,
+            "feathers" to Lucide.Feather,
+            "clovers" to Lucide.Clover,
+            "gems" to Lucide.Gem,
+        )
+
+    /** The icon of a forager item. */
+    fun collectible(theme: String): ImageVector = collectibles[theme] ?: families.getValue("courier")
 
     /** The icon for a quest kind, falling back to its family's icon. */
     fun forKind(
