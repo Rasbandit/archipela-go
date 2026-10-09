@@ -27,6 +27,7 @@ pub mod slot;
 pub mod solo;
 pub mod tilegrid;
 pub mod traps;
+pub mod units;
 pub mod verify;
 pub mod yaml;
 pub mod zone;

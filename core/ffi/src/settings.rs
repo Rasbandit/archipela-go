@@ -1,6 +1,7 @@
 //! Player settings over FFI: the unit choice and the units it resolves to.
 
 use apgo_core::settings::{self as core, resolve_units, Settings};
+use apgo_core::units;
 
 use crate::engine::Engine;
 use crate::CoreError;
@@ -45,11 +46,11 @@ impl From<UnitChoice> for core::UnitChoice {
     }
 }
 
-impl From<core::UnitSystem> for UnitSystem {
-    fn from(u: core::UnitSystem) -> Self {
+impl From<units::UnitSystem> for UnitSystem {
+    fn from(u: units::UnitSystem) -> Self {
         match u {
-            core::UnitSystem::Metric => Self::Metric,
-            core::UnitSystem::Imperial => Self::Imperial,
+            units::UnitSystem::Metric => Self::Metric,
+            units::UnitSystem::Imperial => Self::Imperial,
         }
     }
 }

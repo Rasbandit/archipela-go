@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+use crate::units::UnitSystem;
+
 const FILE: &str = "settings.json";
 
 /// Countries that measure road distances in miles.
@@ -15,15 +17,6 @@ pub enum UnitChoice {
     /// Miles in the US, UK and a few others, kilometres elsewhere.
     #[default]
     Auto,
-    /// Metres and kilometres.
-    Metric,
-    /// Feet and miles.
-    Imperial,
-}
-
-/// The units distances are shown in once `Auto` is resolved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnitSystem {
     /// Metres and kilometres.
     Metric,
     /// Feet and miles.
