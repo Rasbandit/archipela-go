@@ -37,6 +37,10 @@ via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monore
 
 ## Conventions
 
+- **Hard rule: build for Android and iOS alike.** Game logic, game state, persistence and decisions (what to show, what to resume,
+  what counts as done) live in the Rust core behind UniFFI, with core tests. The Kotlin (and later Swift) layer only draws the UI
+  and wraps platform APIs (sensors, permissions, notifications, Bluetooth/Wi-Fi). If iOS would have to re-implement it, it belongs
+  in the core. Platform settings stores (SharedPreferences, UserDefaults) are only for per-device UI conveniences.
 - Conventional commits (`feat:`, `fix:`, `docs:`), subject under 50 chars. Small, tightly scoped steps.
 - TDD: failing tests first; never edit tests to fit bad code.
 - Upstream code is MIT (keep notice if copying); upstream apworld has NO license: reimplement, never copy.
