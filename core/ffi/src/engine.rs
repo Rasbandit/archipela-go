@@ -2,7 +2,6 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use apgo_core::assign::SurfacePref;
@@ -161,13 +160,12 @@ pub struct ScanPlanOut {
     pub missing: u32,
 }
 
-/// How far a running scan has got.
-#[derive(Debug, uniffi::Record)]
-pub struct ScanProgressOut {
-    /// Requests finished so far.
-    pub done: u32,
-    /// Requests in all.
-    pub total: u32,
+/// Told how a realm scan is going, as each map request finishes (called on the scanning thread): the app shows progress from these
+/// calls instead of polling.
+#[uniffi::export(with_foreign)]
+pub trait ScanListener: Send + Sync {
+    /// Requests finished so far out of all of them.
+    fn progress(&self, done: u32, total: u32);
 }
 
 /// A quest kind a realm can offer, with how many places serve it.
@@ -606,9 +604,6 @@ pub struct Engine {
     zone_shapes: Mutex<Vec<Shape>>,
     // Where the last fix was relative to the zones, worked out once in `on_fix` for presence to read.
     last_proximity: Mutex<Option<Proximity>>,
-    /// Requests finished and in all, for the scan in progress.
-    scan_done: AtomicU32,
-    scan_total: AtomicU32,
 }
 
 impl Engine {
@@ -773,8 +768,6 @@ impl Engine {
             save_policy: Mutex::new(SavePolicy::new(SAVE_INTERVAL_MS)),
             zone_shapes: Mutex::new(Vec::new()),
             last_proximity: Mutex::new(None),
-            scan_done: AtomicU32::default(),
-            scan_total: AtomicU32::default(),
         })
     }
 
@@ -881,28 +874,16 @@ impl Engine {
         ScanPlanOut { tiles: count_u32(p.tiles), requests: count_u32(p.jobs), missing: count_u32(p.missing()) }
     }
 
-    /// Progress of the scan in progress: requests finished out of all of them.
-    pub fn scan_progress(&self) -> ScanProgressOut {
-        use std::sync::atomic::Ordering::Relaxed;
-        ScanProgressOut { done: self.scan_done.load(Relaxed), total: self.scan_total.load(Relaxed) }
-    }
-
-    /// Scan the realm over the network (through the shared tile cache) and save its atlas. Returns what it offers.
-    /// Scan a realm over the network and save its atlas.
+    /// Scan the realm over the network (through the shared tile cache) and save its atlas, telling `listener` as each request
+    /// finishes. Returns what the realm offers.
     ///
     /// # Errors
     /// Returns an error if the realm does not exist, every map request failed, or the atlas cannot be saved.
-    pub fn scan_realm(&self, id: String, now_ms: u64) -> Result<Vec<OfferOut>, CoreError> {
-        use std::sync::atomic::Ordering::Relaxed;
+    pub fn scan_realm(&self, id: String, now_ms: u64, listener: Arc<dyn ScanListener>) -> Result<Vec<OfferOut>, CoreError> {
         let store = self.store();
         let realm = store.get(&id).ok_or_else(|| err("realm not found"))?;
-        self.scan_done.store(0, Relaxed);
-        self.scan_total.store(0, Relaxed);
-        let atlas = scan_realm(&realm, &self.catalog, Some(&self.cache()), now_ms, &|done, total| {
-            self.scan_done.store(count_u32(done), Relaxed);
-            self.scan_total.store(count_u32(total), Relaxed);
-        })
-        .map_err(err)?;
+        let atlas =
+            scan_realm(&realm, &self.catalog, Some(&self.cache()), now_ms, &|done, total| listener.progress(count_u32(done), count_u32(total))).map_err(err)?;
         store.save_atlas(&atlas).map_err(err)?;
         // The realm may have been edited while the scan ran: stamp the scan time on its current state, not on the copy read before.
         let mut current = store.get(&id).ok_or_else(|| err("realm was deleted during the scan"))?;
