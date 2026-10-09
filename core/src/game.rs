@@ -308,6 +308,10 @@ pub struct Game {
     unlocked_at: BTreeMap<u32, i64>,
     #[serde(skip)]
     outlier_streak: u32,
+    // A fix was dropped (blurry or an impossible jump) since the last good one: the player may have left a dwell unseen, so a
+    // scheduled tick must not finish one until a good fix says where they are.
+    #[serde(skip)]
+    unseen_since_good: bool,
     #[serde(skip)]
     last_verdict: Verdict,
     #[serde(skip)]
@@ -466,6 +470,7 @@ impl Game {
             last_fix: None,
             unlocked_at: BTreeMap::new(),
             outlier_streak: 0,
+            unseen_since_good: false,
             last_verdict: Verdict::Used,
             last_speed: None,
             odo_anchor: None,
@@ -798,8 +803,8 @@ impl Game {
             // Wake by the stretch cap at the latest, so a long outing keeps counting.
             Some(next_mark.min(mark + AWAY_MAX_STRETCH_MS))
         });
-        // A dwell the player is standing in finishes then too, with no more fixes needed.
-        let dwell = self.trackers.values().filter_map(Tracker::due_ms).min();
+        // A dwell the player is standing in finishes then too, with no more fixes needed (not after a dropped fix: they may have left).
+        let dwell = if self.unseen_since_good { None } else { self.trackers.values().filter_map(Tracker::due_ms).min() };
         away.into_iter().chain(dwell).min()
     }
 
@@ -807,7 +812,7 @@ impl Game {
     pub fn tick(&mut self, t_ms: i64) -> Vec<Event> {
         self.settle_away(t_ms);
         let mut ev = Vec::new();
-        if self.counting && !self.checks_blocked() {
+        if self.counting && !self.checks_blocked() && !self.unseen_since_good {
             let finished: Vec<i64> = self.trackers.iter_mut().filter_map(|(id, t)| (t.tick(t_ms) == Status::Done).then_some(*id)).collect();
             for id in finished {
                 ev.extend(self.complete(id, t_ms, self.last_pos()));
@@ -852,6 +857,7 @@ impl Game {
         }
         if fix.accuracy_m > MAX_ACCURACY_M {
             self.last_verdict = Verdict::Blurry(fix.accuracy_m);
+            self.unseen_since_good = true;
             return ev;
         }
         // A fix that implies an impossible jump (a network or cell fix far off) is dropped, so it can neither complete a quest nor become
@@ -861,9 +867,11 @@ impl Game {
         {
             self.outlier_streak += 1;
             self.last_verdict = Verdict::Jump;
+            self.unseen_since_good = true;
             return ev;
         }
         self.outlier_streak = 0;
+        self.unseen_since_good = false;
         self.last_verdict = Verdict::Used;
         let pos = fix.point();
         let speed = self.last_fix.as_ref().and_then(|l| implied_speed_kmh(l, &fix));
@@ -1484,6 +1492,20 @@ mod tests {
         assert!(g.on_fix(Fix { accuracy_m: 5.0, ..fixat(spot, 1000) }, None).iter().all(|e| !matches!(e, Event::QuestDone { location_id: 9000, .. })));
         assert_eq!(g.next_due_ms(1_000_000), Some(1_180_000), "three minutes after arriving");
         assert!(g.tick(1_180_000).contains(&Event::QuestDone { location_id: 9000, name: g.assignments.last().unwrap().quest_name.clone() }));
+    }
+
+    #[test]
+    fn a_dwell_is_not_finished_by_a_tick_after_unusable_fixes() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let spot = destination(g.home, 90.0, 1200.0);
+        g.assignments.push(chain::tests_support::member(9000, 1, "bench_warmer", Target::Dwell { p: spot, r: 40.0, minutes: 3.0 }));
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(spot, 1000) }, None);
+        // Walking off under trees: only blurry fixes, which the trackers never see.
+        g.on_fix(Fix { accuracy_m: 80.0, ..fixat(destination(spot, 0.0, 300.0), 1060) }, None);
+        assert_eq!(g.next_due_ms(1_100_000), None, "no wake-up for a dwell that may have been left");
+        assert!(g.tick(1_180_000).iter().all(|e| !matches!(e, Event::QuestDone { location_id: 9000, .. })));
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(spot, 1100) }, None); // a good fix: still there after all
+        assert_eq!(g.next_due_ms(1_100_000), Some(1_180_000));
     }
 
     #[test]
