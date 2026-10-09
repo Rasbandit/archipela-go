@@ -37,31 +37,41 @@ Success:
 | -- | -- |
 | `Atlas::ways` (`WayGeom { id, class, pts }`): walkable highways, simplified to 2 m, junctions shared, access tags honoured | the street network |
 | `loc::StreetGraph` (`core/src/loc/graph.rs`): built per game from all its atlases; segments deduped by node pair; `Segment { a, b, len_m, class }`; `candidates(p, radius_m, max, mask) -> Vec<Cand { seg, off_m, d_m }>`; `mode_mask(Mode)`; `geo_at(seg, off_m)` | the total street length, finding the piece under a position, drawing walked pieces |
-| `Estimate { lat, lon, uncertainty_m, source, … }` from the `Locator` | what counts as a position |
-| HMM matched segment (task 19 there) | preferred over nearest-segment snapping when present |
+| `Estimate { lat, lon, uncertainty_m, source, accepted, … }` from the `Locator` | what counts as a position |
 | `Game::reveal`: accepted and bridged estimates, where fog and Cartographer are credited today | the hook for crediting |
+| `way_class::SIDE` (requested from that session): set on sidewalks and crossings | keeping sidewalks out of coverage |
 
-Until that branch merges, do not edit `scan.rs`, `loc/graph.rs`, `loc/locator.rs` or `Game::check` / `Game::reveal`.
+Until that branch merges, do not edit `scan.rs`, `loc/graph.rs`, `loc/locator.rs` or `Game::check` / `Game::reveal`. That
+branch is based on the local `main` (forager work), not `origin/main`; re-check every signature in the plan against main after
+both merge.
+
+There is no matched position for quests: the location-quality spec has quests use the IMM estimate, never the matched point. So
+coverage snaps to the nearest segment itself.
 
 ## Street pieces and the walked store (core)
 
 - **Piece:** each graph segment is cut into pieces of `PIECE_M = 20` m (the last piece of a segment is shorter). A piece is
   identified by a **location key**: its midpoint rounded to about 1 m (lat/lon × 1e5, as integers). Segment ids change on every
   rescan and every graph rebuild; the key does not.
-- **Crediting**, in `Game::reveal`, for each estimate:
+- **Crediting**, in `Game::reveal`, for each estimate. Today `reveal(pos, ev)` gets only a point; change it to also get
+  `uncertainty_m` (both callers have the `Estimate`). This is ours to change after the location-quality merge.
   - Skip the estimate when `uncertainty_m > CREDIT_MAX_UNCERTAINTY_M` (20 m).
   - Bridged estimates count (owner decision in the location-quality spec).
-  - Piece choice: if the matcher gives a matched segment and offset, use that piece. Otherwise use the nearest candidate within
-    `CREDIT_RADIUS_M` (15 m) on any walkable class (`reveal` is not tied to one zone): `candidates(p, 15.0, 1, all_classes)`,
-    piece index `floor(off_m / 20)`.
-  - Insert `(game_id, key, len_m, class)` into the walked store if it is not already there. A piece is credited once per game.
-- **Store:** a new SQLite table `walked_piece(game_id, key_lat, key_lon, len_m, class, PRIMARY KEY(game_id, key_lat, key_lon))`.
-  - It lives in the database, not in memory: the graph already uses most of the memory budget.
-  - Walked metres for a zone are summed over the keys whose point is inside the zone and whose class is on the zone's mode mask.
-- **Zone totals:** `zone_street_m(zone)` is the summed length of the pieces on the zone's mode mask whose midpoint is inside the
-  zone. That is the same rule as the walked sum, so the % cannot pass 100. It is computed when the graph is attached and cached
-  per game.
-- **Walked %** is `walked_m / zone_street_m`, computed when asked (UI, quest check), never on a timer.
+  - Piece choice: the nearest segment without the `SIDE` bit within `CREDIT_RADIUS_M` (15 m), on any walkable class (`reveal`
+    is not tied to one zone): `candidates(p, 15.0, 4, FOOT | BIKE | CAR)`, first one without `SIDE`. The piece index is
+    `floor(off_m / 20)`.
+  - Add `(key, len_m, class)` to the game's walked set if it is not already there. A piece is credited once per game.
+- **Store:** the walked set lives in the saved game (`Game.walked`, `#[serde(default)]`), because games are saved as JSON files
+  and the only database is the journal. In memory it is `BTreeMap<(i32, i32), (f32, u8)>` (key → length, class). It is saved as a
+  flat list of about 20 bytes per piece: 3,000 walked pieces (60 km) is about 60 KB.
+- **Zone totals:** `zone_street_m(zone)` is the summed length of the pieces on the zone's mode mask, without `SIDE`, whose
+  midpoint is inside the zone. It is computed lazily on first use and cached in memory (`#[serde(skip)]`) together with the graph
+  it came from (`Arc` pointer). The graph is rebuilt off the main thread on open, rescan and realm edit (`refresh_streets`), so a
+  different graph throws the cache away.
+- **Walked metres** for a zone sum the walked keys whose point is inside the zone and whose class is on the zone's mode mask: the
+  same rule as the total, so the % cannot pass 100. It is computed when asked (UI, quest check), never on a timer.
+- **Sidewalks:** sidewalks and crossings are mapped as their own ways next to streets. Counting them would triple a street's
+  share and leave walkers with about a third of the credit, so pieces with `SIDE` are left out of both the total and crediting.
 
 ## The quest (core)
 
@@ -69,29 +79,41 @@ Until that branch merges, do not edit `scan.rs`, `loc/graph.rs`, `loc/locator.rs
   - It keeps `geom: none` and modes walk, run, bike.
   - It is not offered in a zone with `zone_street_m < MIN_ZONE_STREET_M` (2 km).
   - Regenerate `docs/context/quest-catalog.md`.
-- **Target:** `Target::Cells { n, cell_m }` is replaced by `Target::StreetShare { pct }`, where `pct` is this member's own step.
-- **Sizing** (in `assign.rs`, replacing the `CoverCells` arm):
-  - `distance_m = want_min × mode.m_per_min() × 0.7` (the 0.7 allows for doubling back, as today);
-  - `pct = 100 × distance_m / zone_street_m`.
-  - Effort stays `want_min`. Description: "Walk X % of <zone>'s streets".
-- **Chain:** `ChainUnit::Cells` becomes `ChainUnit::StreetPct`.
-  - Milestones are the running total of the members' `pct`.
-  - The last milestone is capped at `MAX_SHARE_PCT` (50 %), because some streets are private, dead ends or not worth walking.
-  - Members whose milestone would pass the cap are scaled down proportionally.
-  - Labels: goal "Walk 5 % of Riverside's streets"; progress "3.1 %". Show one decimal below 10 %, whole numbers from 10 %.
-- **Progress check:** the tracker reads the zone's walked % (no per-quest state). Done when the walked % ≥ the milestone.
-- **"About X km more":** `(milestone_pct − walked_pct) / 100 × zone_street_m`, rounded to 0.1 km (miles when the units setting
-  says so). It is shown while not done.
-- **Old saves:** a saved `Target::Cells { n, cell_m }` converts on load to `StreetShare` with the same effort
-  (`distance_m = n × cell_m`, then the sizing above). Old per-quest cell progress is dropped; the game % starts from the walked
-  store, which is empty for old games.
+- **Target:** a new `Target::Streets { distance_m }`, this member's own step as a **distance**. A % needs the zone's street total,
+  which is only known once the graph is built when the game opens, so the % is derived when shown.
+  - `Target::Cells` stays in the enum so old saves load (`Target` is saved with serde's default tagging), and is converted on
+    load (below).
+- **Sizing** (in `assign.rs`, replacing the `CoverCells` arm): `distance_m = want_min × mode.m_per_min() × 0.7` (the 0.7 allows
+  for doubling back, as today). Effort stays `want_min`.
+  - A zone whose atlas `walkable_m()` is under `MIN_ZONE_STREET_M` (2 km) does not get Cartographer: the arm returns `None`.
+    (`min_features` does not gate assignment, and the graph is not built yet when quests are assigned.)
+- **Chain:** `ChainUnit::Cells` becomes `ChainUnit::Streets`. Its counter and marks are in **metres**; the UI shows them as %.
+  - The counter is the zone's walked metres, read live (like steps), not added up in `counters.progress`.
+  - Marks are the running total of the members' `distance_m`, capped so the last mark is at most `MAX_SHARE` (50 %) of
+    `zone_street_m`. If the last would pass it, every mark is scaled by `cap / last`. Some streets are private, dead ends or not
+    worth walking.
+  - `zone_street_m` is only known after the graph is attached. Until then (or with no graph), the chain shows its marks as
+    distances and cannot complete.
+  - Text from the core:
+    - goal: "Walk 5% of <realm name>'s streets";
+    - amount: "3.1%" (one decimal below 10 %, whole numbers from 10 %);
+    - next: "about 0.8 km more", which is `mark − walked` metres, formatted on the phone (`Units.distance`, which already picks
+      km or miles by locale).
+- **Old saves** (in `normalize_counters`, which runs on load):
+  - Every `Target::Cells { n, cell_m }` becomes `Target::Streets { distance_m: n × cell_m }`. That is the same distance it was
+    sized from.
+  - The old `counters.progress` entry for each converted chain is removed: it counted squares, and its floor at the highest done
+    mark would be read as metres.
+  - Marks already done stay done.
 
 ## Display (Android)
 
 - **Quest card and chain bar:** text from the core, for example "Cartographer · Walk 5 % of Riverside's streets" and
   "3.1 % walked · about 0.8 km more".
 - **Walked-street highlight:**
-  - On quest selection, Kotlin asks the core for `walked_lines(game, zone)`: walked pieces in the zone, with neighbouring pieces
+  - Cartographer is a chain, so "selected" means the chain is selected (`AppModel.selectedChain`). Today that is not passed to
+    `QuestMap`; it has to be.
+  - On chain selection, Kotlin asks the core for `walked_lines(zone)`: walked pieces in the zone, with neighbouring pieces
     joined into polylines.
   - Kotlin sets them on a GeoJSON source drawn by one line layer in the quest's state colour.
   - It is cleared on deselection, fetched again when the selected quest's progress changes, and never polled.
@@ -101,8 +123,9 @@ Until that branch merges, do not edit `scan.rs`, `loc/graph.rs`, `loc/locator.rs
 
 ## FFI
 
-- `walked_pct(zone)` / progress text come through the existing quest and chain records (new fields as needed).
-- New `walked_lines(zone_id) -> Vec<Vec<GeoPoint>>`.
+- `ChainOut.unit` gets `"streets"`. The counter and marks are in metres, and a new `ChainOut.total_street_m` (0 when unknown)
+  lets the phone show %. The phone replaces the `"cells"` cases (`ChainFormat`, `PlayLayout.OFF_MAP`, `DevSimulator`).
+- New `Engine::walked_lines(zone: u32) -> Vec<Vec<GeoPoint>>`.
 
 ## Out of scope
 
