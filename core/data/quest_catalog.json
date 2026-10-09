@@ -1779,7 +1779,7 @@
    "id": "touch_grass",
    "name": "Touch Grass",
    "family": "park",
-   "blurb": "Spend a few minutes inside a park.",
+   "blurb": "Spend any time inside a park.",
    "geom": "area",
    "any_of": [
     [
@@ -1797,7 +1797,7 @@
    "require_name": false,
    "verify": {
     "type": "dwell_in_area",
-    "minutes": 3
+    "minutes": 1
    },
    "modes": [
     "walk",
@@ -1909,37 +1909,6 @@
     "run"
    ],
    "min_features": 1
-  },
-  {
-   "id": "perimeter_patrol",
-   "name": "Perimeter Patrol",
-   "family": "park",
-   "blurb": "Walk the whole outline of a park.",
-   "geom": "line",
-   "any_of": [
-    [
-     {
-      "key": "leisure",
-      "values": [
-       "park"
-      ]
-     }
-    ]
-   ],
-   "require_name": true,
-   "verify": {
-    "type": "follow_line",
-    "corridor_m": 25,
-    "coverage": 0.85,
-    "min_len_m": 300,
-    "max_len_m": 6000
-   },
-   "modes": [
-    "walk",
-    "run"
-   ],
-   "min_features": 1,
-   "outline": true
   },
   {
    "id": "trail_boss",

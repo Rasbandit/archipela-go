@@ -285,6 +285,14 @@ impl Catalog {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_park_is_one_quest_where_any_minute_inside_counts() {
+        let c = Catalog::builtin();
+        assert!(c.kind("perimeter_patrol").is_none(), "walking a park's outline was too like spending time in it");
+        let park = c.kind("touch_grass").unwrap();
+        assert!(matches!(park.verify, Verify::DwellInArea { minutes } if (minutes - 1.0).abs() < f64::EPSILON), "{:?}", park.verify);
+    }
+
     fn tags(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
     }

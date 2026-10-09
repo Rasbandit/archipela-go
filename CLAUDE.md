@@ -30,7 +30,7 @@ via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monore
 ## Key decisions (full log: `docs/context/project-decisions.md`)
 
 - Own apworld, game `Archipela-Go 2: Electric Boogaloo`, new ID offset. Archipelago's own conventions are the golden rule.
-- Realms are places; **travel mode is chosen per zone in a game**; zones are gated by keys and tools; quests come from a 76-kind catalog on real finds.
+- Realms are places; **travel mode is chosen per zone in a game**; zones are gated by keys and tools; quests come from a 75-kind catalog on real finds.
 - Several win conditions (any / all / at least N) are client-evaluated and reported with `StatusUpdate`; slot_data is schema 3.
 - Scans use a global tile grid and a shared cache; the editor autosaves with undo/redo; one design system (`ui/`) and one help-text file.
 - Licence: `android/` is PolyForm Noncommercial 1.0.0, everything else MIT (`working-in-this-repo.md`).

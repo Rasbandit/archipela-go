@@ -840,8 +840,8 @@ mod tests {
             &cat,
             &params(2),
         );
-        // A park can be spent time in or walked around (Perimeter Patrol, whose share now fits the effort asked for).
-        assert!(matches!(out[0].target, Target::DwellArea { .. } | Target::Line { .. }), "{:?}", out[0].target);
+        // A park is a place to spend time in.
+        assert!(matches!(out[0].target, Target::DwellArea { .. }), "{:?}", out[0].target);
         assert!(matches!(out[1].target, Target::Line { .. }), "{:?}", out[1].target);
         assert!(matches!(out[2].target, Target::Courier { .. } | Target::RoundTrip { .. }));
         assert!(matches!(out[3].target, Target::Steps { .. }));
@@ -1127,7 +1127,7 @@ mod tests {
             }
         }
         // the fixture really exercises feature places of every shape, not only street points
-        for want in ["bench_warmer", "museum_mile", "touch_grass", "perimeter_patrol", "follow_the_flow", "trail_boss", "courier"] {
+        for want in ["bench_warmer", "museum_mile", "touch_grass", "follow_the_flow", "trail_boss", "courier"] {
             assert!(kinds.contains(want), "{want} never placed: {kinds:?}");
         }
     }

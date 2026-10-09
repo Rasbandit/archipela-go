@@ -5,7 +5,7 @@ _Last verified: 2026-10-07 (end of the big UI session). "Verified" = run; "Not d
 ## What exists
 
 A real-world quest game. The player saves **realms** (places, a circle or polygon), the app **scans** each realm's map data into **finds**, and a **game**
-builds **zones** (a realm played by walk/run/bike) filled with quests from a 76-kind catalog. It plays **solo** or as an **Archipelago** client.
+builds **zones** (a realm played by walk/run/bike) filled with quests from a 75-kind catalog. It plays **solo** or as an **Archipelago** client.
 Win conditions: 12 goals, one or several, combined any / all / at least N.
 
 ## Layout
