@@ -11,6 +11,30 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 
+/** What a start of [TrackingService] has to do besides showing its notification. */
+internal enum class ServiceStart {
+    /** Started by the app: the activity's effects run presence, steps and GPS. */
+    FromApp,
+
+    /** Restarted by Android with a game open and no screen: start tracking from the service. */
+    ResumeHeadless,
+
+    /** Restarted with no game to track: stop, so no notification lingers. */
+    Stop,
+    ;
+
+    companion object {
+        fun of(
+            restarted: Boolean,
+            playing: Boolean,
+        ) = when {
+            !restarted -> FromApp
+            playing -> ResumeHeadless
+            else -> Stop
+        }
+    }
+}
+
 /**
  * Keeps the app a foreground process while a game is open, so location and step updates (see [Sensors]) keep
  * arriving with the screen off. It holds no logic of its own; the user sees it as an ongoing notification.
@@ -40,7 +64,16 @@ class TrackingService : Service() {
         } else {
             startForeground(ID, n) // the foreground service type only exists from Android 10
         }
-        Diag.info("service", "started", "restart" to (intent == null))
+        val restarted = intent == null
+        Diag.info("service", "started", "restart" to restarted)
+        // A restart by Android (START_STICKY) comes with no activity: loading the model resumes the saved game, then tracking is
+        // started here instead of by the screen's effects.
+        val model = (application as ApgoApp).model
+        when (ServiceStart.of(restarted, playing = model.hud != null)) {
+            ServiceStart.FromApp -> Unit
+            ServiceStart.ResumeHeadless -> model.resumeInBackground()
+            ServiceStart.Stop -> stopSelf()
+        }
         return START_STICKY
     }
 
