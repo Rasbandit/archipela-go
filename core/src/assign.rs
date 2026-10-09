@@ -293,6 +293,14 @@ fn quest_title(kind_name: &str, t: &Target) -> String {
     }
 }
 
+/// The realm boss's display name: the label, then what the quest asks (a forager drops its own name so the title has one colon).
+fn boss_title(kind_name: &str, t: &Target) -> String {
+    match t {
+        Target::Collect { need, theme, .. } => format!("The Big One: bring home {need} {theme}"),
+        _ => format!("The Big One: {kind_name}"),
+    }
+}
+
 /// Whether the rough points join the paved ones for this surface preference (the same choice for points and the streets between them).
 fn uses_rough(z: &ZoneCtx<'_>, pref: SurfacePref) -> bool {
     match pref {
@@ -664,8 +672,8 @@ fn one(
     if let Target::Collect { pts, .. } = &c.target {
         used_pts.extend(pts.iter().skip(1)); // the first is the anchor, pushed above
     }
-    let title = quest_title(&c.kind.name, &c.target);
-    let (kind_id, quest_name) = if s.boss { ("the_big_one".to_string(), format!("The Big One: {title}")) } else { (c.kind.id.clone(), title) };
+    let (kind_id, quest_name) =
+        if s.boss { ("the_big_one".to_string(), boss_title(&c.kind.name, &c.target)) } else { (c.kind.id.clone(), quest_title(&c.kind.name, &c.target)) };
     Assignment {
         location_id: s.location_id,
         zone: s.zone,
@@ -705,7 +713,7 @@ pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx<'_>], catalog: &Catalog, p: &As
 
 /// A forager quest with its unpicked items moved to new street points under the placement rules (a Shuffle trap); `index` is the zone's
 /// path index. Picked items, `need`, `r` and the theme stay, and so do the item indexes saved progress refers to. The new points fill the
-/// open slots nearest home first when placed, so the first item stays the nearest and the quest still shows in the fog on the way out.
+/// open slots nearest home first; when nothing was picked, item 0 is the nearest home, so the quest still shows in the fog on the way out.
 /// `None` for any other target, or when the zone cannot supply the new points: the caller then leaves the quest as it is.
 #[must_use]
 pub fn replace_unpicked(
@@ -1359,6 +1367,13 @@ mod tests {
             assert_eq!(out.len(), slots.len());
             assert!(out.iter().all(|o| o.kind_id != "forager"), "seed {seed}");
         }
+    }
+
+    #[test]
+    fn boss_forager_title_has_one_colon() {
+        let t = Target::Collect { pts: vec![], need: 10, r: 25.0, theme: "acorns".into() };
+        assert_eq!(boss_title("Forager", &t), "The Big One: bring home 10 acorns");
+        assert_eq!(boss_title("Trail Boss", &Target::Point { p: Point { lat: 0.0, lon: 0.0 }, r: 10.0 }), "The Big One: Trail Boss");
     }
 
     #[test]
