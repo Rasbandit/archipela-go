@@ -222,6 +222,10 @@ pub struct Stats {
 /// stops counting at home anyway).
 const HOME_RADIUS_M: f64 = 100.0;
 
+/// The most one unbroken stretch of time away can credit: a missed event (app killed, a wake-up the phone slept through) never
+/// credits more. A real outing keeps counting: a wake-up is scheduled by then at the latest.
+const AWAY_MAX_STRETCH_MS: i64 = 2 * 3_600_000;
+
 fn yes() -> bool {
     true
 }
@@ -739,7 +743,7 @@ impl Game {
             for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Minutes) {
                 let from = self.unlocked_at.get(&c.zone).map_or(mark, |u| mark.max(*u));
                 if t_ms > from {
-                    *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64(t_ms - from) / 60_000.0;
+                    *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64((t_ms - from).min(AWAY_MAX_STRETCH_MS)) / 60_000.0;
                 }
             }
         }
@@ -764,7 +768,7 @@ impl Game {
         let running = self.counters.away_mark.filter(|_| c.unit == ChainUnit::Minutes && self.zone_unlocked(c.zone) && !self.checks_blocked());
         running.map_or(credited, |mark| {
             let from = self.unlocked_at.get(&c.zone).map_or(mark, |u| mark.max(*u));
-            credited + i64_to_f64((now_ms - from).max(0)) / 60_000.0
+            credited + i64_to_f64((now_ms - from).clamp(0, AWAY_MAX_STRETCH_MS)) / 60_000.0
         })
     }
 
@@ -774,8 +778,9 @@ impl Game {
         if self.checks_blocked() {
             return None; // a trap holds every check; the fix or item that ends it reschedules
         }
-        let away = self.counters.away_mark.and_then(|_| {
-            self.unlocked_chains()
+        let away = self.counters.away_mark.and_then(|mark| {
+            let next_mark = self
+                .unlocked_chains()
                 .into_iter()
                 .filter(|c| c.unit == ChainUnit::Minutes)
                 .filter_map(|c| {
@@ -783,7 +788,9 @@ impl Game {
                     let next = c.marks.iter().filter(|m| !self.done.contains(&m.location_id) && m.at > live).map(|m| m.at).reduce(f64::min)?;
                     Some(now_ms + round_i64(((next - live) * 60_000.0).ceil()))
                 })
-                .min()
+                .min()?;
+            // Wake by the stretch cap at the latest, so a long outing keeps counting.
+            Some(next_mark.min(mark + AWAY_MAX_STRETCH_MS))
         });
         // A dwell the player is standing in finishes then too, with no more fixes needed.
         let dwell = self.trackers.values().filter_map(Tracker::due_ms).min();
@@ -1240,6 +1247,7 @@ impl Game {
         let s = std::fs::read_to_string(Self::path_for(dir, id)).map_err(|e| e.to_string())?;
         let mut g: Self = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
         g.counters.steps_last = None; // steps taken while the game was closed are never credited
+        g.counters.away_mark = None; // nor time away: where the player was while the app was dead is unknown (presence restarts it)
         g.normalize_counters();
         Ok(g)
     }
@@ -1494,15 +1502,28 @@ mod tests {
     }
 
     #[test]
-    fn time_away_survives_a_restart() {
+    fn a_restart_does_not_count_the_time_the_app_was_dead() {
         let dir = std::env::temp_dir().join(format!("apgo-away-restart-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let mut g = away_game(&[10.0]);
+        let mut g = away_game(&[600.0]);
         g.set_counting(true, 0);
         g.save(&dir).unwrap();
-        let back = Game::load(&dir, "g1").unwrap();
-        assert!((wanderlust(&back, 120_000) - 2.0).abs() < 0.01, "still away after the app restarted");
+        let mut back = Game::load(&dir, "g1").unwrap();
+        assert!(back.counters.away_mark.is_none(), "after a restart where you are is unknown");
+        assert!(wanderlust(&back, 36_000_000).abs() < 0.01, "ten hours with the app dead are not time away");
+        back.set_counting(false, 36_000_000); // back home when the app came back
+        assert!(back.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn one_unbroken_stretch_counts_at_most_two_hours_until_the_next_event() {
+        let mut g = away_game(&[600.0]); // one mark, ten hours out
+        g.set_counting(true, 0);
+        assert_eq!(g.next_due_ms(0), Some(AWAY_MAX_STRETCH_MS), "a wake-up at the cap keeps a real outing counting");
+        assert!((wanderlust(&g, 5 * 3_600_000) - 120.0).abs() < 0.01, "a missed event never credits more than the cap");
+        g.tick(AWAY_MAX_STRETCH_MS);
+        assert!((wanderlust(&g, 3 * 3_600_000) - 180.0).abs() < 0.01, "the next stretch runs on from the tick");
     }
 
     #[test]
