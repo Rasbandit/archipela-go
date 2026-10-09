@@ -7,9 +7,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::geo::{destination, distance_m, Point};
 use crate::near_path::PathIndex;
+use crate::units::{distance, UnitSystem};
 
 const MIN: i64 = 60_000;
 const THAW_RADIUS_M: f64 = 40.0;
+/// How close to home a Leash Trap keeps checks.
+pub const LEASH_M: f64 = 800.0;
+/// How far a Toll Trap makes you move before checks count.
+pub const TOLL_M: f64 = 400.0;
 
 /// A negative effect applied to the player, each with a way out.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -70,6 +75,9 @@ pub enum Trap {
 pub struct Traps {
     /// Traps that have not yet expired or been cleared.
     pub active: Vec<Trap>,
+    /// The units trap messages are written in: the player's setting, never saved.
+    #[serde(skip)]
+    units: UnitSystem,
 }
 
 /// A spot on a street or path `min`..`max` metres from `from` (#51: a point to reach is never made up off the streets). With none in that
@@ -89,6 +97,11 @@ fn pool_point(paths: &PathIndex, from: Point, min: f64, max: f64, rng: &mut StdR
 }
 
 impl Traps {
+    /// Write trap messages in `units` from now on.
+    pub fn set_units(&mut self, units: UnitSystem) {
+        self.units = units;
+    }
+
     /// Start the effect of a trap item. Returns a player-facing message (also for honor traps).
     pub fn trigger(&mut self, item: &str, now_ms: i64, pos: Option<Point>, home: Point, paths: &PathIndex, rng: &mut StdRng) -> Option<String> {
         let at = pos.unwrap_or(home);
@@ -100,14 +113,17 @@ impl Traps {
             "Fog Of War Trap" => (Trap::Fog { until_ms: now_ms + 15 * MIN }, "Fog rolls in: the map is hidden for 15 minutes.".into()),
             "Silence Trap" => (Trap::Silence { until_ms: now_ms + 15 * MIN }, "Silence: notifications muted for 15 minutes.".into()),
             "Leash Trap" => (
-                Trap::Leash { center: home, radius_m: 800.0, until_ms: now_ms + 30 * MIN },
-                "Leashed! Checks only count within 800 m of home for 30 minutes.".into(),
+                Trap::Leash { center: home, radius_m: LEASH_M, until_ms: now_ms + 30 * MIN },
+                format!("Leashed! Checks only count within {} of home for 30 minutes.", distance(LEASH_M, self.units)),
             ),
             "Detour Trap" => {
                 let waypoint = pool_point(paths, at, 300.0, 700.0, rng);
                 (Trap::Detour { waypoint, visited: false, until_ms: now_ms + 20 * MIN }, "Detour! Visit the marked waypoint before any check counts.".into())
             }
-            "Toll Trap" => (Trap::Toll { need_m: 400.0, moved_m: 0.0, until_ms: now_ms + 20 * MIN }, "Toll! Cover 400 m before any check counts.".into()),
+            "Toll Trap" => (
+                Trap::Toll { need_m: TOLL_M, moved_m: 0.0, until_ms: now_ms + 20 * MIN },
+                format!("Toll! Cover {} before any check counts.", distance(TOLL_M, self.units)),
+            ),
             "Slow Trap" => (Trap::Slow { until_ms: now_ms + 30 * MIN }, "Slow! Dwell quests take twice as long for 30 minutes.".into()),
             "Shuffle Trap" => return Some("Shuffle! Unfinished quests are rerolled.".into()),
             honor if honor.ends_with("Trap") => return Some(format!("{honor}: do it on your honor!")),
@@ -154,7 +170,7 @@ impl Traps {
                 Trap::Freeze { .. } => return Some("Frozen: reach the thaw point first".into()),
                 Trap::Leash { center, radius_m, .. } if distance_m(pos, *center) > *radius_m => return Some("Leashed: stay near home".into()),
                 Trap::Detour { visited: false, .. } => return Some("Detour: visit the waypoint first".into()),
-                Trap::Toll { need_m, moved_m, .. } if moved_m < need_m => return Some(format!("Toll: {:.0} m to go", need_m - moved_m)),
+                Trap::Toll { need_m, moved_m, .. } if moved_m < need_m => return Some(format!("Toll: {} to go", distance(need_m - moved_m, self.units))),
                 _ => {}
             }
         }
@@ -292,6 +308,20 @@ mod tests {
         assert!(t.fog_active() && t.silenced());
         t.tick(40 * 60_000, home(), 0.0);
         assert!(t.active.is_empty() && !t.fog_active() && t.dwell_multiplier() == 1.0);
+    }
+
+    #[test]
+    fn trap_distances_read_in_the_players_units() {
+        let mut t = Traps::default();
+        t.set_units(UnitSystem::Imperial);
+        let leash = t.trigger("Leash Trap", 0, None, home(), &PathIndex::default(), &mut rng()).unwrap();
+        assert!(leash.contains("within 0.5 mi of home"), "{leash}");
+        let toll = t.trigger("Toll Trap", 0, None, home(), &PathIndex::default(), &mut rng()).unwrap();
+        assert!(toll.contains("Cover 0.2 mi"), "{toll}");
+        t.tick(10, home(), 100.0);
+        assert_eq!(t.blocks_checks(home()).as_deref(), Some("Toll: 0.2 mi to go"));
+        t.set_units(UnitSystem::Metric);
+        assert_eq!(t.blocks_checks(home()).as_deref(), Some("Toll: 300 m to go"));
     }
 
     #[test]

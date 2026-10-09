@@ -13,9 +13,10 @@ const FEET_UNTIL: f64 = 528.0;
 const NO_VALUE: &str = "–";
 
 /// The units distances are shown in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UnitSystem {
     /// Metres and kilometres.
+    #[default]
     Metric,
     /// Feet and miles.
     Imperial,

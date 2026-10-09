@@ -1,6 +1,6 @@
-//! Player settings over FFI: the unit choice and the units it resolves to.
+//! Player settings over FFI: the unit choice, the units it resolves to, and the one distance formatter.
 
-use apgo_core::settings::{self as core, resolve_units, Settings};
+use apgo_core::settings::{self as core, Settings};
 use apgo_core::units;
 
 use crate::engine::Engine;
@@ -55,6 +55,29 @@ impl From<units::UnitSystem> for UnitSystem {
     }
 }
 
+impl From<UnitSystem> for units::UnitSystem {
+    fn from(u: UnitSystem) -> Self {
+        match u {
+            UnitSystem::Metric => Self::Metric,
+            UnitSystem::Imperial => Self::Imperial,
+        }
+    }
+}
+
+/// A distance in metres as text in `units` ("50 m", "1.4 km", "60 ft", "0.3 mi"): the app's one distance formatter.
+#[uniffi::export]
+#[must_use]
+pub fn format_distance(m: f64, units: UnitSystem) -> String {
+    units::distance(m, units.into())
+}
+
+/// An area in square metres as text in `units`: whole km² or mi², "<1 km²" for a small one.
+#[uniffi::export]
+#[must_use]
+pub fn format_area(m2: f64, units: UnitSystem) -> String {
+    units::area(m2, units.into())
+}
+
 #[uniffi::export]
 #[allow(clippy::needless_pass_by_value)] // uniffi requires owned args
 impl Engine {
@@ -63,19 +86,26 @@ impl Engine {
         Settings::load(self.dir()).units.into()
     }
 
-    /// Save the unit choice, keeping every other setting.
+    /// Save the unit choice, keeping every other setting; the open game's text follows it from now on.
     ///
     /// # Errors
     /// Returns an error if the settings file cannot be written.
     pub fn set_unit_choice(&self, choice: UnitChoice) -> Result<(), CoreError> {
         let mut settings = Settings::load(self.dir());
         settings.units = choice.into();
-        settings.save(self.dir()).map_err(|detail| CoreError::Failed { detail })
+        settings.save(self.dir()).map_err(|detail| CoreError::Failed { detail })?;
+        self.refresh_units(None);
+        Ok(())
     }
 
-    /// The units to show on a phone set to `country` (an ISO 3166 code such as "US"), after the saved choice.
-    pub fn units(&self, country: String) -> UnitSystem {
-        resolve_units(Settings::load(self.dir()).units, &country).into()
+    /// Tell the core the phone's region (an ISO 3166 code such as "US"), which `Auto` units follow.
+    pub fn set_region(&self, country: String) {
+        self.refresh_units(Some(country));
+    }
+
+    /// The units everything is shown in now: the saved choice, with `Auto` resolved by the region.
+    pub fn units(&self) -> UnitSystem {
+        self.unit_system().into()
     }
 }
 
@@ -107,31 +137,43 @@ mod tests {
     }
 
     #[test]
-    fn choice_defaults_to_auto_and_follows_the_country() {
+    fn choice_defaults_to_auto_and_follows_the_region() {
         let d = Dir::new("default");
         let e = d.engine();
         assert_eq!(e.unit_choice(), UnitChoice::Auto);
-        assert_eq!(e.units("US".into()), UnitSystem::Imperial);
-        assert_eq!(e.units("DE".into()), UnitSystem::Metric);
+        assert_eq!(e.units(), UnitSystem::Metric, "no region yet");
+        e.set_region("US".into());
+        assert_eq!(e.units(), UnitSystem::Imperial);
+        e.set_region("DE".into());
+        assert_eq!(e.units(), UnitSystem::Metric);
     }
 
     #[test]
-    fn a_saved_choice_survives_a_restart_and_overrides_the_country() {
+    fn a_saved_choice_survives_a_restart_and_overrides_the_region() {
         let d = Dir::new("saved");
         d.engine().set_unit_choice(UnitChoice::Metric).unwrap();
         let e = d.engine();
+        e.set_region("US".into());
         assert_eq!(e.unit_choice(), UnitChoice::Metric);
-        assert_eq!(e.units("US".into()), UnitSystem::Metric);
+        assert_eq!(e.units(), UnitSystem::Metric);
         e.set_unit_choice(UnitChoice::Imperial).unwrap();
-        assert_eq!(e.units("DE".into()), UnitSystem::Imperial);
+        assert_eq!(e.units(), UnitSystem::Imperial);
     }
 
     #[test]
-    fn a_failed_save_is_reported() {
+    fn a_failed_save_is_reported_and_changes_nothing() {
         let d = Dir::new("blocked");
         let e = d.engine();
         std::fs::create_dir_all(d.0.join("settings.json")).unwrap();
         assert!(e.set_unit_choice(UnitChoice::Imperial).is_err());
         assert_eq!(e.unit_choice(), UnitChoice::Auto);
+        assert_eq!(e.units(), UnitSystem::Metric);
+    }
+
+    #[test]
+    fn the_formatters_are_the_cores() {
+        assert_eq!(format_distance(17.07, UnitSystem::Imperial), "60 ft");
+        assert_eq!(format_distance(1_440.0, UnitSystem::Metric), "1.4 km");
+        assert_eq!(format_area(2_500_000.0, UnitSystem::Metric), "3 km²");
     }
 }

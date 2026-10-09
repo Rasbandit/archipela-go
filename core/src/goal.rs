@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::assign::Assignment;
 use crate::num::{count_f32, count_f64, to_f32};
 use crate::slot::{GoalMode, GoalSpec, SlotData};
+use crate::units::{distance, UnitSystem};
 
 /// How far along a win condition is.
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +34,8 @@ pub struct GoalCtx<'a> {
     pub cells_discovered: usize,
     /// Current streak of days with a completed quest.
     pub streak_days: u32,
+    /// The units progress text is written in.
+    pub units: UnitSystem,
 }
 
 /// How a goal is written in an Archipelago YAML's `goal_selection` (the apworld's `GOAL_NAMES`).
@@ -197,7 +200,8 @@ fn evaluate_one(c: &GoalCtx<'_>, g: &str, t: u32) -> GoalStatus {
         }
         "marathon" => {
             let km = or_default(t, 42);
-            status(c.distance_m / 1000.0, f64::from(km), format!("Travel {km} km on quests: {:.1} km", c.distance_m / 1000.0))
+            let label = format!("Travel {} on quests: {}", distance(f64::from(km) * 1000.0, c.units), distance(c.distance_m, c.units));
+            status(c.distance_m / 1000.0, f64::from(km), label)
         }
         "explorer" => {
             let need = or_default(t, 300);
@@ -291,7 +295,16 @@ mod tests {
         let d: BTreeSet<i64> = done.iter().copied().collect();
         let it: Vec<String> = items.iter().map(ToString::to_string).collect();
         let _ = Point::new(0.0, 0.0);
-        evaluate(&GoalCtx { slot: s, assignments: &a, done: &d, items: &it, distance_m: dist, cells_discovered: cells, streak_days: streak })
+        evaluate(&GoalCtx {
+            slot: s,
+            assignments: &a,
+            done: &d,
+            items: &it,
+            distance_m: dist,
+            cells_discovered: cells,
+            streak_days: streak,
+            units: UnitSystem::Metric,
+        })
     }
 
     #[test]
@@ -333,7 +346,16 @@ mod tests {
         let s = multi(&[("boss", 0), ("quest_dex", 2)], GoalMode::All, 0);
         let a = assigns(&s);
         let d: BTreeSet<i64> = [9].into_iter().collect();
-        let each = evaluate_each(&GoalCtx { slot: &s, assignments: &a, done: &d, items: &[], distance_m: 0.0, cells_discovered: 0, streak_days: 0 });
+        let each = evaluate_each(&GoalCtx {
+            slot: &s,
+            assignments: &a,
+            done: &d,
+            items: &[],
+            distance_m: 0.0,
+            cells_discovered: 0,
+            streak_days: 0,
+            units: UnitSystem::Metric,
+        });
         assert_eq!(each.len(), 2);
         assert_eq!((each[0].0.id.as_str(), each[0].1.achieved), ("boss", true));
         assert_eq!((each[1].0.id.as_str(), each[1].1.achieved), ("quest_dex", false));
@@ -372,6 +394,16 @@ mod tests {
     }
 
     #[test]
+    fn marathon_progress_reads_in_the_players_units() {
+        let s = slot("marathon", 0);
+        let a = assigns(&s);
+        let d = BTreeSet::new();
+        let ctx =
+            GoalCtx { slot: &s, assignments: &a, done: &d, items: &[], distance_m: 1609.344, cells_discovered: 0, streak_days: 0, units: UnitSystem::Imperial };
+        assert_eq!(evaluate(&ctx).label, "Travel 26 mi on quests: 1 mi");
+    }
+
+    #[test]
     fn counting_goals_use_target_or_their_default() {
         assert!(eval(&slot("zone_conqueror", 50), &[1, 3], &[], 0.0, 0, 0).achieved);
         assert!(!eval(&slot("zone_conqueror", 0), &[1, 3], &[], 0.0, 0, 0).achieved, "default 60% needs more than half");
@@ -380,6 +412,7 @@ mod tests {
         assert!(eval(&slot("quest_dex", 3), &[1, 2, 3], &[], 0.0, 0, 0).achieved);
         assert!(eval(&slot("marathon", 0), &[], &[], 42_500.0, 0, 0).achieved);
         assert!(!eval(&slot("marathon", 0), &[], &[], 41_900.0, 0, 0).achieved);
+        assert_eq!(eval(&slot("marathon", 0), &[], &[], 3_140.0, 0, 0).label, "Travel 42 km on quests: 3.1 km");
         assert!(eval(&slot("explorer", 10), &[], &[], 0.0, 10, 0).achieved);
         assert!(eval(&slot("streak", 0), &[], &[], 0.0, 0, 7).achieved);
         assert!(eval(&slot("boss_rush", 3), &[2, 3, 4], &[], 0.0, 0, 0).achieved);

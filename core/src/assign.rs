@@ -14,6 +14,7 @@ use crate::near_path::{PathIndex, NEAR_PATH_M};
 use crate::num::round_u32;
 use crate::realm::Realm;
 use crate::scan::{Atlas, Feature};
+use crate::units::{distance, UnitSystem};
 use crate::verify::LINE_SAMPLE_M;
 
 /// A quest slot to fill: one Archipelago location and what it asks for.
@@ -110,14 +111,14 @@ pub enum Target {
 }
 
 impl Target {
-    /// What the player has to do, in one line ("Get within 40 m").
+    /// What the player has to do, in one line, in the player's units ("Get within 40 m").
     #[must_use]
-    pub fn goal_text(&self) -> String {
+    pub fn goal_text(&self, units: UnitSystem) -> String {
         match self {
-            Self::Point { r, .. } => format!("Get within {r:.0} m"),
-            Self::Dwell { r, minutes, .. } => format!("Stay {minutes:.0} min within {r:.0} m"),
+            Self::Point { r, .. } => format!("Get within {}", distance(*r, units)),
+            Self::Dwell { r, minutes, .. } => format!("Stay {minutes:.0} min within {}", distance(*r, units)),
             Self::DwellArea { minutes, .. } => format!("Spend {minutes:.0} min inside the area"),
-            Self::Line { pts, coverage, .. } => format!("Cover {:.0}% of this {:.1} km path", coverage * 100.0, polyline_len_m(pts) / 1000.0),
+            Self::Line { pts, coverage, .. } => format!("Cover {:.0}% of this {} path", coverage * 100.0, distance(polyline_len_m(pts), units)),
             Self::Courier { time_limit_min, .. } => format!("Pick up at A, deliver to B within {time_limit_min:.0} min"),
             Self::RoundTrip { .. } => "Reach the far point, then come back home".to_string(),
             Self::Cells { n, .. } => format!("Visit {n} new map cells"),
@@ -1306,7 +1307,7 @@ mod goal_text_tests {
             (Target::Point { p, r: 40.0 }, "Get within 40 m"),
             (Target::Dwell { p, r: 40.0, minutes: 3.0 }, "Stay 3 min within 40 m"),
             (Target::DwellArea { poly: vec![], center: p, r: 40.0, minutes: 5.0 }, "Spend 5 min inside the area"),
-            (Target::Line { pts: vec![p, destination(p, 0.0, 1000.0)], corridor_m: 25.0, coverage: 0.9 }, "Cover 90% of this 1.0 km path"),
+            (Target::Line { pts: vec![p, destination(p, 0.0, 1000.0)], corridor_m: 25.0, coverage: 0.9 }, "Cover 90% of this 1 km path"),
             (Target::Courier { a: p, b: p, r: 40.0, time_limit_min: 12.0 }, "Pick up at A, deliver to B within 12 min"),
             (Target::RoundTrip { far: p, r: 50.0 }, "Reach the far point, then come back home"),
             (Target::Cells { n: 12, cell_m: 100.0 }, "Visit 12 new map cells"),
@@ -1314,7 +1315,16 @@ mod goal_text_tests {
             (Target::Away { minutes: 20.0 }, "Spend 20 min away from home"),
         ];
         for (t, want) in cases {
-            assert_eq!(t.goal_text(), want);
+            assert_eq!(t.goal_text(UnitSystem::Metric), want);
         }
+    }
+
+    #[test]
+    fn target_distances_read_in_the_players_units() {
+        let p = Point::new(40.0, -111.0);
+        assert_eq!(Target::Point { p, r: 17.07 }.goal_text(UnitSystem::Imperial), "Get within 60 ft");
+        assert_eq!(Target::Dwell { p, r: 30.0, minutes: 5.0 }.goal_text(UnitSystem::Imperial), "Stay 5 min within 100 ft");
+        let line = Target::Line { pts: vec![p, destination(p, 0.0, 1609.344 * 1.5)], corridor_m: 25.0, coverage: 0.9 };
+        assert_eq!(line.goal_text(UnitSystem::Imperial), "Cover 90% of this 1.5 mi path");
     }
 }
