@@ -13,6 +13,7 @@ pub mod geo;
 pub mod goal;
 pub mod items;
 pub mod journal;
+pub mod line_width;
 pub mod marks;
 pub mod near_path;
 pub mod num;

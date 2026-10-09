@@ -157,7 +157,7 @@ private fun SwipeToDelete(
                     .padding(end = 20.dp),
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                Icon(ApgoIcons.Delete, contentDescription = "Delete", tint = Color.White)
+                Icon(ApgoIcons.Delete, contentDescription = "Delete", tint = ApgoPalette.onBrand)
             }
         },
     ) { content() }

@@ -46,29 +46,27 @@ import org.maplibre.android.style.layers.PropertyFactory.textSize
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.android.style.sources.GeoJsonSource
+import uniffi.apgo_ffi.LineKind
+import uniffi.apgo_ffi.lineWidthCurveBase
+import uniffi.apgo_ffi.lineWidthStops
 
 // How things look on the map. Sizes are in map pixels, opacities 0..1, icon sizes are factors of the bitmap.
+// Line widths scale with zoom and come from the core (lineWidthStops), so iOS draws them the same.
 private const val REALM_FILL_OPACITY = 0.07f
-private const val REALM_LINE_WIDTH = 1.8f
 
 // Area quests fill in as they progress: empty until started, strongest while in progress, faint once done.
 private const val AREA_FILL_PROGRESS = 0.22f
 private const val AREA_FILL_DONE = 0.1f
 
-// A park's outline: thin, in its state colour, dashed (in line widths: dash, gap) until it is done.
-private const val PARK_LINE_WIDTH = 2f
+// A park's outline: thin, in its state colour, always dashed (in line widths: dash, gap).
 private val PARK_DASH = arrayOf(3f, 2f)
 
 // A route (trail): its state colour on a white casing; done routes fade.
-private const val ROUTE_CASING_WIDTH = 7f
 private const val DONE_ROUTE_OPACITY = 0.5f
-private const val TRACE_WIDTH = 2.5f
-private const val QUEST_LINE_WIDTH = 4f
 
 // The selected quest is marked on the ground too: a small ring at its pin's point.
 private const val QUEST_HALO_RADIUS = 9f
 private const val QUEST_HALO_STROKE = 3f
-private const val DRAFT_LINE_WIDTH = 3f
 private const val DRAFT_FILL_OPACITY = 0.15f
 private const val DRAFT_DOT_RADIUS = 5f
 private const val DRAFT_DOT_STROKE = 1.5f
@@ -76,7 +74,6 @@ private const val MARK_RADIUS = 12f
 private const val MARK_STROKE = 3f
 private const val HANDLE_RADIUS = 11f
 private const val HANDLE_STROKE = 3.5f
-private const val RADIUS_LINE_WIDTH = 2.5f
 private const val KNOB_RADIUS = 6f
 private const val KNOB_STROKE = 3f
 private const val LABEL_SIZE = 14f
@@ -203,7 +200,10 @@ internal object MapStyle {
     private fun realmLayers() =
         listOf(
             FillLayer("realms-fill", MapSource.REALMS).withProperties(fillColor(ApgoPalette.realm.hex()), fillOpacity(REALM_FILL_OPACITY)),
-            LineLayer("realms-line", MapSource.REALMS).withProperties(lineColor(ApgoPalette.realm.hex()), lineWidth(REALM_LINE_WIDTH)),
+            LineLayer(
+                "realms-line",
+                MapSource.REALMS,
+            ).withProperties(lineColor(ApgoPalette.realm.hex()), scaledWidth(LineKind.REALM_OUTLINE)),
             FillLayer("areas-fill", MapSource.AREAS).withProperties(fillColor(stateColor()), fillOpacity(areaFillOpacity())),
         )
 
@@ -219,24 +219,21 @@ internal object MapStyle {
         listOf(
             LineLayer("trace-layer", MapSource.TRACE).withProperties(
                 lineColor(ApgoPalette.trace.hex()),
-                lineWidth(TRACE_WIDTH),
+                scaledWidth(LineKind.TRACE),
                 lineCap(ROUND),
                 lineJoin(ROUND),
             ),
-            // Parks: a thin outline in the state colour, dashed until done. The fill under it shows progress (realmLayers).
-            LineLayer("park-dashed", MapSource.LINES)
-                .withFilter(Expression.all(isPark(), Expression.not(isDone())))
-                .withProperties(lineColor(stateColor()), lineWidth(PARK_LINE_WIDTH), lineDasharray(PARK_DASH)),
-            LineLayer("park-solid", MapSource.LINES)
-                .withFilter(Expression.all(isPark(), isDone()))
-                .withProperties(lineColor(stateColor()), lineWidth(PARK_LINE_WIDTH)),
+            // Parks: a thin dashed outline; only its state colour tells the state, as on pins. The fill shows progress (realmLayers).
+            LineLayer("park-line", MapSource.LINES)
+                .withFilter(isPark())
+                .withProperties(lineColor(stateColor()), scaledWidth(LineKind.PARK_OUTLINE), lineDasharray(PARK_DASH)),
             // Trails and other routes: a line in the state colour on a white casing, so it never looks like the base map's own
             // dashed paths. Direction does not matter (coverage counts either way). Done routes fade.
             LineLayer("route-casing", MapSource.LINES)
                 .withFilter(Expression.not(isPark()))
                 .withProperties(
                     lineColor(ApgoPalette.onMap.hex()),
-                    lineWidth(ROUTE_CASING_WIDTH),
+                    scaledWidth(LineKind.TRAIL_CASING),
                     lineOpacity(routeOpacity()),
                     lineCap(ROUND),
                     lineJoin(ROUND),
@@ -245,7 +242,7 @@ internal object MapStyle {
                 .withFilter(Expression.not(isPark()))
                 .withProperties(
                     lineColor(stateColor()),
-                    lineWidth(QUEST_LINE_WIDTH),
+                    scaledWidth(LineKind.TRAIL),
                     lineOpacity(routeOpacity()),
                     lineCap(ROUND),
                     lineJoin(ROUND),
@@ -310,6 +307,16 @@ internal object MapStyle {
             Expression.zoom(),
             Expression.stop(SHRUNK_ZOOM, Expression.product(full, Expression.literal(SHRUNK_FACTOR))),
             Expression.stop(FULL_SIZE_ZOOM, full),
+        )
+
+    // A line width the renderer scales with zoom every frame (GPU side; no camera listener), from the core's stops.
+    private fun scaledWidth(kind: LineKind) =
+        lineWidth(
+            Expression.interpolate(
+                Expression.exponential(lineWidthCurveBase()),
+                Expression.zoom(),
+                *lineWidthStops(kind).map { Expression.stop(it.zoom, it.width) }.toTypedArray(),
+            ),
         )
 
     private fun countProp(state: String) = "n_$state"
@@ -392,7 +399,7 @@ internal object MapStyle {
 
     private fun draftLayers() =
         listOf(
-            LineLayer("draft-line", MapSource.DRAFT).withProperties(lineColor(ApgoPalette.draft.hex()), lineWidth(DRAFT_LINE_WIDTH)),
+            LineLayer("draft-line", MapSource.DRAFT).withProperties(lineColor(ApgoPalette.draft.hex()), scaledWidth(LineKind.DRAFT)),
             FillLayer("draft-fill", MapSource.DRAFT).withProperties(fillColor(ApgoPalette.draft.hex()), fillOpacity(DRAFT_FILL_OPACITY)),
             CircleLayer("draft-pts", MapSource.DRAFT)
                 .withFilter(Expression.eq(Expression.geometryType(), Expression.literal(GEOMETRY_POINT)))
@@ -428,7 +435,7 @@ internal object MapStyle {
             LineLayer(
                 "radius-line",
                 MapSource.RADIUS,
-            ).withProperties(lineColor(ApgoPalette.draftStrong.hex()), lineWidth(RADIUS_LINE_WIDTH)),
+            ).withProperties(lineColor(ApgoPalette.draftStrong.hex()), scaledWidth(LineKind.RADIUS_RING)),
             CircleLayer("ringknobs-layer", MapSource.RING_KNOBS).withProperties(
                 circleRadius(KNOB_RADIUS),
                 circleColor(ApgoPalette.onMap.hex()),

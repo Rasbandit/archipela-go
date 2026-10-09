@@ -1,5 +1,7 @@
 package dev.apgo2.ui
 
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 
@@ -9,11 +11,14 @@ private const val RGB_MASK = 0xFFFFFF
 internal fun Color.hex(): String = "#%06x".format(toArgb() and RGB_MASK)
 
 /**
- * Every colour the app uses lives here, so Compose screens and the map draw from one source.
+ * Every colour the app uses lives here, so Compose screens and the map draw from one source; `scripts/check_color_tokens.sh`
+ * fails the build on colour literals anywhere else.
  * Brand colours come from Archipelago's web theme (ArchipelagoMW/Archipelago, WebHostLib/static/styles, MIT);
  * only colours are used, the Archipelago logo is CC BY-NC 4.0 and is deliberately not bundled.
  */
 internal object ApgoPalette {
+    private val white = Color.White
+
     // Archipelago ocean theme (#11233e panels, #93dcff headings, #fffc95 links) and header teals
     val navy = Color(0xFF11233E)
     val teal = Color(0xFF2F6B83)
@@ -21,6 +26,75 @@ internal object ApgoPalette {
     val mint = Color(0xFFD0EBE6)
     val butter = Color(0xFFFFFC95)
     val grass = Color(0xFF5AFF6A) // Archipelago grass theme
+
+    // Text and icons on strong fills (brand colours, danger swipes)
+    val onBrand = white
+
+    // Shades the Material schemes below share
+    private val deepSea = Color(0xFF0B2A3A)
+    private val deepOchre = Color(0xFF3A3000)
+    private val foam = Color(0xFFF3FAFB)
+    private val mist = Color(0xFFE6EEF7)
+
+    /** Material roles for the light theme; screens read them through MaterialTheme, never directly. */
+    val lightScheme =
+        lightColorScheme(
+            primary = teal,
+            onPrimary = onBrand,
+            primaryContainer = sky,
+            onPrimaryContainer = deepSea,
+            secondary = Color(0xFF4F8A98),
+            onSecondary = onBrand,
+            secondaryContainer = mint,
+            onSecondaryContainer = Color(0xFF0F2F36),
+            tertiary = Color(0xFF8A6D00),
+            onTertiary = onBrand,
+            tertiaryContainer = butter,
+            onTertiaryContainer = deepOchre,
+            background = foam,
+            onBackground = navy,
+            surface = foam,
+            onSurface = navy,
+            surfaceVariant = mint,
+            onSurfaceVariant = Color(0xFF2F4858),
+            outline = Color(0xFF699CA8),
+            outlineVariant = Color(0xFFB7D4D8),
+            surfaceContainerLowest = white,
+            surfaceContainerLow = Color(0xFFF5FBFC),
+            surfaceContainer = Color(0xFFEEF8F9),
+            surfaceContainerHigh = Color(0xFFE9F5F7),
+            surfaceContainerHighest = Color(0xFFE3F2F4),
+        )
+
+    /** Material roles for the dark theme. */
+    val darkScheme =
+        darkColorScheme(
+            primary = sky,
+            onPrimary = deepSea,
+            primaryContainer = teal,
+            onPrimaryContainer = onBrand,
+            secondary = butter,
+            onSecondary = deepOchre,
+            secondaryContainer = Color(0xFF52501F),
+            onSecondaryContainer = butter,
+            tertiary = grass,
+            onTertiary = Color(0xFF003912),
+            tertiaryContainer = Color(0xFF1F6B2A),
+            onTertiaryContainer = Color(0xFFB5E9A4),
+            background = Color(0xFF0E1C33),
+            onBackground = mist,
+            surface = navy,
+            onSurface = mist,
+            surfaceVariant = Color(0xFF1F3A5C),
+            onSurfaceVariant = Color(0xFFB8CCE0),
+            outline = Color(0xFF83A8E1),
+            outlineVariant = Color(0xFF4C658B),
+            surfaceContainerLowest = Color(0xFF0B1729),
+            surfaceContainerLow = Color(0xFF142A44),
+            surfaceContainer = Color(0xFF183049),
+            surfaceContainerHigh = Color(0xFF1D3556),
+            surfaceContainerHighest = Color(0xFF223C61),
+        )
 
     // Quest state: the list dot, the map pin's body, park outlines and trails all agree, so a glance shows what is done and what is
     // left. Doable is blue; never red (errors), amber (in progress) or green (done).
@@ -39,7 +113,11 @@ internal object ApgoPalette {
     val draftStrong = Color(0xFFBF360C) // radius line and label
     val thaw = Color(0xFF00ACC1)
     val waypoint = Color(0xFF8E24AA)
-    val onMap = Color.White // halos, outlines and knob fills
+    val onMap = white // halos, outlines and knob fills
+    val onPin = white // a pin's ring, glyph and pips
+
+    // Vector icons are drawn in this and tinted where they are shown (Icon tint), so it never reaches the screen.
+    val iconStroke = Color.Black
 
     // One colour per quest family: pins and icons of a kind of find share it. All hold white text/glyphs.
     private val families =

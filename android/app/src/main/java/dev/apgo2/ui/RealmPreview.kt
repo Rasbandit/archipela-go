@@ -247,6 +247,6 @@ private fun DrawScope.drawOutline(
             close()
         }
     drawPath(shape, ink.copy(alpha = if (onMap) FILL_ALPHA_WITH_MAP else FILL_ALPHA_PLAIN))
-    if (onMap) drawPath(shape, Color.White, style = Stroke(width = BORDER_DP.dp.toPx())) // a halo, so the outline reads on any map
+    if (onMap) drawPath(shape, ApgoPalette.onMap, style = Stroke(width = BORDER_DP.dp.toPx())) // a halo, so the outline reads on any map
     drawPath(shape, ink, style = Stroke(width = OUTLINE_DP.dp.toPx()))
 }
