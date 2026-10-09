@@ -1,6 +1,9 @@
 package dev.apgo2
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -150,7 +153,8 @@ private fun GameView(
             var shown by rememberSaveable { mutableStateOf(true) }
             var topPx by remember { mutableIntStateOf(0) }
             val density = LocalDensity.current
-            // How much of the map the panel covers once it has settled (not while it slides), so the map's framing keeps clear of it.
+            // How much of the map the panel covers once it has settled. It changes as a slide starts, so the map pans (keeping the
+            // middle of what you see in the middle of what stays visible) alongside the slide, in the same time and curve.
             val coverDp = GRIP_DP + (topPx / density.density).toInt() + if (shown) bodyHeight.value.toInt() else 0
             // The map fills the whole area and never resizes; the panel slides over its bottom.
             PlayMap(m, hud, onShow, coverDp, Modifier.fillMaxSize())
@@ -163,7 +167,11 @@ private fun GameView(
             ) {
                 PaneGrip(shown) { shown = it }
                 PanelTop(hud, shown, Modifier.onSizeChanged { topPx = it.height })
-                AnimatedVisibility(shown) {
+                AnimatedVisibility(
+                    shown,
+                    enter = expandVertically(tween(OVERLAY_EASE_MS, easing = OverlayEasing)),
+                    exit = shrinkVertically(tween(OVERLAY_EASE_MS, easing = OverlayEasing)),
+                ) {
                     GamePanel(
                         m,
                         hud,
@@ -294,7 +302,6 @@ private fun PlayMap(
             lastPlace = m.lastPlace,
             onShow = onShow,
             overlayBottomDp = coverDp,
-            overlaysKeepView = true,
             focus = focus,
             anchor = selected?.anchor?.let { LatLng(it.lat, it.lon) },
             onAnchor = { anchorPx = it },
