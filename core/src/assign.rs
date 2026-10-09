@@ -7,15 +7,15 @@ use rand::seq::{IndexedRandom, SliceRandom};
 use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::{Catalog, Geom, Kind, Mode, Verify};
-use crate::effort::{cadence_steps_per_min, mid, travel_min};
+use crate::catalog::{Catalog, Geom, Kind, Mode, Verify, FORAGE_THEMES};
+use crate::effort::{cadence_steps_per_min, dist_for, mid, tier_for, travel_min};
 use crate::geo::{bearing_deg, distance_m, point_in_polygon, point_inside, polyline_len_m, Point};
 use crate::near_path::{PathIndex, NEAR_PATH_M};
-use crate::num::round_u32;
+use crate::num::{count_f64, round_u32};
 use crate::realm::Realm;
 use crate::scan::{Atlas, Feature};
 use crate::units::{distance, distance_rounded, Round, UnitSystem};
-use crate::verify::LINE_SAMPLE_M;
+use crate::verify::{HOME_RADIUS_M, LINE_SAMPLE_M};
 
 /// A quest slot to fill: one Archipelago location and what it asks for.
 #[derive(Debug, Clone)]
@@ -240,6 +240,58 @@ const SPACING_M: f64 = 40.0;
 const MIN_TRAIL_SHARE: f64 = 0.25;
 /// How many effort-minutes of misfit a favorite place can make up for.
 const FAVORITE_BONUS_MIN: f64 = 6.0;
+/// Least distance between two forager items (and between an item and another quest's point), in metres.
+const ITEM_SPACING_M: f64 = 60.0;
+/// How many shuffled street points a forager placement looks at.
+const MAX_ITEM_CANDIDATES: usize = 2000;
+
+/// The band forager items are placed in for effort `want` (minutes) in `mode`, as `(min_m, far_m)` from home: never nearer than the
+/// minimum distance or the home radius plus the pick-up radius `pick_r_m` (an item there would be picked and banked in the same step),
+/// and the farthest about half the effort's travel out, so out to it and back fits the effort.
+fn item_band(p: &AssignParams, pick_r_m: f64, want: f64, mode: Mode) -> (f64, f64) {
+    (p.min_distance_m.max(HOME_RADIUS_M + pick_r_m), dist_for(want / 2.0, mode))
+}
+
+/// `n` street points for forager items, spread outward from `home`: the k-th of them (counting from 1) about k/n of the way from `min_m`
+/// to `far_m`, each at least [`ITEM_SPACING_M`] from the others and from `keep`. The rules are checked again on the final points (near a
+/// street segment by `index`, at least `min_m` from home, spaced), never only on candidates. `None` when the pool cannot supply `n` such points.
+#[allow(clippy::too_many_arguments)] // like free_candidate: the zone's pool and index, home, the band and the points to keep apart from
+fn place_items(pool: &[Point], index: &PathIndex, home: Point, min_m: f64, far_m: f64, n: usize, keep: &[Point], rng: &mut StdRng) -> Option<Vec<Point>> {
+    if n == 0 {
+        return Some(Vec::new());
+    }
+    let far_m = far_m.max(min_m + 2.0 * ITEM_SPACING_M);
+    let mut candidates: Vec<(Point, f64)> = pool.iter().map(|q| (*q, distance_m(home, *q))).filter(|(_, d)| (min_m..=far_m * 1.5).contains(d)).collect();
+    candidates.shuffle(rng);
+    candidates.truncate(MAX_ITEM_CANDIDATES);
+    let mut out: Vec<Point> = Vec::with_capacity(n);
+    // The farthest first: it is the hardest to fit.
+    for k in (1..=n).rev() {
+        let want = min_m + (far_m - min_m) * count_f64(k) / count_f64(n);
+        let spaced = |q: Point| keep.iter().chain(&out).all(|o| distance_m(*o, q) >= ITEM_SPACING_M);
+        let (q, _) = candidates.iter().filter(|(q, _)| spaced(*q)).min_by(|a, b| (a.1 - want).abs().total_cmp(&(b.1 - want).abs()))?;
+        out.push(*q);
+    }
+    let ok = out
+        .iter()
+        .enumerate()
+        .all(|(i, q)| distance_m(home, *q) >= min_m && index.near_path(*q) && keep.iter().chain(&out[..i]).all(|o| distance_m(*o, *q) >= ITEM_SPACING_M));
+    ok.then_some(out)
+}
+
+/// The forager items a slot needs: by tier, tiers past the table use its last value.
+fn need_for(need_by_tier: &[u32], want: f64, minutes_per_tier: f64) -> Option<u32> {
+    let tier = usize::from(tier_for(want, minutes_per_tier));
+    need_by_tier.get(tier.min(need_by_tier.len()).checked_sub(1)?).copied().filter(|n| *n > 0)
+}
+
+/// A quest's display name: a forager names its count and theme.
+fn quest_title(kind_name: &str, t: &Target) -> String {
+    match t {
+        Target::Collect { need, theme, .. } => format!("{kind_name}: bring home {need} {theme}"),
+        _ => kind_name.to_string(),
+    }
+}
 
 /// Whether the rough points join the paved ones for this surface preference (the same choice for points and the streets between them).
 fn uses_rough(z: &ZoneCtx<'_>, pref: SurfacePref) -> bool {
@@ -255,6 +307,16 @@ fn uses_rough(z: &ZoneCtx<'_>, pref: SurfacePref) -> bool {
 fn street_pool(z: &ZoneCtx<'_>, pref: SurfacePref) -> Vec<Point> {
     let rough: &[Point] = if uses_rough(z, pref) { &z.atlas.streets_rough } else { &[] };
     z.atlas.streets.iter().chain(rough).copied().collect()
+}
+
+/// The segment-aware path index of zone `z` over `pool`: its street points and the streets between them (rough ones when the surface
+/// preference uses them).
+fn zone_index(z: &ZoneCtx<'_>, pool: &[Point], surface: SurfacePref) -> PathIndex {
+    let mut links = z.atlas.street_links(false);
+    if uses_rough(z, surface) {
+        links.extend(z.atlas.street_links(true));
+    }
+    PathIndex::with_segments(pool, &links)
 }
 
 /// A zone's street points and the streets between them, indexed, and where each of its places can be reached from a path (worked out
@@ -273,11 +335,7 @@ struct ZonePaths {
 impl ZonePaths {
     fn new(z: &ZoneCtx<'_>, p: &AssignParams) -> Self {
         let pool = street_pool(z, p.surface);
-        let mut links = z.atlas.street_links(false);
-        if uses_rough(z, p.surface) {
-            links.extend(z.atlas.street_links(true));
-        }
-        let index = PathIndex::with_segments(&pool, &links);
+        let index = zone_index(z, &pool, p.surface);
         let maps = (HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new());
         Self { pool, index, home: p.home, min_dist: p.min_distance_m, points: maps.0, centers: maps.1, lines: maps.2, shares: maps.3 }
     }
@@ -495,6 +553,17 @@ fn free_candidate(
             let minutes = (want * 3.0).clamp(30.0, 480.0);
             Some((Target::Away { minutes }, want, "Away from home".into()))
         }
+        Verify::Collect { need_by_tier, spare_factor, pick_r_m } => {
+            let need = need_for(need_by_tier, want, p.minutes_per_tier)?;
+            let total = usize::try_from(need.saturating_mul(*spare_factor)).ok()?;
+            let (min_m, far_m) = item_band(p, *pick_r_m, want, mode);
+            let index = zone_index(z, pool, p.surface);
+            let mut pts = place_items(pool, &index, p.home, min_m, far_m, total, used_pts, rng)?;
+            pts.sort_by(|a, b| distance_m(p.home, *a).total_cmp(&distance_m(p.home, *b)));
+            let theme = (*FORAGE_THEMES.choose(rng)?).to_string();
+            let farthest = pts.last().map_or(0.0, |q| distance_m(p.home, *q));
+            Some((Target::Collect { pts, need, r: *pick_r_m, theme }, 2.0 * travel_min(farthest, mode), "Around home".into()))
+        }
         _ => None,
     }
 }
@@ -591,8 +660,11 @@ fn one(
     if let Some(a) = anchor(&c.target) {
         used_pts.push(a);
     }
-    let (kind_id, quest_name) =
-        if s.boss { ("the_big_one".to_string(), format!("The Big One: {}", c.kind.name)) } else { (c.kind.id.clone(), c.kind.name.clone()) };
+    if let Target::Collect { pts, .. } = &c.target {
+        used_pts.extend(pts.iter().skip(1)); // the first is the anchor, pushed above
+    }
+    let title = quest_title(&c.kind.name, &c.target);
+    let (kind_id, quest_name) = if s.boss { ("the_big_one".to_string(), format!("The Big One: {title}")) } else { (c.kind.id.clone(), title) };
     Assignment {
         location_id: s.location_id,
         zone: s.zone,
@@ -854,7 +926,7 @@ mod tests {
         // A park is a place to spend time in.
         assert!(matches!(out[0].target, Target::DwellArea { .. }), "{:?}", out[0].target);
         assert!(matches!(out[1].target, Target::Line { .. }), "{:?}", out[1].target);
-        assert!(matches!(out[2].target, Target::Courier { .. } | Target::RoundTrip { .. }));
+        assert!(matches!(out[2].target, Target::Courier { .. } | Target::RoundTrip { .. } | Target::Collect { .. }));
         assert!(matches!(out[3].target, Target::Steps { .. }));
         assert!(matches!(out[4].target, Target::Cells { .. }));
         assert!(matches!(out[5].target, Target::Away { .. }));
@@ -1061,7 +1133,7 @@ mod tests {
         if let Target::Line { pts, corridor_m, coverage } = &o.target {
             let dense = crate::geo::densify(pts, LINE_SAMPLE_M);
             let near = dense.iter().filter(|q| gap_to_paths(**q, a) <= corridor_m.min(NEAR_PATH_M) + 1e-6).count();
-            let share = crate::num::count_f64(near) / crate::num::count_f64(dense.len());
+            let share = count_f64(near) / count_f64(dense.len());
             assert!(share + 1e-9 >= *coverage, "{ctx}: {} ({}) asks for {coverage:.2} of a line only {share:.2} beside a path", o.kind_id, o.place);
         }
     }
@@ -1192,6 +1264,99 @@ mod tests {
         for seed in 1..=6 {
             assert!(assign(&slots, &z, &cat, &params(seed)).iter().all(|o| o.place != "Big Park"), "seed {seed} used an unreachable park");
         }
+    }
+
+    /// Street points every 30 m in both directions out to `half_m` from home: room for any forager.
+    fn fine_streets(half_m: f64) -> Vec<Point> {
+        let n = (half_m / 30.0) as i32;
+        (-n..=n).flat_map(|i| (-n..=n).map(move |j| at(home(), f64::from(i) * 30.0, f64::from(j) * 30.0))).collect()
+    }
+
+    #[test]
+    fn forager_places_twice_the_need_spaced_near_paths_away_from_home_and_spread_outward() {
+        let cat = Catalog::builtin();
+        let k = cat.kind("forager").unwrap();
+        let r = realm(Mode::Walk);
+        let a = crate::scan::build_atlas("r", 0, vec![], fine_streets(3700.0), &cat);
+        for (mode, tier, need) in [(Mode::Walk, 1, 3), (Mode::Walk, 2, 5), (Mode::Run, 3, 7), (Mode::Walk, 4, 10), (Mode::Bike, 3, 7), (Mode::Walk, 7, 10)] {
+            let z = ZoneCtx { zone: 1, mode, realm: &r, atlas: &a };
+            let pool = street_pool(&z, SurfacePref::Any);
+            let mut p = params(3);
+            p.min_distance_m = 0.0; // the home-radius floor must hold on its own (Review Focus 3)
+            let want = mid(tier, p.minutes_per_tier);
+            let (t, effort, place) = free_candidate(k, &z, &pool, &p, want, &mut StdRng::seed_from_u64(3), &[]).expect("a dense town has room");
+            let Target::Collect { pts, need: n, r: pick, theme } = &t else { panic!("{t:?}") };
+            assert_eq!(*n, need, "{mode:?} tier {tier} (tiers above 4 use the last value)");
+            assert_eq!(pts.len(), 2 * need as usize);
+            assert!((pick - 25.0).abs() < f64::EPSILON);
+            assert!(FORAGE_THEMES.contains(&theme.as_str()), "{theme}");
+            assert_eq!(place, "Around home");
+            let floor = HOME_RADIUS_M + 25.0;
+            for (i, q) in pts.iter().enumerate() {
+                assert!(gap_to_paths(*q, &a) <= NEAR_PATH_M + 1e-6, "item {i} is off the paths");
+                assert!(pool.contains(q), "item {i} is not a street point of the zone");
+                assert!(distance_m(home(), *q) >= floor, "item {i} is {:.0} m from home", distance_m(home(), *q));
+                for o in &pts[..i] {
+                    assert!(distance_m(*o, *q) >= 60.0 - 1e-6, "items {:.0} m apart", distance_m(*o, *q));
+                }
+            }
+            let d: Vec<f64> = pts.iter().map(|q| distance_m(home(), *q)).collect();
+            assert!(d.windows(2).all(|w| w[0] <= w[1]), "nearest first, so fog reveals the quest on the way (Review Focus 2)");
+            let far = dist_for(want / 2.0, mode).max(floor + 120.0);
+            let last = d[d.len() - 1];
+            assert!((0.8 * far..=1.5 * far).contains(&last), "{mode:?} tier {tier}: farthest {last:.0} m, wanted about {far:.0} m");
+            if far > 600.0 {
+                assert!(d[0] < 0.6 * last, "spread between home and the farthest: {d:?}");
+            }
+            assert!((effort - 2.0 * travel_min(last, mode)).abs() < 1e-9, "effort is out to the farthest and back");
+        }
+    }
+
+    #[test]
+    fn a_sparse_zone_gets_no_forager_and_falls_back_to_another_courier_kind() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        let streets: Vec<Point> = (0..8).map(|i| at(home(), 0.0, 600.0 + 60.0 * f64::from(i))).collect();
+        let a = crate::scan::build_atlas("r", 0, vec![], streets, &cat);
+        let z = ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a };
+        let pool = street_pool(&z, SurfacePref::Any);
+        let k = cat.kind("forager").unwrap();
+        assert!(free_candidate(k, &z, &pool, &params(1), 25.0, &mut StdRng::seed_from_u64(1), &[]).is_none(), "8 points cannot hold 14 items 60 m apart");
+        let slots: Vec<SlotIn> = (1..=8).map(|i| slot(i, "courier", 1 + (i % 4) as u8, Mode::Walk)).collect();
+        for seed in 1..=4 {
+            let out = assign(&slots, &[ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }], &cat, &params(seed));
+            assert_eq!(out.len(), slots.len());
+            assert!(out.iter().all(|o| o.kind_id != "forager"), "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn forager_quests_join_the_courier_family_with_a_themed_title_but_never_drive() {
+        let cat = Catalog::builtin();
+        let (r, a) = (realm(Mode::Walk), atlas(&cat, false));
+        let mut seen = 0;
+        for seed in 1..=8 {
+            let zones = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }, ZoneCtx { zone: 2, mode: Mode::Drive, realm: &r, atlas: &a }];
+            let mut slots: Vec<SlotIn> = (1..=4).map(|t| slot(i64::from(t), "courier", t, Mode::Walk)).collect();
+            slots.extend((1..=4).map(|t| SlotIn {
+                location_id: 10 + i64::from(t),
+                zone: 2,
+                mode: Mode::Drive,
+                family: "courier".into(),
+                tier: t,
+                boss: false,
+            }));
+            for o in assign(&slots, &zones, &cat, &params(seed)) {
+                if o.kind_id != "forager" {
+                    continue;
+                }
+                assert_eq!(o.zone, 1, "no forager in a drive zone");
+                let Target::Collect { need, theme, .. } = &o.target else { panic!("{:?}", o.target) };
+                assert_eq!(o.quest_name, format!("Forager: bring home {need} {theme}"));
+                seen += 1;
+            }
+        }
+        assert!(seen > 0, "forager is offered to courier slots");
     }
 
     /// A straight street east of home sampled every `gap` m (a scan's samples at stride `gap / 60`).

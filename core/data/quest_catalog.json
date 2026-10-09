@@ -2194,6 +2194,32 @@
    "min_features": 0
   },
   {
+   "id": "forager",
+   "name": "Forager",
+   "family": "courier",
+   "blurb": "Gather things scattered around your area and bring enough of them home.",
+   "geom": "none",
+   "any_of": [],
+   "require_name": false,
+   "verify": {
+    "type": "collect",
+    "need_by_tier": [
+     3,
+     5,
+     7,
+     10
+    ],
+    "spare_factor": 2,
+    "pick_r_m": 25
+   },
+   "modes": [
+    "walk",
+    "run",
+    "bike"
+   ],
+   "min_features": 0
+  },
+  {
    "id": "cartographer",
    "name": "Cartographer",
    "family": "explore",

@@ -304,6 +304,16 @@ mod tests {
     }
 
     #[test]
+    fn forager_is_a_courier_kind_for_walk_run_and_bike_with_a_collect_rule() {
+        let c = Catalog::builtin();
+        let k = c.kind("forager").expect("forager is in the catalog");
+        assert_eq!((k.family.as_str(), k.name.as_str(), k.geom), ("courier", "Forager", Geom::None));
+        assert_eq!(k.modes, [Mode::Walk, Mode::Run, Mode::Bike]);
+        assert_eq!(k.verify, Verify::Collect { need_by_tier: vec![3, 5, 7, 10], spare_factor: 2, pick_r_m: 25.0 });
+        assert!(!k.is_progressive());
+    }
+
+    #[test]
     fn a_collect_rule_reads_from_json_and_explains_itself() {
         let v: Verify = serde_json::from_str(r#"{"type":"collect","need_by_tier":[3,5,7,10],"spare_factor":2,"pick_r_m":25}"#).unwrap();
         assert_eq!(v, Verify::Collect { need_by_tier: vec![3, 5, 7, 10], spare_factor: 2, pick_r_m: 25.0 });
