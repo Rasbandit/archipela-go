@@ -33,15 +33,18 @@ internal class DueTimer(
         )
     private var job: Job? = null
 
+    // The moment the alarm is set for: every fix and step refresh reschedules, and an unchanged moment needs no AlarmManager call.
+    private var alarmAt: Long? = FORCE
+
     /** Replace any pending wake-up with one at the next due moment, or none when nothing will fall due. */
     fun schedule() {
         job?.cancel()
         val at = model.engine.nextDueMs(model.now())
-        if (at == null) {
-            alarms?.cancel(wake)
-            return
+        if (at != alarmAt) {
+            if (at == null) alarms?.cancel(wake) else alarms?.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, wake)
+            alarmAt = at
         }
-        alarms?.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, wake)
+        if (at == null) return
         job =
             scope.launch {
                 delay((at - model.now()).coerceAtLeast(0))
@@ -51,17 +54,25 @@ internal class DueTimer(
 
     /** The due moment came: tick the core and refresh, which reschedules the next one. */
     fun fire() {
+        alarmAt = FORCE // the alarm fired or is stale: the reschedule below always sets or cancels it
         model.handle(model.engine.tick(model.now()))
         model.refreshPlay(withTrace = false)
     }
 }
 
-/** Receives the idle-allowed alarm (also when the process was gone: starting the app model resumes the game first). */
+// No real due moment: the next schedule always calls AlarmManager.
+private const val FORCE = Long.MIN_VALUE
+
+/**
+ * Receives the idle-allowed alarm. Only a process that already has the model ticks: a cold start here would resume the game with
+ * no presence watcher, steps or GPS (the decision would count time away at home); a game still being tracked has its process
+ * kept or restarted by the tracking service, which resumes it properly.
+ */
 internal class DueAlarm : BroadcastReceiver() {
     override fun onReceive(
         context: Context,
         intent: Intent,
     ) {
-        (context.applicationContext as ApgoApp).model.due.fire()
+        (context.applicationContext as ApgoApp).loadedModel?.due?.fire()
     }
 }
