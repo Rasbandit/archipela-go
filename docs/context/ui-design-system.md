@@ -26,6 +26,18 @@ widgets or write colours themselves.
   both are background. Quests, park outlines, trails and cluster rings use the state colours: blue doable, amber in progress, green done, grey locked (`ApgoPalette.quest`,
   `MapMarkers.questFill`), so a glance shows which parts of the map are finished. A quest pin's white icon says what kind it is; family colours are
   for the realm editor's finds only. Red never means "not done": it is for errors and bans.
+- **Play screen layout.** The map fills the area under the header and never resizes; the panel slides over its bottom. The panel is
+  shown or hidden (no free size): the goal and the summary line always show, the progress list only when shown. Its grip is drawn thin
+  but grabbed over a tall area; a tap toggles it, a drag follows the finger and snaps past `SNAP_DP`. The map's bottom padding follows
+  the panel frame by frame, so the middle of what you see stays in the middle of what is visible. A touch anywhere on the panel never
+  reaches the map. Portrait only (`android:screenOrientation`).
+- **The Play map is kept alive** under the other tabs (`AppRoot`: composed but unplaced, `MapLife` stops and hides the view), so coming
+  back has no reload or camera jump. While hidden it reads no new data (`held` in `PlayScreen.kt`); a different game gets a fresh map
+  (`key(gameId)`). A new map starts near what it will frame (or the last place, saved in the core's settings) and stays covered until
+  framed, so the world view never flashes.
+- **Map taps**: within `TAP_SLOP_DP` a pin wins, then a trail or park outline, then anywhere inside a park (the core's `park_at`; with
+  a popup open such a tap closes it instead). A trail or park shows its details where it was touched. Selecting scrolls the map only as
+  far as it takes to show the pin and its callout (`FocusShift`), never zooming.
 - Line widths scale with zoom on the GPU side (a MapLibre zoom expression built from the core's `line_width` stops; z16 is the reference look).
   Tune a line kind in `core/src/line_width.rs`, never with fixed widths in Kotlin.
 - Parks are a thin outline, always dashed (only its state colour tells the state; a solid/dashed split read as a bug), with a fill that shows

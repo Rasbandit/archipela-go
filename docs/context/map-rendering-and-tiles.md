@@ -52,7 +52,10 @@ Cost sketch: 100k MAU x 2 regions x 50 MB basemap = 10 TB egress per refresh. R2
 
 ## Auth/attribution
 
-No keys needed for OpenFreeMap or self-hosted PMTiles. Always show "© OpenStreetMap contributors" (MapLibre control does it). Overture/Foursquare/Wikimedia credits go in an About screen.
+No keys needed for OpenFreeMap or self-hosted PMTiles. OSM's guidelines require the data credit visible without a tap, so the app draws its own
+credit over every map (`MapCredit` in `QuestMap.kt`, text `MapStyle.CREDIT`, top-right so it stays clear of bottom panels); a tap opens MapLibre's
+own source list (`AttributionDialogManager`). MapLibre's logo and "i" button are turned off: its BSD-2 licence needs only the notice, which is in
+`THIRD_PARTY_NOTICES.md`. Overture/Foursquare/Wikimedia credits go in an About screen.
 
 ## Failed Approaches / Dead Ends
 
