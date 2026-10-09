@@ -294,7 +294,7 @@ private fun PlayMap(
             hud.thaw?.let { LatLng(it.lat, it.lon) },
             hud.waypoint?.let { LatLng(it.lat, it.lon) },
             m.selected,
-            { ll -> nearestQuest(m.quests, ll)?.let { m.selected = it.locationId } },
+            { m.selected = null }, // a tap on no pin, trail or park closes the popup
             Modifier.fillMaxSize(),
             onQuestClick = { m.selected = it },
             home = m.home?.let { LatLng(it.lat, it.lon) },
@@ -314,20 +314,6 @@ private fun PlayMap(
         }
     }
 }
-
-// The quest whose pin is nearest to a tap on the map.
-private fun nearestQuest(
-    quests: List<QuestOut>,
-    tap: LatLng,
-): QuestOut? =
-    quests
-        .filter { it.anchor != null && it.state != HIDDEN }
-        .minByOrNull { q ->
-            val a = q.anchor
-            val d = floatArrayOf(0f)
-            if (a != null) android.location.Location.distanceBetween(tap.latitude, tap.longitude, a.lat, a.lon, d)
-            d[0]
-        }
 
 // A quest with a pin gets a callout on it; one with no spot on the map (steps, squares, time away) gets the same card at the bottom.
 @Composable

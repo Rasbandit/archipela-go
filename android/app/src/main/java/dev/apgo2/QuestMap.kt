@@ -3,6 +3,7 @@ package dev.apgo2
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PointF
+import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import androidx.compose.animation.core.CubicBezierEasing
@@ -54,6 +55,9 @@ import kotlin.math.cos
 import kotlin.math.hypot
 
 private const val GRAB_DP = 32
+
+// How far from a finger a pin, trail or park outline still counts as tapped.
+private const val TAP_SLOP_DP = 16
 private const val NOT_DRAGGING = -1
 private const val RING_HANDLE = 1
 private const val FRAME_PAD_DP = 24
@@ -392,8 +396,18 @@ private class MapHolder(
         if (zoomIntoCluster(m, at)) return true
         val onFind = inputs.onFindClick.value
         val onQuest = inputs.onQuestClick.value
-        val find = onFind?.let { pinId(m, at, MapStyle.FIND_LAYERS) }
-        val quest = onQuest?.let { pinId(m, at, MapStyle.QUEST_LAYERS)?.toLongOrNull() }
+        val slop = TAP_SLOP_DP * density
+        val near = RectF(at.x - slop, at.y - slop, at.x + slop, at.y + slop)
+        val find = onFind?.let { featureId(m, near, MapStyle.FIND_LAYERS) }
+        // A pin wins over a trail, a trail over the park it may cross; only a tap inside a park picks the park.
+        val quest =
+            onQuest?.let {
+                (
+                    featureId(m, near, MapStyle.QUEST_LAYERS)
+                        ?: featureId(m, near, MapStyle.QUEST_LINE_LAYERS)
+                        ?: featureId(m, RectF(at.x, at.y, at.x, at.y), MapStyle.QUEST_AREA_LAYERS)
+                )?.toLongOrNull()
+            }
         when {
             find != null -> onFind(find)
             quest != null -> onQuest(quest)
@@ -402,11 +416,11 @@ private class MapHolder(
         return true
     }
 
-    private fun pinId(
+    private fun featureId(
         m: MapLibreMap,
-        at: PointF,
+        area: RectF,
         layers: Array<String>,
-    ): String? = m.queryRenderedFeatures(at, *layers).firstOrNull()?.getStringProperty(MapProp.ID)
+    ): String? = m.queryRenderedFeatures(area, *layers).firstOrNull()?.getStringProperty(MapProp.ID)
 
     private fun zoomIntoCluster(
         m: MapLibreMap,
