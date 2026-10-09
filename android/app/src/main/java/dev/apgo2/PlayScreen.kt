@@ -185,6 +185,7 @@ private fun PlayMap(
             onQuestClick = { m.selected = it },
             home = m.home?.let { LatLng(it.lat, it.lon) },
             trace = m.trace,
+            lastPlace = m.lastPlace,
             focus = focus,
             anchor = selected?.anchor?.let { LatLng(it.lat, it.lon) },
             onAnchor = { anchorPx = it },

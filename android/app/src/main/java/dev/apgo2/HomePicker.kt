@@ -116,6 +116,7 @@ internal fun HomePicker(
             fit = s.framing,
             overlayTopDp = OVERLAY_TOP_DP,
             overlayBottomDp = OVERLAY_BOTTOM_DP,
+            lastPlace = m.lastPlace,
         )
         Row(
             Modifier.align(Alignment.TopEnd).then(topEnd).padding(top = 12.dp, end = 12.dp),

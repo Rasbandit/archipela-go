@@ -378,6 +378,7 @@ private fun EditorMap(
         onFindClick = if (editing) null else { fid -> view.visible.firstOrNull { it.id == fid }?.let { s.finds.show(it, density) } },
         focus = s.finds.focus,
         fit = s.fit,
+        lastPlace = m.lastPlace,
         anchor = view.visible.firstOrNull { it.id == s.finds.selected }?.let { LatLng(it.at.lat, it.at.lon) },
         onAnchor = { s.anchor = it },
     )

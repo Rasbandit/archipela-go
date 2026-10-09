@@ -4,6 +4,11 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PointF
 import android.view.MotionEvent
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -15,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -34,6 +40,7 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -60,6 +67,7 @@ private const val CALLOUT_PIN_DP = 20f
 private const val NEIGHBOURHOOD_ZOOM = 14.0
 private const val TIGHT_SPAN_DEG = 0.004
 private const val MIN_FIT_POINTS = 2
+private const val REVEAL_MS = 200
 
 /** A find drawn on the map: an icon pin for its quest kind, coloured by the player's mark ("none" | "favorite" | "banned"). */
 internal data class MapFind(
@@ -176,12 +184,14 @@ private class HandleDragger(
     }
 }
 
-// The map view with what hangs off it: the loaded style, the camera helpers and the touch handling.
+// The map view with what hangs off it: the loaded style, the camera helpers and the touch handling. The camera starts at [start]
+// (near what it will frame) so the first frame is never the whole world.
 @Stable
 private class MapHolder(
     context: Context,
     private val density: Float,
     private val inputs: LatestInputs,
+    start: LatLng?,
 ) {
     val view: MapView
     var style by mutableStateOf<Style?>(null)
@@ -193,7 +203,17 @@ private class MapHolder(
 
     init {
         MapLibre.getInstance(context)
-        view = MapView(context)
+        val options = MapLibreMapOptions.createFromAttributes(context)
+        start?.let {
+            options.camera(
+                CameraPosition
+                    .Builder()
+                    .target(it)
+                    .zoom(NEIGHBOURHOOD_ZOOM)
+                    .build(),
+            )
+        }
+        view = MapView(context, options)
     }
 
     // Connect to the map once it exists: taps, drags, camera reports and the style.
@@ -439,6 +459,8 @@ internal fun QuestMap(
     editable: Boolean = true,
     /** Where you have been: one line per unbroken stretch of GPS. */
     trace: List<List<LatLng>> = emptyList(),
+    /** Where to start when there is nothing to frame yet (the last place you were). */
+    lastPlace: LatLng? = null,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -457,15 +479,23 @@ internal fun QuestMap(
             onHandleRelease = rememberUpdatedState(onHandleRelease),
             circle = rememberUpdatedState(circle),
         )
-    val holder = remember { MapHolder(context, density, inputs) }
+    val points = framePoints(quests, realms, me, home, draft)
+    val holder = remember { MapHolder(context, density, inputs, MapStart.center(listOfNotNull(circle?.first) + points, lastPlace)) }
     MapLifecycle(holder.view)
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
     SyncContent(holder, quests, realms, selected, finds, trace)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
     SyncPins(holder, thaw, waypoint, home, me)
     MapCamera(holder, overlayTopDp, overlayBottomDp, fit, focus, anchor)
-    MapFraming(holder, circle, me, home, quests, realms, draft)
-    AndroidView(factory = { holder.view }, modifier = modifier)
+    MapFraming(holder, circle, me, quests, realms, points)
+    // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
+    // tiles loading happen out of sight.
+    val framed = holder.centered || (holder.style != null && circle == null && points.isEmpty())
+    val cover by animateFloatAsState(if (framed) 0f else 1f, tween(REVEAL_MS), label = "map cover")
+    Box(modifier) {
+        AndroidView(factory = { holder.view }, modifier = Modifier.matchParentSize())
+        if (cover > 0f) Box(Modifier.matchParentSize().alpha(cover).background(MaterialTheme.colorScheme.surface))
+    }
 }
 
 // Hands the map view the activity's lifecycle events.
@@ -602,14 +632,13 @@ private fun MapFraming(
     holder: MapHolder,
     circle: Pair<LatLng, Double>?,
     me: LatLng?,
-    home: LatLng?,
     quests: List<QuestOut>,
     realms: List<RealmOut>,
-    draft: List<LatLng>,
+    points: List<LatLng>,
 ) {
     val style = holder.style
     LaunchedEffect(style, circle?.second) { if (style != null && circle != null) holder.frameCircle(circle) }
-    LaunchedEffect(style, me, quests.isNotEmpty(), realms.size) { holder.frameAction(framePoints(quests, realms, me, home, draft)) }
+    LaunchedEffect(style, me, quests.isNotEmpty(), realms.size) { holder.frameAction(points) }
 }
 
 // What the first view should show: the visible quests, you, home and the shape being drawn; the realms when there is none of those.
