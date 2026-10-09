@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use crate::geo::{distance_m, Point};
+use crate::geo::{distance_m, normal_lon, Point};
 use crate::num::round_i64;
 use crate::overpass::{fetch_cached, Candidate, Error};
 use crate::zone::Zone;
@@ -79,7 +79,7 @@ pub fn lattice(zone: &Zone, spacing_m: f64) -> Vec<Candidate> {
         let mut lon = sw.lon + if r % 2 == 0 { 0.0 } else { dlon / 2.0 };
         let mut c = 0u32;
         while lon <= ne.lon {
-            let p = Point::new(lat, lon);
+            let p = Point::new(lat, normal_lon(lon)); // the bbox may run past ±180 across the antimeridian
             if zone.contains(p) {
                 out.push(Candidate { id: format!("c{r}_{c}"), point: p, name: format!("Cell {r},{c}"), score: 0, rough: false });
             }
@@ -135,4 +135,18 @@ pub fn street_segments(body: &str, zone: &Zone) -> Result<Vec<StreetSegment>, Er
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_lattice_across_lon_180_covers_both_sides_with_real_longitudes() {
+        let zone = Zone::Circle { center: Point::new(-17.0, 179.99), radius_m: 3000.0 };
+        let pts = lattice(&zone, 500.0);
+        assert!(pts.len() > 50, "{} points", pts.len());
+        assert!(pts.iter().all(|c| c.point.lon.abs() <= 180.0 && zone.contains(c.point)));
+        assert!(pts.iter().any(|c| c.point.lon < 0.0) && pts.iter().any(|c| c.point.lon > 0.0));
+    }
 }

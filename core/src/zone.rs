@@ -1,7 +1,6 @@
 //! Play zones: where the game may place trips.
 
-use crate::geo::{distance_m, point_in_polygon, Point};
-use crate::num::count_f64;
+use crate::geo::{centroid, distance_m, point_in_polygon, unwrap_lon, Point};
 
 /// The area in which trips may be placed.
 #[derive(Debug, Clone)]
@@ -32,10 +31,7 @@ impl Zone {
     pub fn home(&self) -> Point {
         match self {
             Self::Circle { center, .. } | Self::Annulus { center, .. } => *center,
-            Self::Polygon(v) => {
-                let n = count_f64(v.len().max(1));
-                Point::new(v.iter().map(|p| p.lat).sum::<f64>() / n, v.iter().map(|p| p.lon).sum::<f64>() / n)
-            }
+            Self::Polygon(v) => centroid(v),
         }
     }
 
@@ -61,10 +57,14 @@ impl Zone {
         }
     }
 
-    /// Axis-aligned bounds as (south-west, north-east).
+    /// Axis-aligned bounds as (south-west, north-east). Longitudes run the short way round, so across the antimeridian the west
+    /// or east edge lies past ±180 (`east - west` is always the real width).
     pub fn bbox(&self) -> (Point, Point) {
         let pts: Vec<Point> = match self {
-            Self::Polygon(v) => v.clone(),
+            Self::Polygon(v) => {
+                let around = v.first().map_or(0.0, |p| p.lon);
+                v.iter().map(|p| Point::new(p.lat, unwrap_lon(p.lon, around))).collect()
+            }
             Self::Circle { center, radius_m } | Self::Annulus { center, max_m: radius_m, .. } => {
                 let dlat = radius_m / 111_195.0;
                 let dlon = dlat / center.lat.to_radians().cos().max(0.01);
@@ -90,5 +90,34 @@ impl Zone {
                 format!("poly:\"{}\"", pts.join(" "))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fiji_square() -> Zone {
+        Zone::Polygon(vec![Point::new(-17.1, 179.9), Point::new(-17.1, -179.9), Point::new(-16.9, -179.9), Point::new(-16.9, 179.9)])
+    }
+
+    #[test]
+    fn a_polygon_across_lon_180_has_a_narrow_bbox() {
+        let (sw, ne) = fiji_square().bbox();
+        assert!((ne.lon - sw.lon - 0.2).abs() < 1e-9, "{sw:?} {ne:?}");
+        assert!((sw.lat + 17.1).abs() < 1e-9 && (ne.lat + 16.9).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_circle_across_lon_180_has_a_narrow_bbox() {
+        let (sw, ne) = Zone::Circle { center: Point::new(-17.0, 179.99), radius_m: 5000.0 }.bbox();
+        assert!(sw.lon < 180.0 && ne.lon > 180.0 && ne.lon - sw.lon < 0.2, "{sw:?} {ne:?}");
+    }
+
+    #[test]
+    fn a_polygon_across_lon_180_has_its_home_on_the_line() {
+        let h = fiji_square().home();
+        assert!(h.lon.abs() > 179.99 && h.lon.abs() <= 180.0 && (h.lat + 17.0).abs() < 1e-9, "{h:?}");
+        assert!(fiji_square().max_extent_m() < 20_000.0);
     }
 }
