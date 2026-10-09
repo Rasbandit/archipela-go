@@ -369,3 +369,59 @@ impl ApPoll {
 pub fn ap_needs_sync(server_changed: bool, synced_game: Option<String>, open_game: Option<String>) -> bool {
     apgo_core::ap_poll::needs_sync(server_changed, synced_game.as_deref(), open_game.as_deref())
 }
+
+/// A kind of line drawn on the map (see `apgo_core::line_width::LineKind`).
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum LineKind {
+    /// The walked trace.
+    Trace,
+    /// A trail or other route quest line.
+    Trail,
+    /// The white casing under a trail line.
+    TrailCasing,
+    /// A park outline.
+    ParkOutline,
+    /// A realm outline.
+    RealmOutline,
+    /// The editor's draft line.
+    Draft,
+    /// The editor's radius ring.
+    RadiusRing,
+}
+
+impl From<LineKind> for apgo_core::line_width::LineKind {
+    fn from(kind: LineKind) -> Self {
+        match kind {
+            LineKind::Trace => Self::Trace,
+            LineKind::Trail => Self::Trail,
+            LineKind::TrailCasing => Self::TrailCasing,
+            LineKind::ParkOutline => Self::ParkOutline,
+            LineKind::RealmOutline => Self::RealmOutline,
+            LineKind::Draft => Self::Draft,
+            LineKind::RadiusRing => Self::RadiusRing,
+        }
+    }
+}
+
+/// At `zoom`, a line is `width` pixels wide.
+#[derive(Debug, uniffi::Record)]
+pub struct WidthStop {
+    /// Map zoom level.
+    pub zoom: f32,
+    /// Line width in pixels.
+    pub width: f32,
+}
+
+/// Zoom stops for a line kind's width, ordered by zoom; feed them to the renderer's exponential zoom interpolation.
+#[uniffi::export]
+#[must_use]
+pub fn line_width_stops(kind: LineKind) -> Vec<WidthStop> {
+    apgo_core::line_width::width_stops(kind.into()).into_iter().map(|s| WidthStop { zoom: s.zoom, width: s.width }).collect()
+}
+
+/// Base of the exponential zoom interpolation between line width stops.
+#[uniffi::export]
+#[must_use]
+pub const fn line_width_curve_base() -> f32 {
+    apgo_core::line_width::CURVE_BASE
+}
