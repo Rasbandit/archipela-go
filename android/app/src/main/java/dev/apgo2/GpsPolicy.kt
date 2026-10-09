@@ -9,8 +9,8 @@ internal object GpsPolicy {
         val minDistanceM: Float,
     )
 
-    // Time-based only: standing still must still produce fixes (Dwell, Away).
-    private val PLAYING = Rate(intervalMs = 5_000L, minDistanceM = 0f)
+    // Only on movement: dwell and time away finish on a scheduled tick, so standing still needs no fixes.
+    private val PLAYING = Rate(intervalMs = 5_000L, minDistanceM = dev.apgo2.presence.PresencePolicy.ZONE_MOVE_M)
     private val IDLE = Rate(intervalMs = 15_000L, minDistanceM = 20f)
 
     fun forState(playing: Boolean): Rate = if (playing) PLAYING else IDLE

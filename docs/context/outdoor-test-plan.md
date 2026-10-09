@@ -22,17 +22,17 @@ honest about items not applied yet) and, with "Show GPS and app notes", why a ne
 
 - Walk with the screen off in a pocket for 10 min, then look at the map: the trace line should cover the walk.
 - A Point quest (walk to it), an Away quest (be away from home for the minutes it asks), a Steps quest.
-- Stand still 3 min inside a Dwell place: progress must continue (no distance filter while playing).
+- Stand still 3 min inside a Dwell place: it must finish on time with no new fixes (one scheduled wake-up; GPS only reports movement).
 
 ## Presence checklist (home Wi-Fi, car, zones)
 
 Before leaving: Realms > tap the **Home Base** tile. At home, in step 2 tick the network tagged "Connected now" (needs location permission to read the Wi-Fi name). For the car, pair it in
 the phone's Bluetooth settings first, then tick it in step 3 (needs the Nearby devices permission). Open the game and read the chip next to the game name:
 
-- **Tracking**: inside a zone, GPS every 5 s, progress counts.
+- **Tracking**: inside a zone, GPS every 5 s once you move 10 m (none while standing), progress counts.
 - **At home, paused**: on a home network; GPS is off and nothing counts.
 - **In car, not counting**: a tagged car device is connected; GPS is off and nothing counts.
-- **Outside zones, saving battery**: far from every zone; GPS every 90 s, progress still counts.
+- **Outside zones, saving battery**: far from every zone; GPS every 90 s once you move 50 m, progress still counts.
 - **Not playing**: no game open or tracking paused.
 Verified on the emulator with the old Presence screen (home Wi-Fi only): add/remove network, At home (GPS unregistered, mock fixes ignored), back to Tracking after removing the network. The new setup flow (tap the Home Base tile, steps 1-3) ran on the emulator and on the Pixel 8 Pro: step 2 listed the connected and nearby networks with only location permission (no NEARBY_WIFI_DEVICES needed). Pausing at home with it is still to be checked outdoors.
 **Untested until an outdoor run: car Bluetooth (no paired device on the emulator) and the outside-zone duty cycle with real movement.** Check: leave the home Wi-Fi

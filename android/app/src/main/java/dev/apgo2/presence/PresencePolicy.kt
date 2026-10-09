@@ -32,13 +32,17 @@ internal object PresencePolicy {
     const val COARSE_MS = 90_000L
     private const val PRECISE_MS = 5_000L
 
+    // Fixes only once the player moved this far: dwell and time away finish on a scheduled tick, so standing still needs no GPS.
+    const val ZONE_MOVE_M = 10f
+    const val FAR_MOVE_M = 50f
+
     fun decide(s: Signals): Decision =
         when {
             !s.playing -> Decision(PresenceState.Stopped, GpsMode.Off, counting = false)
             s.carBluetooth == true -> Decision(PresenceState.InCar, GpsMode.Off, counting = false)
             s.homeWifi == true -> Decision(PresenceState.AtHome, GpsMode.Off, counting = false)
-            s.zone == Zone.Far -> Decision(PresenceState.OutsideZones, GpsMode.Rate(COARSE_MS, 0f), counting = true)
-            else -> Decision(PresenceState.InZone, GpsMode.Rate(PRECISE_MS, 0f), counting = true)
+            s.zone == Zone.Far -> Decision(PresenceState.OutsideZones, GpsMode.Rate(COARSE_MS, FAR_MOVE_M), counting = true)
+            else -> Decision(PresenceState.InZone, GpsMode.Rate(PRECISE_MS, ZONE_MOVE_M), counting = true)
         }
 }
 

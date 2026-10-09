@@ -33,7 +33,7 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - `core/src/journal.rs`: one SQLite file `journal.db` (WAL) in the app files dir. `points` (+ `points_rt` R*Tree) = every accepted GPS fix, flagged
   simulated or real; `events` = audit log (quests, checks, rewards, traps, rejected fixes throttled to 1/min, app foreground/background).
 - Trace = `Journal::segments`, split where two points are >2 min apart (phone off). Play map draws it (`trace` layer in `QuestMap.kt`).
-- GPS rate: `GpsPolicy.kt`, playing = every 5 s with NO distance filter (a filter starves Dwell/Away while standing), idle = 15 s / 20 m.
+- GPS rate: `GpsPolicy.kt`/`PresencePolicy.kt`, playing = every 5 s once moved 10 m (zone) or 90 s once moved 50 m (far); standing still gives no fixes, since dwell and time away finish on one scheduled wake-up (`DueTimer`, core `next_due_ms`/`tick`). Idle = 15 s / 20 m.
 - Gaps: the simulator advances a virtual clock 10 min per jump, so sim points never form a line. Real GPS untested outdoors. The trace is reloaded in full on every
   fix (fine for a few thousand points; page or simplify later). Events are only logged while a game is open. No export/clear UI yet.
 
@@ -61,7 +61,7 @@ Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone 
 ## Presence (home Wi-Fi, car Bluetooth, zone duty cycle)
 
 `android/.../presence/`: `PresencePolicy.decide(Signals)` is a pure function, first match wins: not playing = Stopped; car Bluetooth = InCar; home Wi-Fi = AtHome (all three:
-GPS off, `counting=false`); zone Far = OutsideZones (GPS every 90 s, counting); otherwise InZone (GPS every 5 s, counting). `PresenceMonitor` gathers the signals
+GPS off, `counting=false`); zone Far = OutsideZones (GPS 90 s / 50 m, counting); otherwise InZone (GPS 5 s / 10 m, counting). `PresenceMonitor` gathers the signals
 (Wi-Fi SSID, Bluetooth ACL, nearest zone), applies the decision to the location source and to the counting flag (the engine ignores fixes and steps while it is false), shows
 the chip on Play and writes a "Presence" activity line and a `presence` diag line on each change; heartbeat (at most once a minute, on fixes) adds `presence`/`counting`;
 a pending debounce schedules one re-evaluation for when it settles. Settings (home SSIDs with optional BSSID, car device name+address) live in SharedPreferences `presence` via `PresenceSettings`, not in the core.
