@@ -795,6 +795,33 @@ impl Game {
         }
     }
 
+    /// The phone joined home Wi-Fi (presence entered "at home"), with or without a GPS fix: every forager banks what it carries, and one
+    /// that reaches its need is completed. Counting is off at home, so it is not checked here; a trap that blocks checks blocks this as it
+    /// blocks banking on a fix. Calling it again banks nothing new.
+    pub fn bank_at_home(&mut self, t_ms: i64) -> Vec<Event> {
+        if self.traps.blocks_checks(self.home).is_some() {
+            return Vec::new();
+        }
+        let mut reached = Vec::new();
+        for a in &self.assignments {
+            let Target::Collect { need, .. } = &a.target else { continue };
+            if self.done.contains(&a.location_id) || !self.zone_unlocked(a.zone) {
+                continue;
+            }
+            let Some(c) = self.collected.get_mut(&a.location_id) else { continue };
+            if c.carried == 0 {
+                continue;
+            }
+            c.bank();
+            if c.banked >= *need {
+                reached.push(a.location_id);
+            }
+            self.trackers.remove(&a.location_id); // rebuilt from `collected` on the next fix
+        }
+        let home = self.home;
+        reached.into_iter().flat_map(|id| self.complete(id, t_ms, Some(home))).collect()
+    }
+
     /// Credit time away up to `t_ms` (from the mark, to every time-away chain of an unlocked zone, not while a trap blocks
     /// checks) and move the mark there. Called on events only: a fix, counting going off, a scheduled tick.
     fn settle_away(&mut self, t_ms: i64) {
@@ -2550,6 +2577,36 @@ mod tests {
 
     fn carried_banked(g: &Game) -> (u32, u32) {
         g.collected.get(&2000).map_or((0, 0), |c| (c.carried, c.banked))
+    }
+
+    #[test]
+    fn joining_home_wifi_banks_what_is_carried_once_and_completes_a_forager_at_its_need() {
+        let (mut g, pts) = forager_game();
+        g.on_fix(fixat(pts[0], 600), None);
+        g.on_fix(fixat(pts[1], 1200), None);
+        g.set_counting(false, 1250); // home Wi-Fi: no fix inside the home radius is ever accepted
+        assert!(done_ids(&g.bank_at_home(1300)).is_empty(), "2 of 3 banked, not done");
+        assert_eq!(carried_banked(&g), (0, 2));
+        assert!(g.bank_at_home(1400).is_empty());
+        assert_eq!(carried_banked(&g), (0, 2), "a second call banks nothing new");
+        g.set_counting(true, 2000);
+        g.on_fix(fixat(pts[2], 3000), None);
+        assert_eq!(carried_banked(&g), (1, 2), "the tracker carries on from the banked state");
+        g.set_counting(false, 3500);
+        assert_eq!(done_ids(&g.bank_at_home(3600)), vec![2000]);
+        assert_eq!(carried_banked(&g), (0, 3));
+        assert!(g.bank_at_home(3700).is_empty(), "a finished quest is not completed twice");
+    }
+
+    #[test]
+    fn a_trap_that_blocks_checks_blocks_banking_at_home_and_keeps_what_is_carried() {
+        let (mut g, pts) = forager_game();
+        g.on_fix(fixat(pts[0], 600), None);
+        freeze(&mut g);
+        assert!(g.bank_at_home(700).is_empty());
+        assert_eq!(carried_banked(&g), (1, 0), "still carried, nothing lost");
+        let mut plain = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        assert!(plain.bank_at_home(700).is_empty(), "a game without foragers has nothing to bank");
     }
 
     #[test]
