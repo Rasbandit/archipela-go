@@ -66,9 +66,10 @@ pub fn densify(pts: &[Point], step_m: f64) -> Vec<Point> {
     for w in pts.windows(2) {
         let seg = distance_m(w[0], w[1]);
         let n = ceil_usize(seg / step_m).max(1);
+        let dlon = unwrap_lon(w[1].lon, w[0].lon) - w[0].lon; // the short way, across lon ±180 if that is shorter
         for i in 0..n {
             let t = count_f64(i) / count_f64(n);
-            out.push(Point::new(w[0].lat + (w[1].lat - w[0].lat) * t, w[0].lon + (w[1].lon - w[0].lon) * t));
+            out.push(Point::new(w[0].lat + (w[1].lat - w[0].lat) * t, normal_lon(w[0].lon + dlon * t)));
         }
     }
     if let Some(last) = pts.last() {
@@ -109,11 +110,22 @@ pub fn simplify(pts: &[Point], min_step_m: f64, tolerance_m: f64) -> Vec<Point> 
     spaced.into_iter().zip(keep).filter_map(|(p, k)| k.then_some(p)).collect()
 }
 
-/// Average of the points (good enough as a polygon "center" at city scale).
+/// Average of the points (good enough as a polygon "center" at city scale), the short way across the antimeridian.
 #[must_use]
 pub fn centroid(pts: &[Point]) -> Point {
     let n = count_f64(pts.len().max(1));
-    Point::new(pts.iter().map(|p| p.lat).sum::<f64>() / n, pts.iter().map(|p| p.lon).sum::<f64>() / n)
+    let around = pts.first().map_or(0.0, |p| p.lon);
+    let lon = pts.iter().map(|p| unwrap_lon(p.lon, around)).sum::<f64>() / n;
+    Point::new(pts.iter().map(|p| p.lat).sum::<f64>() / n, normal_lon(lon))
+}
+
+/// `lon` in [-180, 180].
+fn normal_lon(lon: f64) -> f64 {
+    if (-180.0..=180.0).contains(&lon) {
+        lon
+    } else {
+        unwrap_lon(lon, 0.0)
+    }
 }
 
 /// Shortest distance from `p` to the segment `a`-`b`, in metres (flat approximation around `p`, fine at city scale).
@@ -169,16 +181,14 @@ pub fn point_inside(poly: &[Point]) -> Point {
     for step in [n / 2, n / 3, n / 4, 1] {
         let step = step.max(1);
         for i in 0..n {
-            let (a, b) = (poly[i], poly[(i + step) % n]);
-            let m = Point::new(f64::midpoint(a.lat, b.lat), f64::midpoint(a.lon, b.lon));
+            let m = centroid(&[poly[i], poly[(i + step) % n]]);
             if point_in_polygon(m, poly) {
                 return m;
             }
         }
     }
     for i in 0..n {
-        let (a, b, c2) = (poly[i], poly[(i + 1) % n], poly[(i + 2) % n]);
-        let m = Point::new((a.lat + b.lat + c2.lat) / 3.0, (a.lon + b.lon + c2.lon) / 3.0);
+        let m = centroid(&[poly[i], poly[(i + 1) % n], poly[(i + 2) % n]]);
         if point_in_polygon(m, poly) {
             return m;
         }
@@ -276,6 +286,33 @@ mod tests {
         assert!(!point_in_polygon(Point::new(-17.0, 179.0), &sq)); // west of it
         assert!(!point_in_polygon(Point::new(-17.0, -179.0), &sq)); // east of it
         assert!(!point_in_polygon(Point::new(-17.0, 0.0), &sq)); // the long way round
+    }
+
+    #[test]
+    fn a_line_across_the_antimeridian_is_sampled_the_short_way() {
+        let line = [Point::new(0.0, 179.99), Point::new(0.0, -179.99)]; // ~2.2 km
+        let d = densify(&line, 100.0);
+        assert!(d.len() < 40, "about 23 samples, not one per 100 m round the world: {}", d.len());
+        assert!(d.iter().all(|p| p.lon.abs() > 179.98 && p.lon.abs() <= 180.0), "{d:?}");
+    }
+
+    #[test]
+    fn the_centre_of_a_shape_across_the_antimeridian_is_on_it() {
+        let sq = [Point::new(-17.1, 179.9), Point::new(-17.1, -179.9), Point::new(-16.9, -179.9), Point::new(-16.9, 179.9)];
+        let c = centroid(&sq);
+        assert!((c.lat + 17.0).abs() < 1e-9 && c.lon.abs() > 179.99, "{c:?}");
+        assert!(point_in_polygon(point_inside(&sq), &sq));
+        // A concave L across the line: its centroid is outside, so the midpoint search runs.
+        let l = [
+            Point::new(0.0, 179.0),
+            Point::new(0.0, -170.0),
+            Point::new(1.0, -170.0),
+            Point::new(1.0, 180.0),
+            Point::new(10.0, 180.0),
+            Point::new(10.0, 179.0),
+        ];
+        assert!(!point_in_polygon(centroid(&l), &l), "test shape must have a centroid outside");
+        assert!(point_in_polygon(point_inside(&l), &l));
     }
 
     #[test]
