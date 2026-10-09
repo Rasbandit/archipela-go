@@ -14,6 +14,7 @@ pub mod goal;
 pub mod items;
 pub mod journal;
 pub mod line_width;
+pub mod loc;
 pub mod marks;
 pub mod near_path;
 pub mod num;

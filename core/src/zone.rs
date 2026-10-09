@@ -1,6 +1,6 @@
 //! Play zones: where the game may place trips.
 
-use crate::geo::{centroid, distance_m, point_in_polygon, unwrap_lon, Point};
+use crate::geo::{centroid, distance_m, distance_to_segment_m, point_in_polygon, unwrap_lon, Point};
 
 /// The area in which trips may be placed.
 #[derive(Debug, Clone)]
@@ -60,6 +60,19 @@ impl Zone {
         }
     }
 
+    /// Whether any part of the segment `a`-`b` lies inside the zone: an end inside, or the segment crossing it with both ends outside.
+    #[must_use]
+    pub fn touches_segment(&self, a: Point, b: Point) -> bool {
+        match self {
+            Self::Circle { center, radius_m } => distance_to_segment_m(*center, a, b) <= *radius_m,
+            // the nearest point of the segment is within the outer circle and its farthest point (an end) outside the hole
+            Self::Annulus { center, min_m, max_m } => {
+                distance_to_segment_m(*center, a, b) <= *max_m && distance_m(*center, a).max(distance_m(*center, b)) >= *min_m
+            }
+            Self::Polygon(v) => point_in_polygon(a, v) || point_in_polygon(b, v) || (0..v.len()).any(|i| segments_cross(a, b, v[i], v[(i + 1) % v.len()])),
+        }
+    }
+
     /// Axis-aligned bounds as (south-west, north-east). Longitudes run the short way round, so across the antimeridian the west
     /// or east edge lies past ±180 (`east - west` is always the real width).
     pub fn bbox(&self) -> (Point, Point) {
@@ -96,9 +109,23 @@ impl Zone {
     }
 }
 
+/// Whether segments `a`-`b` and `c`-`d` cross or touch (planar on lat/lon; fine at city scale).
+#[allow(clippy::many_single_char_names)] // standard planar-geometry notation (a, b, c, d, p, q, r)
+fn segments_cross(a: Point, b: Point, c: Point, d: Point) -> bool {
+    // which side of p-q the point r is on: 1 left, -1 right, 0 on the line
+    let orient = |p: Point, q: Point, r: Point| {
+        let x = (q.lon - p.lon) * (r.lat - p.lat) - (q.lat - p.lat) * (r.lon - p.lon);
+        i8::from(x > 0.0) - i8::from(x < 0.0)
+    };
+    let on = |p: Point, q: Point, r: Point| r.lat >= p.lat.min(q.lat) && r.lat <= p.lat.max(q.lat) && r.lon >= p.lon.min(q.lon) && r.lon <= p.lon.max(q.lon);
+    let (o1, o2, o3, o4) = (orient(a, b, c), orient(a, b, d), orient(c, d, a), orient(c, d, b));
+    (o1 != o2 && o3 != o4) || (o1 == 0 && on(a, b, c)) || (o2 == 0 && on(a, b, d)) || (o3 == 0 && on(c, d, a)) || (o4 == 0 && on(c, d, b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geo::destination;
 
     fn fiji_square() -> Zone {
         Zone::Polygon(vec![Point::new(-17.1, 179.9), Point::new(-17.1, -179.9), Point::new(-16.9, -179.9), Point::new(-16.9, 179.9)])
@@ -122,5 +149,29 @@ mod tests {
         let h = fiji_square().home();
         assert!(h.lon.abs() > 179.99 && h.lon.abs() <= 180.0 && (h.lat + 17.0).abs() < 1e-9, "{h:?}");
         assert!(fiji_square().max_extent_m() < 20_000.0);
+    }
+
+    #[test]
+    fn a_segment_touches_a_zone_when_it_crosses_it_even_with_both_ends_outside() {
+        let o = Point::new(40.0, -111.0);
+        let (w, e) = (destination(o, 270.0, 600.0), destination(o, 90.0, 600.0));
+        let (nw, ne) = (destination(w, 0.0, 700.0), destination(e, 0.0, 700.0));
+        let circle = Zone::Circle { center: o, radius_m: 500.0 };
+        assert!(circle.touches_segment(w, e));
+        assert!(circle.touches_segment(o, nw), "one end inside");
+        assert!(!circle.touches_segment(nw, ne));
+        let ring = Zone::Annulus { center: o, min_m: 100.0, max_m: 500.0 };
+        assert!(ring.touches_segment(w, e), "crosses the ring");
+        assert!(!ring.touches_segment(o, destination(o, 0.0, 50.0)), "inside the hole");
+        assert!(!ring.touches_segment(nw, ne));
+        let square = Zone::Polygon(vec![
+            destination(destination(o, 0.0, 500.0), 270.0, 500.0),
+            destination(destination(o, 0.0, 500.0), 90.0, 500.0),
+            destination(destination(o, 180.0, 500.0), 90.0, 500.0),
+            destination(destination(o, 180.0, 500.0), 270.0, 500.0),
+        ]);
+        assert!(square.touches_segment(w, e), "crosses two edges");
+        assert!(square.touches_segment(o, nw), "one end inside");
+        assert!(!square.touches_segment(nw, ne));
     }
 }

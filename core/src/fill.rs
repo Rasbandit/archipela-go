@@ -119,7 +119,7 @@ pub fn street_segments(body: &str, zone: &Zone) -> Result<Vec<StreetSegment>, Er
             .and_then(Value::as_object)
             .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
             .unwrap_or_default();
-        if tag_map.get("footway").is_some_and(|f| f == "sidewalk" || f == "crossing") || tag_map.get("highway").is_some_and(|h| h == "crossing") {
+        if is_side(&tag_map) {
             continue;
         }
         let rough = crate::scan::is_rough(&tag_map);
@@ -137,6 +137,75 @@ pub fn street_segments(body: &str, zone: &Zone) -> Result<Vec<StreetSegment>, Er
     Ok(out)
 }
 
+/// Whether a way is a sidewalk or a crossing (`footway=sidewalk|crossing` or `highway=crossing`): it runs beside a street.
+fn is_side(tags: &std::collections::BTreeMap<String, String>) -> bool {
+    tags.get("footway").is_some_and(|f| f == "sidewalk" || f == "crossing") || tags.get("highway").is_some_and(|h| h == "crossing")
+}
+
+/// One street or path as the map server returned it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RawWay {
+    /// OSM way id.
+    pub id: i64,
+    /// [`crate::scan::way_class`] bits.
+    pub class: u8,
+    /// Every point of the way.
+    pub pts: Vec<Point>,
+}
+
+/// Who may use a way: on foot unless `foot` forbids it; by bike except steps and footways or pedestrian streets without `bicycle=yes`, or
+/// when `bicycle` forbids it; by car on the street kinds the scan fetches that carry traffic, unless `motor_vehicle`, `motorcar` or
+/// `vehicle` forbids it. A mode is forbidden by `no` or `private` (and, for foot and bike, `use_sidepath`). Sidewalks and crossings also
+/// get [`crate::scan::way_class::SIDE`].
+#[must_use]
+pub fn way_class_of(tags: &std::collections::BTreeMap<String, String>) -> u8 {
+    use crate::scan::way_class::{BIKE, CAR, FOOT, SIDE};
+    let tag = |k: &str| tags.get(k).map_or("", String::as_str);
+    let hw = tag("highway");
+    let barred = |k: &str| matches!(tag(k), "no" | "private" | "use_sidepath");
+    let foot = if barred("foot") { 0 } else { FOOT };
+    let bike_ok = matches!(tag("bicycle"), "yes" | "designated" | "permissive");
+    let bike = match hw {
+        "steps" => 0,
+        "footway" | "pedestrian" if !bike_ok => 0,
+        _ if barred("bicycle") => 0,
+        _ => BIKE,
+    };
+    let car = if matches!(hw, "residential" | "living_street" | "service" | "unclassified" | "tertiary" | "secondary")
+        && !["motor_vehicle", "motorcar", "vehicle"].iter().any(|k| matches!(tag(k), "no" | "private"))
+    {
+        CAR
+    } else {
+        0
+    };
+    let side = if is_side(tags) { SIDE } else { 0 };
+    foot | bike | car | side
+}
+
+/// Every way of a streets response with its class and full geometry.
+///
+/// # Errors
+/// Returns [`Error::Parse`] if the body is not JSON or has no `elements`.
+pub fn raw_ways(body: &str) -> Result<Vec<RawWay>, Error> {
+    let v: Value = serde_json::from_str(body).map_err(|e| Error::Parse(e.to_string()))?;
+    let elements = v.get("elements").and_then(Value::as_array).ok_or_else(|| Error::Parse("no elements".into()))?;
+    Ok(elements
+        .iter()
+        .filter_map(|e| {
+            let id = e.get("id").and_then(Value::as_i64)?;
+            let geom = e.get("geometry").and_then(Value::as_array)?;
+            let tags: std::collections::BTreeMap<String, String> = e
+                .get("tags")
+                .and_then(Value::as_object)
+                .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+                .unwrap_or_default();
+            let mut pts: Vec<Point> = geom.iter().filter_map(|g| Some(Point::new(g.get("lat")?.as_f64()?, g.get("lon")?.as_f64()?))).collect();
+            pts.dedup();
+            (pts.len() >= 2).then(|| RawWay { id, class: way_class_of(&tags), pts })
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +217,65 @@ mod tests {
         assert!(pts.len() > 50, "{} points", pts.len());
         assert!(pts.iter().all(|c| c.point.lon.abs() <= 180.0 && zone.contains(c.point)));
         assert!(pts.iter().any(|c| c.point.lon < 0.0) && pts.iter().any(|c| c.point.lon > 0.0));
+    }
+
+    #[test]
+    fn way_classes_follow_who_may_use_the_way() {
+        use crate::scan::way_class::{BIKE, CAR, FOOT};
+        let t = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(way_class_of(&t(&[("highway", "residential")])), FOOT | BIKE | CAR);
+        assert_eq!(way_class_of(&t(&[("highway", "footway")])), FOOT);
+        assert_eq!(way_class_of(&t(&[("highway", "footway"), ("bicycle", "yes")])), FOOT | BIKE);
+        assert_eq!(way_class_of(&t(&[("highway", "steps")])), FOOT);
+        assert_eq!(way_class_of(&t(&[("highway", "cycleway")])), FOOT | BIKE);
+        assert_eq!(way_class_of(&t(&[("highway", "cycleway"), ("foot", "no")])), BIKE);
+        assert_eq!(way_class_of(&t(&[("highway", "service"), ("motor_vehicle", "no")])), FOOT | BIKE);
+    }
+
+    #[test]
+    fn sidewalks_and_crossings_carry_the_side_bit() {
+        use crate::scan::way_class::{BIKE, FOOT, SIDE};
+        let t = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(way_class_of(&t(&[("highway", "footway"), ("footway", "sidewalk")])), FOOT | SIDE);
+        assert_eq!(way_class_of(&t(&[("highway", "footway"), ("footway", "crossing")])), FOOT | SIDE);
+        assert_eq!(way_class_of(&t(&[("highway", "crossing")])), FOOT | BIKE | SIDE);
+        assert_eq!(way_class_of(&t(&[("highway", "footway")])) & SIDE, 0, "a plain footway is not a sidewalk");
+        let body = r#"{"elements":[{"type":"way","id":3,"tags":{"highway":"footway","footway":"sidewalk"},"geometry":[{"lat":40.0,"lon":-111.0},{"lat":40.001,"lon":-111.0}]}]}"#;
+        assert_eq!(raw_ways(body).unwrap()[0].class, FOOT | SIDE);
+    }
+
+    #[test]
+    fn raw_ways_read_id_class_and_geometry() {
+        let body = r#"{"elements":[{"type":"way","id":7,"tags":{"highway":"footway"},"geometry":[{"lat":40.0,"lon":-111.0},{"lat":40.001,"lon":-111.0}]},{"type":"node","id":1}]}"#;
+        let w = raw_ways(body).unwrap();
+        assert_eq!((w.len(), w[0].id, w[0].class, w[0].pts.len()), (1, 7, crate::scan::way_class::FOOT, 2));
+        assert!(raw_ways("nope").is_err());
+    }
+
+    #[test]
+    fn access_tags_take_away_who_may_not_use_the_way() {
+        use crate::scan::way_class::{BIKE, CAR, FOOT};
+        let t = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect::<std::collections::BTreeMap<_, _>>();
+        for key in ["motor_vehicle", "motorcar", "vehicle"] {
+            for v in ["no", "private"] {
+                assert_eq!(way_class_of(&t(&[("highway", "residential"), (key, v)])) & CAR, 0, "{key}={v}");
+            }
+        }
+        assert_eq!(way_class_of(&t(&[("highway", "residential"), ("motor_vehicle", "yes")])) & CAR, CAR);
+        for v in ["no", "private", "use_sidepath"] {
+            assert_eq!(way_class_of(&t(&[("highway", "residential"), ("foot", v)])), BIKE | CAR, "foot={v}");
+            assert_eq!(way_class_of(&t(&[("highway", "residential"), ("bicycle", v)])), FOOT | CAR, "bicycle={v}");
+        }
+    }
+
+    #[test]
+    fn raw_ways_drop_repeated_points_and_ways_left_with_one() {
+        let body = r#"{"elements":[
+          {"type":"way","id":1,"tags":{"highway":"path"},"geometry":[{"lat":40.0,"lon":-111.0},{"lat":40.0,"lon":-111.0},{"lat":40.001,"lon":-111.0},{"lat":40.001,"lon":-111.0}]},
+          {"type":"way","id":2,"tags":{"highway":"path"},"geometry":[{"lat":40.0,"lon":-111.0},{"lat":40.0,"lon":-111.0}]}
+        ]}"#;
+        let w = raw_ways(body).unwrap();
+        assert_eq!(w.len(), 1, "a way that is one point repeated is no way");
+        assert_eq!(w[0].pts, vec![Point::new(40.0, -111.0), Point::new(40.001, -111.0)]);
     }
 }

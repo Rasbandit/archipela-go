@@ -98,3 +98,9 @@ pub(crate) fn trunc_i64(x: f64) -> i64 {
         x as i64
     }
 }
+
+/// `x` (finite, non-negative, already floored) as an index.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // callers pass floored, non-negative ranks
+pub(crate) fn floor_usize(x: f64) -> usize {
+    x.floor().max(0.0) as usize
+}

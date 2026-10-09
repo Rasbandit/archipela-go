@@ -66,8 +66,8 @@ impl Proximity {
 
 /// The closest classification of `p` across `shapes` (Inside beats Near beats Far); `None` with no shapes.
 #[must_use]
-pub fn closest_proximity(shapes: &[Shape], p: Point) -> Option<Proximity> {
-    shapes.iter().map(|s| s.proximity(p)).min()
+pub fn closest_proximity<'a>(shapes: impl IntoIterator<Item = &'a Shape>, p: Point) -> Option<Proximity> {
+    shapes.into_iter().map(|s| s.proximity(p)).min()
 }
 
 /// Which of `pts` (finds) lie inside the outline being drawn in the realm editor, in order: the polygon of `corners` when

@@ -46,6 +46,83 @@ pub struct NamedStreet {
     pub at: Point,
 }
 
+/// Who may use a way: bits of [`WayGeom::class`].
+pub mod way_class {
+    /// On foot.
+    pub const FOOT: u8 = 1;
+    /// By bike.
+    pub const BIKE: u8 = 2;
+    /// By car.
+    pub const CAR: u8 = 4;
+    /// A sidewalk or crossing (`footway=sidewalk|crossing`, `highway=crossing`): not a mode, it runs beside a street already there.
+    pub const SIDE: u8 = 8;
+}
+
+/// Ways are simplified to this tolerance, metres.
+pub const WAY_SIMPLIFY_M: f64 = 2.0;
+
+/// One street or path as simplified geometry for the location filter's street graph. Points are rounded to 1e-7 degrees, so ways that
+/// share an OSM node share the exact point.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WayGeom {
+    /// OSM way id.
+    pub id: i64,
+    /// [`way_class`] bits.
+    pub class: u8,
+    /// The way's points, saved as an encoded polyline at 1e-7 degrees.
+    #[serde(with = "polyline7")]
+    pub pts: Vec<Point>,
+}
+
+/// Serde adapter: points as an encoded polyline at 1e7 units per degree (ruling T17-R2: far smaller than the points as JSON numbers).
+mod polyline7 {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use crate::geo::{decode_polyline, encode_polyline, Point};
+
+    #[allow(clippy::ptr_arg)] // serde's `with` passes `&Vec<Point>`
+    pub fn serialize<S: Serializer>(pts: &Vec<Point>, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&encode_polyline(pts, 1e7))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Point>, D::Error> {
+        let s = String::deserialize(d)?;
+        decode_polyline(&s, 1e7).ok_or_else(|| serde::de::Error::custom("not an encoded polyline"))
+    }
+}
+
+/// Whether any piece of the way lies in `zone`: a point inside, or a segment crossing it with both ends outside.
+fn way_in_zone(pts: &[Point], zone: &Zone) -> bool {
+    pts.first().is_some_and(|p| zone.contains(*p)) || pts.windows(2).any(|s| zone.touches_segment(s[0], s[1]))
+}
+
+fn round7(x: f64) -> f64 {
+    crate::num::i64_to_f64(crate::num::round_i64(x * 1e7)) / 1e7
+}
+
+/// The ways of a whole scan: each OSM way once, kept when any piece of it is in `zone`, simplified with every shared vertex (and each end)
+/// pinned, rounded.
+#[must_use]
+pub fn ways_from(raw: Vec<crate::fill::RawWay>, zone: &Zone) -> Vec<WayGeom> {
+    let mut seen = BTreeSet::new();
+    let raw: Vec<crate::fill::RawWay> = raw.into_iter().filter(|w| seen.insert(w.id)).collect();
+    let key = |p: &Point| (crate::num::round_i64(p.lat * 1e7), crate::num::round_i64(p.lon * 1e7));
+    let mut uses: BTreeMap<(i64, i64), u32> = BTreeMap::new();
+    for w in &raw {
+        for (i, p) in w.pts.iter().enumerate() {
+            *uses.entry(key(p)).or_insert(0) += if i == 0 || i + 1 == w.pts.len() { 2 } else { 1 };
+        }
+    }
+    raw.into_iter()
+        .filter(|w| way_in_zone(&w.pts, zone))
+        .map(|w| {
+            let pinned: Vec<bool> = w.pts.iter().map(|p| uses.get(&key(p)).copied().unwrap_or(0) >= 2).collect();
+            let pts = crate::geo::simplify_pinned(&w.pts, &pinned, WAY_SIMPLIFY_M).into_iter().map(|p| Point::new(round7(p.lat), round7(p.lon))).collect();
+            WayGeom { id: w.id, class: w.class, pts }
+        })
+        .collect()
+}
+
 /// What a scan of a realm found: the places, streets and which quest kinds each place fits.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Atlas {
@@ -84,6 +161,10 @@ pub struct Atlas {
     /// The same runs for `streets_rough`.
     #[serde(default)]
     pub rough_runs: Vec<u32>,
+    /// Street and path geometry (simplified, shared nodes kept) for the location filter's street graph. Empty for scans made before it
+    /// was recorded, see [`Self::needs_rescan`].
+    #[serde(default)]
+    pub ways: Vec<WayGeom>,
     /// The player's favorite places, set by [`Atlas::apply_marks`] when a game is prepared; never saved with the scan.
     #[serde(skip)]
     pub favorites: BTreeSet<String>,
@@ -99,6 +180,7 @@ impl Atlas {
         self.matches.retain(|_, v| !v.is_empty());
         self.retain_streets(&|p| zone.contains(p));
         self.street_names.retain(|s| zone.contains(s.at));
+        self.ways.retain(|w| way_in_zone(&w.pts, zone));
     }
 
     /// Keep only the street points `keep` accepts; a run that loses a point is split there, so no link jumps the gap.
@@ -130,10 +212,14 @@ impl Atlas {
     }
 
     /// Whether this atlas comes from a scan made before runs of street samples were recorded: it knows only the points, not the
-    /// streets between them, so quests near it are placed more strictly until the realm is scanned again.
+    /// streets between them, so quests near it are placed more strictly until the realm is scanned again; or before way geometry was
+    /// recorded (the map pin then matches streets poorly).
     #[must_use]
     pub fn needs_rescan(&self) -> bool {
-        (self.street_runs.is_empty() && !self.streets.is_empty()) || (self.rough_runs.is_empty() && !self.streets_rough.is_empty())
+        let has_streets = !self.streets.is_empty() || !self.streets_rough.is_empty();
+        (self.street_runs.is_empty() && !self.streets.is_empty())
+            || (self.rough_runs.is_empty() && !self.streets_rough.is_empty())
+            || (has_streets && self.ways.is_empty())
     }
 
     /// Walkable street length in metres. Atlases scanned before real lengths were recorded fall back to an estimate from their street points.
@@ -472,6 +558,7 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
         street_stride: 1,
         street_runs: vec![],
         rough_runs: vec![],
+        ways: vec![],
         walkable_len_m: 0.0,
         rough_len_m: 0.0,
         street_names: vec![],
@@ -691,6 +778,7 @@ pub fn scan_with(
     let mut seen_street_points = std::collections::HashSet::new();
     let mut named_streets: BTreeMap<(String, i64, i64), Point> = BTreeMap::new();
     let mut seen_segments = std::collections::HashSet::new();
+    let mut raw_ways = Vec::new();
     let (mut walkable_len, mut rough_len) = (0.0_f64, 0.0_f64);
     let (mut failed, total) = (0usize, jobs.len());
     let mut last_err = None;
@@ -700,6 +788,7 @@ pub fn scan_with(
                 Job::Poi => a.extend(parse_features(&body).unwrap_or_default()),
                 Job::Geom => b.extend(parse_features(&body).unwrap_or_default()),
                 Job::Streets => {
+                    raw_ways.extend(crate::fill::raw_ways(&body).unwrap_or_default());
                     for seg in crate::fill::street_segments(&body, &zone).unwrap_or_default() {
                         if seen_segments.insert(seg.key) {
                             walkable_len += seg.len_m;
@@ -752,6 +841,7 @@ pub fn scan_with(
     atlas.rough_len_m = rough_len;
     atlas.street_names = named_streets.into_iter().map(|((name, ..), at)| NamedStreet { name, at }).collect();
     atlas.warnings = if failed > 0 { vec![format!("{failed} of {total} map requests are still pending")] } else { vec![] };
+    atlas.ways = ways_from(raw_ways, &zone);
     Ok(atlas)
 }
 
@@ -1028,6 +1118,8 @@ mod tests {
         assert!(a.street_runs.is_empty() && a.needs_rescan(), "a scan from before runs were recorded asks for a rescan");
         assert!(a.street_links(false).is_empty(), "without runs nothing is linked: only the points count");
         a.street_runs = vec![5];
+        assert!(a.needs_rescan(), "runs but no way geometry: the street graph needs a rescan");
+        a.ways = vec![WayGeom { id: 1, class: way_class::FOOT, pts: line.clone() }];
         assert!(!a.needs_rescan());
         assert_eq!(a.street_links(false).len(), 4);
         // a zone that leaves out the middle point: the run splits and nothing links across the gap
@@ -1244,5 +1336,100 @@ mod tests {
         assert!(q.matches("nwr(").count() < 40, "queries must stay small: {} statements", q.matches("nwr(").count());
         let g = geom_query(&zone, &cat);
         assert!(g.contains("way(around:1000") && g.contains("out geom") && g.contains("highway"));
+    }
+
+    fn raw_way(id: i64, pts: Vec<Point>) -> crate::fill::RawWay {
+        crate::fill::RawWay { id, class: way_class::FOOT | way_class::BIKE, pts }
+    }
+
+    #[test]
+    fn ways_share_the_exact_junction_point_and_are_kept_once() {
+        let o = Point::new(40.0, -111.0);
+        // a straight 200 m street with a node every 20 m; a side street starts at its 100 m node
+        let main: Vec<Point> = (0..=10).map(|i| destination(o, 90.0, 20.0 * f64::from(i))).collect();
+        let side = vec![main[5], destination(main[5], 0.0, 80.0)];
+        let zone = Zone::Circle { center: o, radius_m: 1000.0 };
+        let ways = ways_from(vec![raw_way(1, main.clone()), raw_way(2, side), raw_way(1, main)], &zone);
+        assert_eq!(ways.len(), 2, "way 1 came from two tiles");
+        assert_eq!(ways[0].pts.len(), 3, "start, the junction (pinned), end");
+        assert!(ways[1].pts.contains(&ways[0].pts[1]), "the junction is the very same rounded point in both ways");
+    }
+
+    #[test]
+    fn ways_outside_the_zone_are_dropped_and_restrict_to_drops_them_too() {
+        let o = Point::new(40.0, -111.0);
+        let far = destination(o, 0.0, 5000.0);
+        let zone = Zone::Circle { center: o, radius_m: 500.0 };
+        let ways = ways_from(vec![raw_way(1, vec![o, destination(o, 90.0, 50.0)]), raw_way(2, vec![far, destination(far, 90.0, 50.0)])], &zone);
+        assert_eq!(ways.iter().map(|w| w.id).collect::<Vec<_>>(), [1]);
+        let mut a = Atlas { ways: vec![WayGeom { id: 2, class: 1, pts: vec![far, destination(far, 90.0, 50.0)] }], ..Atlas::default() };
+        a.restrict_to(&zone);
+        assert!(a.ways.is_empty());
+    }
+
+    #[test]
+    fn an_atlas_saved_before_ways_loads_and_asks_for_a_rescan() {
+        let a: Atlas =
+            serde_json::from_str(r#"{"realm_id":"r","scanned_at_ms":0,"features":[],"streets":[{"lat":40.0,"lon":-111.0}],"street_runs":[1],"matches":{}}"#)
+                .unwrap();
+        assert!(a.ways.is_empty() && a.needs_rescan());
+    }
+
+    #[test]
+    fn way_points_are_saved_as_an_encoded_polyline() {
+        let o = Point::new(40.0, -111.0);
+        let w = WayGeom { id: 9, class: way_class::FOOT, pts: vec![o, Point::new(40.000_123_4, -111.000_567_8)] };
+        let v = serde_json::to_value(&w).unwrap();
+        assert_eq!(v["pts"], serde_json::json!(crate::geo::encode_polyline(&w.pts, 1e7)), "{v}");
+        assert_eq!(serde_json::from_value::<WayGeom>(v).unwrap(), w);
+        let empty = WayGeom { id: 1, class: 1, pts: vec![] };
+        assert_eq!(serde_json::from_str::<WayGeom>(&serde_json::to_string(&empty).unwrap()).unwrap(), empty);
+        assert!(serde_json::from_str::<WayGeom>(r#"{"id":1,"class":1,"pts":"_p~iF ps|U"}"#).is_err(), "a broken polyline is an error");
+    }
+
+    #[test]
+    fn a_scan_records_the_ways_it_fetched() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0095, -111.0);
+        let body = format!(
+            r#"{{"elements":[{{"type":"way","id":77,"tags":{{"highway":"residential"}},"geometry":[{{"lat":{},"lon":{}}},{{"lat":{},"lon":{}}}]}}]}}"#,
+            o.lat,
+            o.lon,
+            destination(o, 0.0, 300.0).lat,
+            destination(o, 0.0, 300.0).lon
+        );
+        let fetch = |q: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
+            Ok(if q.contains("\"highway\"~") && q.contains("out geom qt") { body.clone() } else { r#"{"elements":[]}"#.to_string() })
+        };
+        let a = scan_with(&small_realm(o, 1000.0), &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {}).unwrap();
+        assert_eq!(a.ways.len(), 1);
+        assert_eq!((a.ways[0].id, a.ways[0].class), (77, way_class::FOOT | way_class::BIKE | way_class::CAR));
+        assert!(!a.needs_rescan());
+    }
+
+    #[test]
+    fn a_way_crossing_the_zone_with_both_ends_outside_is_kept() {
+        let o = Point::new(40.0, -111.0);
+        let zone = Zone::Circle { center: o, radius_m: 500.0 };
+        let through = vec![destination(o, 270.0, 600.0), destination(o, 90.0, 600.0)];
+        let beside = vec![destination(destination(o, 0.0, 700.0), 270.0, 600.0), destination(destination(o, 0.0, 700.0), 90.0, 600.0)];
+        let ways = ways_from(vec![raw_way(1, through.clone()), raw_way(2, beside.clone())], &zone);
+        assert_eq!(ways.iter().map(|w| w.id).collect::<Vec<_>>(), [1], "the crossing way is kept, the one beside the zone is not");
+        let mut a = Atlas { ways: vec![WayGeom { id: 1, class: 1, pts: through }, WayGeom { id: 2, class: 1, pts: beside }], ..Atlas::default() };
+        a.restrict_to(&zone);
+        assert_eq!(a.ways.iter().map(|w| w.id).collect::<Vec<_>>(), [1], "restrict_to uses the same rule");
+    }
+
+    #[test]
+    fn two_ways_crossing_in_an_x_both_keep_the_shared_middle_node() {
+        let o = Point::new(40.0, -111.0);
+        let (w, s) = (destination(o, 270.0, 100.0), destination(o, 180.0, 100.0));
+        let ew: Vec<Point> = (0..=10).map(|i| destination(w, 90.0, 20.0 * f64::from(i))).collect();
+        let mut sn: Vec<Point> = (0..=10).map(|i| destination(s, 0.0, 20.0 * f64::from(i))).collect();
+        sn[5] = ew[5]; // the crossing is one OSM node in both ways
+        let ways = ways_from(vec![raw_way(1, ew.clone()), raw_way(2, sn)], &Zone::Circle { center: o, radius_m: 1000.0 });
+        assert_eq!(ways.iter().map(|w| w.pts.len()).collect::<Vec<_>>(), [3, 3], "start, crossing, end in each");
+        assert_eq!(ways[0].pts[1], ways[1].pts[1], "both meet at the very same point");
+        assert!(distance_m(ways[0].pts[1], ew[5]) < 0.05, "and it is the crossing node");
     }
 }
