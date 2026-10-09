@@ -1,10 +1,11 @@
-//! Player settings over FFI: the unit choice, the units it resolves to, and the one distance formatter.
+//! Player settings over FFI: the unit choice, the units it resolves to, the one distance formatter and the last place.
 
+use apgo_core::geo::Point;
 use apgo_core::settings::{self as core, Settings};
 use apgo_core::units;
 
 use crate::engine::Engine;
-use crate::CoreError;
+use crate::{CoreError, GeoPoint};
 
 /// The units the player picked for distances; `Auto` follows the phone's region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -107,6 +108,23 @@ impl Engine {
     pub fn units(&self) -> UnitSystem {
         self.unit_system().into()
     }
+
+    /// Where the player last was (saved when the app leaves the screen), for a map that opens before the first fix.
+    pub fn last_place(&self) -> Option<GeoPoint> {
+        Settings::load(self.dir()).last_place.map(|p| GeoPoint { lat: p.lat, lon: p.lon })
+    }
+
+    /// Save where the player is now, keeping every other setting.
+    ///
+    /// # Errors
+    /// Returns an error if `at` is not a real coordinate or the settings file cannot be written.
+    pub fn set_last_place(&self, at: GeoPoint) -> Result<(), CoreError> {
+        let mut settings = Settings::load(self.dir());
+        if !settings.remember_place(Point { lat: at.lat, lon: at.lon }) {
+            return Err(CoreError::Failed { detail: format!("not a real place: {}, {}", at.lat, at.lon) });
+        }
+        settings.save(self.dir()).map_err(|detail| CoreError::Failed { detail })
+    }
 }
 
 #[cfg(test)]
@@ -168,6 +186,29 @@ mod tests {
         assert!(e.set_unit_choice(UnitChoice::Imperial).is_err());
         assert_eq!(e.unit_choice(), UnitChoice::Auto);
         assert_eq!(e.units(), UnitSystem::Metric);
+    }
+
+    #[test]
+    fn the_last_place_survives_a_restart_and_keeps_the_units() {
+        let d = Dir::new("place");
+        let e = d.engine();
+        assert!(e.last_place().is_none());
+        e.set_unit_choice(UnitChoice::Imperial).unwrap();
+        e.set_last_place(GeoPoint { lat: 40.5, lon: -111.9 }).unwrap();
+        let e = d.engine();
+        let p = e.last_place().unwrap();
+        assert_eq!((p.lat, p.lon), (40.5, -111.9));
+        assert_eq!(e.unit_choice(), UnitChoice::Imperial);
+    }
+
+    #[test]
+    fn a_bad_place_or_a_failed_save_is_an_error() {
+        let d = Dir::new("bad-place");
+        let e = d.engine();
+        assert!(e.set_last_place(GeoPoint { lat: f64::NAN, lon: 0.0 }).is_err());
+        assert!(e.last_place().is_none());
+        std::fs::create_dir_all(d.0.join("settings.json")).unwrap();
+        assert!(e.set_last_place(GeoPoint { lat: 1.0, lon: 2.0 }).is_err());
     }
 
     #[test]

@@ -1,8 +1,9 @@
-//! Player settings that are not tied to one game, saved as `settings.json` in the engine directory.
+//! Player settings and device state that are not tied to one game, saved as `settings.json` in the engine directory.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+use crate::geo::Point;
 use crate::units::UnitSystem;
 
 const FILE: &str = "settings.json";
@@ -24,11 +25,13 @@ pub enum UnitChoice {
 }
 
 /// Every setting; a missing field reads as its default, so older files keep loading.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     /// Distance units.
     pub units: UnitChoice,
+    /// Where the player last was, so a map opened before the first fix starts there and not on the whole world.
+    pub last_place: Option<Point>,
 }
 
 impl Settings {
@@ -36,6 +39,15 @@ impl Settings {
     #[must_use]
     pub fn load(dir: &Path) -> Self {
         std::fs::read_to_string(dir.join(FILE)).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    }
+
+    /// Keep `p` as the last place; false (keeping the old one) when it is not a real coordinate.
+    pub fn remember_place(&mut self, p: Point) -> bool {
+        let real = (-90.0..=90.0).contains(&p.lat) && (-180.0..=180.0).contains(&p.lon);
+        if real {
+            self.last_place = Some(p);
+        }
+        real
     }
 
     /// Save to `dir`, creating it if needed.
@@ -72,13 +84,13 @@ mod tests {
 
     #[test]
     fn missing_file_loads_defaults() {
-        assert_eq!(Settings::load(&tmp("missing")), Settings { units: UnitChoice::Auto });
+        assert_eq!(Settings::load(&tmp("missing")), Settings { units: UnitChoice::Auto, last_place: None });
     }
 
     #[test]
     fn save_then_load_round_trips_and_creates_the_dir() {
         let dir = tmp("round-trip").join("nested");
-        let s = Settings { units: UnitChoice::Imperial };
+        let s = Settings { units: UnitChoice::Imperial, last_place: Some(Point { lat: 40.5, lon: -111.9 }) };
         s.save(&dir).unwrap();
         assert_eq!(Settings::load(&dir), s);
     }
@@ -105,8 +117,26 @@ mod tests {
     fn save_fails_when_the_dir_is_a_file() {
         let dir = tmp("blocked");
         std::fs::write(&dir, "a file").unwrap();
-        assert!(Settings { units: UnitChoice::Metric }.save(&dir).is_err());
+        assert!(Settings { units: UnitChoice::Metric, last_place: None }.save(&dir).is_err());
         let _ = std::fs::remove_file(&dir);
+    }
+
+    #[test]
+    fn a_real_place_is_remembered() {
+        let mut s = Settings::default();
+        assert!(s.remember_place(Point { lat: -33.9, lon: 151.2 }));
+        assert_eq!(s.last_place, Some(Point { lat: -33.9, lon: 151.2 }));
+        assert!(s.remember_place(Point { lat: 90.0, lon: -180.0 }), "the edges are real places");
+    }
+
+    #[test]
+    fn a_bad_place_is_refused_and_the_old_one_kept() {
+        let old = Point { lat: 1.0, lon: 2.0 };
+        let mut s = Settings { last_place: Some(old), ..Settings::default() };
+        for bad in [(f64::NAN, 0.0), (0.0, f64::INFINITY), (90.1, 0.0), (-90.1, 0.0), (0.0, 180.1), (0.0, -180.1)] {
+            assert!(!s.remember_place(Point { lat: bad.0, lon: bad.1 }), "{bad:?}");
+            assert_eq!(s.last_place, Some(old));
+        }
     }
 
     #[test]
