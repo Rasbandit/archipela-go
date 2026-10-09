@@ -24,7 +24,7 @@ internal class UnitSettings(
         val saved = runCatching { model.engine.setUnitChoice(c) }
         saved.onSuccess {
             choice = c
-            follow()
+            Units.system = model.engine.units() // saving already re-resolved them; the region is unchanged
             model.refreshAll()
         }
         saved.onFailure { model.fail("set_unit_choice", "Could not save the units", it) }

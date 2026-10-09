@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::assign::Assignment;
 use crate::num::{count_f32, count_f64, to_f32};
 use crate::slot::{GoalMode, GoalSpec, SlotData};
-use crate::units::{distance, distance_rounded, Round, UnitSystem};
+use crate::units::{distance_rounded, Round, UnitSystem};
 
 /// How far along a win condition is.
 #[derive(Debug, Clone, PartialEq)]
@@ -200,7 +200,11 @@ fn evaluate_one(c: &GoalCtx<'_>, g: &str, t: u32) -> GoalStatus {
         }
         "marathon" => {
             let km = or_default(t, 42);
-            let label = format!("Travel {} on quests: {}", distance(f64::from(km) * 1000.0, c.units), distance_rounded(c.distance_m, c.units, Round::Down));
+            let label = format!(
+                "Travel {} on quests: {}",
+                distance_rounded(f64::from(km) * 1000.0, c.units, Round::Up),
+                distance_rounded(c.distance_m, c.units, Round::Down)
+            );
             status(c.distance_m / 1000.0, f64::from(km), label)
         }
         "explorer" => {
@@ -400,7 +404,7 @@ mod tests {
         let d = BTreeSet::new();
         let ctx =
             GoalCtx { slot: &s, assignments: &a, done: &d, items: &[], distance_m: 1609.344, cells_discovered: 0, streak_days: 0, units: UnitSystem::Imperial };
-        assert_eq!(evaluate(&ctx).label, "Travel 26 mi on quests: 1 mi");
+        assert_eq!(evaluate(&ctx).label, "Travel 27 mi on quests: 1 mi", "42 km is 26.1 mi: the target rounds up, never shown as reached early");
     }
 
     #[test]

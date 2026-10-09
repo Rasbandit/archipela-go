@@ -1187,7 +1187,7 @@ impl Game {
                             format!(
                                 "in range ({}, needs {}): counting",
                                 distance_rounded(distance_m, self.units, Round::Down),
-                                distance_rounded(r, self.units, Round::Up)
+                                distance_rounded(r, self.units, Round::Down)
                             )
                         }
                         Some(r) => {

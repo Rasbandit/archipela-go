@@ -71,7 +71,7 @@ pub fn format_distance(m: f64, units: UnitSystem) -> String {
     units::distance(m, units.into())
 }
 
-/// An area in square metres as text in `units`: whole km² or mi², "<1 km²" for a small one.
+/// An area in square metres as text in `units`: km² or mi², one decimal under 10, "<0.1 km²" for a tiny one.
 #[uniffi::export]
 #[must_use]
 pub fn format_area(m2: f64, units: UnitSystem) -> String {

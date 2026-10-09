@@ -634,8 +634,10 @@ impl Engine {
         }
         let u = resolve_units(Settings::load(&self.dir).units, &r);
         *self.units.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = u;
-        drop(r);
+        // Keep `region` locked until the game has the units too, so two racing refreshes cannot leave the game on the older
+        // units while `units` holds the newer ones. No path takes `region` while holding the game lock.
         self.with_game(|g| g.set_units(u));
+        drop(r);
     }
 
     fn store(&self) -> RealmStore {
@@ -1004,6 +1006,7 @@ impl Engine {
         let marks = store.marks(&id);
         let home = store.home().unwrap_or_else(|| realm.shape.center());
         let kinds_of = self.kinds_by_place(&atlas);
+        let units = self.unit_system();
         let mut out: Vec<FindOut> = kinds_of
             .into_iter()
             .map(|(i, kinds)| {
@@ -1030,13 +1033,7 @@ impl Engine {
                     .into(),
                     kinds: kinds
                         .into_iter()
-                        .map(|k| KindOut {
-                            id: k.id.clone(),
-                            name: k.name.clone(),
-                            family: k.family.clone(),
-                            blurb: k.blurb.clone(),
-                            how: k.verify.how(self.unit_system()),
-                        })
+                        .map(|k| KindOut { id: k.id.clone(), name: k.name.clone(), family: k.family.clone(), blurb: k.blurb.clone(), how: k.verify.how(units) })
                         .collect(),
                 }
             })
