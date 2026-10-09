@@ -216,6 +216,9 @@ private class MapHolder(
     var style by mutableStateOf<Style?>(null)
     var map by mutableStateOf<MapLibreMap?>(null)
     var centered by mutableStateOf(false)
+
+    // The style could not be loaded (no network and nothing cached): there will be no framing to wait for.
+    var failed by mutableStateOf(false)
     val dragger = HandleDragger(inputs, density)
     private val addedImages = mutableSetOf<String>()
     private var padApplied = false
@@ -248,6 +251,10 @@ private class MapHolder(
         m.addOnMapLongClickListener { ll -> inputs.onLongClick.value?.invoke(ll) != null }
         // Cluster rings appear as the camera moves, so their images are drawn when the map first asks for them.
         view.addOnStyleImageMissingListener { id -> m.style?.let { ensureImage(it, id) } }
+        view.addOnDidFailLoadingMapListener { why ->
+            Diag.warn("map", "the map did not load", "why" to why)
+            failed = true
+        }
         m.setStyle(Style.Builder().fromUri(MapStyle.URL)) { s ->
             MapStyle.install(s)
             style = s
@@ -553,8 +560,8 @@ internal fun QuestMap(
     MapCamera(holder, overlayTopDp, overlayBottomDp, overlaysFollowed, fit, focus, anchor)
     MapFraming(holder, circle, me, quests, realms, points)
     // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
-    // tiles loading happen out of sight.
-    val framed = holder.centered || (holder.style != null && circle == null && points.isEmpty())
+    // tiles loading happen out of sight. A map that fails to load is shown as it is rather than covered for good.
+    val framed = holder.centered || holder.failed || (holder.style != null && circle == null && points.isEmpty())
     val cover by animateFloatAsState(if (framed) 0f else 1f, tween(REVEAL_MS), label = "map cover")
     Box(modifier) {
         AndroidView(factory = { holder.view }, modifier = Modifier.matchParentSize())
