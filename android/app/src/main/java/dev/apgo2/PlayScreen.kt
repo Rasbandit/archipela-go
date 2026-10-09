@@ -166,7 +166,7 @@ private fun NoGameOpen(
         Text("Play", style = MaterialTheme.typography.titleLarge)
         Text("No game is open, so nothing is being tracked.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         GamesList(m)
-        OutlinedButton(onClick = { m.tab = AppTab.NEW_GAME }) { Text("New game") }
+        OutlinedButton(onClick = { m.nav.openNewGame() }) { Text("New game") }
     }
 }
 

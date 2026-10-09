@@ -42,7 +42,6 @@ private val NAV_TABS =
     listOf(
         NavTab("Play", ApgoIcons.Play),
         NavTab("Realms", ApgoIcons.Realms),
-        NavTab("New Game", ApgoIcons.NewGame),
         NavTab("Activity", ApgoIcons.Activity),
         NavTab("Settings", ApgoIcons.Settings),
     )
@@ -61,9 +60,9 @@ internal fun AppRoot(
         Box(modifier) {
             val othersUp = listOf(m.scans.ask != null, m.yamlText != null, backgroundPromptUp)
             if (showHomeOffer(othersUp)) HomeWifiDialog(m.presence)
-            // Back from any other tab goes to Play; the realm editor handles its own Back (to the list); on Play it leaves the app
-            // as usual.
-            BackHandler(enabled = m.tab != AppTab.PLAY) { m.tab = AppTab.PLAY }
+            // Back closes New Game or goes to Play from any other tab; the realm editor handles its own Back (to the list); on Play
+            // it leaves the app as usual.
+            BackHandler(enabled = m.nav.canGoBack) { m.nav.back() }
             Scaffold(bottomBar = { AppNavigationBar(m) }) { pad -> AppBody(m, Modifier.padding(pad)) }
             ScanAskDialog(m)
             YamlDialog(m)
@@ -83,9 +82,9 @@ private fun AppNavigationBar(m: AppModel) {
     NavigationBar {
         NAV_TABS.forEachIndexed { i, tab ->
             NavigationBarItem(
-                selected = m.tab == i,
+                selected = m.nav.tab == i,
                 onClick = {
-                    m.tab = i
+                    m.nav.show(i)
                     if (i == AppTab.REALMS) m.editing = null // tapping Realms again leaves the editor
                 },
                 icon = { Icon(tab.icon, contentDescription = tab.label) },
@@ -117,12 +116,13 @@ private fun AppBody(
             )
         }
         Box(Modifier.weight(1f)) {
-            // Play stays composed (laid out, not placed) under the other tabs, so its map returns with no reload or camera jump.
-            val onPlay = m.tab == AppTab.PLAY
+            // Play stays composed (laid out, not placed) under the other tabs and New Game, so its map returns with no reload or
+            // camera jump.
+            val onPlay = m.nav.tab == AppTab.PLAY && !m.nav.newGameOpen
             PlayScreen(m, if (onPlay) Modifier else Modifier.unplaced(), onShow = onPlay)
-            when (m.tab) {
+            when (m.nav.tab) {
+                AppTab.PLAY -> if (m.nav.newGameOpen) NewGameScreen(m)
                 AppTab.REALMS -> RealmsScreen(m)
-                AppTab.NEW_GAME -> NewGameScreen(m)
                 AppTab.ACTIVITY -> ActivityScreen(m)
                 AppTab.SETTINGS -> SettingsScreen(m)
             }

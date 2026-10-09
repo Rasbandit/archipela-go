@@ -36,7 +36,7 @@ def screen_h() -> int:
     return int(m.group(2)) if m else 2400
 
 
-NAV = {"Realms", "New Game", "Play"}
+NAV = {"Play", "Realms", "Activity", "Settings"}
 
 
 def tap(label: str, *, exact: bool = False, nth: int = 0) -> bool:

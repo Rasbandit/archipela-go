@@ -108,7 +108,6 @@ import com.composables.icons.lucide.X
 internal object ApgoIcons {
     // Navigation
     val Realms = Lucide.MapPinned
-    val NewGame = Lucide.Sparkles
     val Play = Lucide.Flag
     val Activity = Lucide.ScrollText
     val Settings = Lucide.Settings

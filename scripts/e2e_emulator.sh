@@ -28,7 +28,8 @@ done
 case "$t" in *"Scan done"*) ;; *) echo "FAIL: scan did not finish or failed (network?)"; exit 1 ;; esac
 echo "   scan: $(echo "$t" | grep -oE "[0-9]+ places · [0-9]+ quest kinds on offer|⚠[^|]*" | tr '\n' ' ')"
 echo "2/4 starting a solo game"
-ui tap "New Game" exact >/dev/null || { echo "FAIL: cannot open New Game"; exit 1; }; sleep 1
+ui tap "Play" exact >/dev/null; sleep 1
+ui tap "New game" exact >/dev/null || { echo "FAIL: cannot open New Game"; exit 1; }; sleep 1
 ui tap "+ Around me (walk)" >/dev/null; sleep 1
 ui tap "$goal" >/dev/null; sleep 1
 ui tap "Play solo" >/dev/null; sleep 8

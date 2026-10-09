@@ -128,7 +128,7 @@ internal class ApController(
                 model.sim.resetClock()
                 syncedChecked = false
                 model.refreshAll()
-                model.tab = AppTab.PLAY
+                model.nav.show(AppTab.PLAY)
                 model.status = "Archipelago game started"
             }
             r.onFailure { model.fail("start_game", "Could not start", it) }
