@@ -504,6 +504,7 @@ fn free_candidate(
     k: &Kind,
     z: &ZoneCtx<'_>,
     pool: &[Point],
+    index: &PathIndex,
     p: &AssignParams,
     want: f64,
     rng: &mut StdRng,
@@ -557,8 +558,7 @@ fn free_candidate(
             let need = need_for(need_by_tier, want, p.minutes_per_tier)?;
             let total = usize::try_from(need.saturating_mul(*spare_factor)).ok()?;
             let (min_m, far_m) = item_band(p, *pick_r_m, want, mode);
-            let index = zone_index(z, pool, p.surface);
-            let mut pts = place_items(pool, &index, p.home, min_m, far_m, total, used_pts, rng)?;
+            let mut pts = place_items(pool, index, p.home, min_m, far_m, total, used_pts, rng)?;
             pts.sort_by(|a, b| distance_m(p.home, *a).total_cmp(&distance_m(p.home, *b)));
             let theme = (*FORAGE_THEMES.choose(rng)?).to_string();
             let farthest = pts.last().map_or(0.0, |q| distance_m(p.home, *q));
@@ -618,7 +618,7 @@ fn one(
                     });
                 }
             }
-        } else if let Some((target, effort, place)) = free_candidate(k, z, &zp.pool, p, want, rng, used_pts) {
+        } else if let Some((target, effort, place)) = free_candidate(k, z, &zp.pool, &zp.index, p, want, rng, used_pts) {
             // Generic quests are the backup: prefer real places when the realm has them.
             cands.push(Cand {
                 score: (effort - want).abs() + if s.boss { 6.0 } else { 3.0 },
@@ -636,7 +636,8 @@ fn one(
         fallback = true;
         if let Some(k) = catalog.kind("street_smarts") {
             // A sparse zone can run out of street points spaced apart from the other quests: then share one rather than leave the streets.
-            let found = free_candidate(k, z, &zp.pool, p, want, rng, used_pts).or_else(|| free_candidate(k, z, &zp.pool, p, want, rng, &[]));
+            let found =
+                free_candidate(k, z, &zp.pool, &zp.index, p, want, rng, used_pts).or_else(|| free_candidate(k, z, &zp.pool, &zp.index, p, want, rng, &[]));
             if let Some((target, effort, place)) = found {
                 cands.push(Cand { score: 0.0, kind: k.clone(), target, effort, place, feature_id: None, favorite: false });
             }
@@ -700,6 +701,31 @@ pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx<'_>], catalog: &Catalog, p: &As
     }
     done.sort_by_key(|(i, _)| *i);
     done.into_iter().map(|(_, a)| a).collect()
+}
+
+/// A forager quest with its unpicked items moved to new street points under the placement rules (a Shuffle trap); `index` is the zone's
+/// path index. Picked items, `need`, `r` and the theme stay, and so do the item indexes saved progress refers to. The new points fill the
+/// open slots nearest home first when placed, so the first item stays the nearest and the quest still shows in the fog on the way out.
+/// `None` for any other target, or when the zone cannot supply the new points: the caller then leaves the quest as it is.
+#[must_use]
+pub fn replace_unpicked(
+    t: &Target,
+    picked: &BTreeSet<u16>,
+    z: &ZoneCtx<'_>,
+    index: &PathIndex,
+    p: &AssignParams,
+    tier: u8,
+    rng: &mut StdRng,
+) -> Option<Target> {
+    let Target::Collect { pts, need, r, theme } = t else { return None };
+    let is_picked = |i: usize| u16::try_from(i).is_ok_and(|i| picked.contains(&i));
+    let keep: Vec<Point> = pts.iter().enumerate().filter(|(i, _)| is_picked(*i)).map(|(_, q)| *q).collect();
+    let (min_m, far_m) = item_band(p, *r, mid(tier, p.minutes_per_tier), z.mode);
+    let pool = street_pool(z, p.surface);
+    let mut fresh = place_items(&pool, index, p.home, min_m, far_m, pts.len() - keep.len(), &keep, rng)?;
+    fresh.sort_by(|a, b| distance_m(p.home, *b).total_cmp(&distance_m(p.home, *a))); // descending, so pop() gives the nearest
+    let pts = (0..pts.len()).map(|i| if is_picked(i) { Some(pts[i]) } else { fresh.pop() }).collect::<Option<Vec<Point>>>()?;
+    Some(Target::Collect { pts, need: *need, r: *r, theme: theme.clone() })
 }
 
 #[cfg(test)]
@@ -783,7 +809,8 @@ mod tests {
                 let z = ZoneCtx { zone: 1, mode: *mode, realm: &r, atlas: &a };
                 let pool = street_pool(&z, SurfacePref::Any);
                 let mut rng = StdRng::seed_from_u64(1);
-                let (target, _, _) = free_candidate(k, &z, &pool, &params(1), 20.0, &mut rng, &[]).unwrap_or_else(|| panic!("{} gives no free quest", k.id));
+                let (target, _, _) = free_candidate(k, &z, &pool, &zone_index(&z, &pool, SurfacePref::Any), &params(1), 20.0, &mut rng, &[])
+                    .unwrap_or_else(|| panic!("{} gives no free quest", k.id));
                 assert_eq!(k.is_progressive(), crate::chain::is_chain_target(&target), "{} in {mode:?}", k.id);
                 checked += 1;
             }
@@ -1284,7 +1311,8 @@ mod tests {
             let mut p = params(3);
             p.min_distance_m = 0.0; // the home-radius floor must hold on its own (Review Focus 3)
             let want = mid(tier, p.minutes_per_tier);
-            let (t, effort, place) = free_candidate(k, &z, &pool, &p, want, &mut StdRng::seed_from_u64(3), &[]).expect("a dense town has room");
+            let (t, effort, place) =
+                free_candidate(k, &z, &pool, &zone_index(&z, &pool, p.surface), &p, want, &mut StdRng::seed_from_u64(3), &[]).expect("a dense town has room");
             let Target::Collect { pts, need: n, r: pick, theme } = &t else { panic!("{t:?}") };
             assert_eq!(*n, need, "{mode:?} tier {tier} (tiers above 4 use the last value)");
             assert_eq!(pts.len(), 2 * need as usize);
@@ -1321,7 +1349,10 @@ mod tests {
         let z = ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a };
         let pool = street_pool(&z, SurfacePref::Any);
         let k = cat.kind("forager").unwrap();
-        assert!(free_candidate(k, &z, &pool, &params(1), 25.0, &mut StdRng::seed_from_u64(1), &[]).is_none(), "8 points cannot hold 14 items 60 m apart");
+        assert!(
+            free_candidate(k, &z, &pool, &zone_index(&z, &pool, SurfacePref::Any), &params(1), 25.0, &mut StdRng::seed_from_u64(1), &[]).is_none(),
+            "8 points cannot hold 14 items 60 m apart"
+        );
         let slots: Vec<SlotIn> = (1..=8).map(|i| slot(i, "courier", 1 + (i % 4) as u8, Mode::Walk)).collect();
         for seed in 1..=4 {
             let out = assign(&slots, &[ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }], &cat, &params(seed));
@@ -1463,6 +1494,57 @@ mod tests {
             }
         }
         assert!(both > 0, "the shared path is long enough for both parks");
+    }
+
+    #[test]
+    fn replacing_unpicked_items_keeps_the_picked_ones_and_the_rules() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        let a = atlas(&cat, false);
+        let z = ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a };
+        let pool = street_pool(&z, SurfacePref::Any);
+        let p = params(5);
+        let index = zone_index(&z, &pool, p.surface);
+        let (t, _, _) =
+            free_candidate(cat.kind("forager").unwrap(), &z, &pool, &index, &p, mid(2, p.minutes_per_tier), &mut StdRng::seed_from_u64(5), &[]).unwrap();
+        let Target::Collect { pts: old, need: n0, r: r0, theme: th0 } = &t else { panic!("{t:?}") };
+        let picked = BTreeSet::from([0u16, 3]);
+        let fresh = replace_unpicked(&t, &picked, &z, &index, &p, 2, &mut StdRng::seed_from_u64(77)).expect("a dense zone has room");
+        let Target::Collect { pts, need, r: pick, theme } = &fresh else { panic!("{fresh:?}") };
+        assert_eq!((need, theme), (n0, th0));
+        assert!((pick - r0).abs() < f64::EPSILON);
+        assert_eq!(pts.len(), old.len());
+        assert_eq!((pts[0], pts[3]), (old[0], old[3]), "picked items stay where they were");
+        let moved = (0..pts.len()).filter(|i| !picked.contains(&(*i as u16)) && pts[*i] != old[*i]).count();
+        assert!(moved > 0, "unpicked items move");
+        let (min_m, _) = item_band(&p, *r0, mid(2, p.minutes_per_tier), Mode::Walk);
+        for (i, q) in pts.iter().enumerate() {
+            assert!(pool.contains(q) && distance_m(home(), *q) >= min_m, "item {i}");
+            for o in &pts[..i] {
+                assert!(distance_m(*o, *q) >= 60.0 - 1e-6, "items {:.0} m apart", distance_m(*o, *q));
+            }
+        }
+        let unpicked: Vec<f64> = (0..pts.len()).filter(|i| !picked.contains(&(*i as u16))).map(|i| distance_m(home(), pts[i])).collect();
+        assert!(unpicked.windows(2).all(|w| w[0] <= w[1]), "nearest home first when placed: {unpicked:?}");
+        assert!(replace_unpicked(&Target::Point { p: home(), r: 40.0 }, &picked, &z, &index, &p, 2, &mut StdRng::seed_from_u64(1)).is_none(), "only foragers");
+    }
+
+    #[test]
+    fn a_zone_with_too_few_street_points_leaves_a_forager_quest_as_it_is() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        let streets: Vec<Point> = (0..8).map(|i| at(home(), 0.0, 600.0 + 60.0 * f64::from(i))).collect();
+        let a = crate::scan::build_atlas("r", 0, vec![], streets, &cat);
+        let z = ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a };
+        let pool = street_pool(&z, SurfacePref::Any);
+        let index = zone_index(&z, &pool, SurfacePref::Any);
+        let t = Target::Collect { pts: (0..6).map(|i| at(home(), 900.0 + 100.0 * f64::from(i), 0.0)).collect(), need: 3, r: 25.0, theme: "gems".into() };
+        assert!(replace_unpicked(&t, &BTreeSet::new(), &z, &index, &params(1), 1, &mut StdRng::seed_from_u64(1)).is_none());
+        let empty = Atlas::default();
+        let ez = ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &empty };
+        let epool = street_pool(&ez, SurfacePref::Any);
+        let eindex = zone_index(&ez, &epool, SurfacePref::Any);
+        assert!(replace_unpicked(&t, &BTreeSet::new(), &ez, &eindex, &params(1), 1, &mut StdRng::seed_from_u64(1)).is_none(), "an empty atlas");
     }
 }
 
