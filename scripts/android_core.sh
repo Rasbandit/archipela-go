@@ -19,9 +19,15 @@ cd "$root/core"
 targets=()
 for abi in ${APGO_ABIS:-arm64-v8a}; do targets+=(-t "$abi"); done
 # Only the ABIs built now are packaged: a stale library of another ABI or profile (a debug x86_64 core from the emulator loop) would
-# ship in the APK.
-rm -rf "$root/android/app/src/main/jniLibs"
-cargo ndk "${targets[@]}" -o "$root/android/app/src/main/jniLibs" build -p apgo-ffi "${flag[@]}"
+# ship in the APK. Build aside and swap in on success, so a failed build leaves the previous libraries instead of an empty directory.
+jni="$root/android/app/src/main/jniLibs"
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+cargo ndk "${targets[@]}" -o "$stage" build -p apgo-ffi "${flag[@]}"
+rm -rf "$jni"
+mkdir -p "$(dirname "$jni")"
+mv "$stage" "$jni"
+chmod 755 "$jni"
 
 lib="target/aarch64-linux-android/$profile/libapgo_ffi.so"
 if [ "$profile" = release ]; then

@@ -55,6 +55,7 @@ check-hygiene: spell secrets
     bash scripts/tests/git_env_test.sh
     bash scripts/tests/java_home_test.sh
     bash scripts/tests/core_unmutated_test.sh
+    bash scripts/tests/android_core_test.sh
     bash scripts/tests/pull_diag_test.sh
 
 check: check-hygiene check-py check-rust check-android
