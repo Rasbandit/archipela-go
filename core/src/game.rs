@@ -299,8 +299,9 @@ pub struct Game {
     /// Saved progress of progressive quests.
     #[serde(default)]
     pub counters: Counters,
-    /// Progress of each started quest (a courier pickup, a dwell's best stretch, coverage); missing in old saves.
-    #[serde(default)]
+    /// Progress of each started quest (a courier pickup, a dwell's best stretch, coverage); missing in old saves. Loaded
+    /// trackers are detached until `reattach_trackers`, and an entry that cannot be read is dropped, never the whole save.
+    #[serde(default, deserialize_with = "lenient_trackers")]
     trackers: BTreeMap<i64, Tracker>,
     #[serde(skip)]
     last_fix: Option<Fix>,
@@ -425,6 +426,12 @@ fn slots_in(slot: &SlotData, only: Option<&[i64]>) -> Vec<SlotIn> {
         .filter(|q| only.is_none_or(|ids| ids.contains(&q.location_id)))
         .map(|q| SlotIn { location_id: q.location_id, zone: q.zone, mode: q.mode, family: q.family.clone(), tier: q.effort_tier, boss: q.family == "boss" })
         .collect()
+}
+
+// Each saved tracker on its own: one that a later version cannot read is dropped instead of failing the whole save.
+fn lenient_trackers<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<i64, Tracker>, D::Error> {
+    let raw: BTreeMap<i64, serde_json::Value> = Deserialize::deserialize(d)?;
+    Ok(raw.into_iter().filter_map(|(id, v)| serde_json::from_value(v).ok().map(|t| (id, t))).collect())
 }
 
 impl Game {
@@ -1269,9 +1276,25 @@ impl Game {
         let mut g: Self = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
         g.counters.steps_last = None; // steps taken while the game was closed are never credited
         g.counters.away_mark = None; // nor time away: where the player was while the app was dead is unknown (presence restarts it)
-        g.trackers.values_mut().for_each(Tracker::resume); // nor dwell time or steps; what each quest reached is kept
+        g.reattach_trackers();
         g.normalize_counters();
         Ok(g)
+    }
+
+    /// Give each loaded tracker its quest's target as it stands now (a trap that made a dwell longer may be over), and pause it:
+    /// nothing from while the app was closed counts (dwell time, time away, steps), but what each quest reached is kept. A tracker
+    /// whose quest is gone, finished, or no longer fits its saved progress is dropped, and that quest starts over.
+    fn reattach_trackers(&mut self) {
+        let trackers = std::mem::take(&mut self.trackers);
+        self.trackers = trackers
+            .into_iter()
+            .filter(|(id, _)| !self.done.contains(id))
+            .filter_map(|(id, mut t)| {
+                let target = self.adjusted(&self.assignments.iter().find(|a| a.location_id == id)?.target);
+                t.pause();
+                t.reattach(target, self.home).then_some((id, t))
+            })
+            .collect();
     }
 
     /// An old save has finished chain members but no counters: start each counter at its highest finished mark so nothing is lost or earned twice.
@@ -2220,6 +2243,36 @@ mod tests {
         let ev = back.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 3600) }, None);
         assert!(ev.is_empty(), "an hour with the app dead is not dwell time: {ev:?}");
         assert!(matches!(back.trackers.get(&1000).map(Tracker::status), Some(Status::Active(p)) if p >= 0.5), "the best stretch is kept");
+    }
+
+    #[test]
+    fn a_dwell_started_under_a_slow_trap_is_back_to_normal_after_a_restart_once_the_trap_is_over() {
+        let mut g = chain_game("dwell", vec![Target::Dwell { p: home(), r: 50.0, minutes: 10.0 }]);
+        g.traps.active.push(crate::traps::Trap::Slow { until_ms: 400_000 });
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 0) }, None);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 300) }, None); // 5 of 20 minutes
+        g.traps.active.clear(); // the trap ran out
+        let mut back = restarted(&g, "slow-dwell");
+        back.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 1000) }, None);
+        let ev = back.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 1600) }, None);
+        assert_eq!(done_ids(&ev), vec![1000], "ten minutes again, not twenty: {ev:?}");
+    }
+
+    #[test]
+    fn an_unreadable_tracker_is_dropped_and_the_game_still_loads() {
+        let (a, b) = (destination(home(), 0.0, 400.0), destination(home(), 90.0, 800.0));
+        let mut g = chain_game("courier", vec![Target::Courier { a, b, r: 40.0, time_limit_min: 30.0 }]);
+        g.on_fix(Fix { accuracy_m: 5.0, ..fixat(a, 10) }, None);
+        let mut json: serde_json::Value = serde_json::to_value(&g).unwrap();
+        json["trackers"]["777"] = serde_json::json!({ "state": { "Renamed": {} }, "done": false, "progress": 0.0 });
+        let dir = std::env::temp_dir().join(format!("apgo-bad-tracker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(Game::path_for(&dir, &g.id).parent().unwrap()).unwrap();
+        std::fs::write(Game::path_for(&dir, &g.id), json.to_string()).unwrap();
+        let back = Game::load(&dir, &g.id).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!back.trackers.contains_key(&777), "the unreadable one is dropped");
+        assert!(back.trackers.contains_key(&1000), "the good one is kept");
     }
 
     #[test]

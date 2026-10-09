@@ -64,27 +64,62 @@ pub const LINE_SAMPLE_M: f64 = 20.0;
 const HOME_RADIUS_M: f64 = 100.0;
 const MAX_GAP_MS: i64 = 5 * 60_000;
 
-// Saved with the game (#76), so an in-progress quest survives an app restart.
+// Saved with the game (#76), so an in-progress quest survives an app restart. A line's samples are not saved: they come
+// from the target again (see `Tracker::reattach`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum State {
     None,
-    Dwell { since: Option<i64>, best_ms: i64 },
-    Line { dense: Vec<Point>, covered: Vec<bool> },
-    Courier { picked_at: Option<i64> },
-    RoundTrip { left_home: bool, reached_far: bool },
-    Cells { seen: BTreeSet<(i64, i64)> },
-    Steps { baseline: Option<i64>, now: i64 },
-    Away { accum_ms: i64, last_t: Option<i64> },
+    Dwell {
+        since: Option<i64>,
+        best_ms: i64,
+    },
+    Line {
+        #[serde(skip)]
+        dense: Vec<Point>,
+        covered: Vec<bool>,
+    },
+    Courier {
+        picked_at: Option<i64>,
+    },
+    RoundTrip {
+        left_home: bool,
+        reached_far: bool,
+    },
+    Cells {
+        seen: BTreeSet<(i64, i64)>,
+    },
+    Steps {
+        baseline: Option<i64>,
+        now: i64,
+    },
+    Away {
+        accum_ms: i64,
+        last_t: Option<i64>,
+    },
 }
 
 /// Watches phone signals and decides whether one quest has been completed.
+///
+/// Saved without its target and home: a loaded tracker is detached until [`Tracker::reattach`] gives it the quest's current
+/// target (a dwell's length depends on the traps active now, so it is never stored).
 #[derive(Serialize, Deserialize)]
 pub struct Tracker {
+    #[serde(skip, default = "detached")]
     target: Target,
+    #[serde(skip, default = "detached_home")]
     home: Point,
     state: State,
     done: bool,
     progress: f32,
+}
+
+// Placeholders of a loaded tracker until `reattach`; a point no fix can reach.
+fn detached() -> Target {
+    Target::Point { p: detached_home(), r: -1.0 }
+}
+
+fn detached_home() -> Point {
+    Point::new(0.0, 0.0)
 }
 
 fn cell_id(p: Point, cell_m: f64) -> (i64, i64) {
@@ -272,21 +307,34 @@ impl Tracker {
     /// Counting was switched off (car, home): forget only running timers, so what happened before the pause is not
     /// stitched to what happens after it. Progress (a courier pickup, a round trip's far point, coverage, cells) stays;
     /// a dwell keeps its best stretch (`best_ms` is progress) but its current stretch starts over.
+    /// The step counter is re-based on its next reading, so steps taken while counting was off are not credited (the steps
+    /// already counted are kept). Also used when a saved game is loaded: nothing from while the app was closed counts.
     pub fn pause(&mut self) {
         match &mut self.state {
             State::Dwell { since, .. } => *since = None,
             State::Away { last_t, .. } => *last_t = None,
+            State::Steps { baseline, .. } => *baseline = None,
             _ => {}
         }
     }
 
-    /// The game was loaded after the app stopped: like [`Self::pause`], and the step counter is re-based on its next reading,
-    /// so steps taken while the app was closed are not credited (the steps already counted are kept).
-    pub fn resume(&mut self) {
-        self.pause();
-        if let State::Steps { baseline, .. } = &mut self.state {
-            *baseline = None;
+    /// Give a loaded tracker its quest's current `target` and `home`. Returns false when the saved progress does not fit the
+    /// target (another kind of quest, or a line with a different number of samples): the caller drops it and the quest starts over.
+    #[must_use]
+    pub fn reattach(&mut self, target: Target, home: Point) -> bool {
+        let fresh = Self::new(target, home);
+        if std::mem::discriminant(&fresh.state) != std::mem::discriminant(&self.state) {
+            return false;
         }
+        if let (State::Line { dense, covered }, State::Line { dense: fresh_dense, .. }) = (&mut self.state, fresh.state) {
+            if covered.len() != fresh_dense.len() {
+                return false;
+            }
+            *dense = fresh_dense;
+        }
+        self.target = fresh.target;
+        self.home = fresh.home;
+        true
     }
 
     fn dwell(inside: bool, t: i64, minutes: f64, since: &mut Option<i64>, best_ms: &mut i64, progress: &mut f32, done: &mut bool) {
@@ -382,16 +430,63 @@ mod tests {
         assert!(done);
     }
 
+    /// A tracker saved and loaded back, attached to `target` again.
+    fn reloaded(t: &Tracker, target: Target) -> Option<Tracker> {
+        let mut back: Tracker = serde_json::from_str(&serde_json::to_string(t).unwrap()).unwrap();
+        back.reattach(target, home()).then_some(back)
+    }
+
     #[test]
-    fn resume_after_a_restart_keeps_steps_taken_but_not_steps_while_closed() {
+    fn steps_while_paused_or_closed_are_not_credited_but_steps_taken_are_kept() {
         let mut t = Tracker::new(Target::Steps { n: 1000 }, home());
         t.update(&fix(home(), 0), Some(5000));
         t.update(&fix(home(), 60), Some(5400)); // 400 steps
-        let mut back: Tracker = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
-        back.resume();
-        // The counter moved on 2000 while the app was closed; the next reading is the new base, 400 are kept.
-        assert_eq!(back.update(&fix(home(), 3600), Some(7400)), Status::Active(0.4));
-        assert_eq!(back.update(&fix(home(), 3660), Some(8000)), Status::Done);
+        t.pause(); // home Wi-Fi
+                   // 1000 steps around the house: the next reading is the new base, the 400 are kept.
+        assert_eq!(t.update(&fix(home(), 600), Some(6400)), Status::Active(0.4));
+        let mut back = reloaded(&t, Target::Steps { n: 1000 }).unwrap();
+        back.pause(); // as `Game::load` does
+                      // The counter moved on 2000 while the app was closed.
+        assert_eq!(back.update(&fix(home(), 3600), Some(8400)), Status::Active(0.4));
+        assert_eq!(back.update(&fix(home(), 3660), Some(9000)), Status::Done);
+    }
+
+    #[test]
+    fn a_reloaded_tracker_takes_the_target_it_is_given() {
+        let mut t = Tracker::new(Target::Dwell { p: home(), r: 50.0, minutes: 20.0 }, home()); // made longer by a trap
+        t.update(&fix(home(), 0), None);
+        t.update(&fix(home(), 300), None); // 5 minutes
+        let mut back = reloaded(&t, Target::Dwell { p: home(), r: 50.0, minutes: 10.0 }).unwrap(); // the trap is over
+        back.pause(); // as `Game::load` does
+        assert_eq!(back.update(&fix(home(), 400), None), Status::Active(0.5));
+        back.update(&fix(home(), 500), None);
+        assert_eq!(back.update(&fix(home(), 1100), None), Status::Done, "ten minutes, not twenty");
+    }
+
+    #[test]
+    fn a_reloaded_line_rebuilds_its_samples_and_keeps_its_coverage() {
+        let pts = vec![home(), destination(home(), 0.0, 1000.0)];
+        let line = || Target::Line { pts: pts.clone(), corridor_m: 25.0, coverage: 0.9 };
+        let mut t = Tracker::new(line(), home());
+        for i in 0..=25 {
+            t.update(&fix(destination(home(), 0.0, 20.0 * f64::from(i)), 100 + i64::from(i)), None);
+        }
+        let json = serde_json::to_string(&t).unwrap();
+        assert!(!json.contains("dense"), "samples are not saved: {json}");
+        let mut back = reloaded(&t, line()).unwrap();
+        let mut done = false;
+        for i in 25..=50 {
+            done = back.update(&fix(destination(home(), 0.0, 20.0 * f64::from(i)), 200 + i64::from(i)), None) == Status::Done;
+        }
+        assert!(done, "the first half stays covered");
+        let other = Target::Line { pts: vec![home(), destination(home(), 0.0, 3000.0)], corridor_m: 25.0, coverage: 0.9 };
+        assert!(reloaded(&t, other).is_none(), "a line of another length starts over");
+    }
+
+    #[test]
+    fn a_reloaded_tracker_of_another_kind_is_dropped() {
+        let t = Tracker::new(Target::Steps { n: 1000 }, home());
+        assert!(reloaded(&t, Target::Away { minutes: 10.0 }).is_none());
     }
 
     #[test]
