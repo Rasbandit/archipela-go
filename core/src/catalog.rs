@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::units::{distance, UnitSystem};
+use crate::units::{distance_rounded, Round, UnitSystem};
 
 /// How the player travels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -153,8 +153,8 @@ impl Verify {
     #[must_use]
     pub fn how(&self, units: UnitSystem) -> String {
         match self {
-            Self::Reach { radius_m } => format!("Get within {}.", distance(*radius_m, units)),
-            Self::Dwell { minutes, radius_m } => format!("Stay within {} for {} min.", distance(*radius_m, units), minutes.round()),
+            Self::Reach { radius_m } => format!("Get within {}.", distance_rounded(*radius_m, units, Round::Down)),
+            Self::Dwell { minutes, radius_m } => format!("Stay within {} for {} min.", distance_rounded(*radius_m, units, Round::Down), minutes.round()),
             Self::DwellInArea { minutes } => format!("Spend {} min inside it.", minutes.round()),
             Self::FollowLine { coverage, .. } => format!("Walk {}% of its length.", (coverage * 100.0).round()),
             Self::Courier { .. } => "Pick something up at one spot and deliver it to another.".to_string(),

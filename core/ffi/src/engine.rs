@@ -19,7 +19,7 @@ use apgo_core::scan::{scan_realm, Atlas};
 use apgo_core::settings::{resolve_units, Settings};
 use apgo_core::slot::SlotData;
 use apgo_core::solo::{generate, SoloOptions};
-use apgo_core::units::{distance, UnitSystem};
+use apgo_core::units::{distance, distance_rounded, Round, UnitSystem};
 use apgo_core::verify::{Fix, MAX_ACCURACY_M};
 use apgo_core::yaml::build_yaml;
 
@@ -690,7 +690,6 @@ impl Engine {
 
     /// Make `game` the open game and remember the shapes of its zones' realms (for "inside a zone" checks).
     fn install(&self, mut game: Game) {
-        game.set_units(self.unit_system());
         let store = self.store();
         if !game.streets_attached() {
             // A saved game keeps only a thin sample of streets: index every street of its zones so trap targets land on one.
@@ -705,6 +704,9 @@ impl Engine {
         }
         let shapes = self.shapes_of(&game.zone_realms);
         let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Read the units under the game lock: `refresh_units` stores new units before it takes this lock, so a change racing
+        // this install is either seen here or applied to this game right after.
+        game.set_units(self.unit_system());
         // Keep the outgoing game's progress (unless the new one replaces that very save).
         if let Some(old) = slot.as_ref().filter(|old| old.id != game.id) {
             if let Err(e) = old.save(&self.dir) {
@@ -1379,7 +1381,12 @@ impl Engine {
                     self.last_reject_log_ms.store(t_ms, std::sync::atomic::Ordering::Relaxed);
                     j.log(
                         &game_id,
-                        &JournalEvent { t_ms, kind: kind::FIX_REJECTED.into(), detail: format!("accuracy {}", distance(accuracy_m, self.unit_system())), at },
+                        &JournalEvent {
+                            t_ms,
+                            kind: kind::FIX_REJECTED.into(),
+                            detail: format!("accuracy {}", distance_rounded(accuracy_m, self.unit_system(), Round::Up)),
+                            at,
+                        },
                     )?;
                 }
             } else {

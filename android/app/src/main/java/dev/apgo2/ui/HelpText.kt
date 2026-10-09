@@ -131,8 +131,7 @@ internal object Help {
     val units =
         HelpTopic(
             "Distance units",
-            "How distances are shown. Auto follows your phone's region: miles and feet in the US, UK, Liberia and Myanmar, " +
-                "kilometres and metres elsewhere.",
+            "How distances are shown. Auto uses the units of your phone's region.",
         )
 }
 

@@ -25,6 +25,6 @@ internal object Units {
     /** A share in 0..1 as a whole percentage, e.g. "38%"; float noise below 0 reads "0%", not "-0%". */
     fun percent(fraction: Double): String = "%.0f%%".format(Locale.US, fraction.coerceAtLeast(0.0) * PERCENT)
 
-    /** An area in square metres: whole km² or mi². */
+    /** An area in square metres: km² or mi², one decimal under 10. */
     fun area(m2: Double): String = formatArea(m2, system)
 }

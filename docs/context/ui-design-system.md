@@ -35,9 +35,11 @@ widgets or write colours themselves.
   (steps, new squares, time away) show the same content in a `MapOverlayCard` at the bottom of the map.
 - Every distance, area and percentage the player sees goes through `ui/Units.kt` (`distance`, `area`, `percent`). Distances and
   areas are formatted by the core (`core/src/units.rs`, exported as `formatDistance`/`formatArea`), the same formatter the core
-  uses for quest, goal, trap and near-miss text: clean numbers, at most one decimal (`50 m`, `1.4 km`, `60 ft`, `0.3 mi`, whole
-  km²/mi²). The units are `Units.system`, set by `UnitSettings` from the engine (Settings tab: Auto/Kilometres/Miles; Auto follows
-  the region the app passes to `Engine.setRegion`). Never format a shown distance in Kotlin or with `"%.1f".format(...)`.
+  uses for quest, goal, trap and near-miss text: clean numbers, at most one decimal (`50 m`, `1.4 km`, `60 ft`, `0.3 mi`,
+  `0.4 km²`). Core text rounds limits down and amounts to go up (`Round` in `units.rs`), so it never promises more room than the
+  check allows. The units are `Units.system`, set by `UnitSettings` from the engine (Settings tab: Auto/Kilometres/Miles; Auto
+  follows the region the app passes to `Engine.setRegion`, re-sent on every return to the foreground). Never format a shown
+  distance in Kotlin or with `"%.1f".format(...)`.
   Always a decimal point and Western digits. Dates and times stay localized.
 - JVM unit tests load the host build of the core (`jna.library.path` in `app/build.gradle.kts`), so tests can call FFI functions.
 - Compose text colours come from `MaterialTheme.colorScheme` roles or `FeedbackText(Tone.*)`.

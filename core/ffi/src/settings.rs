@@ -174,6 +174,6 @@ mod tests {
     fn the_formatters_are_the_cores() {
         assert_eq!(format_distance(17.07, UnitSystem::Imperial), "60 ft");
         assert_eq!(format_distance(1_440.0, UnitSystem::Metric), "1.4 km");
-        assert_eq!(format_area(2_500_000.0, UnitSystem::Metric), "3 km²");
+        assert_eq!(format_area(2_500_000.0, UnitSystem::Metric), "2.5 km²");
     }
 }

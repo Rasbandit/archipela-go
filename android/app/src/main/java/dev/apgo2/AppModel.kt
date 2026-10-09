@@ -198,6 +198,7 @@ internal class AppModel(
         val left = engine.lastBackgroundMs()
         val t = now()
         engine.logAppState(true, t)
+        units.onForeground()
         noteJournal()
         Diag.info("lifecycle", "foreground", "away_ms" to (left?.let { t - it } ?: -1L))
     }

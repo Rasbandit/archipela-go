@@ -14,7 +14,7 @@ use crate::near_path::{PathIndex, NEAR_PATH_M};
 use crate::num::round_u32;
 use crate::realm::Realm;
 use crate::scan::{Atlas, Feature};
-use crate::units::{distance, UnitSystem};
+use crate::units::{distance, distance_rounded, Round, UnitSystem};
 use crate::verify::LINE_SAMPLE_M;
 
 /// A quest slot to fill: one Archipelago location and what it asks for.
@@ -115,8 +115,8 @@ impl Target {
     #[must_use]
     pub fn goal_text(&self, units: UnitSystem) -> String {
         match self {
-            Self::Point { r, .. } => format!("Get within {}", distance(*r, units)),
-            Self::Dwell { r, minutes, .. } => format!("Stay {minutes:.0} min within {}", distance(*r, units)),
+            Self::Point { r, .. } => format!("Get within {}", distance_rounded(*r, units, Round::Down)),
+            Self::Dwell { r, minutes, .. } => format!("Stay {minutes:.0} min within {}", distance_rounded(*r, units, Round::Down)),
             Self::DwellArea { minutes, .. } => format!("Spend {minutes:.0} min inside the area"),
             Self::Line { pts, coverage, .. } => format!("Cover {:.0}% of this {} path", coverage * 100.0, distance(polyline_len_m(pts), units)),
             Self::Courier { time_limit_min, .. } => format!("Pick up at A, deliver to B within {time_limit_min:.0} min"),
@@ -1322,8 +1322,8 @@ mod goal_text_tests {
     #[test]
     fn target_distances_read_in_the_players_units() {
         let p = Point::new(40.0, -111.0);
-        assert_eq!(Target::Point { p, r: 17.07 }.goal_text(UnitSystem::Imperial), "Get within 60 ft");
-        assert_eq!(Target::Dwell { p, r: 30.0, minutes: 5.0 }.goal_text(UnitSystem::Imperial), "Stay 5 min within 100 ft");
+        assert_eq!(Target::Point { p, r: 17.07 }.goal_text(UnitSystem::Imperial), "Get within 50 ft", "56 ft rounds down: never promise more room");
+        assert_eq!(Target::Dwell { p, r: 30.0, minutes: 5.0 }.goal_text(UnitSystem::Imperial), "Stay 5 min within 90 ft");
         let line = Target::Line { pts: vec![p, destination(p, 0.0, 1609.344 * 1.5)], corridor_m: 25.0, coverage: 0.9 };
         assert_eq!(line.goal_text(UnitSystem::Imperial), "Cover 90% of this 1.5 mi path");
     }

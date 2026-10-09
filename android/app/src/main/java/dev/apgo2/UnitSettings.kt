@@ -16,8 +16,7 @@ internal class UnitSettings(
         private set
 
     init {
-        model.engine.setRegion(Locale.getDefault().country)
-        Units.system = model.engine.units()
+        follow() // the rest of the model is not built yet, so nothing to redraw
     }
 
     /** Save [c] and redraw every distance in it, including the quest and goal text the core writes. */
@@ -25,9 +24,23 @@ internal class UnitSettings(
         val saved = runCatching { model.engine.setUnitChoice(c) }
         saved.onSuccess {
             choice = c
-            Units.system = model.engine.units()
+            follow()
             model.refreshAll()
         }
         saved.onFailure { model.fail("set_unit_choice", "Could not save the units", it) }
+    }
+
+    /** Back in the foreground: the phone's region may have changed meanwhile (Auto follows it), so redraw if the units moved. */
+    fun onForeground() {
+        if (follow()) model.refreshAll()
+    }
+
+    // Pass the region to the core and take the units it resolves; true when they changed.
+    private fun follow(): Boolean {
+        model.engine.setRegion(Locale.getDefault().country)
+        val now = model.engine.units()
+        val changed = now != Units.system
+        Units.system = now
+        return changed
     }
 }

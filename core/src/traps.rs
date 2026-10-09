@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::geo::{destination, distance_m, Point};
 use crate::near_path::PathIndex;
-use crate::units::{distance, UnitSystem};
+use crate::units::{distance_rounded, Round, UnitSystem};
 
 const MIN: i64 = 60_000;
 const THAW_RADIUS_M: f64 = 40.0;
@@ -114,7 +114,7 @@ impl Traps {
             "Silence Trap" => (Trap::Silence { until_ms: now_ms + 15 * MIN }, "Silence: notifications muted for 15 minutes.".into()),
             "Leash Trap" => (
                 Trap::Leash { center: home, radius_m: LEASH_M, until_ms: now_ms + 30 * MIN },
-                format!("Leashed! Checks only count within {} of home for 30 minutes.", distance(LEASH_M, self.units)),
+                format!("Leashed! Checks only count within {} of home for 30 minutes.", distance_rounded(LEASH_M, self.units, Round::Down)),
             ),
             "Detour Trap" => {
                 let waypoint = pool_point(paths, at, 300.0, 700.0, rng);
@@ -122,7 +122,7 @@ impl Traps {
             }
             "Toll Trap" => (
                 Trap::Toll { need_m: TOLL_M, moved_m: 0.0, until_ms: now_ms + 20 * MIN },
-                format!("Toll! Cover {} before any check counts.", distance(TOLL_M, self.units)),
+                format!("Toll! Cover {} before any check counts.", distance_rounded(TOLL_M, self.units, Round::Up)),
             ),
             "Slow Trap" => (Trap::Slow { until_ms: now_ms + 30 * MIN }, "Slow! Dwell quests take twice as long for 30 minutes.".into()),
             "Shuffle Trap" => return Some("Shuffle! Unfinished quests are rerolled.".into()),
@@ -170,7 +170,9 @@ impl Traps {
                 Trap::Freeze { .. } => return Some("Frozen: reach the thaw point first".into()),
                 Trap::Leash { center, radius_m, .. } if distance_m(pos, *center) > *radius_m => return Some("Leashed: stay near home".into()),
                 Trap::Detour { visited: false, .. } => return Some("Detour: visit the waypoint first".into()),
-                Trap::Toll { need_m, moved_m, .. } if moved_m < need_m => return Some(format!("Toll: {} to go", distance(need_m - moved_m, self.units))),
+                Trap::Toll { need_m, moved_m, .. } if moved_m < need_m => {
+                    return Some(format!("Toll: {} to go", distance_rounded(need_m - moved_m, self.units, Round::Up)))
+                }
                 _ => {}
             }
         }
@@ -315,13 +317,15 @@ mod tests {
         let mut t = Traps::default();
         t.set_units(UnitSystem::Imperial);
         let leash = t.trigger("Leash Trap", 0, None, home(), &PathIndex::default(), &mut rng()).unwrap();
-        assert!(leash.contains("within 0.5 mi of home"), "{leash}");
+        assert!(leash.contains("within 0.4 mi of home"), "{leash}");
         let toll = t.trigger("Toll Trap", 0, None, home(), &PathIndex::default(), &mut rng()).unwrap();
-        assert!(toll.contains("Cover 0.2 mi"), "{toll}");
+        assert!(toll.contains("Cover 0.3 mi"), "{toll}");
         t.tick(10, home(), 100.0);
         assert_eq!(t.blocks_checks(home()).as_deref(), Some("Toll: 0.2 mi to go"));
         t.set_units(UnitSystem::Metric);
         assert_eq!(t.blocks_checks(home()).as_deref(), Some("Toll: 300 m to go"));
+        t.tick(20, home(), 298.0);
+        assert_eq!(t.blocks_checks(home()).as_deref(), Some("Toll: 5 m to go"), "2 m left must not read as 0");
     }
 
     #[test]

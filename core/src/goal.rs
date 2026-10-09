@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::assign::Assignment;
 use crate::num::{count_f32, count_f64, to_f32};
 use crate::slot::{GoalMode, GoalSpec, SlotData};
-use crate::units::{distance, UnitSystem};
+use crate::units::{distance, distance_rounded, Round, UnitSystem};
 
 /// How far along a win condition is.
 #[derive(Debug, Clone, PartialEq)]
@@ -200,7 +200,7 @@ fn evaluate_one(c: &GoalCtx<'_>, g: &str, t: u32) -> GoalStatus {
         }
         "marathon" => {
             let km = or_default(t, 42);
-            let label = format!("Travel {} on quests: {}", distance(f64::from(km) * 1000.0, c.units), distance(c.distance_m, c.units));
+            let label = format!("Travel {} on quests: {}", distance(f64::from(km) * 1000.0, c.units), distance_rounded(c.distance_m, c.units, Round::Down));
             status(c.distance_m / 1000.0, f64::from(km), label)
         }
         "explorer" => {
@@ -413,6 +413,7 @@ mod tests {
         assert!(eval(&slot("marathon", 0), &[], &[], 42_500.0, 0, 0).achieved);
         assert!(!eval(&slot("marathon", 0), &[], &[], 41_900.0, 0, 0).achieved);
         assert_eq!(eval(&slot("marathon", 0), &[], &[], 3_140.0, 0, 0).label, "Travel 42 km on quests: 3.1 km");
+        assert_eq!(eval(&slot("marathon", 0), &[], &[], 41_960.0, 0, 0).label, "Travel 42 km on quests: 41 km", "progress rounds down");
         assert!(eval(&slot("explorer", 10), &[], &[], 0.0, 10, 0).achieved);
         assert!(eval(&slot("streak", 0), &[], &[], 0.0, 0, 7).achieved);
         assert!(eval(&slot("boss_rush", 3), &[2, 3, 4], &[], 0.0, 0, 0).achieved);

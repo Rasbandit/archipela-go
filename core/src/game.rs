@@ -23,7 +23,7 @@ use crate::scan::Atlas;
 use crate::slot::GoalSpec;
 use crate::slot::SlotData;
 use crate::traps::Traps;
-use crate::units::{distance, speed_kmh, UnitSystem};
+use crate::units::{distance, distance_rounded, speed_kmh, Round, UnitSystem};
 use crate::verify::{implied_speed_kmh, Fix, Status, Tracker, MAX_ACCURACY_M, MAX_OUTLIER_STREAK, MAX_PLAUSIBLE_KMH};
 
 const DAY_MS: i64 = 86_400_000;
@@ -1170,7 +1170,11 @@ impl Game {
                 }
                 let reach = reach_radius(&a.target);
                 let reason = match self.last_verdict {
-                    Verdict::Blurry(acc) => format!("GPS accuracy {} (needs {} or better)", distance(acc, self.units), distance(MAX_ACCURACY_M, self.units)),
+                    Verdict::Blurry(acc) => format!(
+                        "GPS accuracy {} (needs {} or better)",
+                        distance_rounded(acc, self.units, Round::Up),
+                        distance_rounded(MAX_ACCURACY_M, self.units, Round::Down)
+                    ),
                     Verdict::Jump => "ignored as a GPS jump".to_string(),
                     Verdict::Used if !self.zone_unlocked(a.zone) => format!("zone {} is still locked", a.zone),
                     Verdict::Used if self.fog_on() && !self.fog.discovered.contains(&a.location_id) => "not discovered yet (fog of war)".to_string(),
@@ -1179,8 +1183,16 @@ impl Game {
                         format!("moving too fast for {:?} ({})", a.mode, speed_kmh(self.last_speed.unwrap_or(0.0), self.units))
                     }
                     Verdict::Used => match reach {
-                        Some(r) if distance_m <= r => format!("in range ({}, needs {}): counting", distance(distance_m, self.units), distance(r, self.units)),
-                        Some(r) => format!("{} away, needs {}", distance(distance_m, self.units), distance(r, self.units)),
+                        Some(r) if distance_m <= r => {
+                            format!(
+                                "in range ({}, needs {}): counting",
+                                distance_rounded(distance_m, self.units, Round::Down),
+                                distance_rounded(r, self.units, Round::Up)
+                            )
+                        }
+                        Some(r) => {
+                            format!("{} away, needs {}", distance_rounded(distance_m, self.units, Round::Up), distance_rounded(r, self.units, Round::Down))
+                        }
                         None => format!("{} away", distance(distance_m, self.units)),
                     },
                 };
@@ -2435,6 +2447,15 @@ mod tests {
         let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| anchor(&a.target)).unwrap();
         let nm = g.explain_near(&fixat(destination(target, 0.0, 70.0), 1000), 100.0).into_iter().find(|n| n.location_id == id).unwrap();
         assert_eq!(nm.reason, "230 ft away, needs 130 ft");
+    }
+
+    #[test]
+    fn a_near_miss_never_reads_as_if_it_met_the_limit() {
+        let (g, id, _) = start_near_a_quest();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| anchor(&a.target)).unwrap();
+        let reason = |m: f64| g.explain_near(&fixat(destination(target, 0.0, m), 1000), 100.0).into_iter().find(|n| n.location_id == id).unwrap().reason;
+        assert_eq!(reason(42.0), "45 m away, needs 40 m", "42 m must not read as 40 m");
+        assert!(reason(38.0).starts_with("in range (35 m, needs 40 m)"), "{}", reason(38.0));
     }
 
     #[test]

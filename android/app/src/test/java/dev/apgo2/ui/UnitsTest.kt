@@ -42,10 +42,10 @@ class UnitsTest {
         assertEquals("25 mi²", Units.area(M_PER_MILE * M_PER_MILE * 25.0))
     }
 
-    @Test fun areasAreWhole() {
+    @Test fun areasKeepOneDecimalUnderTen() {
         Units.system = UnitSystem.METRIC
-        assertEquals("3 km²", Units.area(2_500_000.0))
-        assertEquals("<1 km²", Units.area(200_000.0))
+        assertEquals("2.5 km²", Units.area(2_500_000.0))
+        assertEquals("0.2 km²", Units.area(200_000.0))
     }
 
     @Test fun aDistanceThatIsNotANumberDoesNotCrash() {
