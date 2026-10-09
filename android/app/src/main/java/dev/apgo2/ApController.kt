@@ -37,12 +37,16 @@ internal class ApController(
     var zoneModes by mutableStateOf<List<String>>(emptyList())
     private var syncedChecked = false
 
+    // The game last synced with this session (its id), so a newly opened or started game syncs at once.
+    private var syncedFor: String? = null
+
     /** Open a session to [url] as [slot]. */
     fun connect(
         url: String,
         slot: String,
     ) {
         syncedChecked = false
+        syncedFor = null
         slotJson = null
         hint = null
         val s = ApSession.connect(url, slot, null, ctx.cacheDir.resolve("ap").absolutePath)
@@ -53,18 +57,31 @@ internal class ApController(
         }
     }
 
-    /** Called from a coroutine loop while a session exists. */
-    suspend fun tick() {
+    /**
+     * Called from a coroutine loop while a session exists; true when the server sent anything (the loop then polls again soon, see
+     * [ApPoll]). The open game is synced only when items or server data changed, or it was never synced with this session.
+     */
+    suspend fun tick(): Boolean {
+        var active = false
         sessions.use { s ->
             val events = withContext(Dispatchers.IO) { runCatching { s.poll() }.getOrDefault(emptyList()) }
-            if (session !== s) return // reconnected mid-poll: these events belong to the old server
+            if (session !== s) return false // reconnected mid-poll: these events belong to the old server
+            active = events.isNotEmpty()
             events.forEach { handle(s, it) }
             s.status().let {
                 if (it != status) Diag.info("ap", "status", "status" to it)
                 status = it
             }
-            if (model.engine.hasGame() && model.hud?.backend == "archipelago") syncGame(s)
+            if (model.engine.hasGame() && model.hud?.backend == "archipelago") {
+                val game = model.engine.playingGame()
+                val changed = events.any { it is ApEvent.Connected || it is ApEvent.ReceivedItems || it is ApEvent.Updated }
+                if (ApPoll.needsSync(changed, synced = game != null && game == syncedFor)) {
+                    syncGame(s)
+                    syncedFor = game
+                }
+            }
         }
+        return active
     }
 
     /** Start a game from the connected slot's data. */
@@ -162,6 +179,6 @@ internal class ApController(
         }
         val pos = model.me?.let { GeoPoint(it.latitude, it.longitude) }
         model.handle(model.engine.syncItems(items, model.now(), pos))
-        model.refreshPlay()
+        model.refreshPlay(withTrace = false) // items never change where you walked
     }
 }

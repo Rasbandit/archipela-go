@@ -21,8 +21,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.apgo2.ui.ApgoTheme
 import kotlinx.coroutines.delay
 
-private const val AP_POLL_MS = 300L
-
 /** The single activity: hosts the Compose UI and handles the location and notification permission prompts. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -115,9 +113,9 @@ private fun TrackingEffects(
         }
     }
     LaunchedEffect(model.ap.session) {
+        val poll = ApPoll()
         while (model.ap.session != null) {
-            model.ap.tick()
-            delay(AP_POLL_MS)
+            delay(poll.next(active = model.ap.tick()))
         }
     }
 }
