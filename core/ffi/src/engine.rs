@@ -1158,6 +1158,11 @@ impl Engine {
         Ok(())
     }
 
+    /// The id of the open game, from memory (no disk access); `None` with no game open.
+    pub fn open_game_id(&self) -> Option<String> {
+        self.game_id()
+    }
+
     /// Whether a game is open.
     pub fn has_game(&self) -> bool {
         self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()

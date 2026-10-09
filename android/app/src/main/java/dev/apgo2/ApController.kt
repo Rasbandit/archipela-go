@@ -12,8 +12,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import uniffi.apgo_ffi.ApEvent
+import uniffi.apgo_ffi.ApPoll
 import uniffi.apgo_ffi.ApSession
 import uniffi.apgo_ffi.GeoPoint
+import uniffi.apgo_ffi.apNeedsSync
 import java.util.UUID
 import kotlin.random.Random
 
@@ -58,8 +60,8 @@ internal class ApController(
         pollJob?.cancel()
         pollJob =
             scope.launch {
-                val poll = ApPoll()
-                while (session === s) delay(poll.next(active = tick()))
+                val poll = ApPoll() // the back-off lives in the core
+                while (session === s) delay(poll.nextDelayMs(tick()).toLong())
             }
         scope.launch {
             delay(LAN_HINT_AFTER_MS)
@@ -82,13 +84,14 @@ internal class ApController(
                 if (it != status) Diag.info("ap", "status", "status" to it)
                 status = it
             }
-            if (model.engine.hasGame() && model.hud?.backend == "archipelago") {
-                val game = model.engine.playingGame()
-                val changed = events.any { it is ApEvent.Connected || it is ApEvent.ReceivedItems || it is ApEvent.Updated }
-                if (ApPoll.needsSync(changed, synced = game != null && game == syncedFor)) {
-                    syncGame(s)
-                    syncedFor = game
-                }
+            // The open Archipelago game, from the engine's memory; none (no game, a solo game, or paused) forgets the last sync, so a
+            // game reopened after a pause catches up at once.
+            val game = model.engine.openGameId()?.takeIf { model.hud?.backend == "archipelago" }
+            if (game == null) syncedFor = null
+            val changed = events.any { it is ApEvent.Connected || it is ApEvent.ReceivedItems || it is ApEvent.Updated }
+            if (apNeedsSync(changed, syncedFor, game)) {
+                syncGame(s)
+                syncedFor = game
             }
         }
         return active

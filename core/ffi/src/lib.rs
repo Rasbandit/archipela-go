@@ -339,3 +339,33 @@ impl ApSession {
         client.mark_checked([location_id]).map_err(|e| CoreError::Failed { detail: e.to_string() })
     }
 }
+
+/// How long the host waits between Archipelago polls (see `apgo_core::ap_poll`): fast right after the server said something,
+/// slower while it is quiet. The host keeps one per session.
+#[derive(uniffi::Object)]
+pub struct ApPoll {
+    backoff: Mutex<apgo_core::ap_poll::PollBackoff>,
+}
+
+#[uniffi::export]
+impl ApPoll {
+    /// A fresh back-off, starting fast.
+    #[uniffi::constructor]
+    #[must_use]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { backoff: Mutex::new(apgo_core::ap_poll::PollBackoff::default()) })
+    }
+
+    /// The wait before the next poll, in milliseconds, given whether this poll brought any events.
+    pub fn next_delay_ms(&self, active: bool) -> u64 {
+        self.backoff.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next(active)
+    }
+}
+
+/// Whether the open game must sync with the Archipelago server (see `apgo_core::ap_poll::needs_sync`).
+#[uniffi::export]
+#[allow(clippy::needless_pass_by_value)] // uniffi requires owned args
+#[must_use]
+pub fn ap_needs_sync(server_changed: bool, synced_game: Option<String>, open_game: Option<String>) -> bool {
+    apgo_core::ap_poll::needs_sync(server_changed, synced_game.as_deref(), open_game.as_deref())
+}
