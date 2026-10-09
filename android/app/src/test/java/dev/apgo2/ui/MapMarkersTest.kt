@@ -1,6 +1,7 @@
 package dev.apgo2.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,8 +12,8 @@ class MapMarkersTest {
             listOf(
                 MarkerSpec.Find("bench_warmer", "dwell", "none"),
                 MarkerSpec.Find("hydrant_hunter", "landmark", "favorite"),
-                MarkerSpec.Quest("street_smarts", "reach", "progress"),
-                MarkerSpec.Quest("touch_grass", "park", "done"),
+                MarkerSpec.Quest("street_smarts", "reach", "progress", pips = 1),
+                MarkerSpec.Quest("touch_grass", "park", "done", pips = 3),
                 MarkerSpec.Ring(listOf(1, 2, 0, 3)),
             )
         specs.forEach { assertEquals(it, MapMarkers.parse(it.key)) }
@@ -60,6 +61,19 @@ class MapMarkersTest {
         // Difficulty is not shown by size: a pin is a pin, so neighbours never look mismatched.
         assertTrue("a scale over 1 blurs the bitmap", MapMarkers.QUEST_SCALE <= 1f)
         assertTrue("a pin is drawn at least 96 px wide", MapMarkers.QUEST_SCALE * MapMarkers.QUEST_PIN_PX >= 96f)
+    }
+
+    @Test fun difficultyShowsAsOneToThreeDots() {
+        assertEquals(1, MapMarkers.pips("easy", boss = false))
+        assertEquals(2, MapMarkers.pips("Medium", boss = false))
+        assertEquals(3, MapMarkers.pips("hard", boss = false))
+        assertEquals("the boss is the hardest", 3, MapMarkers.pips("easy", boss = true))
+        assertEquals("unknown reads as medium", 2, MapMarkers.pips("", boss = false))
+    }
+
+    @Test fun pinsDifferingOnlyInDifficultyAreDifferentImages() {
+        assertNotEquals(MarkerSpec.Quest("a", "reach", "open", pips = 1).key, MarkerSpec.Quest("a", "reach", "open", pips = 2).key)
+        assertNull("pips out of range", MapMarkers.parse("quest|a|reach|open|4"))
     }
 
     @Test fun aQuestPinIsColouredByItsStateNotItsKind() {

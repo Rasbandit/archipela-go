@@ -19,13 +19,17 @@ internal sealed interface MarkerSpec {
         override val key get() = "pin|$kindId|$family|$mark"
     }
 
-    /** A quest on the Play map: family colour, and its state as a corner badge. [state] is open | progress | done | locked. */
+    /**
+     * A quest on the Play map: its body in the state colour (open | progress | done | locked), its kind's icon, and [pips] (1 to 3)
+     * dots for its difficulty.
+     */
     data class Quest(
         val kindId: String,
         val family: String,
         val state: String,
+        val pips: Int,
     ) : MarkerSpec {
-        override val key get() = "quest|$kindId|$family|$state"
+        override val key get() = "quest|$kindId|$family|$state|$pips"
     }
 
     /** A cluster of quests: a ring split by how many are in each of [MapMarkers.RING_STATES], around the count. */
@@ -52,6 +56,8 @@ internal object MapMarkers {
     private const val STATE_LOCKED = "locked"
     private const val STATE_DONE = "done"
     private const val FULL_TURN = 360f
+    private const val QUEST_PARTS = 4
+    private const val MAX_PIPS = 3
 
     enum class Badge { None, Progress, Locked }
 
@@ -93,12 +99,29 @@ internal object MapMarkers {
         val rest = p.drop(1)
         return when {
             p[0] == "ring" -> parseRing(rest)
+            p[0] == "quest" -> parseQuest(rest)
             p.size != KEY_PARTS -> null
             p[0] == "pin" -> MarkerSpec.Find(rest[0], rest[1], rest[2])
-            p[0] == "quest" -> MarkerSpec.Quest(rest[0], rest[1], rest[2])
             else -> null
         }
     }
+
+    private fun parseQuest(parts: List<String>): MarkerSpec.Quest? {
+        val pips = parts.getOrNull(QUEST_PARTS - 1)?.toIntOrNull()
+        val valid = parts.size == QUEST_PARTS && pips != null && pips in 1..MAX_PIPS
+        return if (valid) MarkerSpec.Quest(parts[0], parts[1], parts[2], pips) else null
+    }
+
+    /** Difficulty as dots on the pin: easy 1, medium 2, hard 3; the boss is the hardest. Anything else reads as medium. */
+    fun pips(
+        difficulty: String,
+        boss: Boolean,
+    ): Int =
+        when {
+            boss || difficulty.equals("hard", ignoreCase = true) -> MAX_PIPS
+            difficulty.equals("easy", ignoreCase = true) -> 1
+            else -> 2
+        }
 
     private fun parseRing(parts: List<String>): MarkerSpec.Ring? {
         val shares = parts.map { it.toIntOrNull() ?: -1 }
@@ -164,6 +187,7 @@ internal object MapMarkers {
                     QUEST_PIN_PX,
                     fill = questFill(spec.state),
                     badge = badge(spec.state),
+                    pips = spec.pips,
                 )
             }
 

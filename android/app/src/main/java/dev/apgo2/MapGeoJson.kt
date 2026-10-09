@@ -89,7 +89,7 @@ internal object GeoJson {
 }
 
 /** The name of this quest's pin image in the map style. */
-internal val QuestOut.mapImageKey: String get() = MarkerSpec.Quest(kindId, family, state).key
+internal val QuestOut.mapImageKey: String get() = MarkerSpec.Quest(kindId, family, state, MapMarkers.pips(difficulty, boss)).key
 
 /** The name of this find's pin image in the map style. */
 internal val MapFind.mapImageKey: String get() = MarkerSpec.Find(kindId, family, mark).key

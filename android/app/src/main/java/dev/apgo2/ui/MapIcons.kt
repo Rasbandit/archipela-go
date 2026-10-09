@@ -111,6 +111,7 @@ private fun DrawScope.pinBody(
 private const val DOWN = 90f
 private const val FULL_TURN = 360f
 private const val PIN_RING_FRACTION = 0.07f
+private const val PIP_ROW_FRACTION = 0.27f
 
 /**
  * A find on the map: a map pin (a round head with the icon, narrowing to a point below it) [sizePx] wide and
@@ -196,14 +197,15 @@ internal fun renderMarker(
     }
 
 /**
- * A quest pin: the find pin's shape, its body in the state colour, with a badge on the lower right of the head: an amber dot in
- * progress, a lock when locked. Done needs none (the pin is green).
+ * A quest pin: the find pin's shape, its body in the state colour, its kind's icon with 1 to 3 dots under it for difficulty, and a
+ * badge on the lower right of the head: an amber dot in progress, a lock when locked. Done needs none (the pin is green).
  */
 internal fun renderQuestPin(
     icon: ImageVector,
     sizePx: Int,
     fill: Color,
     badge: MapMarkers.Badge,
+    pips: Int,
 ): Bitmap {
     val s = sizePx.toFloat()
     val h = s * MapMarkers.PIN_HEIGHT_RATIO
@@ -211,8 +213,15 @@ internal fun renderQuestPin(
         val body = s * 0.86f // leave room for the badge beside the head
         val head = Offset(s / 2, body / 2)
         pinBody(head.x, head.y, body / 2, h, body * PIN_RING_FRACTION, Color.White, fill)
-        val inner = body * 0.54f
-        icon(icon, head.x - inner / 2, inner, Color.White, top = head.y - inner / 2)
+        // The icon sits a little high so a row of difficulty dots fits under it, inside the head.
+        val inner = body * 0.46f
+        icon(icon, head.x - inner / 2, inner, Color.White, top = head.y - inner / 2 - body * 0.07f)
+        val dot = body * 0.045f
+        val gap = body * 0.13f
+        val row = head.y + body * PIP_ROW_FRACTION
+        repeat(pips) { i ->
+            drawCircle(Color.White, radius = dot, center = Offset(head.x + (i - (pips - 1) / 2f) * gap, row))
+        }
         if (badge != MapMarkers.Badge.None) {
             val r = s * 0.2f
             val c = Offset(s - r, body - r)

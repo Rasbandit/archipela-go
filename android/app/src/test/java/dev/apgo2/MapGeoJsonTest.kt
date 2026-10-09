@@ -154,7 +154,7 @@ class MapFeaturesTest {
     @Test fun questPinPropsCarryImageIdAndOrder() {
         val pins = MapFeatures.quests(listOf(quest(1, state = "progress", difficulty = "Hard"), quest(2, boss = true)), selected = 2L)
         val (hard, boss) = pins.map { it.props() }
-        assertEquals("quest|street_smarts|reach|progress", hard.getString(MapProp.IMAGE))
+        assertEquals("a hard quest gets 3 pips", "quest|street_smarts|reach|progress|3", hard.getString(MapProp.IMAGE))
         assertEquals("a tap on the pin finds its quest", "1", hard.getString(MapProp.ID))
         assertFalse(hard.getBoolean(MapProp.SELECTED))
         assertTrue(boss.getBoolean(MapProp.SELECTED))
