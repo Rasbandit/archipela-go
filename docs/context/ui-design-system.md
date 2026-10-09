@@ -33,9 +33,13 @@ widgets or write colours themselves.
   white casing, never dashed (the base map draws footpaths dashed) and without direction arrows (coverage counts either way); done trails fade.
 - A callout attached to a pin is a `MapBubble` (placement in `BubblePlacement`, unit-tested): the realm editor's find callout and the Play quest popup both use it. Quests with no pin
   (steps, new squares, time away) show the same content in a `MapOverlayCard` at the bottom of the map.
-- Every distance, area and percentage the player sees goes through `ui/Units.kt` (`distance`, `area`, `percent`): km or mi from
-  `Units.system`, which `UnitSettings` sets from the core (Settings tab choice Auto/Kilometres/Miles; Auto resolves by region in
-  `core/src/settings.rs`). Always `Locale.US` digits and decimal point. Never `"%.1f".format(...)` a shown number. Dates and times stay localized.
+- Every distance, area and percentage the player sees goes through `ui/Units.kt` (`distance`, `area`, `percent`). Distances and
+  areas are formatted by the core (`core/src/units.rs`, exported as `formatDistance`/`formatArea`), the same formatter the core
+  uses for quest, goal, trap and near-miss text: clean numbers, at most one decimal (`50 m`, `1.4 km`, `60 ft`, `0.3 mi`, whole
+  km²/mi²). The units are `Units.system`, set by `UnitSettings` from the engine (Settings tab: Auto/Kilometres/Miles; Auto follows
+  the region the app passes to `Engine.setRegion`). Never format a shown distance in Kotlin or with `"%.1f".format(...)`.
+  Always a decimal point and Western digits. Dates and times stay localized.
+- JVM unit tests load the host build of the core (`jna.library.path` in `app/build.gradle.kts`), so tests can call FFI functions.
 - Compose text colours come from `MaterialTheme.colorScheme` roles or `FeedbackText(Tone.*)`.
 - A pattern used twice becomes a component in `Components.kt`. Selected chips are a solid `primary` fill because the Material default
   (`secondaryContainer`) blended into the card behind it.

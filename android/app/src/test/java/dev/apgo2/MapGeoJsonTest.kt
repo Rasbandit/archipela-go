@@ -293,8 +293,8 @@ class MapFeaturesTest {
     @Test fun radiusLabelUsesTheChosenUnitWithADecimalPoint() {
         Locale.setDefault(Locale.GERMANY)
         Units.system = UnitSystem.METRIC
-        assertEquals("999 m", radiusLabel(999.0))
-        assertEquals("1 km", radiusLabel(999.9)) // was "999 m" (truncated); now rounded like every other distance
+        assertEquals("990 m", radiusLabel(990.0))
+        assertEquals("1 km", radiusLabel(999.0)) // rounded like every other distance, never "999 m"
         assertEquals("1 km", radiusLabel(1000.0))
         assertEquals("2.5 km", radiusLabel(2500.0))
         Units.system = UnitSystem.IMPERIAL

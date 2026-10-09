@@ -56,8 +56,11 @@ tasks.withType<dev.detekt.gradle.Detekt>().configureEach {
 }
 
 // HelpTextTest checks the help copy against the apworld's goal and family names (the monorepo is checked out whole, also in CI).
+// JVM tests call the real core: the host build of libapgo_ffi that scripts/android_bindings.sh makes (run by `just check-android`).
 tasks.withType<Test>().configureEach {
     systemProperty("apworld.constants", rootProject.file("../apworld/ap_go2/constants.py").absolutePath)
+    systemProperty("jna.library.path", rootProject.file("../core/target/debug").absolutePath)
+    jvmArgs("--enable-native-access=ALL-UNNAMED") // JNA loads native code; newer JDKs block that without this
 }
 
 dependencies {
@@ -75,6 +78,7 @@ dependencies {
     implementation(libs.lucide)
     testImplementation(libs.junit)
     testImplementation(libs.org.json) // android.jar stubs org.json out in local unit tests
+    testImplementation(libs.jna) // the desktop JNA (with its native dispatch) to load the host core in JVM tests
 }
 
 kover {

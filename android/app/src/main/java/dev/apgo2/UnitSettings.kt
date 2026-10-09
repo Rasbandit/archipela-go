@@ -7,7 +7,7 @@ import dev.apgo2.ui.Units
 import uniffi.apgo_ffi.UnitChoice
 import java.util.Locale
 
-/** The distance-unit setting: saved in the core, which also resolves Auto from the phone's region into [Units.system]. */
+/** The distance-unit setting: saved in the core, which resolves Auto from the phone's region and writes its own text in it. */
 internal class UnitSettings(
     private val model: AppModel,
 ) {
@@ -16,20 +16,18 @@ internal class UnitSettings(
         private set
 
     init {
-        apply()
+        model.engine.setRegion(Locale.getDefault().country)
+        Units.system = model.engine.units()
     }
 
-    /** Save [c] and redraw every distance in it. */
+    /** Save [c] and redraw every distance in it, including the quest and goal text the core writes. */
     fun choose(c: UnitChoice) {
         val saved = runCatching { model.engine.setUnitChoice(c) }
         saved.onSuccess {
             choice = c
-            apply()
+            Units.system = model.engine.units()
+            model.refreshAll()
         }
         saved.onFailure { model.fail("set_unit_choice", "Could not save the units", it) }
-    }
-
-    private fun apply() {
-        Units.system = model.engine.units(Locale.getDefault().country)
     }
 }
