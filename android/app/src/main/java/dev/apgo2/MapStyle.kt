@@ -153,6 +153,12 @@ internal object MapSource {
 internal object MapStyle {
     const val URL = "https://tiles.openfreemap.org/styles/liberty"
 
+    /**
+     * The map data's credit, always on show over the map (OpenStreetMap's licence asks that it be seen without a tap; MapLibre's
+     * own logo is not required and is hidden). A tap opens the full list of sources.
+     */
+    const val CREDIT = "© OpenStreetMap · © OpenMapTiles"
+
     /** The layers a tap on a find pin is looked up in. */
     val FIND_LAYERS = arrayOf("finds-layer", "finds-sel")
 

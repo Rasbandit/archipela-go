@@ -10,8 +10,12 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -22,11 +26,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -41,6 +47,7 @@ import org.maplibre.android.camera.CameraUpdate
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.AttributionDialogManager
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
@@ -78,6 +85,7 @@ private const val NEIGHBOURHOOD_ZOOM = 14.0
 private const val TIGHT_SPAN_DEG = 0.004
 private const val MIN_FIT_POINTS = 2
 private const val REVEAL_MS = 200
+private const val CREDIT_BACKDROP_ALPHA = 0.75f
 
 /** A find drawn on the map: an icon pin for its quest kind, coloured by the player's mark ("none" | "favorite" | "banned"). */
 internal data class MapFind(
@@ -212,12 +220,10 @@ private class MapHolder(
     private val addedImages = mutableSetOf<String>()
     private var padApplied = false
 
-    // The logo's and the attribution's own bottom margins, before any overlay is added to them.
-    private var baseMarks: Pair<Int, Int>? = null
-
     init {
         MapLibre.getInstance(context)
-        val options = MapLibreMapOptions.createFromAttributes(context)
+        // No MapLibre logo or "i" button: the map shows its data credit itself (see MapCredit).
+        val options = MapLibreMapOptions.createFromAttributes(context).logoEnabled(false).attributionEnabled(false)
         start?.let {
             options.camera(
                 CameraPosition
@@ -277,7 +283,6 @@ private class MapHolder(
         follow: Boolean,
     ) {
         val m = map ?: return
-        liftMarks(m, bottomDp)
         if (topDp == 0 && bottomDp == 0 && !padApplied) return
         val top = (topDp * density).toDouble()
         val bottom = (bottomDp * density).toDouble()
@@ -289,16 +294,9 @@ private class MapHolder(
         }
     }
 
-    // Keep the logo and the attribution (which the map data's licence requires on show) above the bottom overlay.
-    private fun liftMarks(
-        m: MapLibreMap,
-        bottomDp: Int,
-    ) {
-        val ui = m.uiSettings
-        val (logo, attribution) = baseMarks ?: (ui.logoMarginBottom to ui.attributionMarginBottom).also { baseMarks = it }
-        val lift = (bottomDp * density).toInt()
-        ui.setLogoMargins(ui.logoMarginLeft, ui.logoMarginTop, ui.logoMarginRight, logo + lift)
-        ui.setAttributionMargins(ui.attributionMarginLeft, ui.attributionMarginTop, ui.attributionMarginRight, attribution + lift)
+    // The full list of the map's sources, with their links (MapLibre's own dialog, as its "i" button would open).
+    fun showSources() {
+        map?.let { AttributionDialogManager(view.context, it).onClick(view) }
     }
 
     // Fit the points in view, after a padding change has settled.
@@ -562,8 +560,28 @@ internal fun QuestMap(
     val cover by animateFloatAsState(if (framed) 0f else 1f, tween(REVEAL_MS), label = "map cover")
     Box(modifier) {
         AndroidView(factory = { holder.view }, modifier = Modifier.matchParentSize())
+        MapCredit(holder::showSources, Modifier.align(Alignment.TopEnd).padding(top = overlayTopDp.dp))
         if (cover > 0f) Box(Modifier.matchParentSize().alpha(cover).background(MaterialTheme.colorScheme.surface))
     }
+}
+
+// The map data's credit in the map's top corner (clear of a bottom panel and its grip), below whatever covers its top; a tap
+// lists the sources.
+@Composable
+private fun MapCredit(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        MapStyle.CREDIT,
+        modifier
+            .padding(4.dp)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = CREDIT_BACKDROP_ALPHA), RoundedCornerShape(4.dp))
+            .clickable(onClickLabel = "Map data sources", onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
 }
 
 // Hands the map view the activity's lifecycle events while it is on show; a hidden map is stopped and made invisible (so it stops
