@@ -1,9 +1,7 @@
 package dev.apgo2
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -16,8 +14,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,11 +36,13 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -67,6 +69,7 @@ import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.Tone
 import dev.apgo2.ui.Units
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.GameInfo
 import uniffi.apgo_ffi.GoalLineOut
@@ -86,7 +89,11 @@ private const val BODY_SHARE = 0.4f
 // The grip is drawn this thin but can be grabbed over this height (overlapping the map and the panel), and a drag past
 // SNAP_DP flips the panel.
 private const val GRIP_DP = 12
-private const val GRIP_TOUCH_DP = 48
+private const val GRIP_ABOVE_DP = 16
+private const val GRIP_BELOW_DP = 36
+
+// The bar is centred in the touch area, which reaches further down than up: this lifts it back onto the thin strip.
+private val GripLift = ((GRIP_ABOVE_DP - GRIP_BELOW_DP) / 2).dp
 private const val SNAP_DP = 24
 private const val GRIP_ALPHA = 0.4f
 private const val SHEET_SHADOW_DP = 6
@@ -152,85 +159,134 @@ private fun GameView(
             val bodyHeight = maxHeight * BODY_SHARE
             var shown by rememberSaveable { mutableStateOf(true) }
             var topPx by remember { mutableIntStateOf(0) }
-            val density = LocalDensity.current
             // How much of the map the panel covers once it has settled. It changes as a slide starts, so the map pans (keeping the
             // middle of what you see in the middle of what stays visible) alongside the slide, in the same time and curve.
-            val coverDp = GRIP_DP + (topPx / density.density).toInt() + if (shown) bodyHeight.value.toInt() else 0
+            val coverDp = GRIP_DP + (topPx / LocalDensity.current.density).toInt() + if (shown) bodyHeight.value.toInt() else 0
             // The map fills the whole area and never resizes; the panel slides over its bottom.
             PlayMap(m, hud, onShow, coverDp, Modifier.fillMaxSize())
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .shadow(SHEET_SHADOW_DP.dp, SheetShape, clip = false) // no clip: the grip's touch area reaches up over the map
-                    .background(MaterialTheme.colorScheme.surface, SheetShape)
-                    // A hit target as a whole (as a Material Surface is): a touch anywhere on the sheet, even on plain text, never
-                    // reaches the map under it. The controls inside still get their touches first.
-                    .pointerInput(Unit) {},
-            ) {
-                PaneGrip(shown) { shown = it }
-                PanelTop(hud, shown, Modifier.onSizeChanged { topPx = it.height })
-                AnimatedVisibility(
-                    shown,
-                    enter = expandVertically(tween(OVERLAY_EASE_MS, easing = OverlayEasing)),
-                    exit = shrinkVertically(tween(OVERLAY_EASE_MS, easing = OverlayEasing)),
-                ) {
-                    GamePanel(
-                        m,
-                        hud,
-                        Modifier
-                            .fillMaxWidth()
-                            .height(bodyHeight)
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp),
-                    )
-                }
-            }
+            PlaySheet(m, hud, bodyHeight, shown, { shown = it }, { topPx = it }, Modifier.align(Alignment.BottomCenter))
         }
     }
 }
 
-// The grip between the map and the panel: thin to look at, easy to grab. A tap or a long enough drag shows or hides the panel.
+// The panel over the map's bottom: the grip, the part that always shows, and the lower part that opens as far as the panel is
+// open. That follows the finger during a drag and eases to shown or hidden on a tap or a release.
+@Composable
+private fun PlaySheet(
+    m: AppModel,
+    hud: HudOut,
+    bodyHeight: Dp,
+    shown: Boolean,
+    onShowChange: (Boolean) -> Unit,
+    onTopHeight: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val open = remember { Animatable(if (shown) 1f else 0f) }
+    val slide = tween<Float>(OVERLAY_EASE_MS, easing = OverlayEasing)
+    LaunchedEffect(shown) { open.animateTo(if (shown) 1f else 0f, slide) }
+    val scope = rememberCoroutineScope()
+    val bodyPx = with(density) { bodyHeight.toPx() }
+    val snapPx = with(density) { SNAP_DP.dp.toPx() }
+    Column(
+        modifier
+            .fillMaxWidth()
+            .shadow(SHEET_SHADOW_DP.dp, SheetShape, clip = false) // no clip: the grip's touch area reaches up over the map
+            .background(MaterialTheme.colorScheme.surface, SheetShape)
+            // A hit target as a whole (as a Material Surface is): a touch anywhere on the sheet, even on plain text, never reaches
+            // the map under it. The controls inside still get their touches first.
+            .pointerInput(Unit) {},
+    ) {
+        PaneGrip(
+            shown,
+            onTap = { onShowChange(!shown) },
+            onMove = { dy -> scope.launch { open.snapTo(PaneMode.openAfterMove(open.value, dy, bodyPx)) } },
+            onRelease = { dragged ->
+                // Past the snap distance it flips, otherwise it goes back; either way it settles with the map's pan.
+                val target = PaneMode.afterDrag(shown, dragged, snapPx)
+                onShowChange(target)
+                scope.launch { open.animateTo(if (target) 1f else 0f, slide) }
+            },
+        )
+        PanelTop(hud, shown, Modifier.onSizeChanged { onTopHeight(it.height) })
+        if (open.value > 0f) PanelBody(m, hud, bodyHeight, open.value)
+    }
+}
+
+// The lower part of the panel, [open] of [height] tall: its content keeps its full height, pinned to the top and cut off below.
+@Composable
+private fun PanelBody(
+    m: AppModel,
+    hud: HudOut,
+    height: Dp,
+    open: Float,
+) {
+    Box(Modifier.fillMaxWidth().height(height * open).clipToBounds()) {
+        GamePanel(
+            m,
+            hud,
+            Modifier
+                .fillMaxWidth()
+                .wrapContentHeight(Alignment.Top, unbounded = true)
+                .height(height)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp),
+        )
+    }
+}
+
+// The grip between the map and the panel: thin to look at, easy to grab (more of its touch area lies below it, over the panel).
+// A tap shows or hides the panel; a drag moves it with the finger ([onMove] gets each step, [onRelease] the whole vertical drag).
 @Composable
 private fun PaneGrip(
     shown: Boolean,
-    onShowChange: (Boolean) -> Unit,
+    onTap: () -> Unit,
+    onMove: (Float) -> Unit,
+    onRelease: (Float) -> Unit,
 ) {
-    val snapPx = with(LocalDensity.current) { SNAP_DP.dp.toPx() }
     var dragged by remember { mutableFloatStateOf(0f) }
-    val latestShown by rememberUpdatedState(shown)
     // A drag in any direction is claimed (so a sideways swipe is never taken for a tap); only its vertical part counts.
     val drag =
         Modifier.pointerInput(Unit) {
             detectDragGestures(
                 onDragStart = { dragged = 0f },
-                onDragEnd = { onShowChange(PaneMode.afterDrag(latestShown, dragged, snapPx)) },
+                onDragEnd = { onRelease(dragged) },
+                onDragCancel = { onRelease(0f) },
             ) { change, amount ->
                 change.consume()
                 dragged += amount.y
+                onMove(amount.y)
             }
         }
     Box(
         Modifier
             .fillMaxWidth()
             .zIndex(1f) // above the map and the panel, which its touch area overlaps
-            .overhang(GRIP_DP.dp, GRIP_TOUCH_DP.dp)
+            .overhang(GRIP_DP.dp, above = GRIP_ABOVE_DP.dp, below = GRIP_BELOW_DP.dp)
             .then(drag)
-            .clickable(onClickLabel = if (shown) "Hide the panel" else "Show the panel") { onShowChange(!shown) },
+            .clickable(onClickLabel = if (shown) "Hide the panel" else "Show the panel", onClick = onTap),
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(32.dp, 4.dp).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = GRIP_ALPHA), CircleShape))
+        Box(
+            Modifier
+                .offset(y = GripLift)
+                .size(32.dp, 4.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = GRIP_ALPHA), CircleShape),
+        )
     }
 }
 
-// Takes [thin] of the layout but [touch] of height for what follows (drawing and touches), centred on it.
+// Takes [thin] of the layout but reaches [above] higher and [below] lower for what follows (drawing and touches).
 private fun Modifier.overhang(
     thin: Dp,
-    touch: Dp,
+    above: Dp,
+    below: Dp,
 ) = layout { measurable, constraints ->
     val t = thin.roundToPx()
-    val p = measurable.measure(constraints.copy(minHeight = touch.roundToPx(), maxHeight = touch.roundToPx()))
-    layout(p.width, t) { p.place(0, (t - p.height) / 2) }
+    val up = above.roundToPx()
+    val touch = up + t + below.roundToPx()
+    val p = measurable.measure(constraints.copy(minHeight = touch, maxHeight = touch))
+    layout(p.width, t) { p.place(0, -up) }
 }
 
 // The part of the panel that never hides: the goal (its lines too when the panel is shown) and the summary line.
