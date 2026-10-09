@@ -504,7 +504,9 @@ private fun SyncContent(
     LaunchedEffect(style, realms) { holder.show(MapSource.REALMS, MapFeatures.realms(realms)) }
     LaunchedEffect(style, finds) {
         style?.let { st -> finds.map { it.mapImageKey }.toSet().forEach { holder.ensureImage(st, it) } }
-        holder.show(MapSource.FINDS, MapFeatures.finds(finds))
+        val (rest, picked) = MapFeatures.splitSelected(MapFeatures.finds(finds))
+        holder.show(MapSource.FINDS, rest)
+        holder.show(MapSource.FIND_SEL, picked)
     }
     LaunchedEffect(style, quests, selected) {
         style?.let { st -> quests.forEach { holder.ensureImage(st, it.mapImageKey) } }

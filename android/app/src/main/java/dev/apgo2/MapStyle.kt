@@ -106,6 +106,7 @@ internal object MapSource {
     const val QUESTS = "quests"
     const val QUEST_SEL = "quest-sel"
     const val FINDS = "finds"
+    const val FIND_SEL = "find-sel"
     const val DRAFT = "draft"
     const val MARKS = "marks"
     const val HOME = "home"
@@ -115,10 +116,27 @@ internal object MapSource {
     const val RING_LABEL = "ringlabel"
     const val ME = "me"
     val ALL =
-        listOf(REALMS, AREAS, LINES, TRACE, QUESTS, QUEST_SEL, FINDS, DRAFT, MARKS, HOME, HANDLES, RADIUS, RING_KNOBS, RING_LABEL, ME)
+        listOf(
+            REALMS,
+            AREAS,
+            LINES,
+            TRACE,
+            QUESTS,
+            QUEST_SEL,
+            FINDS,
+            FIND_SEL,
+            DRAFT,
+            MARKS,
+            HOME,
+            HANDLES,
+            RADIUS,
+            RING_KNOBS,
+            RING_LABEL,
+            ME,
+        )
 
     /** Pin sources that merge pins too close to tell apart into one numbered circle. */
-    val CLUSTERED = setOf(QUESTS)
+    val CLUSTERED = setOf(QUESTS, FINDS)
 }
 
 /** The base map and the sources and layers drawn over it. */
@@ -211,7 +229,7 @@ internal object MapStyle {
     // Quests are the same pins as finds (family colour, state as a badge). Every pin shows; pins too close to tell apart merge into
     // a numbered cluster. The selected one has its own source (never clustered), a halo, and is drawn larger.
     private fun questLayers() =
-        clusterLayers(MapSource.QUESTS) +
+        clusterLayers(MapSource.QUESTS, questClusterColor()) +
             listOf(
                 SymbolLayer("quests-pins", MapSource.QUESTS).withFilter(notCluster()).withProperties(
                     iconImage(Expression.get(MapProp.IMAGE)),
@@ -246,50 +264,54 @@ internal object MapStyle {
 
     private fun notCluster() = Expression.not(isCluster())
 
-    // A cluster takes the colour of its most actionable pin: amber if any is in progress, else open, locked, and green when all are done.
-    private fun clusterColor() =
+    // A quest cluster takes the colour of its most actionable pin: amber if any is in progress, else open, locked, and green when
+    // all are done.
+    private fun questClusterColor() =
         Expression.match(
             Expression.get(MapProp.BEST),
             Expression.literal(ApgoPalette.questTodo.hex()),
             *PIN_STATES.map { Expression.stop(MapMarkers.drawOrder(it), Expression.literal(ApgoPalette.quest(it).hex())) }.toTypedArray(),
         )
 
-    private fun clusterLayers(source: String) =
-        listOf(
-            CircleLayer(clusterLayer(source), source).withFilter(isCluster()).withProperties(
-                circleRadius(CLUSTER_CIRCLE_RADIUS),
-                circleColor(clusterColor()),
-                circleStrokeColor(ApgoPalette.onMap.hex()),
-                circleStrokeWidth(CLUSTER_STROKE),
-            ),
-            SymbolLayer("$source-count", source).withFilter(isCluster()).withProperties(
-                textField(Expression.toString(Expression.get(MapProp.POINT_COUNT))),
-                textFont(arrayOf(BOLD_FONT)),
-                textSize(CLUSTER_TEXT_SIZE),
-                textColor(ApgoPalette.onMap.hex()),
-                textAllowOverlap(true),
-                textIgnorePlacement(true),
-            ),
-        )
+    private fun clusterLayers(
+        source: String,
+        color: Expression,
+    ) = listOf(
+        CircleLayer(clusterLayer(source), source).withFilter(isCluster()).withProperties(
+            circleRadius(CLUSTER_CIRCLE_RADIUS),
+            circleColor(color),
+            circleStrokeColor(ApgoPalette.onMap.hex()),
+            circleStrokeWidth(CLUSTER_STROKE),
+        ),
+        SymbolLayer("$source-count", source).withFilter(isCluster()).withProperties(
+            textField(Expression.toString(Expression.get(MapProp.POINT_COUNT))),
+            textFont(arrayOf(BOLD_FONT)),
+            textSize(CLUSTER_TEXT_SIZE),
+            textColor(ApgoPalette.onMap.hex()),
+            textAllowOverlap(true),
+            textIgnorePlacement(true),
+        ),
+    )
 
-    // Finds: icon pins that thin out by collision, favorites winning over plain ones and banned ones; the selected find always shows.
+    // Finds: every pin shows, favorites drawn over plain ones and banned ones; close pins merge into a neutral cluster (finds have
+    // no progress to show). The selected find has its own unclustered source and is drawn larger.
     private fun findLayers() =
-        listOf(
-            SymbolLayer(FIND_LAYERS[0], MapSource.FINDS).withProperties(
-                iconImage(Expression.get(MapProp.IMAGE)),
-                iconSize(FIND_PIN_SIZE),
-                iconAllowOverlap(false),
-                iconIgnorePlacement(false),
-                symbolSortKey(Expression.get(MapProp.SORT)),
-                iconOpacity(Expression.get(MapProp.OPACITY)),
-            ),
-            SymbolLayer(FIND_LAYERS[1], MapSource.FINDS).withFilter(selectedOnly()).withProperties(
-                iconImage(Expression.get(MapProp.IMAGE)),
-                iconSize(FIND_PIN_SELECTED_SIZE),
-                iconAllowOverlap(true),
-                iconIgnorePlacement(true),
-            ),
-        )
+        clusterLayers(MapSource.FINDS, Expression.literal(ApgoPalette.teal.hex())) +
+            listOf(
+                SymbolLayer(FIND_LAYERS[0], MapSource.FINDS).withFilter(notCluster()).withProperties(
+                    iconImage(Expression.get(MapProp.IMAGE)),
+                    iconSize(FIND_PIN_SIZE),
+                    iconAllowOverlap(true),
+                    symbolSortKey(Expression.get(MapProp.SORT)),
+                    iconOpacity(Expression.get(MapProp.OPACITY)),
+                ),
+                SymbolLayer(FIND_LAYERS[1], MapSource.FIND_SEL).withProperties(
+                    iconImage(Expression.get(MapProp.IMAGE)),
+                    iconSize(FIND_PIN_SELECTED_SIZE),
+                    iconAllowOverlap(true),
+                    iconIgnorePlacement(true),
+                ),
+            )
 
     private fun draftLayers() =
         listOf(
