@@ -20,8 +20,6 @@ internal class GameLibrary(
         opts: SoloOptionsIn,
         zoneRealms: List<String>,
         name: String,
-        awayZoneOnly: Boolean,
-        awayDistanceM: UInt,
     ) {
         scope.launch {
             model.busy = "Building your game..."
@@ -37,8 +35,6 @@ internal class GameLibrary(
                             seed,
                             model.surfacePref,
                             model.avoidStairs,
-                            awayZoneOnly,
-                            awayDistanceM,
                         )
                     }
                 }

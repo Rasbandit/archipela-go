@@ -8,7 +8,7 @@ use apgo_core::assign::SurfacePref;
 use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Kind, Mode};
 use apgo_core::chain::ChainUnit;
-use apgo_core::game::{AwayOptions, Backend, Event, Game, NearMiss, NewGame, QuestState};
+use apgo_core::game::{Backend, Event, Game, NearMiss, NewGame, QuestState};
 use apgo_core::geo::{distance_m, simplify, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
@@ -521,7 +521,7 @@ fn describe(t: &Target) -> (&'static str, Option<Point>, Option<Point>, f64, Vec
         Target::RoundTrip { far, r, .. } => ("roundtrip", Some(*far), None, *r, vec![], text),
         Target::Cells { cell_m, .. } => ("cells", None, None, *cell_m, vec![], text),
         Target::Steps { .. } => ("steps", None, None, 0.0, vec![], text),
-        Target::Away { min_distance_m, .. } => ("away", None, None, *min_distance_m, vec![], text),
+        Target::Away { .. } => ("away", None, None, 0.0, vec![], text),
     }
 }
 
@@ -660,7 +660,6 @@ impl Engine {
     /// Make `game` the open game and remember the shapes of its zones' realms (for "inside a zone" checks).
     fn install(&self, mut game: Game) {
         let store = self.store();
-        game.backfill_away(|id| store.get(id).map(|r| r.shape)); // old saves: Automatic distance per zone
         if !game.streets_attached() {
             // A saved game keeps only a thin sample of streets: index every street of its zones so trap targets land on one.
             let atlases: Vec<Atlas> =
@@ -1023,8 +1022,6 @@ impl Engine {
         seed: u64,
         surface: String,
         avoid_stairs: bool,
-        away_zone_only: bool,
-        away_distance_m: u32,
     ) -> Result<(), CoreError> {
         let opts = to_core(o)?;
         if zone_realms.len() != opts.zone_modes.len() {
@@ -1047,7 +1044,6 @@ impl Engine {
                 solo_rewards: generated.rewards,
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
-                away: AwayOptions { zone_only: away_zone_only, custom_m: (away_distance_m > 0).then_some(f64::from(away_distance_m)) },
             },
             &self.catalog,
         )
@@ -1072,8 +1068,6 @@ impl Engine {
         seed: u64,
         surface: String,
         avoid_stairs: bool,
-        away_zone_only: bool,
-        away_distance_m: u32,
     ) -> Result<(), CoreError> {
         let slot = SlotData::from_json(&slot_json).map_err(err)?;
         let realms = self.realm_atlases(&zone_realms)?;
@@ -1092,7 +1086,6 @@ impl Engine {
                 solo_rewards: BTreeMap::default(),
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
-                away: AwayOptions { zone_only: away_zone_only, custom_m: (away_distance_m > 0).then_some(f64::from(away_distance_m)) },
             },
             &self.catalog,
         )
@@ -1178,9 +1171,9 @@ impl Engine {
 
     // ---------- play ----------
     /// Every quest of the open game.
-    pub fn quests(&self) -> Vec<QuestOut> {
+    pub fn quests(&self, now_ms: i64) -> Vec<QuestOut> {
         self.with_game(|g| {
-            g.quest_views()
+            g.quest_views(now_ms)
                 .into_iter()
                 .map(|q| {
                     let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target);
@@ -1248,7 +1241,7 @@ impl Engine {
     pub fn hud(&self, now_ms: i64) -> Option<HudOut> {
         self.with_game(|g| {
             let s = g.goal_status(now_ms);
-            let views = g.quest_views();
+            let views = g.quest_views(now_ms);
             let mut letters: Vec<char> = g.items.iter().filter_map(|i| i.strip_prefix("Letter ").and_then(|s| s.chars().next())).collect();
             letters.sort_unstable();
             let tools: Vec<String> = ["Running Shoes", "Bike", "Car"].iter().filter(|t| g.items.iter().any(|i| i == *t)).map(ToString::to_string).collect();
@@ -1286,10 +1279,8 @@ impl Engine {
         // One pass over the zone shapes per fix: the inside flag for the game and the proximity presence reads next.
         let zone_d = self.zone_distance_m(Point::new(lat, lon));
         *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Proximity::of_distance(zone_d);
-        let inside = zone_d.is_none_or(|d| d == 0.0);
         let Some((game_id, ev, entries, near)) = self
             .with_game(|g| {
-                g.set_in_zone(inside);
                 let ev = g.on_fix(fix, steps);
                 self.save_if_due(g, t_ms, !ev.is_empty());
                 (g.id.clone(), g.journal_events(&ev, t_ms, at), g.explain_near(&fix, NEAR_MISS_RADIUS_M), ev)
@@ -1317,9 +1308,9 @@ impl Engine {
     }
 
     /// The progressive quests of the open game, one entry per bar.
-    pub fn chains(&self) -> Vec<ChainOut> {
+    pub fn chains(&self, now_ms: i64) -> Vec<ChainOut> {
         self.with_game(|g| {
-            g.chain_views()
+            g.chain_views(now_ms)
                 .into_iter()
                 .map(|c| ChainOut {
                     id: c.id,
@@ -1426,8 +1417,26 @@ impl Engine {
     }
 
     /// Presence rules (home Wi-Fi, car) turn counting off and on.
-    pub fn set_counting(&self, on: bool) {
-        self.with_game(|g| g.set_counting(on));
+    pub fn set_counting(&self, on: bool, t_ms: i64) {
+        self.with_game(|g| g.set_counting(on, t_ms));
+    }
+
+    /// When the next time-away mark falls due if nothing changes: the app schedules one wake-up then and calls [`Self::tick`].
+    pub fn next_due_ms(&self, now_ms: i64) -> Option<i64> {
+        self.with_game(|g| g.next_due_ms(now_ms)).flatten()
+    }
+
+    /// A scheduled wake-up: credit time away up to `t_ms` and report what completed.
+    pub fn tick(&self, t_ms: i64) -> Vec<EventOut> {
+        let Some((id, entries, ev)) = self.with_game(|g| {
+            let ev = g.tick(t_ms);
+            self.save_if_due(g, t_ms, !ev.is_empty());
+            (g.id.clone(), g.journal_events(&ev, t_ms, None), ev)
+        }) else {
+            return Vec::new();
+        };
+        self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&id, e)));
+        ev.into_iter().map(ev_out).collect()
     }
 
     /// Record a presence change ("Home Wi-Fi connected, paused") in the activity log.

@@ -139,9 +139,7 @@ pub enum Verify {
     },
     /// Spend time far from home.
     Away {
-        /// Minimum distance from home, in metres.
-        min_distance_m: f64,
-        /// How long to stay away, in minutes.
+        /// How long to be away from home, in minutes.
         minutes: f64,
     },
     /// The biggest quest of the realm.
@@ -169,7 +167,7 @@ impl Verify {
             Self::RoundTrip => "Go out to a spot, then come back home (no time limit).".to_string(),
             Self::CoverCells { cells, .. } => format!("Visit {cells} new map cells."),
             Self::Steps { steps } => format!("Take {steps} steps."),
-            Self::Away { min_distance_m, minutes } => format!("Get {} from home and stay {} min.", metres(*min_distance_m), minutes.round()),
+            Self::Away { minutes } => format!("Be away from home for {} min.", minutes.round()),
             Self::Boss => "The biggest quest of the realm.".to_string(),
         }
     }
@@ -303,7 +301,7 @@ mod tests {
         assert_eq!(Verify::Dwell { minutes: 5.0, radius_m: 30.0 }.how(), "Stay within 30 m for 5 min.");
         assert_eq!(Verify::FollowLine { corridor_m: 25.0, coverage: 0.6, min_len_m: 300.0, max_len_m: 5000.0 }.how(), "Walk 60% of its length.");
         assert_eq!(Verify::CoverCells { cells: 12, cell_m: 150.0 }.how(), "Visit 12 new map cells.");
-        assert_eq!(Verify::Away { min_distance_m: 1500.0, minutes: 30.0 }.how(), "Get 1.5 km from home and stay 30 min.");
+        assert_eq!(Verify::Away { minutes: 30.0 }.how(), "Be away from home for 30 min.");
     }
 
     #[test]

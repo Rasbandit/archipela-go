@@ -114,13 +114,13 @@ impl Chain {
         self.marks.iter().position(|m| m.location_id == location_id).map(|i| i + 1)
     }
 
-    /// "Take 30,000 steps" / "Spend 4 h 30 min at least 1.2 km from home" / "Visit 60 new map squares".
+    /// "Take 30,000 steps" / "Spend 4 h 30 min away from home" / "Visit 60 new map squares".
     #[must_use]
-    pub fn rule_text(&self, away_m: f64) -> String {
+    pub fn rule_text(&self) -> String {
         let t = self.total();
         match self.unit {
             ChainUnit::Steps => format!("Take {} steps", thousands(round_u64(t))),
-            ChainUnit::Minutes => format!("Spend {} at least {} from home", minutes_text(t), distance_text(away_m)),
+            ChainUnit::Minutes => format!("Spend {} away from home", minutes_text(t)),
             ChainUnit::Cells => format!("Visit {} new map squares", round_u64(t)),
         }
     }
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn amount_of_maps_only_the_three_progressive_targets() {
         assert_eq!(amount_of(&Target::Steps { n: 500 }), Some((ChainUnit::Steps, 500.0)));
-        assert_eq!(amount_of(&Target::Away { min_distance_m: 900.0, minutes: 45.0 }), Some((ChainUnit::Minutes, 45.0)));
+        assert_eq!(amount_of(&Target::Away { minutes: 45.0 }), Some((ChainUnit::Minutes, 45.0)));
         assert_eq!(amount_of(&Target::Cells { n: 12, cell_m: 150.0 }), Some((ChainUnit::Cells, 12.0)));
         assert_eq!(amount_of(&Target::Point { p: Point::new(0.0, 0.0), r: 40.0 }), None);
         assert!(is_chain_target(&Target::Steps { n: 1 }));
@@ -237,7 +237,7 @@ mod tests {
         let list = vec![
             steps(1, 500),
             member(2, 2, "step_up", Target::Steps { n: 500 }),
-            member(3, 1, "wanderlust", Target::Away { min_distance_m: 900.0, minutes: 30.0 }),
+            member(3, 1, "wanderlust", Target::Away { minutes: 30.0 }),
             member(4, 1, "street_smarts", Target::Point { p, r: 40.0 }),
         ];
         let ids: Vec<String> = derive(&list).into_iter().map(|c| c.id).collect();
@@ -274,13 +274,13 @@ mod tests {
         assert_eq!(distance_text(850.0), "850 m");
         assert_eq!(distance_text(1200.0), "1.2 km");
         let s = &derive(&[steps(10, 500), steps(20, 29_500)])[0];
-        assert_eq!(s.rule_text(0.0), "Take 30,000 steps");
+        assert_eq!(s.rule_text(), "Take 30,000 steps");
         assert_eq!(s.amount_text(8500.0), "8,500 steps");
-        let a = &derive(&[member(1, 1, "wanderlust", Target::Away { min_distance_m: 1.0, minutes: 270.0 })])[0];
-        assert_eq!(a.rule_text(1200.0), "Spend 4 h 30 min at least 1.2 km from home");
+        let a = &derive(&[member(1, 1, "wanderlust", Target::Away { minutes: 270.0 })])[0];
+        assert_eq!(a.rule_text(), "Spend 4 h 30 min away from home");
         assert_eq!(a.amount_text(90.0), "1 h 30 min");
         let c = &derive(&[member(1, 1, "cartographer", Target::Cells { n: 60, cell_m: 150.0 })])[0];
-        assert_eq!(c.rule_text(0.0), "Visit 60 new map squares");
+        assert_eq!(c.rule_text(), "Visit 60 new map squares");
         assert_eq!(c.amount_text(40.0), "40 squares");
     }
 }

@@ -98,8 +98,6 @@ internal class ApController(
     fun startGame(
         zoneRealms: List<String>,
         name: String,
-        awayZoneOnly: Boolean,
-        awayDistanceM: UInt,
     ) {
         val json = slotJson
         if (json == null) {
@@ -120,8 +118,6 @@ internal class ApController(
                             seed,
                             model.surfacePref,
                             model.avoidStairs,
-                            awayZoneOnly,
-                            awayDistanceM,
                         )
                     }
                 }

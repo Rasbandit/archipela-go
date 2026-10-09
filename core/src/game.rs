@@ -17,8 +17,8 @@ use crate::geo::{distance_m, Point};
 use crate::goal::{evaluate, evaluate_each, GoalCtx, GoalStatus};
 use crate::journal::JournalEvent;
 use crate::near_path::PathIndex;
-use crate::num::{count_f64, count_u32, i64_to_f64, to_f32};
-use crate::realm::{Realm, Shape};
+use crate::num::{count_f64, count_u32, i64_to_f64, round_i64, to_f32};
+use crate::realm::Realm;
 use crate::scan::Atlas;
 use crate::slot::GoalSpec;
 use crate::slot::SlotData;
@@ -218,67 +218,12 @@ pub struct Stats {
     pub quest_days: BTreeSet<i64>,
 }
 
-/// Distance from home for time-away chains when nothing better is known (an old save whose realm is gone).
-pub const DEFAULT_AWAY_M: f64 = 1000.0;
-const AUTO_AWAY_SHARE: f64 = 0.4;
-const AUTO_AWAY_MIN_M: f64 = 300.0;
-const AUTO_AWAY_MAX_M: f64 = 3000.0;
-const CUSTOM_AWAY_MIN_M: f64 = 100.0;
-const CUSTOM_AWAY_MAX_M: f64 = 20_000.0;
-/// Longest gap between two fixes that still counts as time spent away.
-const AWAY_MAX_GAP_MS: i64 = 5 * 60_000;
+/// Within this of the home pin a fix counts as being home: ends time away for players with no saved home Wi-Fi (with one, presence
+/// stops counting at home anyway).
+const HOME_RADIUS_M: f64 = 100.0;
 
 fn yes() -> bool {
     true
-}
-
-/// What the player chose in New Game for time-away quests.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AwayOptions {
-    /// Count time away only inside a zone's area (false: anywhere).
-    pub zone_only: bool,
-    /// A fixed distance in metres; `None` picks one from the realm's size.
-    pub custom_m: Option<f64>,
-}
-
-impl Default for AwayOptions {
-    fn default() -> Self {
-        Self { zone_only: true, custom_m: None }
-    }
-}
-
-impl AwayOptions {
-    /// The away distance for a zone whose realm reaches `farthest_m` from home.
-    #[must_use]
-    pub fn resolve(&self, farthest_m: f64) -> f64 {
-        match self.custom_m {
-            Some(m) => m.clamp(CUSTOM_AWAY_MIN_M, CUSTOM_AWAY_MAX_M),
-            None => (farthest_m * AUTO_AWAY_SHARE).clamp(AUTO_AWAY_MIN_M, AUTO_AWAY_MAX_M),
-        }
-    }
-}
-
-/// The saved form of [`AwayOptions`]: the distance is resolved per zone when the game is created.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AwayConfig {
-    /// Count time away only inside a zone area (false: anywhere).
-    pub zone_only: bool,
-    /// Away distance of each zone in metres, by zone number.
-    pub distance_m: BTreeMap<u32, f64>,
-}
-
-impl Default for AwayConfig {
-    fn default() -> Self {
-        Self { zone_only: true, distance_m: BTreeMap::new() }
-    }
-}
-
-impl AwayConfig {
-    /// The away distance for `zone` in metres, or the default when none was saved.
-    #[must_use]
-    pub fn distance_for(&self, zone: u32) -> f64 {
-        self.distance_m.get(&zone).copied().unwrap_or(DEFAULT_AWAY_M)
-    }
 }
 
 /// Saved progress of the progressive quests.
@@ -291,6 +236,9 @@ pub struct Counters {
     /// Whether map squares are counted in `progress`. False in saves from before that, whose squares were the whole game's `Fog::cells`.
     #[serde(default)]
     pub cells_counted: bool,
+    /// While away from home: up to when time away has been credited (the next event credits from here). `None` at home.
+    #[serde(default)]
+    pub away_mark: Option<i64>,
 }
 
 /// A game in progress: its quests, progress, rewards, fog, traps and goal. Saved as JSON.
@@ -340,9 +288,6 @@ pub struct Game {
     /// Whether quests with stairs were dropped.
     #[serde(default)]
     pub avoid_stairs: bool,
-    /// How time-away quests are counted.
-    #[serde(default)]
-    pub away: AwayConfig,
     /// Saved progress of progressive quests.
     #[serde(default)]
     pub counters: Counters,
@@ -353,8 +298,6 @@ pub struct Game {
     /// When each zone last unlocked in this session, so time away before it is not credited (a loaded game counts its open zones from the first fix).
     #[serde(skip)]
     unlocked_at: BTreeMap<u32, i64>,
-    #[serde(skip_serializing, default = "yes")]
-    in_zone: bool,
     #[serde(skip)]
     outlier_streak: u32,
     #[serde(skip)]
@@ -395,8 +338,6 @@ pub struct NewGame<'a> {
     pub surface: SurfacePref,
     /// Whether to drop quests with stairs.
     pub avoid_stairs: bool,
-    /// How time-away quests are counted.
-    pub away: AwayOptions,
 }
 
 /// How close the player must get for the quest's checkpoint (None for quests without one).
@@ -491,8 +432,6 @@ impl Game {
         };
         let assignments = assign(&slots_in(&n.slot, None), &zones, catalog, &params);
         let pool = trap_pool(&zones);
-        let away =
-            AwayConfig { zone_only: n.away.zone_only, distance_m: zones.iter().map(|z| (z.zone, n.away.resolve(z.realm.shape.farthest_m(n.home)))).collect() };
         Ok(Self {
             id: n.id,
             name: n.name,
@@ -514,12 +453,10 @@ impl Game {
             seed: n.seed,
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
-            away,
             counters: Counters { cells_counted: true, ..Counters::default() },
             trackers: BTreeMap::new(),
             last_fix: None,
             unlocked_at: BTreeMap::new(),
-            in_zone: true,
             outlier_streak: 0,
             last_verdict: Verdict::Used,
             last_speed: None,
@@ -582,14 +519,14 @@ impl Game {
 
     /// Every quest as the UI shows it.
     #[must_use]
-    pub fn quest_views(&self) -> Vec<QuestView> {
+    pub fn quest_views(&self, now_ms: i64) -> Vec<QuestView> {
         let chains = self.chains();
         self.assignments
             .iter()
             .map(|a| {
                 let done = self.done.contains(&a.location_id);
                 let hidden = (self.fog_on() && !self.fog.discovered.contains(&a.location_id)) || (self.traps.fog_active() && !done);
-                let member = self.member_progress(&chains, a.location_id);
+                let member = self.member_progress(&chains, a.location_id, now_ms);
                 let progress = member.as_ref().map_or_else(
                     || {
                         self.trackers.get(&a.location_id).map_or(0.0, |t| match t.status() {
@@ -639,11 +576,11 @@ impl Game {
 
     /// Every progressive chain as the UI shows it.
     #[must_use]
-    pub fn chain_views(&self) -> Vec<ChainView> {
+    pub fn chain_views(&self, now_ms: i64) -> Vec<ChainView> {
         self.chains()
             .into_iter()
             .map(|c| {
-                let counter = self.counter_of(&c);
+                let counter = self.counter_at(&c, now_ms);
                 let family = self
                     .assignments
                     .iter()
@@ -664,7 +601,7 @@ impl Game {
                     })
                     .collect();
                 ChainView {
-                    rule: c.rule_text(self.away.distance_for(c.zone)),
+                    rule: c.rule_text(),
                     total: c.total(),
                     id: c.id,
                     zone: c.zone,
@@ -680,10 +617,10 @@ impl Game {
     }
 
     /// Progress of a chain member toward its own mark (0..1): done = 1, the next unreached mark = how far through its stretch, later ones 0.
-    fn member_progress(&self, chains: &[Chain], location_id: i64) -> Option<(String, f32)> {
+    fn member_progress(&self, chains: &[Chain], location_id: i64, now_ms: i64) -> Option<(String, f32)> {
         let c = chains.iter().find(|c| c.position_of(location_id).is_some())?;
         let i = c.position_of(location_id)? - 1;
-        let counter = self.counter_of(c);
+        let counter = self.counter_at(c, now_ms);
         let at = c.marks[i].at;
         let prev = if i == 0 { 0.0 } else { c.marks[i - 1].at };
         let p = if counter >= at {
@@ -757,8 +694,18 @@ impl Game {
         self.complete_reached(t_ms, self.last_pos())
     }
 
-    /// Presence rules (at home, in the car) switch counting off: nothing is checked, credited or added while it is off.
-    pub fn set_counting(&mut self, on: bool) {
+    /// Presence rules (at home, in the car) switch counting off: nothing is checked, credited or added while it is off. Counting on
+    /// means away from home: time away runs from `t_ms` (unless the last fix put the player at home) until counting goes off.
+    pub fn set_counting(&mut self, on: bool, t_ms: i64) {
+        if on {
+            let at_home = self.last_pos().is_some_and(|p| distance_m(p, self.home) <= HOME_RADIUS_M);
+            if self.counters.away_mark.is_none() && !at_home {
+                self.counters.away_mark = Some(t_ms);
+            }
+        } else {
+            self.settle_away(t_ms);
+            self.counters.away_mark = None;
+        }
         if self.counting == on {
             return;
         }
@@ -773,26 +720,73 @@ impl Game {
         }
     }
 
-    /// The engine tells the game whether the player is inside the area of one of its zones.
-    pub fn set_in_zone(&mut self, inside: bool) {
-        self.in_zone = inside;
+    /// Whether a trap blocks checks where the player last was.
+    fn checks_blocked(&self) -> bool {
+        match self.last_pos() {
+            Some(p) => self.traps.blocks_checks(p).is_some(),
+            None => self.traps.may_block_without_position(),
+        }
     }
 
-    /// Add the time between two accepted fixes to every time-away chain (in an unlocked zone) whose rules the player meets. A zone that unlocked
-    /// between the two fixes is credited only from its unlock (the unlock time is the item's clock, close enough for a clamp).
-    fn accrue_away(&mut self, prev: &Fix, fix: &Fix) {
-        let gap = fix.t_ms - prev.t_ms;
-        if gap <= 0 || gap > AWAY_MAX_GAP_MS || (self.away.zone_only && !self.in_zone) {
+    /// Credit time away up to `t_ms` (from the mark, to every time-away chain of an unlocked zone, not while a trap blocks
+    /// checks) and move the mark there. Called on events only: a fix, counting going off, a scheduled tick.
+    fn settle_away(&mut self, t_ms: i64) {
+        let Some(mark) = self.counters.away_mark else { return };
+        if t_ms <= mark {
             return;
         }
-        for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Minutes) {
-            let from = self.unlocked_at.get(&c.zone).map_or(prev.t_ms, |t| prev.t_ms.max(*t));
-            let dt = fix.t_ms - from;
-            let d = self.away.distance_for(c.zone);
-            if dt > 0 && distance_m(prev.point(), self.home) >= d && distance_m(fix.point(), self.home) >= d {
-                *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64(dt) / 60_000.0;
+        if !self.checks_blocked() {
+            for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Minutes) {
+                let from = self.unlocked_at.get(&c.zone).map_or(mark, |u| mark.max(*u));
+                if t_ms > from {
+                    *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64(t_ms - from) / 60_000.0;
+                }
             }
         }
+        self.counters.away_mark = Some(t_ms);
+    }
+
+    /// Time away on a fix: one at home ends it (the stretch since the last event is not credited: when you got home is unknown);
+    /// one elsewhere credits up to now (not while a trap blocks checks), or starts it.
+    fn away_on_fix(&mut self, fix: &Fix, blocked: bool) {
+        if distance_m(fix.point(), self.home) <= HOME_RADIUS_M {
+            self.counters.away_mark = None;
+        } else if self.counters.away_mark.is_some() && !blocked {
+            self.settle_away(fix.t_ms);
+        } else {
+            self.counters.away_mark = Some(fix.t_ms);
+        }
+    }
+
+    /// A chain's counter as of `now_ms`: what is credited, plus the time away since the mark (worked out when asked, nothing ticks).
+    fn counter_at(&self, c: &Chain, now_ms: i64) -> f64 {
+        let credited = self.counter_of(c);
+        let running = self.counters.away_mark.filter(|_| c.unit == ChainUnit::Minutes && self.zone_unlocked(c.zone) && !self.checks_blocked());
+        running.map_or(credited, |mark| {
+            let from = self.unlocked_at.get(&c.zone).map_or(mark, |u| mark.max(*u));
+            credited + i64_to_f64((now_ms - from).max(0)) / 60_000.0
+        })
+    }
+
+    /// When the next time-away mark will be reached if nothing changes, so the app can schedule one wake-up then; `None` at home.
+    #[must_use]
+    pub fn next_due_ms(&self, now_ms: i64) -> Option<i64> {
+        self.counters.away_mark?;
+        self.unlocked_chains()
+            .into_iter()
+            .filter(|c| c.unit == ChainUnit::Minutes)
+            .filter_map(|c| {
+                let live = self.counter_at(&c, now_ms);
+                let next = c.marks.iter().filter(|m| !self.done.contains(&m.location_id) && m.at > live).map(|m| m.at).reduce(f64::min)?;
+                Some(now_ms + round_i64(((next - live) * 60_000.0).ceil()))
+            })
+            .min()
+    }
+
+    /// A scheduled wake-up (see [`Self::next_due_ms`]): settle time away and complete what fell due.
+    pub fn tick(&mut self, t_ms: i64) -> Vec<Event> {
+        self.settle_away(t_ms);
+        self.complete_reached(t_ms, self.last_pos())
     }
 
     /// Complete every chain member whose mark the counter has passed (in unlocked zones, and not while a trap blocks checks).
@@ -806,7 +800,7 @@ impl Game {
         }
         let mut ev = Vec::new();
         for c in self.unlocked_chains() {
-            let counter = self.counter_of(&c);
+            let counter = self.counter_at(&c, t_ms);
             for id in c.reached(counter) {
                 if !self.done.contains(&id) {
                     ev.extend(self.complete(id, t_ms, pos));
@@ -915,9 +909,7 @@ impl Game {
         for id in finished {
             ev.extend(self.complete(id, fix.t_ms, Some(pos)));
         }
-        if let (Some(prev), None) = (self.last_fix, &blocked) {
-            self.accrue_away(&prev, &fix);
-        }
+        self.away_on_fix(&fix, blocked.is_some());
         ev.extend(self.complete_reached(fix.t_ms, Some(pos)));
         self.last_fix = Some(fix);
         ev
@@ -1237,19 +1229,6 @@ impl Game {
         Ok(g)
     }
 
-    /// An old save has no away distance for its zones: give each the Automatic distance of its realm (looked up by realm id
-    /// with `shape_of`), as New Game would. Zones that already have one, or whose realm is gone, are left alone.
-    pub fn backfill_away(&mut self, shape_of: impl Fn(&str) -> Option<Shape>) {
-        for (z, realm_id) in self.slot.zones.iter().zip(&self.zone_realms) {
-            if self.away.distance_m.contains_key(&z.id) {
-                continue;
-            }
-            if let Some(shape) = shape_of(realm_id) {
-                self.away.distance_m.insert(z.id, AwayOptions::default().resolve(shape.farthest_m(self.home)));
-            }
-        }
-    }
-
     /// An old save has finished chain members but no counters: start each counter at its highest finished mark so nothing is lost or earned twice.
     /// A save from before map squares were counted per chain starts an open zone's squares at the whole game's (what it showed before) and a
     /// locked zone's at nothing, so only squares seen after its unlock count.
@@ -1295,6 +1274,7 @@ impl Game {
 mod tests {
     use super::*;
     use crate::geo::destination;
+    use crate::realm::Shape;
     use crate::scan::build_atlas;
     use crate::solo::{generate, SoloOptions};
 
@@ -1343,7 +1323,6 @@ mod tests {
                 solo_rewards: g.rewards,
                 surface: SurfacePref::Any,
                 avoid_stairs: false,
-                away: AwayOptions::default(),
             },
             &Catalog::builtin(),
         )
@@ -1405,7 +1384,7 @@ mod tests {
         let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]);
         g.on_steps(0, 1);
         g.on_steps(600, 2); // first mark reached
-        let v = &g.chain_views()[0];
+        let v = &g.chain_views(0)[0];
         assert_eq!((v.id.as_str(), v.total, v.counter), ("1:step_up", 1500.0, 600.0));
         assert_eq!(v.rule, "Take 1,500 steps");
         assert_eq!(v.marks.iter().map(|m| (m.at, m.reached, m.reward.is_some())).collect::<Vec<_>>(), vec![(500.0, true, true), (1500.0, false, false)]);
@@ -1416,7 +1395,7 @@ mod tests {
         let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]);
         g.on_steps(0, 1);
         g.on_steps(1000, 2); // mark 1 done, 500 of the next 1000
-        let views = g.quest_views();
+        let views = g.quest_views(0);
         assert!(views.iter().all(|q| q.chain_id.as_deref() == Some("1:step_up")));
         let (a, b) = (&views[0], &views[1]);
         assert_eq!((a.state, a.progress), (QuestState::Done, 1.0));
@@ -1426,7 +1405,7 @@ mod tests {
     #[test]
     fn other_quests_have_no_chain_id() {
         let g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        assert!(g.quest_views().iter().all(|q| q.chain_id.is_none()));
+        assert!(g.quest_views(0).iter().all(|q| q.chain_id.is_none()));
     }
 
     #[test]
@@ -1439,10 +1418,12 @@ mod tests {
         assert_eq!(done, vec!["step up milestone 1 of 2: 500 steps", "step up milestone 2 of 2: 1,500 steps"]);
     }
 
-    fn away_game(minutes: &[f64], zone_only: bool, distance_m: f64) -> Game {
-        let mut g = chain_game("wanderlust", minutes.iter().map(|m| Target::Away { min_distance_m: 1.0, minutes: *m }).collect());
-        g.away = AwayConfig { zone_only, distance_m: [(1, distance_m)].into() };
-        g
+    fn away_game(minutes: &[f64]) -> Game {
+        chain_game("wanderlust", minutes.iter().map(|m| Target::Away { minutes: *m }).collect())
+    }
+
+    fn wanderlust(g: &Game, now_ms: i64) -> f64 {
+        g.chain_views(now_ms).into_iter().find(|c| c.id == "1:wanderlust").unwrap().counter
     }
 
     /// Fixes every 60 s at `dist` metres east of home, `n` of them.
@@ -1452,33 +1433,51 @@ mod tests {
     }
 
     #[test]
-    fn minutes_away_accrue_only_beyond_the_distance_and_unlock_marks() {
-        let mut g = away_game(&[3.0, 2.0], false, 1000.0); // marks at 2 and 5 minutes
-        away_for(&mut g, 400.0, 0, 10);
-        assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "400 m is not away");
-        let ev = away_for(&mut g, 1500.0, 10_000, 4); // 3 intervals = 3 minutes
-        assert_eq!(done_ids(&ev), vec![1001], "the 2-minute member unlocks first");
+    fn time_away_runs_from_leaving_home_with_no_fixes_needed() {
+        let mut g = away_game(&[3.0, 2.0]); // marks at 2 and 5 minutes
+        g.set_counting(false, 0); // at home (Wi-Fi connected)
+        g.set_counting(true, 60_000); // Wi-Fi dropped: away from minute 1
+        assert!((wanderlust(&g, 150_000) - 1.5).abs() < 0.01, "worked out when asked; nothing ran meanwhile");
+        assert_eq!(g.next_due_ms(150_000), Some(180_000), "the 2-minute mark falls due at minute 3");
+        assert_eq!(done_ids(&g.tick(180_000)), vec![1001]);
+        assert_eq!(g.next_due_ms(180_000), Some(360_000));
+        g.set_counting(false, 240_000); // home again at minute 4: three minutes banked
         assert!((g.counters.progress["1:wanderlust"] - 3.0).abs() < 0.01);
-        assert_eq!(done_ids(&away_for(&mut g, 1500.0, 20_000, 4)), vec![1000]);
+        assert_eq!(g.next_due_ms(300_000), None, "at home nothing falls due");
+        assert!((wanderlust(&g, 999_000) - 3.0).abs() < 0.01, "time at home does not count");
     }
 
     #[test]
-    fn a_gap_over_five_minutes_does_not_count_as_time_away() {
-        let mut g = away_game(&[10.0], false, 1000.0);
-        away_for(&mut g, 1500.0, 0, 2); // 1 minute
-        away_for(&mut g, 1500.0, 3600, 1); // an hour later: the interval is not counted
-        assert!((g.counters.progress["1:wanderlust"] - 1.0).abs() < 0.01);
+    fn a_long_stretch_without_fixes_still_counts_as_time_away() {
+        let mut g = away_game(&[10.0]);
+        g.set_counting(true, 0);
+        away_for(&mut g, 1500.0, 0, 1);
+        away_for(&mut g, 1500.0, 540, 1); // nine quiet minutes (indoors, standing still): still away
+        assert!((g.counters.progress["1:wanderlust"] - 9.0).abs() < 0.01);
     }
 
     #[test]
-    fn inside_a_zone_mode_needs_the_engine_to_say_the_player_is_inside() {
-        let mut g = away_game(&[10.0], true, 1000.0);
-        g.set_in_zone(false);
-        away_for(&mut g, 1500.0, 0, 5);
-        assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0));
-        g.set_in_zone(true);
-        away_for(&mut g, 1500.0, 1000, 5);
-        assert!(g.counters.progress["1:wanderlust"] > 3.0);
+    fn without_home_wifi_a_fix_near_home_ends_time_away() {
+        let mut g = away_game(&[10.0]);
+        g.set_counting(true, 0);
+        away_for(&mut g, 400.0, 0, 3); // 400 m is away now: two minutes
+        away_for(&mut g, 50.0, 180, 1); // home: the stretch since the last fix is not credited
+        assert!((g.counters.progress["1:wanderlust"] - 2.0).abs() < 0.01);
+        assert_eq!(g.next_due_ms(200_000), None);
+        away_for(&mut g, 400.0, 300, 1); // out again
+        assert!((wanderlust(&g, 360_000) - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn time_away_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("apgo-away-restart-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut g = away_game(&[10.0]);
+        g.set_counting(true, 0);
+        g.save(&dir).unwrap();
+        let back = Game::load(&dir, "g1").unwrap();
+        assert!((wanderlust(&back, 120_000) - 2.0).abs() < 0.01, "still away after the app restarted");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1508,7 +1507,7 @@ mod tests {
     }
 
     fn cartographer_counter(g: &Game) -> f64 {
-        g.chain_views().into_iter().find(|c| c.id == "1:cartographer").unwrap().counter
+        g.chain_views(0).into_iter().find(|c| c.id == "1:cartographer").unwrap().counter
     }
 
     #[test]
@@ -1602,7 +1601,7 @@ mod tests {
 
     #[test]
     fn minutes_away_in_a_locked_zone_do_not_count_and_only_new_minutes_count_after_unlock() {
-        let mut g = away_game(&[3.0, 2.0], false, 1000.0); // marks at 2 and 5 minutes
+        let mut g = away_game(&[3.0, 2.0]); // marks at 2 and 5 minutes
         lock_zone_1(&mut g);
         assert!(away_for(&mut g, 1500.0, 0, 10).is_empty());
         assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "a locked zone's chain must not fill");
@@ -1615,7 +1614,7 @@ mod tests {
 
     #[test]
     fn a_reward_that_unlocks_the_zone_does_not_credit_the_locked_interval_before_it() {
-        let mut g = away_game(&[3.0, 2.0], false, 1000.0); // marks at 2 and 5 minutes
+        let mut g = away_game(&[3.0, 2.0]); // marks at 2 and 5 minutes
         lock_zone_1(&mut g);
         g.slot.zones.push(crate::slot::ZoneSlot { id: 2, mode: Mode::Walk, zone_keys_needed: 0, tool: None });
         let key_spot = destination(g.home, 90.0, 1600.0); // 100 m beyond where `away_for` stands
@@ -1689,8 +1688,8 @@ mod tests {
         let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
         g.on_steps(1_000, 1);
         freeze(&mut g);
-        g.set_counting(false);
-        g.set_counting(true); // clears the last fix
+        g.set_counting(false, 0);
+        g.set_counting(true, 0); // clears the last fix
         assert!(g.last_pos().is_none());
         g.on_steps(1_100, 2);
         assert!(g.on_steps(1_700, 3).is_empty(), "a frozen player earns nothing from steps");
@@ -1722,7 +1721,7 @@ mod tests {
 
     #[test]
     fn time_away_pauses_while_a_trap_blocks_checks() {
-        let mut g = away_game(&[10.0], false, 1000.0);
+        let mut g = away_game(&[10.0]);
         away_for(&mut g, 1500.0, 0, 1);
         g.traps.trigger("Freeze Trap", 0, Some(g.home), g.home, &g.trap_paths(), &mut SeedableRng::seed_from_u64(1));
         away_for(&mut g, 1500.0, 60, 5);
@@ -1746,7 +1745,7 @@ mod tests {
     fn play_all(g: &mut Game, mut t: i64) -> Vec<Event> {
         let mut all = Vec::new();
         for _ in 0..500 {
-            let Some(q) = g.quest_views().into_iter().find(|q| matches!(q.state, QuestState::Open | QuestState::InProgress)) else { break };
+            let Some(q) = g.quest_views(0).into_iter().find(|q| matches!(q.state, QuestState::Open | QuestState::InProgress)) else { break };
             t += 1000;
             all.extend(g.on_fix(fixat(q.anchor.expect("reach quests have a point"), t), None));
         }
@@ -1757,7 +1756,7 @@ mod tests {
     fn a_new_solo_game_assigns_everything_and_locks_later_zones() {
         let g = game(&reach_only(&[Mode::Walk, Mode::Bike], 20, "all_trips"), Backend::Solo, 4);
         assert_eq!(g.assignments.len(), 20);
-        let views = g.quest_views();
+        let views = g.quest_views(0);
         assert!(views.iter().any(|v| v.zone == 2 && v.state == QuestState::Locked));
         assert!(views.iter().filter(|v| v.zone == 1).all(|v| v.state == QuestState::Open));
     }
@@ -1765,7 +1764,7 @@ mod tests {
     #[test]
     fn quest_views_carry_the_kind_id_so_the_ui_can_pick_an_icon() {
         let g = game(&reach_only(&[Mode::Walk], 5, "all_trips"), Backend::Solo, 4);
-        for (v, a) in g.quest_views().iter().zip(&g.assignments) {
+        for (v, a) in g.quest_views(0).iter().zip(&g.assignments) {
             assert!(!v.kind_id.is_empty());
             assert_eq!(v.kind_id, a.kind_id);
         }
@@ -1774,12 +1773,12 @@ mod tests {
     #[test]
     fn reaching_a_quest_completes_it_once_and_pays_the_solo_reward() {
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        let q = g.quest_views().remove(0);
+        let q = g.quest_views(0).remove(0);
         let ev = g.on_fix(fixat(q.anchor.unwrap(), 100), None);
         assert!(ev.iter().any(|e| matches!(e, Event::QuestDone { location_id, .. } if *location_id == q.location_id)));
         assert!(ev.iter().any(|e| matches!(e, Event::Reward { .. })));
         assert!(g.on_fix(fixat(q.anchor.unwrap(), 200), None).iter().all(|e| !matches!(e, Event::QuestDone { .. })), "no double completion");
-        assert_eq!(g.quest_views().iter().filter(|v| v.state == QuestState::Done).count(), 1);
+        assert_eq!(g.quest_views(0).iter().filter(|v| v.state == QuestState::Done).count(), 1);
     }
 
     #[test]
@@ -1795,14 +1794,14 @@ mod tests {
     #[test]
     fn archipelago_backend_sends_checks_and_unlocks_from_synced_items() {
         let mut g = game(&reach_only(&[Mode::Walk, Mode::Bike], 20, "all_trips"), Backend::Archipelago, 2);
-        let q = g.quest_views().into_iter().find(|v| v.zone == 1).unwrap();
+        let q = g.quest_views(0).into_iter().find(|v| v.zone == 1).unwrap();
         let ev = g.on_fix(fixat(q.anchor.unwrap(), 50), None);
         assert!(ev.iter().any(|e| matches!(e, Event::SendCheck { .. })) && !ev.iter().any(|e| matches!(e, Event::Reward { .. })));
         let ev = g.sync_items(&["Progressive Zone Key".into(), "Bike".into()], 60, None);
         assert!(ev.contains(&Event::ZoneUnlocked { zone: 2 }));
         let again = g.sync_items(&["Progressive Zone Key".into(), "Bike".into()], 70, None);
         assert!(again.is_empty(), "already-seen items trigger nothing");
-        assert!(g.quest_views().iter().any(|v| v.zone == 2 && v.state == QuestState::Open));
+        assert!(g.quest_views(0).iter().any(|v| v.zone == 2 && v.state == QuestState::Open));
     }
 
     #[test]
@@ -1811,7 +1810,7 @@ mod tests {
         let ev = g.receive_item("Freeze Trap", 0, Some(home()));
         assert!(ev.iter().any(|e| matches!(e, Event::Trap { .. })));
         let thaw = g.traps.thaw_point().unwrap();
-        let q = g.quest_views().remove(0);
+        let q = g.quest_views(0).remove(0);
         let ev = g.on_fix(fixat(q.anchor.unwrap(), 100), None);
         assert!(!ev.iter().any(|e| matches!(e, Event::QuestDone { .. })), "frozen: the check must not count");
         g.on_fix(fixat(thaw, 200), None);
@@ -1826,17 +1825,17 @@ mod tests {
         let mut o = reach_only(&[Mode::Walk], 20, "all_trips");
         o.fog_of_war = true;
         let mut g = game(&o, Backend::Solo, 6);
-        assert!(g.quest_views().iter().filter(|v| v.state == QuestState::Hidden).count() >= 10, "most quests start hidden");
-        let target = g.quest_views().into_iter().find(|v| v.state == QuestState::Hidden).unwrap();
+        assert!(g.quest_views(0).iter().filter(|v| v.state == QuestState::Hidden).count() >= 10, "most quests start hidden");
+        let target = g.quest_views(0).into_iter().find(|v| v.state == QuestState::Hidden).unwrap();
         let ev = g.on_fix(fixat(destination(target.anchor.unwrap(), 0.0, 120.0), 10), None);
         assert!(ev.iter().any(|e| matches!(e, Event::Discovered { location_id } if *location_id == target.location_id)));
-        assert!(matches!(g.quest_views().into_iter().find(|v| v.location_id == target.location_id).unwrap().state, QuestState::Open));
+        assert!(matches!(g.quest_views(0).into_iter().find(|v| v.location_id == target.location_id).unwrap().state, QuestState::Open));
     }
 
     #[test]
     fn walking_quests_do_not_count_while_moving_at_vehicle_speed() {
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        let q = g.quest_views().remove(0);
+        let q = g.quest_views(0).remove(0);
         let start = destination(q.anchor.unwrap(), 0.0, 1000.0);
         g.on_fix(fixat(start, 0), None);
         let ev = g.on_fix(fixat(q.anchor.unwrap(), 10), None); // 1 km in 10 s = 360 km/h
@@ -1862,7 +1861,6 @@ mod tests {
                 solo_rewards: g1.rewards,
                 surface: SurfacePref::Any,
                 avoid_stairs: false,
-                away: AwayOptions::default(),
             },
             &Catalog::builtin(),
         );
@@ -1946,8 +1944,7 @@ mod tests {
         let ev = back.on_steps(1210, 2); // 1,200 gained: 1,500 -> 2,700 crosses the mark at 2,600
         assert_eq!(done_ids(&ev), vec![1002]);
 
-        let mut m =
-            chain_game("wanderlust", vec![Target::Away { min_distance_m: 900.0, minutes: 30.0 }, Target::Away { min_distance_m: 900.0, minutes: 45.0 }]);
+        let mut m = chain_game("wanderlust", vec![Target::Away { minutes: 30.0 }, Target::Away { minutes: 45.0 }]);
         m.done.insert(1000);
         m.counters = Counters::default();
         m.save(&dir).unwrap();
@@ -1960,7 +1957,7 @@ mod tests {
     fn reroll_keeps_finished_quests() {
         let o = reach_only(&[Mode::Walk, Mode::Bike], 12, "all_trips");
         let mut g = game(&o, Backend::Solo, 1);
-        let q = g.quest_views().into_iter().find(|v| v.zone == 1).unwrap();
+        let q = g.quest_views(0).into_iter().find(|v| v.zone == 1).unwrap();
         g.on_fix(fixat(q.anchor.unwrap(), 1), None);
         let realms = vec![realm("r0", Mode::Walk), realm("r1", Mode::Bike)];
         let before: Vec<String> = g.assignments.iter().map(|a| format!("{:?}", a.target)).collect();
@@ -1978,7 +1975,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("apgo-game-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        let q = g.quest_views().remove(0);
+        let q = g.quest_views(0).remove(0);
         g.on_fix(fixat(q.anchor.unwrap(), 5), None);
         g.save(&dir).unwrap();
         let back = Game::load(&dir, "g1").unwrap();
@@ -2053,7 +2050,7 @@ mod tests {
 
     fn start_near_a_quest() -> (Game, i64, Point) {
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        let q = g.quest_views().remove(0);
+        let q = g.quest_views(0).remove(0);
         let target = q.anchor.unwrap();
         let p0 = destination(target, 0.0, 200.0);
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(p0, 1000) }, None);
@@ -2064,10 +2061,10 @@ mod tests {
     fn nothing_counts_while_counting_is_off_and_no_steps_are_credited_for_that_time() {
         let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
         g.on_steps(1_000, 1);
-        g.set_counting(false);
+        g.set_counting(false, 0);
         assert!(g.on_steps(5_000, 2).is_empty(), "4,000 steps at home");
         assert_eq!(g.counters.progress.get("1:step_up").copied().unwrap_or(0.0), 0.0);
-        g.set_counting(true);
+        g.set_counting(true, 0);
         assert!(g.on_steps(5_100, 3).is_empty(), "only the 100 steps since counting resumed");
         assert_eq!(g.counters.progress["1:step_up"], 100.0);
     }
@@ -2077,8 +2074,8 @@ mod tests {
         let mut g = chain_game("dwell", vec![Target::Dwell { p: home(), r: 50.0, minutes: 10.0 }]);
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 0) }, None);
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 300) }, None); // 5 of 10 minutes
-        g.set_counting(false);
-        g.set_counting(true);
+        g.set_counting(false, 0);
+        g.set_counting(true, 0);
         let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 700) }, None);
         assert!(ev.is_empty() && g.done.is_empty(), "the timer starts again after the pause: {ev:?}");
         let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 1400) }, None);
@@ -2090,8 +2087,8 @@ mod tests {
         let (a, b) = (destination(home(), 0.0, 400.0), destination(home(), 90.0, 800.0));
         let mut g = chain_game("courier", vec![Target::Courier { a, b, r: 40.0, time_limit_min: 30.0 }]);
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(a, 10) }, None); // picked up
-        g.set_counting(false);
-        g.set_counting(true); // e.g. a ride in the car with Bluetooth connected
+        g.set_counting(false, 0);
+        g.set_counting(true, 0); // e.g. a ride in the car with Bluetooth connected
         let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(b, 300) }, None);
         assert_eq!(done_ids(&ev), vec![1000], "the pickup is kept: {ev:?}");
     }
@@ -2102,8 +2099,8 @@ mod tests {
         let mut g = chain_game("round_trip", vec![Target::RoundTrip { far, r: 50.0 }]);
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(destination(home(), 0.0, 300.0), 0) }, None);
         g.on_fix(Fix { accuracy_m: 5.0, ..fixat(far, 200) }, None); // reached the far point
-        g.set_counting(false);
-        g.set_counting(true);
+        g.set_counting(false, 0);
+        g.set_counting(true, 0);
         let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(home(), 900) }, None);
         assert_eq!(done_ids(&ev), vec![1000], "the far point is kept: {ev:?}");
     }
@@ -2111,11 +2108,11 @@ mod tests {
     #[test]
     fn a_reach_quest_does_not_complete_while_counting_is_off() {
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        let q = g.quest_views().remove(0);
-        g.set_counting(false);
+        let q = g.quest_views(0).remove(0);
+        g.set_counting(false, 0);
         assert!(g.on_fix(Fix { accuracy_m: 5.0, ..fixat(q.anchor.unwrap(), 100) }, None).is_empty());
         assert!(!g.done.contains(&q.location_id));
-        g.set_counting(true);
+        g.set_counting(true, 0);
         assert!(!g.on_fix(Fix { accuracy_m: 5.0, ..fixat(q.anchor.unwrap(), 200) }, None).is_empty());
     }
 
@@ -2123,8 +2120,8 @@ mod tests {
     fn the_first_fix_after_resuming_is_not_judged_against_a_stale_one() {
         let (mut g, id, p0) = start_near_a_quest();
         let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| anchor(&a.target)).unwrap();
-        g.set_counting(false);
-        g.set_counting(true);
+        g.set_counting(false, 0);
+        g.set_counting(true, 0);
         // 200 m from the last fix 3 s later would be dropped as a jump if the old fix were kept
         let ev = g.on_fix(Fix { accuracy_m: 5.0, ..fixat(target, 1003) }, None);
         assert!(ev.iter().any(|e| matches!(e, Event::QuestDone { location_id, .. } if *location_id == id)), "{ev:?} from {p0:?}");
@@ -2134,7 +2131,7 @@ mod tests {
     fn distance_is_not_added_while_counting_is_off() {
         let (mut g, _, p0) = start_near_a_quest();
         let before = g.stats.distance_m;
-        g.set_counting(false);
+        g.set_counting(false, 0);
         for i in 1..=10 {
             g.on_fix(Fix { accuracy_m: 5.0, ..fixat(destination(p0, 90.0, 30.0 * f64::from(i)), 1000 + i64::from(i) * 10) }, None);
         }
@@ -2207,7 +2204,7 @@ mod tests {
     #[test]
     fn a_completed_quest_is_logged_with_how_it_was_done_and_its_reward_with_where_it_came_from() {
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        let q = g.quest_views().remove(0);
+        let q = g.quest_views(0).remove(0);
         let ev = g.on_fix(fixat(q.anchor.unwrap(), 100), None);
         let at = Some((q.anchor.unwrap().lat, q.anchor.unwrap().lon));
         let log = g.journal_events(&ev, 100_000, at);
@@ -2239,73 +2236,25 @@ mod tests {
     #[test]
     fn poor_accuracy_fixes_are_ignored() {
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        let q = g.quest_views().remove(0);
+        let q = g.quest_views(0).remove(0);
         let mut f = fixat(q.anchor.unwrap(), 5);
         f.accuracy_m = 300.0;
         assert!(g.on_fix(f, None).is_empty());
     }
 
     #[test]
-    fn automatic_away_distance_is_40_percent_of_the_realm_reach_within_limits() {
-        let auto = AwayOptions { zone_only: true, custom_m: None };
-        assert_eq!(auto.resolve(1000.0), 400.0);
-        assert_eq!(auto.resolve(100.0), 300.0, "never below 300 m");
-        assert_eq!(auto.resolve(50_000.0), 3000.0, "never above 3 km");
-    }
-
-    #[test]
-    fn a_custom_away_distance_is_used_but_kept_sane() {
-        let custom = |m| AwayOptions { zone_only: false, custom_m: Some(m) };
-        assert_eq!(custom(1500.0).resolve(1000.0), 1500.0);
-        assert_eq!(custom(5.0).resolve(1000.0), 100.0);
-        assert_eq!(custom(1e9).resolve(1000.0), 20_000.0);
-    }
-
-    #[test]
-    fn a_new_game_gets_a_distance_for_every_zone_and_empty_counters() {
+    fn a_new_game_starts_with_empty_counters_and_no_time_away() {
         let g = game(&reach_only(&[Mode::Walk, Mode::Bike], 20, "all_trips"), Backend::Solo, 4);
-        assert!(g.away.zone_only);
-        assert_eq!(g.away.distance_m.len(), g.slot.zones.len());
-        assert!(g.away.distance_m.values().all(|d| (300.0..=3000.0).contains(d)), "{:?}", g.away);
-        assert!(g.counters.progress.is_empty() && g.counters.steps_last.is_none());
+        assert!(g.counters.progress.is_empty() && g.counters.steps_last.is_none() && g.counters.away_mark.is_none());
     }
 
     #[test]
     fn a_saved_game_from_before_chains_loads_with_defaults() {
         let g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
         let mut v = serde_json::to_value(&g).unwrap();
-        v.as_object_mut().unwrap().remove("away");
         v.as_object_mut().unwrap().remove("counters");
+        v.as_object_mut().unwrap().insert("away".into(), serde_json::json!({"zone_only": true, "distance_m": {"1": 900.0}}));
         let back: Game = serde_json::from_value(v).unwrap();
-        assert_eq!(back.away, AwayConfig::default());
-        assert!(back.counters.progress.is_empty());
-        assert_eq!(back.away.distance_for(1), DEFAULT_AWAY_M);
-    }
-
-    #[test]
-    fn an_old_save_gets_the_automatic_away_distance_of_each_zone_realm() {
-        let o = reach_only(&[Mode::Walk, Mode::Bike], 20, "all_trips");
-        let realms: Vec<(Realm, Atlas)> = o.zone_modes.iter().enumerate().map(|(i, m)| realm(&format!("r{i}"), *m)).collect();
-        let g = game(&o, Backend::Solo, 4);
-        let mut v = serde_json::to_value(&g).unwrap();
-        v.as_object_mut().unwrap().remove("away");
-        let mut back: Game = serde_json::from_value(v).unwrap();
-        // The second zone's realm is gone: it keeps the fallback.
-        back.backfill_away(|id| realms.iter().find(|(r, _)| r.id == id && id != "r1").map(|(r, _)| r.shape.clone()));
-        let z = &back.slot.zones;
-        let want = AwayOptions::default().resolve(realms[0].0.shape.farthest_m(back.home));
-        assert_eq!(back.away.distance_for(z[0].id), want);
-        assert_ne!(want, DEFAULT_AWAY_M, "the test realm must not match the fallback by chance");
-        assert_eq!(back.away.distance_for(z[1].id), DEFAULT_AWAY_M);
-        assert!(!back.away.distance_m.contains_key(&z[1].id));
-    }
-
-    #[test]
-    fn backfill_keeps_distances_a_game_already_has() {
-        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        let zone = g.slot.zones[0].id;
-        g.away.distance_m.insert(zone, 1234.0);
-        g.backfill_away(|_| Some(Shape::Circle { center: home(), radius_m: 5000.0 }));
-        assert_eq!(g.away.distance_for(zone), 1234.0);
+        assert!(back.counters.progress.is_empty() && back.counters.away_mark.is_none(), "an old save's away settings are ignored");
     }
 }

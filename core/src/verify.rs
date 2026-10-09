@@ -216,10 +216,10 @@ impl Tracker {
                     self.done = *now >= i64::from(*n);
                 }
             }
-            (Target::Away { min_distance_m, minutes }, State::Away { accum_ms, last_t }) => {
+            (Target::Away { minutes }, State::Away { accum_ms, last_t }) => {
                 if let Some(prev) = *last_t {
                     let dt = fix.t_ms - prev;
-                    if distance_m(p, self.home) >= *min_distance_m && (0..=MAX_GAP_MS).contains(&dt) {
+                    if distance_m(p, self.home) > HOME_RADIUS_M && (0..=MAX_GAP_MS).contains(&dt) {
                         *accum_ms += dt;
                     }
                 }
@@ -350,7 +350,7 @@ mod tests {
         assert_eq!(dwell.update(&fix(home(), 1300), None), Status::Done);
 
         let far = destination(home(), 0.0, 1000.0);
-        let mut away = Tracker::new(Target::Away { min_distance_m: 500.0, minutes: 10.0 }, home());
+        let mut away = Tracker::new(Target::Away { minutes: 10.0 }, home());
         away.update(&fix(far, 0), None);
         away.update(&fix(far, 60), None); // one minute counted
         away.pause();
@@ -419,12 +419,12 @@ mod tests {
         assert_eq!(s.update(&fix(home(), 120), Some(51_100)), Status::Done);
 
         let away = destination(home(), 0.0, 2000.0);
-        let mut a = Tracker::new(Target::Away { min_distance_m: 1000.0, minutes: 10.0 }, home());
+        let mut a = Tracker::new(Target::Away { minutes: 10.0 }, home());
         for i in 0..=11 {
             a.update(&fix(away, i * 60), None);
         }
         assert_eq!(a.status(), Status::Done);
-        let mut gap = Tracker::new(Target::Away { min_distance_m: 1000.0, minutes: 10.0 }, home());
+        let mut gap = Tracker::new(Target::Away { minutes: 10.0 }, home());
         gap.update(&fix(away, 0), None);
         gap.update(&fix(away, 3600), None);
         assert_ne!(gap.status(), Status::Done, "a one-hour gap in fixes must not count as time away");

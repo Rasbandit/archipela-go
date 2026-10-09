@@ -60,6 +60,7 @@ internal class AppModel(
     val ap = ApController(this, ctx, scope)
     val sim = DevSimulator(this, scope)
     val diag = FieldDiagnostics(this, ctx)
+    val due = DueTimer(this, scope)
     private val traceThrottle = Throttle(TRACE_REFRESH_MS)
     private val stepRefresh = StepRefresh(STEP_REFRESH_STEPS)
 
@@ -138,9 +139,9 @@ internal class AppModel(
     /** Reload the open game's quests, zones, chains and HUD (and its trace, when [withTrace]). */
     fun refreshPlay(withTrace: Boolean = true) {
         if (engine.hasGame()) {
-            quests = engine.quests()
+            quests = engine.quests(now())
             zones = engine.zones()
-            chains = engine.chains()
+            chains = engine.chains(now())
             hud = engine.hud(now())
             if (withTrace) trace = engine.track(0L, Long.MAX_VALUE).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
         } else {
@@ -152,6 +153,7 @@ internal class AppModel(
             trace = emptyList()
         }
         noteJournal()
+        due.schedule()
     }
 
     /** Pick up whether the activity log changed (a cheap read; call after anything that may have logged). */

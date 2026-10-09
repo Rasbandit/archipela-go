@@ -2235,13 +2235,12 @@
    "id": "wanderlust",
    "name": "Wanderlust",
    "family": "away",
-   "blurb": "Spend time well away from home.",
+   "blurb": "Spend time away from home.",
    "geom": "none",
    "any_of": [],
    "require_name": false,
    "verify": {
     "type": "away",
-    "min_distance_m": 1000,
     "minutes": 60
    },
    "modes": [

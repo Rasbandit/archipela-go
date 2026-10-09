@@ -127,7 +127,7 @@ A kind appears for a realm only if the scan found at least `min_features` matchi
 
 | Quest | What | Map data (OSM) | Proof | Modes |
 | -- | -- | -- | -- | -- |
-| **Wanderlust** | Spend time well away from home. | (no map data needed) | away (min_distance_m=1000, minutes=60) | walk, run, bike, drive |
+| **Wanderlust** | Spend time away from home. | (no map data needed) | away (minutes=60) | walk, run, bike, drive |
 
 ## boss (1)
 

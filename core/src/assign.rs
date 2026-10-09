@@ -104,9 +104,7 @@ pub enum Target {
     },
     /// Spend time far from home.
     Away {
-        /// Minimum distance from home, in metres.
-        min_distance_m: f64,
-        /// How long to stay away, in minutes.
+        /// How long to be away from home, in minutes.
         minutes: f64,
     },
 }
@@ -124,7 +122,7 @@ impl Target {
             Self::RoundTrip { .. } => "Reach the far point, then come back home".to_string(),
             Self::Cells { n, .. } => format!("Visit {n} new map cells"),
             Self::Steps { n } => format!("Take {n} steps"),
-            Self::Away { min_distance_m, minutes } => format!("Spend {minutes:.0} min at least {:.1} km from home", min_distance_m / 1000.0),
+            Self::Away { minutes } => format!("Spend {minutes:.0} min away from home"),
         }
     }
 }
@@ -482,7 +480,7 @@ fn free_candidate(
         }
         Verify::Away { .. } => {
             let minutes = (want * 3.0).clamp(30.0, 480.0);
-            Some((Target::Away { min_distance_m: 800.0 + 300.0 * (want / p.minutes_per_tier + 0.5), minutes }, want, "Away from home".into()))
+            Some((Target::Away { minutes }, want, "Away from home".into()))
         }
         _ => None,
     }
@@ -1313,7 +1311,7 @@ mod goal_text_tests {
             (Target::RoundTrip { far: p, r: 50.0 }, "Reach the far point, then come back home"),
             (Target::Cells { n: 12, cell_m: 100.0 }, "Visit 12 new map cells"),
             (Target::Steps { n: 500 }, "Take 500 steps"),
-            (Target::Away { min_distance_m: 1500.0, minutes: 20.0 }, "Spend 20 min at least 1.5 km from home"),
+            (Target::Away { minutes: 20.0 }, "Spend 20 min away from home"),
         ];
         for (t, want) in cases {
             assert_eq!(t.goal_text(), want);
