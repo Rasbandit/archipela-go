@@ -22,6 +22,7 @@ pub mod realm;
 pub mod sampler;
 pub mod save_policy;
 pub mod scan;
+pub mod settings;
 pub mod slot;
 pub mod solo;
 pub mod tilegrid;
