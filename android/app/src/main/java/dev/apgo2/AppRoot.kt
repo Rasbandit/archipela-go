@@ -15,6 +15,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.unit.dp
@@ -69,6 +71,13 @@ internal fun AppRoot(
 
 @Composable
 private fun AppNavigationBar(m: AppModel) {
+    // No pill behind the selected icon: the icon and label colour alone mark it.
+    val colors =
+        NavigationBarItemDefaults.colors(
+            selectedIconColor = MaterialTheme.colorScheme.primary,
+            selectedTextColor = MaterialTheme.colorScheme.primary,
+            indicatorColor = Color.Transparent,
+        )
     NavigationBar {
         NAV_TABS.forEachIndexed { i, tab ->
             NavigationBarItem(
@@ -79,6 +88,7 @@ private fun AppNavigationBar(m: AppModel) {
                 },
                 icon = { Icon(tab.icon, contentDescription = tab.label) },
                 label = { Text(tab.label) },
+                colors = colors,
             )
         }
     }
