@@ -8,12 +8,17 @@ import kotlinx.coroutines.SupervisorJob
 
 /** Owns the model for the life of the process, so tracking survives the activity being recreated or destroyed. */
 internal class ApgoApp : Application() {
-    val model: AppModel by lazy {
-        AppModel(applicationContext, CoroutineScope(SupervisorJob() + Dispatchers.Main)).apply {
-            refreshAll()
-            library.resumePlaying()
+    private val modelLazy =
+        lazy {
+            AppModel(applicationContext, CoroutineScope(SupervisorJob() + Dispatchers.Main)).apply {
+                refreshAll()
+                library.resumePlaying()
+            }
         }
-    }
+    val model: AppModel by modelLazy
+
+    /** The model if this process already loaded it (the screen or the tracking service did), without loading it. */
+    val loadedModel: AppModel? get() = if (modelLazy.isInitialized()) modelLazy.value else null
 
     override fun onCreate() {
         super.onCreate()

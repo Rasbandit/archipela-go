@@ -120,7 +120,7 @@ pub fn centroid(pts: &[Point]) -> Point {
 }
 
 /// `lon` in [-180, 180].
-fn normal_lon(lon: f64) -> f64 {
+pub(crate) fn normal_lon(lon: f64) -> f64 {
     if (-180.0..=180.0).contains(&lon) {
         lon
     } else {
@@ -144,7 +144,7 @@ pub fn distance_to_segment_m(p: Point, a: Point, b: Point) -> f64 {
 }
 
 /// `lon` moved by whole turns to within 180° of `around`, so a shape across the antimeridian is one piece around a point.
-fn unwrap_lon(lon: f64, around: f64) -> f64 {
+pub(crate) fn unwrap_lon(lon: f64, around: f64) -> f64 {
     around + (lon - around + 180.0).rem_euclid(360.0) - 180.0
 }
 

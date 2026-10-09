@@ -10,6 +10,9 @@ use crate::zone::Zone;
 /// Size of a cell in degrees (both ways): about 2.2 km north-south, 1.5 km east-west at 45 degrees.
 pub const CELL_DEG: f64 = 0.02;
 
+/// Columns in one turn of the globe (360 / `CELL_DEG`).
+const COLS: i32 = 18_000;
+
 /// A cell of the grid, by index (row = latitude, col = longitude). Cell 0,0 starts at 0N 0E.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Tile {
@@ -20,10 +23,15 @@ pub struct Tile {
 }
 
 impl Tile {
-    /// The tile containing `p`.
+    /// The tile containing `p` (longitudes past ±180 wrap round, so lon 180 and -180 share a tile).
     #[must_use]
     pub fn containing(p: Point) -> Self {
-        Self { row: floor_i32(p.lat / CELL_DEG), col: floor_i32(p.lon / CELL_DEG) }
+        Self::at(floor_i32(p.lat / CELL_DEG), floor_i32(p.lon / CELL_DEG))
+    }
+
+    /// The tile at `row`, `col`, with the column wrapped into one turn of the globe.
+    fn at(row: i32, col: i32) -> Self {
+        Self { row, col: (col + COLS / 2).rem_euclid(COLS) - COLS / 2 }
     }
 
     /// The centre point of the tile.
@@ -43,7 +51,9 @@ impl Tile {
 /// The cells a zone touches (not its whole bounding box), in a stable order.
 pub fn tiles_for(zone: &Zone) -> Vec<Tile> {
     let (sw, ne) = zone.bbox();
-    let (lo, hi) = (Tile::containing(sw), Tile::containing(ne));
+    // Unwrapped bounds: across lon 180 the east column runs past the wrap, so the loop below walks straight over it.
+    let (row_lo, row_hi) = (floor_i32(sw.lat / CELL_DEG), floor_i32(ne.lat / CELL_DEG));
+    let (col_lo, col_hi) = (floor_i32(sw.lon / CELL_DEG), floor_i32(ne.lon / CELL_DEG));
     // Cells the outline passes through: sample it finer than a cell is wide.
     let outline: Vec<Point> = match zone {
         Zone::Polygon(v) => {
@@ -57,9 +67,9 @@ pub fn tiles_for(zone: &Zone) -> Vec<Tile> {
     };
     let mut out: BTreeSet<Tile> = outline.into_iter().map(Tile::containing).collect();
     // Cells wholly inside have no outline in them: take every cell whose centre is inside.
-    for row in lo.row..=hi.row {
-        for col in lo.col..=hi.col {
-            let t = Tile { row, col };
+    for row in row_lo..=row_hi {
+        for col in col_lo..=col_hi {
+            let t = Tile::at(row, col);
             if zone.contains(t.center()) {
                 out.insert(t);
             }
@@ -134,6 +144,18 @@ mod tests {
         let after: BTreeSet<Tile> = tiles_for(&circle(destination(c, 90.0, 1500.0), 1500.0)).into_iter().collect();
         let new: Vec<&Tile> = after.difference(&before).collect();
         assert!(!new.is_empty() && new.len() < after.len(), "{} new of {}", new.len(), after.len());
+    }
+
+    #[test]
+    fn a_zone_across_lon_180_gets_cells_on_both_sides_and_no_more() {
+        let c = Point::new(-17.0, 179.99);
+        let tiles = tiles_for(&circle(c, 3000.0));
+        assert!(tiles.len() < 200, "{} cells", tiles.len());
+        assert!(tiles.iter().all(|t| (-9000..9000).contains(&t.col)), "{tiles:?}");
+        for p in [c, destination(c, 90.0, 2990.0), destination(c, 270.0, 2990.0)] {
+            assert!(tiles.contains(&Tile::containing(p)), "{p:?}");
+        }
+        assert_eq!(Tile::containing(Point::new(0.0, 180.0)), Tile::containing(Point::new(0.0, -180.0)));
     }
 
     #[test]

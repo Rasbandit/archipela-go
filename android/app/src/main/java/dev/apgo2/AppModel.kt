@@ -60,7 +60,7 @@ internal class AppModel(
     val ap = ApController(this, ctx, scope)
     val sim = DevSimulator(this, scope)
     val diag = FieldDiagnostics(this, ctx)
-    val due = DueTimer(this, scope)
+    val due = DueTimer(this, scope, ctx)
     private val traceThrottle = Throttle(TRACE_REFRESH_MS)
     private val stepRefresh = StepRefresh(STEP_REFRESH_STEPS)
 
