@@ -219,7 +219,7 @@ internal fun renderQuestPin(
         val inner = body * 0.64f
         icon(icon, head.x - inner / 2, inner, ApgoPalette.onPin, top = head.y - inner / 2)
         val dot = body * 0.05f
-        PipLayout.centers(pips, head.x, head.y + body * PIP_ROW_FRACTION, gap = body * 0.13f).forEach { (x, y) ->
+        PipLayout.centers(pips, head.x, head.y + body * PIP_ROW_FRACTION, gap = body * 0.145f).forEach { (x, y) ->
             drawCircle(ApgoPalette.onPin, radius = dot, center = Offset(x, y))
         }
         if (badge != MapMarkers.Badge.None) {
