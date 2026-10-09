@@ -40,7 +40,10 @@ impl Zone {
         match self {
             Self::Circle { radius_m, .. } => *radius_m,
             Self::Annulus { max_m, .. } => *max_m,
-            Self::Polygon(v) => v.iter().map(|p| distance_m(self.home(), *p)).fold(0.0, f64::max),
+            Self::Polygon(v) => {
+                let home = self.home();
+                v.iter().map(|p| distance_m(home, *p)).fold(0.0, f64::max)
+            }
         }
     }
 
