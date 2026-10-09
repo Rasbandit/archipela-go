@@ -62,3 +62,14 @@ npm install -g --prefix ~/.local markdownlint-cli2@0.23.3
 
 If you change `slot_data`, update `apworld/docs/contract.md` and `apworld/docs/slot_data.schema.json`
 in the same pull request.
+
+## Licensing
+
+| Path | Licence |
+| -- | -- |
+| `android/` | PolyForm Noncommercial 1.0.0 (`android/LICENSE`) |
+| everything else (`apworld/`, `core/`, `docs/`, `scripts/`) | MIT (`LICENSE`) |
+| `core/vendor/`, other third-party code | its own licence (`THIRD_PARTY_NOTICES.md`) |
+
+Contributions are accepted under the licence of the directory they touch. Changes to `android/` also need
+the maintainer's contributor agreement before merge, so the app can still be distributed commercially.
