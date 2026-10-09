@@ -69,7 +69,12 @@ impl Zone {
             Self::Annulus { center, min_m, max_m } => {
                 distance_to_segment_m(*center, a, b) <= *max_m && distance_m(*center, a).max(distance_m(*center, b)) >= *min_m
             }
-            Self::Polygon(v) => point_in_polygon(a, v) || point_in_polygon(b, v) || (0..v.len()).any(|i| segments_cross(a, b, v[i], v[(i + 1) % v.len()])),
+            Self::Polygon(v) => {
+                // Planar crossing on longitudes taken the short way from `a`, so a zone across lon ±180 is one piece.
+                let near = |q: Point| Point::new(q.lat, unwrap_lon(q.lon, a.lon));
+                let (pa, pb) = (near(a), near(b));
+                point_in_polygon(a, v) || point_in_polygon(b, v) || (0..v.len()).any(|i| segments_cross(pa, pb, near(v[i]), near(v[(i + 1) % v.len()])))
+            }
         }
     }
 
@@ -149,6 +154,15 @@ mod tests {
         let h = fiji_square().home();
         assert!(h.lon.abs() > 179.99 && h.lon.abs() <= 180.0 && (h.lat + 17.0).abs() < 1e-9, "{h:?}");
         assert!(fiji_square().max_extent_m() < 20_000.0);
+    }
+
+    #[test]
+    fn a_segment_across_lon_180_touches_a_polygon_there_the_short_way() {
+        // A way through Fiji's square with both ends outside it, one on each side of the antimeridian.
+        let (w, e) = (Point::new(-17.0, 179.8), Point::new(-17.0, -179.8));
+        assert!(fiji_square().touches_segment(w, e));
+        let (n_w, n_e) = (Point::new(-16.5, 179.8), Point::new(-16.5, -179.8));
+        assert!(!fiji_square().touches_segment(n_w, n_e), "north of the square");
     }
 
     #[test]
