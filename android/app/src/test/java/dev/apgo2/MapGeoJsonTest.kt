@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.Units
 import dev.apgo2.ui.hex
 import org.json.JSONArray
 import org.json.JSONObject
@@ -15,6 +16,7 @@ import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
+import uniffi.apgo_ffi.UnitSystem
 import java.util.Locale
 
 class GeoJsonTest {
@@ -62,9 +64,13 @@ class GeoJsonTest {
 
 class MapFeaturesTest {
     private val saved = Locale.getDefault()
+    private val savedSystem = Units.system
     private val triangle = listOf(geo(0.0, 0.0), geo(0.0, 1.0), geo(1.0, 1.0))
 
-    @After fun restore() = Locale.setDefault(saved)
+    @After fun restore() {
+        Locale.setDefault(saved)
+        Units.system = savedSystem
+    }
 
     private fun geo(
         lat: Double,
@@ -284,13 +290,14 @@ class MapFeaturesTest {
             .props()
             .getString(MapProp.LABEL)
 
-    @Test fun radiusLabelUsesTheRegionsUnitWithADecimalPoint() {
+    @Test fun radiusLabelUsesTheChosenUnitWithADecimalPoint() {
         Locale.setDefault(Locale.GERMANY)
-        assertEquals("999 m", radiusLabel(999.0))
-        assertEquals("1 km", radiusLabel(999.9)) // was "999 m" (truncated); now rounded like every other distance
+        Units.system = UnitSystem.METRIC
+        assertEquals("990 m", radiusLabel(990.0))
+        assertEquals("1 km", radiusLabel(999.0)) // rounded like every other distance, never "999 m"
         assertEquals("1 km", radiusLabel(1000.0))
         assertEquals("2.5 km", radiusLabel(2500.0))
-        Locale.setDefault(Locale.US)
+        Units.system = UnitSystem.IMPERIAL
         assertEquals("1.5 mi", radiusLabel(1.5 * 1609.344))
     }
 

@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::units::{distance_rounded, Round, UnitSystem};
+
 /// How the player travels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -146,21 +148,13 @@ pub enum Verify {
     Boss,
 }
 
-fn metres(m: f64) -> String {
-    if m < 1000.0 {
-        format!("{} m", m.round())
-    } else {
-        format!("{} km", (m / 100.0).round() / 10.0)
-    }
-}
-
 impl Verify {
-    /// What the player has to do, in one plain sentence.
+    /// What the player has to do, in one plain sentence, in the player's units.
     #[must_use]
-    pub fn how(&self) -> String {
+    pub fn how(&self, units: UnitSystem) -> String {
         match self {
-            Self::Reach { radius_m } => format!("Get within {}.", metres(*radius_m)),
-            Self::Dwell { minutes, radius_m } => format!("Stay within {} for {} min.", metres(*radius_m), minutes.round()),
+            Self::Reach { radius_m } => format!("Get within {}.", distance_rounded(*radius_m, units, Round::Down)),
+            Self::Dwell { minutes, radius_m } => format!("Stay within {} for {} min.", distance_rounded(*radius_m, units, Round::Down), minutes.round()),
             Self::DwellInArea { minutes } => format!("Spend {} min inside it.", minutes.round()),
             Self::FollowLine { coverage, .. } => format!("Walk {}% of its length.", (coverage * 100.0).round()),
             Self::Courier { .. } => "Pick something up at one spot and deliver it to another.".to_string(),
@@ -297,11 +291,15 @@ mod tests {
 
     #[test]
     fn verify_explains_how_to_complete_a_quest_in_plain_words() {
-        assert_eq!(Verify::Reach { radius_m: 40.0 }.how(), "Get within 40 m.");
-        assert_eq!(Verify::Dwell { minutes: 5.0, radius_m: 30.0 }.how(), "Stay within 30 m for 5 min.");
-        assert_eq!(Verify::FollowLine { corridor_m: 25.0, coverage: 0.6, min_len_m: 300.0, max_len_m: 5000.0 }.how(), "Walk 60% of its length.");
-        assert_eq!(Verify::CoverCells { cells: 12, cell_m: 150.0 }.how(), "Visit 12 new map cells.");
-        assert_eq!(Verify::Away { minutes: 30.0 }.how(), "Be away from home for 30 min.");
+        assert_eq!(Verify::Reach { radius_m: 40.0 }.how(UnitSystem::Metric), "Get within 40 m.");
+        assert_eq!(Verify::Dwell { minutes: 5.0, radius_m: 30.0 }.how(UnitSystem::Metric), "Stay within 30 m for 5 min.");
+        assert_eq!(
+            Verify::FollowLine { corridor_m: 25.0, coverage: 0.6, min_len_m: 300.0, max_len_m: 5000.0 }.how(UnitSystem::Metric),
+            "Walk 60% of its length."
+        );
+        assert_eq!(Verify::CoverCells { cells: 12, cell_m: 150.0 }.how(UnitSystem::Metric), "Visit 12 new map cells.");
+        assert_eq!(Verify::Away { minutes: 30.0 }.how(UnitSystem::Metric), "Be away from home for 30 min.");
+        assert_eq!(Verify::Reach { radius_m: 40.0 }.how(UnitSystem::Imperial), "Get within 130 ft.");
     }
 
     #[test]

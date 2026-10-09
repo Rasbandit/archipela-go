@@ -85,16 +85,6 @@ pub fn minutes_text(m: f64) -> String {
     }
 }
 
-/// 850 -> "850 m", 1200 -> "1.2 km".
-#[must_use]
-pub fn distance_text(m: f64) -> String {
-    if m >= 1000.0 {
-        format!("{:.1} km", m / 1000.0)
-    } else {
-        format!("{m:.0} m")
-    }
-}
-
 impl Chain {
     /// The counter value at which the last mark unlocks; 0 for an empty chain.
     #[must_use]
@@ -271,8 +261,6 @@ mod tests {
         assert_eq!(minutes_text(45.0), "45 min");
         assert_eq!(minutes_text(120.0), "2 h");
         assert_eq!(minutes_text(270.0), "4 h 30 min");
-        assert_eq!(distance_text(850.0), "850 m");
-        assert_eq!(distance_text(1200.0), "1.2 km");
         let s = &derive(&[steps(10, 500), steps(20, 29_500)])[0];
         assert_eq!(s.rule_text(), "Take 30,000 steps");
         assert_eq!(s.amount_text(8500.0), "8,500 steps");

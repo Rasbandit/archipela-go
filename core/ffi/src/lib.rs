@@ -11,6 +11,7 @@ use apgo_core::zone::Zone;
 uniffi::setup_scaffolding!();
 
 pub mod engine;
+pub mod settings;
 
 /// Must match the apworld's game name exactly (`apworld/ap_go2/constants.py`).
 const GAME_NAME: &str = "Archipela-Go 2: Electric Boogaloo";

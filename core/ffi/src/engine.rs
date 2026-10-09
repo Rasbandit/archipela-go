@@ -16,8 +16,10 @@ use apgo_core::num::count_u32;
 use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
 use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_realm, Atlas};
+use apgo_core::settings::{resolve_units, Settings};
 use apgo_core::slot::SlotData;
 use apgo_core::solo::{generate, SoloOptions};
+use apgo_core::units::{distance, distance_rounded, Round, UnitSystem};
 use apgo_core::verify::{Fix, MAX_ACCURACY_M};
 use apgo_core::yaml::build_yaml;
 
@@ -512,8 +514,8 @@ fn ev_out(e: Event) -> EventOut {
     }
 }
 
-fn describe(t: &Target) -> (&'static str, Option<Point>, Option<Point>, f64, Vec<Point>, String) {
-    let text = t.goal_text();
+fn describe(t: &Target, units: UnitSystem) -> (&'static str, Option<Point>, Option<Point>, f64, Vec<Point>, String) {
+    let text = t.goal_text(units);
     match t {
         Target::Point { p, r } => ("point", Some(*p), None, *r, vec![], text),
         Target::Dwell { p, r, .. } => ("dwell", Some(*p), None, *r, vec![], text),
@@ -606,9 +608,38 @@ pub struct Engine {
     zone_shapes: Mutex<Vec<Shape>>,
     // Where the last fix was relative to the zones, worked out once in `on_fix` for presence to read.
     last_proximity: Mutex<Option<Proximity>>,
+    /// The phone's region (ISO country code) that `Auto` units follow; empty until the app sets it.
+    region: Mutex<String>,
+    /// The units text is written in, worked out from the unit setting and `region` whenever either changes.
+    units: Mutex<UnitSystem>,
 }
 
 impl Engine {
+    /// The directory the engine keeps its files in.
+    pub(crate) fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
+    /// The units text is written in now.
+    pub(crate) fn unit_system(&self) -> UnitSystem {
+        *self.units.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Work the units out again from the saved choice and the region (replaced by `region` when given), and switch the open
+    /// game's text to them.
+    pub(crate) fn refresh_units(&self, region: Option<String>) {
+        let mut r = self.region.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(new) = region {
+            *r = new;
+        }
+        let u = resolve_units(Settings::load(&self.dir).units, &r);
+        *self.units.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = u;
+        // Keep `region` locked until the game has the units too, so two racing refreshes cannot leave the game on the older
+        // units while `units` holds the newer ones. No path takes `region` while holding the game lock.
+        self.with_game(|g| g.set_units(u));
+        drop(r);
+    }
+
     fn store(&self) -> RealmStore {
         RealmStore::new(&self.dir)
     }
@@ -675,6 +706,9 @@ impl Engine {
         }
         let shapes = self.shapes_of(&game.zone_realms);
         let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Read the units under the game lock: `refresh_units` stores new units before it takes this lock, so a change racing
+        // this install is either seen here or applied to this game right after.
+        game.set_units(self.unit_system());
         // Keep the outgoing game's progress (unless the new one replaces that very save).
         if let Some(old) = slot.as_ref().filter(|old| old.id != game.id) {
             if let Err(e) = old.save(&self.dir) {
@@ -781,7 +815,6 @@ impl Engine {
         let mut diag = Vec::new();
         let journal = Journal::open(&dir.join("journal.db")).map_err(|e| diag.push(format!("journal unavailable: {e}"))).ok().map(Mutex::new);
         Arc::new(Self {
-            dir,
             journal,
             diag: Mutex::new(diag),
             near_logged: Mutex::new(HashMap::default()),
@@ -792,6 +825,9 @@ impl Engine {
             save_policy: Mutex::new(SavePolicy::new(SAVE_INTERVAL_MS)),
             zone_shapes: Mutex::new(Vec::new()),
             last_proximity: Mutex::new(None),
+            units: Mutex::new(resolve_units(Settings::load(&dir).units, "")),
+            region: Mutex::new(String::new()),
+            dir,
         })
     }
 
@@ -970,6 +1006,7 @@ impl Engine {
         let marks = store.marks(&id);
         let home = store.home().unwrap_or_else(|| realm.shape.center());
         let kinds_of = self.kinds_by_place(&atlas);
+        let units = self.unit_system();
         let mut out: Vec<FindOut> = kinds_of
             .into_iter()
             .map(|(i, kinds)| {
@@ -996,7 +1033,7 @@ impl Engine {
                     .into(),
                     kinds: kinds
                         .into_iter()
-                        .map(|k| KindOut { id: k.id.clone(), name: k.name.clone(), family: k.family.clone(), blurb: k.blurb.clone(), how: k.verify.how() })
+                        .map(|k| KindOut { id: k.id.clone(), name: k.name.clone(), family: k.family.clone(), blurb: k.blurb.clone(), how: k.verify.how(units) })
                         .collect(),
                 }
             })
@@ -1213,11 +1250,12 @@ impl Engine {
     // ---------- play ----------
     /// Every quest of the open game.
     pub fn quests(&self, now_ms: i64) -> Vec<QuestOut> {
+        let units = self.unit_system();
         self.with_game(|g| {
             g.quest_views(now_ms)
                 .into_iter()
                 .map(|q| {
-                    let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target);
+                    let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target, units);
                     QuestOut {
                         location_id: q.location_id,
                         zone: q.zone,
@@ -1338,13 +1376,29 @@ impl Engine {
                 let last_ms = self.last_reject_log_ms.load(std::sync::atomic::Ordering::Relaxed);
                 if t_ms.saturating_sub(last_ms) >= 60_000 {
                     self.last_reject_log_ms.store(t_ms, std::sync::atomic::Ordering::Relaxed);
-                    j.log(&game_id, &JournalEvent { t_ms, kind: kind::FIX_REJECTED.into(), detail: format!("accuracy {accuracy_m:.0} m"), at })?;
+                    j.log(
+                        &game_id,
+                        &JournalEvent {
+                            t_ms,
+                            kind: kind::FIX_REJECTED.into(),
+                            detail: format!("accuracy {}", distance_rounded(accuracy_m, self.unit_system(), Round::Up)),
+                            at,
+                        },
+                    )?;
                 }
             } else {
                 j.add_point(&game_id, &TrackPoint { t_ms, lat, lon, accuracy_m, simulated })?;
             }
             for n in self.new_near_misses(near, t_ms) {
-                j.log(&game_id, &JournalEvent { t_ms, kind: kind::NEAR_MISS.into(), detail: format!("{}: {} ({:.0} m)", n.name, n.reason, n.distance_m), at })?;
+                j.log(
+                    &game_id,
+                    &JournalEvent {
+                        t_ms,
+                        kind: kind::NEAR_MISS.into(),
+                        detail: format!("{}: {} ({})", n.name, n.reason, distance(n.distance_m, self.unit_system())),
+                        at,
+                    },
+                )?;
             }
             entries.iter().try_for_each(|e| j.log(&game_id, e))
         });
@@ -1663,6 +1717,17 @@ mod tests {
         e.delete_realm("r0".into()).unwrap();
         e.on_fix(p.lat, p.lon, 2_000, 5.0, None, false);
         assert_eq!(e.last_zone_proximity(), "unknown", "the deleted outline no longer counts");
+    }
+
+    #[test]
+    fn the_open_games_quest_text_follows_the_unit_setting() {
+        let e = engine_with_game("units");
+        let detail = || e.quests(0).into_iter().map(|q| q.detail).find(|d| d.starts_with("Get within")).expect("a reach quest");
+        assert!(detail().ends_with(" m"), "{}", detail());
+        e.set_region("US".into());
+        assert!(detail().ends_with(" ft"), "{}", detail());
+        e.set_unit_choice(crate::settings::UnitChoice::Metric).unwrap();
+        assert!(detail().ends_with(" m"), "{}", detail());
     }
 
     #[test]

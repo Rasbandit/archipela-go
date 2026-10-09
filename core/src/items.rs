@@ -1,8 +1,11 @@
 //! Plain-language explanations of the items a quest can reward, for the activity log ("why did I get a Letter?").
 
+use crate::traps::{LEASH_M, TOLL_M};
+use crate::units::{distance_rounded, Round, UnitSystem};
+
 /// What an item does, in one sentence. Items whose effect is not wired up yet say so (the log must not promise what the app does not do).
 #[must_use]
-pub fn blurb(item: &str) -> String {
+pub fn blurb(item: &str, units: UnitSystem) -> String {
     let text = match item {
         i if i.starts_with("Letter ") => "A letter for the Letter Hunt goal: collect them all to spell the word.",
         "Progressive Zone Key" => "A key: collect enough of them to open the next zone.",
@@ -15,9 +18,9 @@ pub fn blurb(item: &str) -> String {
         "Fog Of War Trap" => "Trap: quests are hidden on the map for 15 minutes (you can still complete them).",
         "Freeze Trap" => "Trap: no quest counts until you reach the glowing thaw point.",
         "Silence Trap" => "Trap: notifications are muted for 15 minutes.",
-        "Leash Trap" => "Trap: quests only count within 800 m of home for 30 minutes.",
+        "Leash Trap" => return format!("Trap: quests only count within {} of home for 30 minutes.", distance_rounded(LEASH_M, units, Round::Down)),
         "Detour Trap" => "Trap: visit the marked waypoint before any quest counts.",
-        "Toll Trap" => "Trap: cover 400 m before any quest counts.",
+        "Toll Trap" => return format!("Trap: cover {} before any quest counts.", distance_rounded(TOLL_M, units, Round::Up)),
         "Slow Trap" => "Trap: dwell quests take twice as long for 30 minutes.",
         "Shuffle Trap" => "Trap: unfinished quests are rerolled to new places.",
         i if i.ends_with("Trap") => "Honor trap: do it on your honor, nothing is checked.",
@@ -47,13 +50,20 @@ mod tests {
             ("Shuffle Trap", "rerolled"),
             ("Sit Up Trap", "honor"),
         ] {
-            let b = blurb(item).to_lowercase();
+            let b = blurb(item, UnitSystem::Metric).to_lowercase();
             assert!(b.contains(&needle.to_lowercase()), "{item}: {b}");
         }
     }
 
     #[test]
+    fn trap_distances_follow_the_players_units() {
+        assert!(blurb("Leash Trap", UnitSystem::Metric).contains("within 800 m of home"));
+        assert!(blurb("Leash Trap", UnitSystem::Imperial).contains("within 0.4 mi of home"));
+        assert!(blurb("Toll Trap", UnitSystem::Imperial).contains("cover 0.3 mi"));
+    }
+
+    #[test]
     fn an_unknown_item_still_gets_a_sentence() {
-        assert!(!blurb("Mystery Box").is_empty());
+        assert!(!blurb("Mystery Box", UnitSystem::Metric).is_empty());
     }
 }

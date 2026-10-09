@@ -43,6 +43,7 @@ private val NAV_TABS =
         NavTab("Realms", ApgoIcons.Realms),
         NavTab("New Game", ApgoIcons.NewGame),
         NavTab("Activity", ApgoIcons.Activity),
+        NavTab("Settings", ApgoIcons.Settings),
     )
 
 /** The whole app: the setup flow until it is done, then the tabs with the dialogs that can open over them. */
@@ -119,6 +120,7 @@ private fun AppBody(
                 AppTab.REALMS -> RealmsScreen(m)
                 AppTab.NEW_GAME -> NewGameScreen(m)
                 AppTab.ACTIVITY -> ActivityScreen(m)
+                AppTab.SETTINGS -> SettingsScreen(m)
                 else -> PlayScreen(m)
             }
         }

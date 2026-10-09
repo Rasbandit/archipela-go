@@ -2,7 +2,6 @@ package dev.apgo2
 
 import android.annotation.SuppressLint
 import dev.apgo2.ui.METERS_PER_DEGREE
-import dev.apgo2.ui.METERS_PER_KM
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,8 +37,9 @@ private const val DEFAULT_LIMIT_MIN = 20L
 // The game only counts gaps up to 5 minutes, so the away quest is fed fixes 4 minutes apart.
 private const val AWAY_GAP_MIN = 4
 private const val AWAY_EXTRA_FIXES = 3
-private const val AWAY_MARGIN_M = 600.0
-private const val DEFAULT_AWAY_KM = 2.0
+
+// Far enough from home for any away quest (quest text no longer names a distance).
+private const val AWAY_DISTANCE_M = 2_600.0
 private const val DEFAULT_AWAY_MIN = 60
 private const val LOGGED_EVENTS = 4
 private const val TRAP_KIND_TOLL = "Toll"
@@ -200,9 +200,8 @@ internal class DevSimulator(
         q: QuestOut,
         home: GeoPoint,
     ): List<EventOut> {
-        val km = firstGroup(q.detail, AWAY_KM_PATTERN)?.toDoubleOrNull() ?: DEFAULT_AWAY_KM
         val mins = firstGroup(q.detail, AWAY_MIN_PATTERN)?.toIntOrNull() ?: DEFAULT_AWAY_MIN
-        val far = offset(home, km * METERS_PER_KM + AWAY_MARGIN_M, 0.0)
+        val far = offset(home, AWAY_DISTANCE_M, 0.0)
         return fix(far, GAP_MS) + List(mins / AWAY_GAP_MIN + AWAY_EXTRA_FIXES) { fix(far, AWAY_GAP_MIN * MINUTE_MS) }.flatten()
     }
 
@@ -215,7 +214,6 @@ internal class DevSimulator(
     ) = pattern.find(text)?.groupValues?.get(1)
 
     private companion object {
-        val AWAY_KM_PATTERN = Regex("at least ([0-9.]+) km")
         val AWAY_MIN_PATTERN = Regex("Spend (\\d+) min")
         val LIMIT_PATTERN = Regex("within (\\d+) min")
     }

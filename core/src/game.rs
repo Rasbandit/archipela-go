@@ -23,6 +23,7 @@ use crate::scan::Atlas;
 use crate::slot::GoalSpec;
 use crate::slot::SlotData;
 use crate::traps::Traps;
+use crate::units::{distance, distance_rounded, speed_kmh, Round, UnitSystem};
 use crate::verify::{implied_speed_kmh, Fix, Status, Tracker, MAX_ACCURACY_M, MAX_OUTLIER_STREAK, MAX_PLAUSIBLE_KMH};
 
 const DAY_MS: i64 = 86_400_000;
@@ -322,6 +323,9 @@ pub struct Game {
     odo_anchor: Option<Point>,
     #[serde(skip)]
     last_block: Option<String>,
+    /// The units the game's text is written in: the player's setting, set by the app, never saved.
+    #[serde(skip)]
+    units: UnitSystem,
     #[serde(skip_serializing, default = "yes")]
     counting: bool,
 }
@@ -483,6 +487,7 @@ impl Game {
             last_speed: None,
             odo_anchor: None,
             last_block: None,
+            units: UnitSystem::default(),
             counting: true,
         })
     }
@@ -511,6 +516,7 @@ impl Game {
             distance_m: self.stats.distance_m,
             cells_discovered: self.fog.cells.len(),
             streak_days: streak(&self.stats.quest_days, now_ms / DAY_MS),
+            units: self.units,
         }
     }
 
@@ -523,15 +529,7 @@ impl Game {
     /// How far along the win condition is at `now_ms`.
     #[must_use]
     pub fn goal_status(&self, now_ms: i64) -> GoalStatus {
-        evaluate(&GoalCtx {
-            slot: &self.slot,
-            assignments: &self.assignments,
-            done: &self.done,
-            items: &self.items,
-            distance_m: self.stats.distance_m,
-            cells_discovered: self.fog.cells.len(),
-            streak_days: streak(&self.stats.quest_days, now_ms / DAY_MS),
-        })
+        evaluate(&self.goal_ctx(now_ms))
     }
 
     fn fog_on(&self) -> bool {
@@ -713,6 +711,12 @@ impl Game {
         }
         self.credit_steps(total);
         self.complete_reached(t_ms, self.last_pos())
+    }
+
+    /// Write the game's text (quest goals, near-miss reasons, trap messages) in `units` from now on.
+    pub fn set_units(&mut self, units: UnitSystem) {
+        self.units = units;
+        self.traps.set_units(units);
     }
 
     /// Presence rules (at home, in the car) switch counting off: nothing is checked, credited or added while it is off. Counting on
@@ -1131,19 +1135,19 @@ impl Game {
                             let i = c.position_of(*location_id).unwrap_or(1);
                             j.detail = format!("{name} milestone {i} of {}: {}", c.marks.len(), c.amount_text(c.marks[i - 1].at));
                         } else if let Some(a) = quest(location_id) {
-                            j.detail = format!("{name} ({}): {}", a.place, a.target.goal_text());
+                            j.detail = format!("{name} ({}): {}", a.place, a.target.goal_text(self.units));
                         }
                     }
                     Event::Reward { location_id, item } => {
                         let from = quest(location_id).map_or("a quest", |a| a.quest_name.as_str());
-                        j.detail = format!("{item} (reward for {from}): {}", crate::items::blurb(item));
+                        j.detail = format!("{item} (reward for {from}): {}", crate::items::blurb(item, self.units));
                     }
                     Event::SendCheck { location_id } => {
                         if let Some(a) = quest(location_id) {
                             j.detail = format!("{} sent to the server", a.quest_name);
                         }
                     }
-                    Event::Trap { item, message } => j.detail = format!("{item}: {message} ({})", crate::items::blurb(item)),
+                    Event::Trap { item, message } => j.detail = format!("{item}: {message} ({})", crate::items::blurb(item, self.units)),
                     _ => {}
                 }
                 j
@@ -1166,18 +1170,30 @@ impl Game {
                 }
                 let reach = reach_radius(&a.target);
                 let reason = match self.last_verdict {
-                    Verdict::Blurry(acc) => format!("GPS accuracy {acc:.0} m (needs {MAX_ACCURACY_M:.0} m or better)"),
+                    Verdict::Blurry(acc) => format!(
+                        "GPS accuracy {} (needs {} or better)",
+                        distance_rounded(acc, self.units, Round::Up),
+                        distance_rounded(MAX_ACCURACY_M, self.units, Round::Down)
+                    ),
                     Verdict::Jump => "ignored as a GPS jump".to_string(),
                     Verdict::Used if !self.zone_unlocked(a.zone) => format!("zone {} is still locked", a.zone),
                     Verdict::Used if self.fog_on() && !self.fog.discovered.contains(&a.location_id) => "not discovered yet (fog of war)".to_string(),
                     Verdict::Used if blocked.is_some() => blocked.clone().unwrap_or_default(),
                     Verdict::Used if self.last_speed.is_some_and(|s| !speed_ok(a.mode, s)) => {
-                        format!("moving too fast for {:?} ({:.0} km/h)", a.mode, self.last_speed.unwrap_or(0.0))
+                        format!("moving too fast for {:?} ({})", a.mode, speed_kmh(self.last_speed.unwrap_or(0.0), self.units))
                     }
                     Verdict::Used => match reach {
-                        Some(r) if distance_m <= r => format!("in range ({distance_m:.0} m, needs {r:.0} m): counting"),
-                        Some(r) => format!("{distance_m:.0} m away, needs {r:.0} m"),
-                        None => format!("{distance_m:.0} m away"),
+                        Some(r) if distance_m <= r => {
+                            format!(
+                                "in range ({}, needs {}): counting",
+                                distance_rounded(distance_m, self.units, Round::Down),
+                                distance_rounded(r, self.units, Round::Down)
+                            )
+                        }
+                        Some(r) => {
+                            format!("{} away, needs {}", distance_rounded(distance_m, self.units, Round::Up), distance_rounded(r, self.units, Round::Down))
+                        }
+                        None => format!("{} away", distance(distance_m, self.units)),
                     },
                 };
                 Some(NearMiss { location_id: a.location_id, name: a.quest_name.clone(), distance_m, reason })
@@ -2422,6 +2438,24 @@ mod tests {
         let blurry = Fix { accuracy_m: 60.0, ..fixat(target, 2000) };
         g.on_fix(blurry, None);
         assert!(g.explain_near(&blurry, 100.0).iter().any(|n| n.location_id == id && n.reason.contains("accuracy 60")));
+    }
+
+    #[test]
+    fn near_miss_reasons_read_in_the_players_units() {
+        let (mut g, id, _) = start_near_a_quest();
+        g.set_units(UnitSystem::Imperial);
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| anchor(&a.target)).unwrap();
+        let nm = g.explain_near(&fixat(destination(target, 0.0, 70.0), 1000), 100.0).into_iter().find(|n| n.location_id == id).unwrap();
+        assert_eq!(nm.reason, "230 ft away, needs 130 ft");
+    }
+
+    #[test]
+    fn a_near_miss_never_reads_as_if_it_met_the_limit() {
+        let (g, id, _) = start_near_a_quest();
+        let target = g.assignments.iter().find(|a| a.location_id == id).and_then(|a| anchor(&a.target)).unwrap();
+        let reason = |m: f64| g.explain_near(&fixat(destination(target, 0.0, m), 1000), 100.0).into_iter().find(|n| n.location_id == id).unwrap().reason;
+        assert_eq!(reason(42.0), "45 m away, needs 40 m", "42 m must not read as 40 m");
+        assert!(reason(38.0).starts_with("in range (35 m, needs 40 m)"), "{}", reason(38.0));
     }
 
     #[test]
