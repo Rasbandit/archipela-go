@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -38,8 +39,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -83,6 +86,8 @@ private const val GRIP_DP = 12
 private const val GRIP_TOUCH_DP = 48
 private const val SNAP_DP = 24
 private const val GRIP_ALPHA = 0.4f
+private const val SHEET_SHADOW_DP = 6
+private val SheetShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
 private const val QUEST_BUBBLE_DP = 200
 
 /**
@@ -143,10 +148,21 @@ private fun GameView(
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             val bodyHeight = maxHeight * BODY_SHARE
             var shown by rememberSaveable { mutableStateOf(true) }
-            Column(Modifier.fillMaxSize()) {
-                PlayMap(m, hud, onShow, Modifier.fillMaxWidth().weight(1f))
+            var topPx by remember { mutableIntStateOf(0) }
+            val density = LocalDensity.current
+            // How much of the map the panel covers once it has settled (not while it slides), so the map's framing keeps clear of it.
+            val coverDp = GRIP_DP + (topPx / density.density).toInt() + if (shown) bodyHeight.value.toInt() else 0
+            // The map fills the whole area and never resizes; the panel slides over its bottom.
+            PlayMap(m, hud, onShow, coverDp, Modifier.fillMaxSize())
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .shadow(SHEET_SHADOW_DP.dp, SheetShape, clip = false) // no clip: the grip's touch area reaches up over the map
+                    .background(MaterialTheme.colorScheme.surface, SheetShape),
+            ) {
                 PaneGrip(shown) { shown = it }
-                PanelTop(hud, shown)
+                PanelTop(hud, shown, Modifier.onSizeChanged { topPx = it.height })
                 AnimatedVisibility(shown) {
                     GamePanel(
                         m,
@@ -206,8 +222,9 @@ private fun Modifier.overhang(
 private fun PanelTop(
     hud: HudOut,
     shown: Boolean,
+    modifier: Modifier = Modifier,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         GoalsBlock(hud, withLines = shown)
         Text(summaryLine(hud), fontSize = 11.sp)
     }
@@ -244,6 +261,7 @@ private fun PlayMap(
     m: AppModel,
     hud: HudOut,
     onShow: Boolean,
+    coverDp: Int,
     modifier: Modifier = Modifier,
 ) {
     val selected = m.quests.firstOrNull { it.locationId == m.selected }
@@ -275,13 +293,17 @@ private fun PlayMap(
             trace = m.trace,
             lastPlace = m.lastPlace,
             onShow = onShow,
+            overlayBottomDp = coverDp,
+            overlaysKeepView = true,
             focus = focus,
             anchor = selected?.anchor?.let { LatLng(it.lat, it.lon) },
             onAnchor = { anchorPx = it },
         )
         selected?.let { q -> QuestPopup(m, q, anchorPx) { bubblePx = it } }
         m.chains.firstOrNull { it.id == m.selectedChain }?.let { c ->
-            MapOverlayCard(Modifier.align(Alignment.BottomCenter)) { ChainDetails(c) { m.selectedChain = null } }
+            MapOverlayCard(
+                Modifier.align(Alignment.BottomCenter).padding(bottom = coverDp.dp),
+            ) { ChainDetails(c) { m.selectedChain = null } }
         }
     }
 }

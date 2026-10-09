@@ -201,6 +201,9 @@ private class MapHolder(
     private val addedImages = mutableSetOf<String>()
     private var padApplied = false
 
+    // The logo's and the attribution's own bottom margins, before any overlay is added to them.
+    private var baseMarks: Pair<Int, Int>? = null
+
     init {
         MapLibre.getInstance(context)
         val options = MapLibreMapOptions.createFromAttributes(context)
@@ -256,20 +259,50 @@ private class MapHolder(
 
     // The map's padding is the part of it covered by overlays. Changing it keeps the camera target, so the point that was at the
     // centre of the visible map slides to the centre of the new visible area. The first value is applied at once, later ones ease.
+    // With [keepView] nothing on screen moves: the target becomes whatever is already at the centre of the new visible area.
     fun applyPadding(
         topDp: Int,
         bottomDp: Int,
+        keepView: Boolean,
     ) {
         val m = map ?: return
+        liftMarks(m, bottomDp)
         if (topDp == 0 && bottomDp == 0 && !padApplied) return
-        val top = topDp * density
-        val bottom = bottomDp * density
-        if (padApplied) {
-            m.easeCamera(CameraUpdateFactory.paddingTo(0.0, top.toDouble(), 0.0, bottom.toDouble()), PADDING_EASE_MS)
-        } else {
-            m.moveCamera(CameraUpdateFactory.paddingTo(0.0, top.toDouble(), 0.0, bottom.toDouble()))
-            padApplied = true
+        val top = (topDp * density).toDouble()
+        val bottom = (bottomDp * density).toDouble()
+        when {
+            keepView && view.height > 0 -> {
+                val centre = PointF(view.width / 2f, MapPadding.centerY(view.height.toFloat(), top.toFloat(), bottom.toFloat()))
+                val camera =
+                    CameraPosition
+                        .Builder(m.cameraPosition)
+                        .target(m.projection.fromScreenLocation(centre))
+                        .padding(0.0, top, 0.0, bottom)
+                        .build()
+                m.moveCamera(CameraUpdateFactory.newCameraPosition(camera))
+            }
+
+            padApplied -> {
+                m.easeCamera(CameraUpdateFactory.paddingTo(0.0, top, 0.0, bottom), PADDING_EASE_MS)
+            }
+
+            else -> {
+                m.moveCamera(CameraUpdateFactory.paddingTo(0.0, top, 0.0, bottom))
+            }
         }
+        padApplied = true
+    }
+
+    // Keep the logo and the attribution (which the map data's licence requires on show) above the bottom overlay.
+    private fun liftMarks(
+        m: MapLibreMap,
+        bottomDp: Int,
+    ) {
+        val ui = m.uiSettings
+        val (logo, attribution) = baseMarks ?: (ui.logoMarginBottom to ui.attributionMarginBottom).also { baseMarks = it }
+        val lift = (bottomDp * density).toInt()
+        ui.setLogoMargins(ui.logoMarginLeft, ui.logoMarginTop, ui.logoMarginRight, logo + lift)
+        ui.setAttributionMargins(ui.attributionMarginLeft, ui.attributionMarginTop, ui.attributionMarginRight, attribution + lift)
     }
 
     // Fit the points in view, after a padding change has settled.
@@ -463,6 +496,8 @@ internal fun QuestMap(
     lastPlace: LatLng? = null,
     /** False while the map is kept but hidden (another tab is up): it stops drawing and keeps its camera, style and tiles. */
     onShow: Boolean = true,
+    /** True when the overlays slide over a still map: a change in their height then leaves the view where it is. */
+    overlaysKeepView: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -488,7 +523,7 @@ internal fun QuestMap(
     SyncContent(holder, quests, realms, selected, finds, trace)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
     SyncPins(holder, thaw, waypoint, home, me)
-    MapCamera(holder, overlayTopDp, overlayBottomDp, fit, focus, anchor)
+    MapCamera(holder, overlayTopDp, overlayBottomDp, overlaysKeepView, fit, focus, anchor)
     MapFraming(holder, circle, me, quests, realms, points)
     // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
     // tiles loading happen out of sight.
@@ -604,12 +639,13 @@ private fun MapCamera(
     holder: MapHolder,
     overlayTopDp: Int,
     overlayBottomDp: Int,
+    overlaysKeepView: Boolean,
     fit: MapFit?,
     focus: MapFocus?,
     anchor: LatLng?,
 ) {
     val map = holder.map
-    LaunchedEffect(map, overlayTopDp, overlayBottomDp) { holder.applyPadding(overlayTopDp, overlayBottomDp) }
+    LaunchedEffect(map, overlayTopDp, overlayBottomDp) { holder.applyPadding(overlayTopDp, overlayBottomDp, overlaysKeepView) }
     LaunchedEffect(fit) { fit?.let { holder.fit(it) } }
     LaunchedEffect(anchor, map) { map?.let { holder.reportAnchor(it) } }
     LaunchedEffect(focus) { focus?.let { holder.focusOn(it) } }
