@@ -1,8 +1,3 @@
-Everything in this repository is under the MIT License below, except the
-android/ directory, which is under the PolyForm Noncommercial License 1.0.0
-(see android/LICENSE). Third-party code keeps its own licence
-(see THIRD_PARTY_NOTICES.md).
-
 MIT License
 
 Copyright (c) 2026 Todd Rasband
