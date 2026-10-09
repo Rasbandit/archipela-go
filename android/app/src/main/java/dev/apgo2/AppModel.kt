@@ -174,7 +174,7 @@ internal class AppModel(
         if (!engine.hasGame() || simPos != null) return
         diag.recordFix(loc)
         handle(engine.onFix(loc.latitude, loc.longitude, now(), loc.accuracy.toDouble(), stepsTotal, false))
-        presence.updateZone(engine.zoneProximity(loc.latitude, loc.longitude))
+        presence.updateZone(engine.lastZoneProximity())
         presence.evaluate()
         refreshPlay(withTrace = traceThrottle.due(now()))
         diag.logProgress()

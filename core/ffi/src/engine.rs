@@ -14,7 +14,7 @@ use apgo_core::geo::{distance_m, simplify, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
 use apgo_core::num::count_u32;
-use apgo_core::realm::{closest_proximity, Proximity, Realm, RealmStore, Shape};
+use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
 use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_realm, Atlas};
 use apgo_core::slot::SlotData;
@@ -604,6 +604,8 @@ pub struct Engine {
     save_policy: Mutex<SavePolicy>,
     /// Shapes of the open game's zone realms, for the "inside a zone" check on each fix.
     zone_shapes: Mutex<Vec<Shape>>,
+    // Where the last fix was relative to the zones, worked out once in `on_fix` for presence to read.
+    last_proximity: Mutex<Option<Proximity>>,
     /// Requests finished and in all, for the scan in progress.
     scan_done: AtomicU32,
     scan_total: AtomicU32,
@@ -770,6 +772,7 @@ impl Engine {
             game: Mutex::new(None),
             save_policy: Mutex::new(SavePolicy::new(SAVE_INTERVAL_MS)),
             zone_shapes: Mutex::new(Vec::new()),
+            last_proximity: Mutex::new(None),
             scan_done: AtomicU32::default(),
             scan_total: AtomicU32::default(),
         })
@@ -1299,7 +1302,10 @@ impl Engine {
     pub fn on_fix(&self, lat: f64, lon: f64, t_ms: i64, accuracy_m: f64, steps: Option<i64>, simulated: bool) -> Vec<EventOut> {
         let fix = Fix { lat, lon, t_ms, accuracy_m };
         let at = Some((lat, lon));
-        let inside = self.zone_distance_m(Point::new(lat, lon)).is_none_or(|d| d == 0.0);
+        // One pass over the zone shapes per fix: the inside flag for the game and the proximity presence reads next.
+        let zone_d = self.zone_distance_m(Point::new(lat, lon));
+        *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Proximity::of_distance(zone_d);
+        let inside = zone_d.is_none_or(|d| d == 0.0);
         let Some((game_id, ev, entries, near)) = self
             .with_game(|g| {
                 g.set_in_zone(inside);
@@ -1426,10 +1432,9 @@ impl Engine {
         self.journal_do(|j| j.log(&id, &JournalEvent { t_ms, kind: k.into(), detail: String::new(), at: None }));
     }
 
-    /// "inside" | "near" | "far" for the open game's zones, "unknown" with no game or no zones.
-    pub fn zone_proximity(&self, lat: f64, lon: f64) -> String {
-        let p = Point::new(lat, lon);
-        let best = closest_proximity(&self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner), p);
+    /// "inside" | "near" | "far" for where the last fix was relative to the open game's zones; "unknown" with no fix or no zones.
+    pub fn last_zone_proximity(&self) -> String {
+        let best = *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match best {
             Some(Proximity::Inside) => "inside",
             Some(Proximity::Near) => "near",
