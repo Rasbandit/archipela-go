@@ -300,6 +300,7 @@ private fun PlayMap(
             m.selected,
             { m.selected = null }, // a tap on no pin, trail or park closes the popup
             Modifier.fillMaxSize(),
+            parkAt = { m.engine.parkAt(it.latitude, it.longitude, m.now()) },
             onQuestClick = { id, spotAt ->
                 touched = spotAt?.let { id to it }
                 m.selected = id

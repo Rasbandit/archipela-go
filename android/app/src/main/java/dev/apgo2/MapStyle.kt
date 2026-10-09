@@ -159,11 +159,8 @@ internal object MapStyle {
     /** The layers a tap on a quest pin is looked up in. */
     val QUEST_LAYERS = arrayOf("quests-pins", "quests-pins-sel")
 
-    /** Then the quests' trails and park outlines (both carry their quest's id)... */
+    /** Then the quests' trails and park outlines (both carry their quest's id). */
     val QUEST_LINE_LAYERS = arrayOf("route-line", "route-casing", "park-line")
-
-    /** ...and last the inside of a park. */
-    val QUEST_AREA_LAYERS = arrayOf("areas-fill")
 
     /** The cluster circle layer of each clustered source: a tap on one zooms in until it splits. */
     val CLUSTER_LAYERS = MapSource.CLUSTERED.associateBy { clusterLayer(it) }

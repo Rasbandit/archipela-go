@@ -114,6 +114,7 @@ private class LatestInputs(
     val handles: State<List<LatLng>>,
     val onFindClick: State<((String) -> Unit)?>,
     val onQuestClick: State<((Long, LatLng?) -> Unit)?>,
+    val parkAt: State<((LatLng) -> Long?)?>,
     val anchor: State<LatLng?>,
     val onAnchor: State<((Offset?) -> Unit)?>,
     val overlayTopDp: State<Int>,
@@ -418,14 +419,12 @@ private class MapHolder(
         val slop = TAP_SLOP_DP * density
         val near = RectF(at.x - slop, at.y - slop, at.x + slop, at.y + slop)
         val find = onFind?.let { featureId(m, near, MapStyle.FIND_LAYERS) }
-        // A pin wins over a trail, a trail over the park it may cross; only a tap inside a park picks the park.
+        // A pin wins over a trail, a trail over the park it may cross; then a tap anywhere inside a park picks it (asked of the
+        // caller: an open park's fill is not drawn, so the map cannot find it).
         val pin = onQuest?.let { featureId(m, near, MapStyle.QUEST_LAYERS)?.toLongOrNull() }
         val shape =
             onQuest?.takeIf { pin == null }?.let {
-                (
-                    featureId(m, near, MapStyle.QUEST_LINE_LAYERS)
-                        ?: featureId(m, RectF(at.x, at.y, at.x, at.y), MapStyle.QUEST_AREA_LAYERS)
-                )?.toLongOrNull()
+                featureId(m, near, MapStyle.QUEST_LINE_LAYERS)?.toLongOrNull() ?: inputs.parkAt.value?.invoke(ll)
             }
         when {
             find != null -> onFind(find)
@@ -506,6 +505,8 @@ internal fun QuestMap(
     onFindClick: ((String) -> Unit)? = null,
     /** Tapping a quest pin calls this with its location id (a tap elsewhere goes to [onMapClick]). */
     onQuestClick: ((Long, LatLng?) -> Unit)? = null,
+    /** The park quest a point is inside, if any: a tap there picks it like a tap on its outline. */
+    parkAt: ((LatLng) -> Long?)? = null,
     /** Fly the camera here (kept clear of the bottom overlay). */
     focus: MapFocus? = null,
     fit: MapFit? = null,
@@ -533,6 +534,7 @@ internal fun QuestMap(
             handles = rememberUpdatedState(handles),
             onFindClick = rememberUpdatedState(onFindClick),
             onQuestClick = rememberUpdatedState(onQuestClick),
+            parkAt = rememberUpdatedState(parkAt),
             anchor = rememberUpdatedState(anchor),
             onAnchor = rememberUpdatedState(onAnchor),
             overlayTopDp = rememberUpdatedState(overlayTopDp),
