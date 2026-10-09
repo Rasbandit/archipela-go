@@ -1,6 +1,7 @@
 [project]
 name = "ap-go2-apworld"
 version = "0.0.0"
+license = "MIT"
 requires-python = ">=3.12,<3.14"
 dependencies = []
 
@@ -29,7 +30,7 @@ ignore = [
   "D203", "D213",      # pick D211/D212 (google convention)
   "S311",              # random used for game generation, not crypto
   "FIX002", "TD003",   # TODOs reference issues by text
-  "CPY001",            # no per-file licence headers; licence is undecided (see working-in-this-repo.md)
+  "CPY001",            # no per-file licence headers; the root LICENSE (MIT) covers apworld/
 ]
 
 [tool.ruff.lint.pydocstyle]

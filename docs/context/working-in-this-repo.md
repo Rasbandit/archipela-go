@@ -84,8 +84,10 @@ older pre-issues backlog: file an issue when one of these is picked up, then del
 5. Self-hosted Overpass (FastRaid) as the primary map source; a manual "refresh tiles" action; a legend/family filter if wanted.
 6. Trail polish (tune min lengths), per-zone quest types in the apworld if Archipelago players want them, timed/ordered quests, iOS.
 
-## Publishing and licence (decision pending with the owner)
+## Publishing and licence (decided 2026-10-08)
 
-Repo is **private** on GitHub (`Rasbandit/archipela-go`). The owner wants to monetize the app and also show it on a portfolio. The root `LICENSE` is MIT, which would let
-anyone sell the app, so before going public pick one: keep private + share by invitation and a public showcase page; or make the app source-available (PolyForm
-Noncommercial / BSL) with only `apworld/` and `core/` MIT. Upstream `aki665/react-native-archipelago` is MIT and no code was copied; its apworld has no licence and was reimplemented.
+The owner wants to monetize the app and also show it on a portfolio, so the licence is split: `android/` is **PolyForm Noncommercial 1.0.0**
+(`android/LICENSE`, source-available, only the owner may sell it); everything else (`apworld/`, `core/`, `docs/`, `scripts/`) stays **MIT** (root `LICENSE`).
+Before the repo goes public (as of 2026-10-08 still private), scan the full history with gitleaks and for personal data (home coordinates, Wi-Fi names).
+Outside contributions to `android/` need a CLA or rights assignment before merge, or the owner cannot sell that code (#82). Upstream `aki665/react-native-archipelago` is MIT and no code was copied;
+its apworld has no licence and was reimplemented.

@@ -1,6 +1,6 @@
 # Context Doc: Project Decisions and Direction
 
-_Last verified: 2026-10-07_
+_Last verified: 2026-10-08_
 
 ## Status
 
@@ -84,3 +84,10 @@ Details: `economy-eggs-buddies.md`. Direction only; core gameplay comes first.
 | Goal Eggs replace Letter macguffins; Found Eggs are checks; both hatch with steps | Goals need walking too |
 | Buddies: one active (buff, levels by distance), the rest at home bring gifts | Hatch loop has lasting value |
 | Theme (teen, townsfolk, treehouse) is a mechanics guide only | Reskin later |
+
+## 2026-10-08 Licence (decision)
+
+| Decision | Why |
+| -- | -- |
+| `android/` under PolyForm Noncommercial 1.0.0; `apworld/`, `core/` and the rest stay MIT | Owner monetizes the app; the apworld and core stay easy for the Archipelago community to use |
+| Outside contributions to `android/` need a CLA or rights assignment | Otherwise the owner cannot sell contributed code |

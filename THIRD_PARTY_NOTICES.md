@@ -12,6 +12,12 @@ Permission to use, copy, modify, and/or distribute this software for any purpose
 
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+## archipelago_rs
+
+The Rust core vendors a patched copy of `archipelago_rs` in `core/vendor/archipelago_rs/` (MIT, Copyright Ryan Goldstein,
+Natalie Weizenbaum, and AshIndigo). Its licence is `core/vendor/archipelago_rs/MIT_LICENSE.md`; our changes are listed in
+`core/vendor/archipelago_rs/PATCHES.md`.
+
 ## Archipelago colours
 
 Colours in `android/.../ui/Palette.kt` follow the Archipelago web theme (MIT, ArchipelagoMW/Archipelago). The Archipelago logo is CC BY-NC 4.0 and is not used. See `docs/context/ui-design-system.md`.

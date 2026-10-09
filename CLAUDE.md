@@ -33,7 +33,7 @@ via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monore
 - Realms are places; **travel mode is chosen per zone in a game**; zones are gated by keys and tools; quests come from a 76-kind catalog on real finds.
 - Several win conditions (any / all / at least N) are client-evaluated and reported with `StatusUpdate`; slot_data is schema 3.
 - Scans use a global tile grid and a shared cache; the editor autosaves with undo/redo; one design system (`ui/`) and one help-text file.
-- Licence is MIT today but the owner plans to monetize: decide before going public (`working-in-this-repo.md`).
+- Licence: `android/` is PolyForm Noncommercial 1.0.0, everything else MIT (`working-in-this-repo.md`).
 
 ## Conventions
 
