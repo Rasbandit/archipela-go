@@ -95,6 +95,7 @@ internal class PresenceController(
         if (model.hud == null) zone = Zone.Unknown
         if (seeding.waiting) { // restart in progress: keep the last decision (the core flag still follows it for a newly opened game)
             model.engine.setCounting(decision.counting)
+            applyLocation() // holds GPS off for an open game until home is known
             return
         }
         checkHomeOffer(t)
@@ -106,7 +107,10 @@ internal class PresenceController(
         val d = PresencePolicy.decide(Signals(playing = model.hud != null, homeWifi = home, carBluetooth = car, zone = zone))
         // Every run, not only on change: a game that replaces an open one starts counting again. The core ignores an unchanged value.
         model.engine.setCounting(d.counting)
-        if (d == decision) return
+        if (d == decision) {
+            applyLocation() // unchanged decision, but the hold above may just have ended (cheap: a same rate is a no-op)
+            return
+        }
         val changedState = d.state != decision.state
         decision = d
         if (changedState) {
@@ -118,7 +122,8 @@ internal class PresenceController(
 
     /** Start, change or stop location to match the presence decision. */
     fun applyLocation() {
-        val rate = if (locationPermitted) GpsPolicy.forDecision(decision, appVisible) else null
+        val holding = seeding.waiting && model.hud != null
+        val rate = if (locationPermitted) GpsPolicy.forDecision(decision, appVisible, holding) else null
         if (rate == null) model.sensors.stopLocation() else model.sensors.startLocation(rate)
     }
 

@@ -48,8 +48,9 @@ class PresenceSeedingTest {
         assertEquals(SeedPlan(true, true), s.poll(13_000, wifiReported = false, bluetoothReady = false))
     }
 
-    @Test fun notWaitingBeforeTheFirstRestart() {
-        assertEquals(false, PresenceSeeding().waiting)
+    @Test fun waitingFromTheStartUntilTheFirstReadingsAreIn() {
+        // Before the Wi-Fi watcher has started, home is unknown: deciding then turned GPS on for a moment at every app start.
+        assertEquals("never started: still waiting", true, PresenceSeeding().waiting)
         assertEquals("started and incomplete", true, started().waiting)
     }
 }

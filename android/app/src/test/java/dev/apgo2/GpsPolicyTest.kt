@@ -62,4 +62,11 @@ class GpsDecisionTest {
         assertEquals("visible", GpsPolicy.forState(playing = false), GpsPolicy.forDecision(d, appVisible = true))
         assertEquals("hidden", null, GpsPolicy.forDecision(d, appVisible = false))
     }
+
+    @Test fun noLocationWhileAGameWaitsToLearnWhetherYouAreHome() {
+        // At start-up the decision is still Stopped while Wi-Fi is read; the "show my dot" rule must not wake GPS for a game then.
+        val d = Decision(PresenceState.Stopped, GpsMode.Off, counting = false)
+        assertEquals("holding", null, GpsPolicy.forDecision(d, appVisible = true, holding = true))
+        assertEquals("not holding", GpsPolicy.forState(playing = false), GpsPolicy.forDecision(d, appVisible = true, holding = false))
+    }
 }

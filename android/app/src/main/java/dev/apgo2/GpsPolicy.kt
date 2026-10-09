@@ -17,13 +17,15 @@ internal object GpsPolicy {
 
     /**
      * The location rate a presence decision asks for; `null` means location is off. Stopped keeps the old "map marker while the
-     * app is on screen" rule.
+     * app is on screen" rule, except while [holding]: a game is open but presence has not yet learnt whether you are home.
      */
     fun forDecision(
         d: dev.apgo2.presence.Decision,
         appVisible: Boolean,
+        holding: Boolean = false,
     ): Rate? =
         when {
+            holding -> null
             d.state == dev.apgo2.presence.PresenceState.Stopped -> if (appVisible) forState(playing = false) else null
             d.gps is dev.apgo2.presence.GpsMode.Rate -> Rate(d.gps.intervalMs, d.gps.minDistanceM)
             else -> null
