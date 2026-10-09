@@ -23,13 +23,18 @@ internal object MapProp {
     const val STATE = "state"
     const val SELECTED = "sel"
     const val IMAGE = "img"
-    const val SCALE = "scale"
     const val SORT = "z"
     const val OPACITY = "op"
     const val ID = "id"
     const val COLOR = "color"
     const val LABEL = "label"
     const val NAME = "name"
+
+    /** On a quest line: "line" (a trail or other route) or "area" (a park's outline). */
+    const val SHAPE = "shape"
+
+    /** On a cluster (set by MapLibre): how many pins it holds. */
+    const val POINT_COUNT = "point_count"
 }
 
 /** Builders for the GeoJSON the map sources are fed. */
@@ -84,7 +89,7 @@ internal object GeoJson {
 }
 
 /** The name of this quest's pin image in the map style. */
-internal val QuestOut.mapImageKey: String get() = MarkerSpec.Quest(kindId, family, state).key
+internal val QuestOut.mapImageKey: String get() = MarkerSpec.Quest(kindId, family, state, MapMarkers.pips(difficulty, boss)).key
 
 /** The name of this find's pin image in the map style. */
 internal val MapFind.mapImageKey: String get() = MarkerSpec.Find(kindId, family, mark).key
@@ -109,10 +114,15 @@ internal object MapFeatures {
         return (anchored + dropOffs).map { (q, p) -> GeoJson.pointFeature(p.lat, p.lon, questProps(q, q.locationId == selected)) }
     }
 
+    /** [pins] split into the rest (a clustered source) and the selected ones (their own source, so they never vanish into a cluster). */
+    fun splitSelected(pins: List<JSONObject>): Pair<List<JSONObject>, List<JSONObject>> =
+        pins.partition { !it.getJSONObject("properties").optBoolean(MapProp.SELECTED) }
+
     /** The routes of line and area quests. */
     fun lines(quests: List<QuestOut>): List<JSONObject> =
         quests.filter { it.state != HIDDEN && it.path.size >= 2 && (it.shape == "line" || it.shape == "area") }.map {
-            GeoJson.feature(GeoJson.lineString(it.path.map { p -> p.lat to p.lon }), JSONObject().put(MapProp.STATE, it.state))
+            val props = JSONObject().put(MapProp.STATE, it.state).put(MapProp.SHAPE, it.shape)
+            GeoJson.feature(GeoJson.lineString(it.path.map { p -> p.lat to p.lon }), props)
         }
 
     /** The outlines of area quests. */
@@ -208,7 +218,7 @@ internal object MapFeatures {
             )
         }
 
-    // What a quest pin needs on the map: its image, size, draw order and whether it is the selected one.
+    // What a quest pin needs on the map: its image, draw order, id and whether it is the selected one.
     private fun questProps(
         q: QuestOut,
         selected: Boolean,
@@ -216,6 +226,6 @@ internal object MapFeatures {
         .put(MapProp.STATE, q.state)
         .put(MapProp.SELECTED, selected)
         .put(MapProp.IMAGE, q.mapImageKey)
-        .put(MapProp.SCALE, MapMarkers.iconScale(q.difficulty, q.boss).toDouble())
         .put(MapProp.SORT, MapMarkers.drawOrder(q.state))
+        .put(MapProp.ID, q.locationId.toString())
 }

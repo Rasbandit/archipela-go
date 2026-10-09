@@ -59,8 +59,6 @@ class HelpTextTest {
                 bonus,
                 terrain,
                 stairs,
-                awayZone,
-                awayDistance,
                 archipelago,
             ) + families.values + goalDescriptions.values
         }

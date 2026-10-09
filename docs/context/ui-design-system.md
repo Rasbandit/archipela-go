@@ -16,7 +16,25 @@ widgets or write colours themselves.
 - A colour is added to `ApgoPalette`, never inlined (`Color(0x...)` or `"#rrggbb"`). Quest state has one colour set, `ApgoPalette.quest(state)`: the list icon tint
   and the map pin's state badge both use it, so they cannot drift apart. What a quest *is* is shown by family colour and icon (`ApgoPalette.kind`), on the map and in the realm editor alike.
 - A map pin is only ever built by `MapMarkers.render(MarkerSpec)`: `Find` (realm editor: family colour, ring for favorite, grey for banned) and `Quest` (Play map: family colour,
-  corner badge for state: none = open, amber dot = in progress, green check = done, lock = locked; locked pins are grey). Size by difficulty (`iconScale`), collision order by state (`drawOrder`).
+  corner badge for state: none = open, amber dot = in progress, green check = done, lock = locked; locked pins are grey). Size by difficulty (`iconScale`), draw order by state (`drawOrder`).
+- Pins are never hidden by collision. Zooming out first shrinks them (full size from zoom 16, half by 13: `shrinkWhenZoomedOut`); below
+  zoom 16 pins still too close merge into a numbered cluster (MapLibre source clustering, `MapSource.CLUSTERED`). A quest cluster is a ring split by
+  how many quests inside are in each state (`MarkerSpec.Ring`, drawn on demand via the style's missing-image listener); a find cluster is a plain teal
+  disc. Tapping a cluster zooms in until it splits. The selected pin lives in its own unclustered, unshrunk source (`MapFeatures.splitSelected`).
+- **Map colour = state, icon = kind.** Your walked trace is a thin, solid pale lavender (`ApgoPalette.trace`; never transparent, since overlaps would darken; no quest state uses it) and the realm boundary a faint neutral grey:
+  both are background. Quests, park outlines, trails and cluster rings use the state colours: blue doable, amber in progress, green done, grey locked (`ApgoPalette.quest`,
+  `MapMarkers.questFill`), so a glance shows which parts of the map are finished. A quest pin's white icon says what kind it is; family colours are
+  for the realm editor's finds only. Red never means "not done": it is for errors and bans.
+- Parks are a thin outline, dashed until done, with a fill that shows progress (empty, light, faint). Trails are a solid line in the state colour on a
+  white casing, never dashed (the base map draws footpaths dashed) and without direction arrows (coverage counts either way); done trails fade.
+- Pins are never hidden by collision. Zooming out first shrinks them (full size from zoom 16, half by 13: `shrinkWhenZoomedOut`); below
+  zoom 16 pins still too close merge into a numbered cluster (MapLibre source clustering, `MapSource.CLUSTERED`). A quest cluster is a ring split by
+  how many quests inside are in each state (`MarkerSpec.Ring`, drawn on demand via the style's missing-image listener); a find cluster is a plain teal
+  disc. Tapping a cluster zooms in until it splits. The selected pin lives in its own unclustered, unshrunk source (`MapFeatures.splitSelected`).
+- Red never means "not done": it is for errors and bans. Quest state colours are blue (open), amber (in progress), green (done), grey (locked).
+- Parks (area quests) are always park green (grey while locked) with a thin outline, so state shows by line and fill: dashed and empty = not started,
+  dashed with a light fill = in progress, solid with a faint fill = done (the pin's badge confirms). Routes (trails) are drawn in the state colour on a
+  white casing with direction arrows, never dashed, because the base map already draws footpaths as dashed lines; done routes fade.
 - A callout attached to a pin is a `MapBubble` (placement in `BubblePlacement`, unit-tested): the realm editor's find callout and the Play quest popup both use it. Quests with no pin
   (steps, new squares, time away) show the same content in a `MapOverlayCard` at the bottom of the map.
 - Every distance, area and percentage the player sees goes through `ui/Units.kt` (`distance`, `area`, `percent`): km or mi by

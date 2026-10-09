@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Mode};
-use apgo_core::game::{AwayOptions, Backend, Event, Game, NewGame, QuestState};
+use apgo_core::game::{Backend, Event, Game, NewGame, QuestState};
 use apgo_core::geo::{destination, Point};
 use apgo_core::realm::{Realm, Shape};
 use apgo_core::scan::scan_realm;
@@ -76,7 +76,6 @@ fn main() {
             solo_rewards: sg.rewards,
             surface: apgo_core::assign::SurfacePref::Any,
             avoid_stairs: false,
-            away: AwayOptions::default(),
         },
         &catalog,
     )
@@ -98,7 +97,7 @@ fn main() {
     let mut won = None;
     let mut done_events = 0;
     for _ in 0..4000 {
-        let Some(q) = g.quest_views().into_iter().find(|q| matches!(q.state, QuestState::Open | QuestState::InProgress)) else { break };
+        let Some(q) = g.quest_views(0).into_iter().find(|q| matches!(q.state, QuestState::Open | QuestState::InProgress)) else { break };
         let mut fixes: Vec<(Point, i64, Option<i64>)> = Vec::new();
         let mut at = |p: Point, dt_s: i64, st: Option<i64>| {
             t += dt_s * 1000;
@@ -164,7 +163,7 @@ fn main() {
             break;
         }
     }
-    let views = g.quest_views();
+    let views = g.quest_views(0);
     let done = views.iter().filter(|v| v.state == QuestState::Done).count();
     println!("autoplay: {} quests done ({} events) in {:.1}s; goal {}: {:?}", done, done_events, t0.elapsed().as_secs_f64(), goal, won);
     for v in views.iter().filter(|v| matches!(v.state, QuestState::Open | QuestState::InProgress)).take(2) {

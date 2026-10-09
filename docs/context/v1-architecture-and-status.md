@@ -5,7 +5,7 @@ _Last verified: 2026-10-07 (end of the big UI session). "Verified" = run; "Not d
 ## What exists
 
 A real-world quest game. The player saves **realms** (places, a circle or polygon), the app **scans** each realm's map data into **finds**, and a **game**
-builds **zones** (a realm played by walk/run/bike) filled with quests from a 76-kind catalog. It plays **solo** or as an **Archipelago** client.
+builds **zones** (a realm played by walk/run/bike) filled with quests from a 75-kind catalog. It plays **solo** or as an **Archipelago** client.
 Win conditions: 12 goals, one or several, combined any / all / at least N.
 
 ## Layout
@@ -33,8 +33,7 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - `core/src/journal.rs`: one SQLite file `journal.db` (WAL) in the app files dir. `points` (+ `points_rt` R*Tree) = every accepted GPS fix, flagged
   simulated or real; `events` = audit log (quests, checks, rewards, traps, rejected fixes throttled to 1/min, app foreground/background).
 - Trace = `Journal::segments`, split where two points are >2 min apart (phone off). Play map draws it (`trace` layer in `QuestMap.kt`).
-- "While you were out": on app start, if the last `app_background` is >=60 s old, `AwayDialog` shows time, distance, points and event counts.
-- GPS rate: `GpsPolicy.kt`, playing = every 5 s with NO distance filter (a filter starves Dwell/Away while standing), idle = 15 s / 20 m.
+- GPS rate: `GpsPolicy.kt`/`PresencePolicy.kt`, playing = every 5 s once moved 10 m (zone) or 90 s once moved 50 m (far); standing still gives no fixes, since dwell and time away finish on one scheduled wake-up (`DueTimer`, core `next_due_ms`/`tick`). Idle = 15 s / 20 m.
 - Gaps: the simulator advances a virtual clock 10 min per jump, so sim points never form a line. Real GPS untested outdoors. The trace is reloaded in full on every
   fix (fine for a few thousand points; page or simplify later). Events are only logged while a game is open. No export/clear UI yet.
 
@@ -45,7 +44,7 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 
 ## Progressive chains
 
-Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone marks, "next: ..." text, tap for the milestone list) instead of many separate quests; members are hidden from "Show places on the map". Counters live in `Game.counters` (steps, minutes away, new map squares, `steps_last` baseline); they are in the game file, old saves load with defaults. Steps count only while a game is open (`steps_last` is reset on load, so closed time is never credited). Step Up, Wanderlust and Cartographer count only while their zone is unlocked (a locked zone's bar stays still, unlocking pays nothing out at once, and a zone that locks again when the server's item list shrinks keeps what it had). Cartographer counts squares new to the whole game (`Fog::cells`, anywhere) seen while its zone is unlocked. Saves from before that (`counters.cells_counted` false) start an open zone's Cartographer at the whole game's square count and a locked zone's at 0. Away settings (only count time inside a zone, away distance auto or custom) are chosen in New Game and saved with the game. The game file is saved only when a fix produces events, so counters gained between milestones are lost on force-stop (seen on the emulator; `Engine.save_game` is never called from Kotlin).
+Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone marks, "next: ..." text, tap for the milestone list) instead of many separate quests; members are hidden from "Show places on the map". Counters live in `Game.counters` (steps, minutes away, new map squares, `steps_last` baseline); they are in the game file, old saves load with defaults. Steps count only while a game is open (`steps_last` is reset on load, so closed time is never credited). Step Up, Wanderlust and Cartographer count only while their zone is unlocked (a locked zone's bar stays still, unlocking pays nothing out at once, and a zone that locks again when the server's item list shrinks keeps what it had). Cartographer counts squares new to the whole game (`Fog::cells`, anywhere) seen while its zone is unlocked. Saves from before that (`counters.cells_counted` false) start an open zone's Cartographer at the whole game's square count and a locked zone's at 0. Time away (Wanderlust) is event-driven: it runs while presence counts (home Wi-Fi gone, not in the car) from `counters.away_mark`, is credited on events (a fix, counting going off, a scheduled `tick`), and is read live as credited + (now - mark); a fix within 100 m of home ends it (backup without home Wi-Fi). The app schedules one wake-up at `next_due_ms` (`DueTimer`). No away settings. The game file is saved only when a fix produces events, so counters gained between milestones are lost on force-stop (seen on the emulator; `Engine.save_game` is never called from Kotlin).
 
 ## Key design facts
 
@@ -62,10 +61,10 @@ Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone 
 ## Presence (home Wi-Fi, car Bluetooth, zone duty cycle)
 
 `android/.../presence/`: `PresencePolicy.decide(Signals)` is a pure function, first match wins: not playing = Stopped; car Bluetooth = InCar; home Wi-Fi = AtHome (all three:
-GPS off, `counting=false`); zone Far = OutsideZones (GPS every 90 s, counting); otherwise InZone (GPS every 5 s, counting). `PresenceMonitor` gathers the signals
+GPS off, `counting=false`); zone Far = OutsideZones (GPS 90 s / 50 m, counting); otherwise InZone (GPS 5 s / 10 m, counting). `PresenceMonitor` gathers the signals
 (Wi-Fi SSID, Bluetooth ACL, nearest zone), applies the decision to the location source and to the counting flag (the engine ignores fixes and steps while it is false), shows
-the chip on Play and writes a "Presence" activity line and a `presence` diag line on each change; heartbeat adds `presence`/`counting`, with a 60 s heartbeat and a 5 s
-re-evaluation loop. Settings (home SSIDs with optional BSSID, car device name+address) live in SharedPreferences `presence` via `PresenceSettings`, not in the core.
+the chip on Play and writes a "Presence" activity line and a `presence` diag line on each change; heartbeat (at most once a minute, on fixes) adds `presence`/`counting`;
+a pending debounce schedules one re-evaluation for when it settles. Settings (home SSIDs with optional BSSID, car device name+address) live in SharedPreferences `presence` via `PresenceSettings`, not in the core.
 Setup lives in `SetupFlow` (steps in `SetupSteps.kt`; pure helpers: `presence/SetupProgress.kt` (`SetupProgress`) and `presence/Choices.kt` (`WifiChoices`/`CarChoices`)).
 `PresenceSettings.setupDone` gates the first-run wizard; the Home Base tile has no button: tapping it opens the wizard (at the first missing step when it was never finished or home Wi-Fi is missing; a missing car never triggers that), and it shows a warning while home Wi-Fi is missing. Step 2 keeps search/Rescan at the top, the list scrolling in between, and "Add a network by name" pinned above the buttons. The Play chip reads
 "Protection off" when nothing is configured. Wi-Fi choices come from nearby scan results because Android exposes no saved-network list.

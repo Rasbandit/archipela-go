@@ -20,8 +20,6 @@ internal class GameLibrary(
         opts: SoloOptionsIn,
         zoneRealms: List<String>,
         name: String,
-        awayZoneOnly: Boolean,
-        awayDistanceM: UInt,
     ) {
         scope.launch {
             model.busy = "Building your game..."
@@ -37,8 +35,6 @@ internal class GameLibrary(
                             seed,
                             model.surfacePref,
                             model.avoidStairs,
-                            awayZoneOnly,
-                            awayDistanceM,
                         )
                     }
                 }
@@ -72,6 +68,11 @@ internal class GameLibrary(
             model.tab = AppTab.PLAY
         }
         opened.onFailure { model.fail("open_game", "Could not open", it) }
+    }
+
+    /** On app start: reopen the game that was being played (opened and not paused) when the app stopped, on the Play tab. */
+    fun resumePlaying() {
+        if (!model.engine.hasGame()) model.engine.playingGame()?.let(::openGame)
     }
 
     /** Stop playing: log it, close the game and go to the Play tab, which then lists the saved games to continue. Tracking stops. */

@@ -104,6 +104,8 @@ internal fun MapOverlayCard(
 
 /** Where a callout goes relative to the pin it describes. */
 internal object BubblePlacement {
+    private const val PIN_CLEARANCE_DP = 6
+
     /**
      * Top-left of the bubble in the container's pixels: above the pin and centred on it when that fits, otherwise below, and
      * always inside the container.
@@ -123,22 +125,30 @@ internal object BubblePlacement {
         val y = if (above >= margin) above.toInt() else (pinY + gap / 2f).toInt().coerceAtMost(maxOf(margin, containerH - height - margin))
         return x to y
     }
+
+    /** The gap between a point and a callout above it: the pin standing on the point ([pinHeightPx]) plus a little air. */
+    fun gapPx(
+        pinHeightPx: Float,
+        density: Float,
+    ): Int = (pinHeightPx + PIN_CLEARANCE_DP * density).toInt()
 }
 
 /**
- * A callout attached to a pin on a full map: [at] is the pin in the map's pixels, [onSize] reports the callout's measured size (so the map
- * can make room for it). Used by the realm editor (a find) and the Play map (a quest).
+ * A callout attached to a pin on a full map: [at] is the pin's point in the map's pixels and [pinHeightPx] how tall the pin stands
+ * above it; [onSize] reports the callout's measured size (so the map can make room for it). Used by the realm editor (a find) and
+ * the Play map (a quest).
  */
 @Composable
 internal fun MapBubble(
     at: androidx.compose.ui.geometry.Offset,
+    pinHeightPx: Float,
     onSize: (androidx.compose.ui.unit.IntSize) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val margin = with(density) { 8.dp.roundToPx() }
-    val gap = with(density) { 26.dp.roundToPx() }
+    val gap = BubblePlacement.gapPx(pinHeightPx, density.density)
     val maxWidth = with(density) { 300.dp.roundToPx() }
     Box(
         modifier.layout { measurable, constraints ->

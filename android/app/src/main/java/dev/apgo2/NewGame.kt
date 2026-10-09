@@ -68,8 +68,6 @@ private const val TRAP_RATE_PERCENT = 30u
 private const val REDUCTION_PERCENT = 8u
 private const val DEFAULT_TRIPS = 60f
 private const val DEFAULT_MINUTES_PER_TIER = 10f
-private const val DEFAULT_AWAY_M = "1000"
-private const val MAX_AWAY_DIGITS = 5
 private const val MAX_TARGET_DIGITS = 4
 private const val DEFAULT_NEED = 2
 private const val BALANCED_PRESET = 1
@@ -151,14 +149,9 @@ private class NewGameForm {
     var fog by mutableStateOf(false)
     var trapsOn by mutableStateOf(true)
     var bonus by mutableStateOf(true)
-    var awayZoneOnly by mutableStateOf(true)
-    var awayAuto by mutableStateOf(true)
-    var awayMeters by mutableStateOf(DEFAULT_AWAY_M)
     var url by mutableStateOf("localhost:38281")
     var slot by mutableStateOf("Tester")
     val apZoneRealms = mutableStateListOf<String>()
-
-    fun awayDistanceM() = AwaySettings.distance(awayAuto, awayMeters)
 
     // There is always at least one goal.
     fun toggleGoal(id: String) {
@@ -260,7 +253,6 @@ internal fun NewGameScreen(
             onNeed = { form.need = it },
         )
         PlaySettings(m, form)
-        AwaySection(form)
         StartButtons(m, form)
         HorizontalDivider()
         ArchipelagoSection(m, form)
@@ -290,25 +282,6 @@ private fun PlaySettings(
 }
 
 @Composable
-private fun AwaySection(form: NewGameForm) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Time away", style = MaterialTheme.typography.titleMedium)
-        SwitchRow("Only count time inside a zone", Help.awayZone, form.awayZoneOnly) { form.awayZoneOnly = it }
-        SwitchRow("Pick the distance automatically", Help.awayDistance, form.awayAuto) { form.awayAuto = it }
-        if (!form.awayAuto) {
-            OutlinedTextField(
-                form.awayMeters,
-                { form.awayMeters = it.filter(Char::isDigit).take(MAX_AWAY_DIGITS) },
-                label = { Text("Away distance (metres)") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-}
-
-@Composable
 private fun StartButtons(
     m: AppModel,
     form: NewGameForm,
@@ -317,7 +290,7 @@ private fun StartButtons(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = ready, onClick = {
-                m.library.startSolo(form.options(), form.zones.map { it.realmId }, form.name, form.awayZoneOnly, form.awayDistanceM())
+                m.library.startSolo(form.options(), form.zones.map { it.realmId }, form.name)
             }) { Text("Play solo") }
             OutlinedButton(enabled = ready, onClick = { m.library.exportYaml(form.options()) }) { Text("Export YAML") }
         }
@@ -588,7 +561,7 @@ private fun ArchipelagoSection(
             }
             val complete = form.apZoneRealms.size == m.ap.zoneModes.size && form.apZoneRealms.none { it.isBlank() }
             Button(enabled = complete, onClick = {
-                m.ap.startGame(form.apZoneRealms.toList(), "Archipelago: ${form.slot}", form.awayZoneOnly, form.awayDistanceM())
+                m.ap.startGame(form.apZoneRealms.toList(), "Archipelago: ${form.slot}")
             }) { Text("Start this game") }
         }
     }

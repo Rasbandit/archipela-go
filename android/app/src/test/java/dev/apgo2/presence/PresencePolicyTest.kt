@@ -32,6 +32,12 @@ class PresencePolicyTest {
 
     @Test fun theCoarseIntervalIsNinetySeconds() = assertEquals(90_000L, PresencePolicy.COARSE_MS)
 
+    @Test fun standingStillProducesNoFixes() {
+        // Dwell and time away finish on a scheduled tick, so GPS only needs to report movement: 10 m in a zone, 50 m far away.
+        assertEquals(10f, PresencePolicy.ZONE_MOVE_M)
+        assertEquals(50f, PresencePolicy.FAR_MOVE_M)
+    }
+
     @Test fun homeWifiTurnsGpsOffAndStopsCounting() {
         assertEquals(
             Decision(PresenceState.AtHome, GpsMode.Off, counting = false),
@@ -43,7 +49,7 @@ class PresencePolicyTest {
         for (z in listOf(Zone.Inside, Zone.Near, Zone.Unknown)) {
             assertEquals(
                 "$z",
-                Decision(PresenceState.InZone, GpsMode.Rate(5_000L, 0f), counting = true),
+                Decision(PresenceState.InZone, GpsMode.Rate(5_000L, PresencePolicy.ZONE_MOVE_M), counting = true),
                 PresencePolicy.decide(signals(zone = z)),
             )
         }
@@ -51,7 +57,7 @@ class PresencePolicyTest {
 
     @Test fun farFromEveryZoneIsCoarseButStillCounts() {
         assertEquals(
-            Decision(PresenceState.OutsideZones, GpsMode.Rate(PresencePolicy.COARSE_MS, 0f), counting = true),
+            Decision(PresenceState.OutsideZones, GpsMode.Rate(PresencePolicy.COARSE_MS, PresencePolicy.FAR_MOVE_M), counting = true),
             PresencePolicy.decide(signals(zone = Zone.Far)),
         )
     }
@@ -185,5 +191,17 @@ class DebouncerTest {
         assertEquals(false, d.pending)
         d.seed(null)
         assertEquals(false, d.pending)
+    }
+
+    @Test fun aPendingChangeSaysExactlyWhenItWillSettle() {
+        val d = Debouncer(holdMs = 45_000)
+        d.feed(false, 0)
+        assertEquals("nothing pending", null, d.settlesInMs(1_000))
+        d.feed(true, 10_000)
+        assertEquals(45_000L, d.settlesInMs(10_000))
+        assertEquals(15_000L, d.settlesInMs(40_000))
+        assertEquals("overdue is now", 0L, d.settlesInMs(60_000))
+        d.feed(true, 55_000)
+        assertEquals("settled", null, d.settlesInMs(55_000))
     }
 }

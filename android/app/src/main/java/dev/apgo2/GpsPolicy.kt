@@ -9,21 +9,23 @@ internal object GpsPolicy {
         val minDistanceM: Float,
     )
 
-    // Time-based only: standing still must still produce fixes (Dwell, Away).
-    private val PLAYING = Rate(intervalMs = 5_000L, minDistanceM = 0f)
+    // Only on movement: dwell and time away finish on a scheduled tick, so standing still needs no fixes.
+    private val PLAYING = Rate(intervalMs = 5_000L, minDistanceM = dev.apgo2.presence.PresencePolicy.ZONE_MOVE_M)
     private val IDLE = Rate(intervalMs = 15_000L, minDistanceM = 20f)
 
     fun forState(playing: Boolean): Rate = if (playing) PLAYING else IDLE
 
     /**
      * The location rate a presence decision asks for; `null` means location is off. Stopped keeps the old "map marker while the
-     * app is on screen" rule.
+     * app is on screen" rule, except while [holding]: a game is open but presence has not yet learnt whether you are home.
      */
     fun forDecision(
         d: dev.apgo2.presence.Decision,
         appVisible: Boolean,
+        holding: Boolean = false,
     ): Rate? =
         when {
+            holding -> null
             d.state == dev.apgo2.presence.PresenceState.Stopped -> if (appVisible) forState(playing = false) else null
             d.gps is dev.apgo2.presence.GpsMode.Rate -> Rate(d.gps.intervalMs, d.gps.minDistanceM)
             else -> null

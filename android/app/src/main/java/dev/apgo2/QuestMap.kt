@@ -37,6 +37,8 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.Point
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
 import kotlin.math.abs
@@ -93,6 +95,7 @@ private class LatestInputs(
     val onLongClick: State<((LatLng) -> Unit)?>,
     val handles: State<List<LatLng>>,
     val onFindClick: State<((String) -> Unit)?>,
+    val onQuestClick: State<((Long) -> Unit)?>,
     val anchor: State<LatLng?>,
     val onAnchor: State<((Offset?) -> Unit)?>,
     val overlayTopDp: State<Int>,
@@ -203,6 +206,8 @@ private class MapHolder(
         m.addOnCameraMoveListener { reportAnchor(m) }
         m.addOnCameraIdleListener { reportAnchor(m) }
         m.addOnMapLongClickListener { ll -> inputs.onLongClick.value?.invoke(ll) != null }
+        // Cluster rings appear as the camera moves, so their images are drawn when the map first asks for them.
+        view.addOnStyleImageMissingListener { id -> m.style?.let { ensureImage(it, id) } }
         m.setStyle(Style.Builder().fromUri(MapStyle.URL)) { s ->
             MapStyle.install(s)
             style = s
@@ -335,15 +340,59 @@ private class MapHolder(
             pad + (inputs.overlayBottomDp.value * density).toInt(),
         )
 
-    // A tap on a find pin selects it; any other tap goes to the screen (e.g. adding a polygon corner).
+    // A tap on a cluster zooms in until it splits; on a find or quest pin (anywhere on it, head included) it selects it; any other
+    // tap goes to the screen (e.g. adding a polygon corner).
     private fun onTap(
         m: MapLibreMap,
         ll: LatLng,
     ): Boolean {
+        val at = m.projection.toScreenLocation(ll)
+        if (zoomIntoCluster(m, at)) return true
         val onFind = inputs.onFindClick.value
-        val hit = onFind?.let { m.queryRenderedFeatures(m.projection.toScreenLocation(ll), *MapStyle.FIND_LAYERS).firstOrNull() }
-        if (hit != null) onFind.invoke(hit.getStringProperty(MapProp.ID)) else inputs.onClick.value(ll)
+        val onQuest = inputs.onQuestClick.value
+        val find = onFind?.let { pinId(m, at, MapStyle.FIND_LAYERS) }
+        val quest = onQuest?.let { pinId(m, at, MapStyle.QUEST_LAYERS)?.toLongOrNull() }
+        when {
+            find != null -> onFind(find)
+            quest != null -> onQuest(quest)
+            else -> inputs.onClick.value(ll)
+        }
         return true
+    }
+
+    private fun pinId(
+        m: MapLibreMap,
+        at: PointF,
+        layers: Array<String>,
+    ): String? = m.queryRenderedFeatures(at, *layers).firstOrNull()?.getStringProperty(MapProp.ID)
+
+    private fun zoomIntoCluster(
+        m: MapLibreMap,
+        at: PointF,
+    ): Boolean {
+        val target =
+            MapStyle.CLUSTER_LAYERS.firstNotNullOfOrNull { (layer, source) ->
+                m.queryRenderedFeatures(at, layer).firstOrNull()?.let { expandCamera(m, it, source) }
+            }
+        target?.let { m.animateCamera(it, FIT_ANIM_MS) }
+        return target != null
+    }
+
+    // Centre on the cluster at the zoom where it splits.
+    private fun expandCamera(
+        m: MapLibreMap,
+        cluster: Feature,
+        source: String,
+    ): CameraUpdate? {
+        val point = cluster.geometry() as? Point
+        val zoom = m.style?.getSourceAs<GeoJsonSource>(source)?.getClusterExpansionZoom(cluster)
+        return if (point == null ||
+            zoom == null
+        ) {
+            null
+        } else {
+            CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude(), point.longitude()), zoom.toDouble())
+        }
     }
 }
 
@@ -375,6 +424,8 @@ internal fun QuestMap(
     /** Finds drawn as icon pins; tapping one calls [onFindClick] with its id. */
     finds: List<MapFind> = emptyList(),
     onFindClick: ((String) -> Unit)? = null,
+    /** Tapping a quest pin calls this with its location id (a tap elsewhere goes to [onMapClick]). */
+    onQuestClick: ((Long) -> Unit)? = null,
     /** Fly the camera here (kept clear of the bottom overlay). */
     focus: MapFocus? = null,
     fit: MapFit? = null,
@@ -397,6 +448,7 @@ internal fun QuestMap(
             onLongClick = rememberUpdatedState(onMapLongClick),
             handles = rememberUpdatedState(handles),
             onFindClick = rememberUpdatedState(onFindClick),
+            onQuestClick = rememberUpdatedState(onQuestClick),
             anchor = rememberUpdatedState(anchor),
             onAnchor = rememberUpdatedState(onAnchor),
             overlayTopDp = rememberUpdatedState(overlayTopDp),
@@ -470,11 +522,15 @@ private fun SyncContent(
     LaunchedEffect(style, realms) { holder.show(MapSource.REALMS, MapFeatures.realms(realms)) }
     LaunchedEffect(style, finds) {
         style?.let { st -> finds.map { it.mapImageKey }.toSet().forEach { holder.ensureImage(st, it) } }
-        holder.show(MapSource.FINDS, MapFeatures.finds(finds))
+        val (rest, picked) = MapFeatures.splitSelected(MapFeatures.finds(finds))
+        holder.show(MapSource.FINDS, rest)
+        holder.show(MapSource.FIND_SEL, picked)
     }
     LaunchedEffect(style, quests, selected) {
         style?.let { st -> quests.forEach { holder.ensureImage(st, it.mapImageKey) } }
-        holder.show(MapSource.QUESTS, MapFeatures.quests(quests, selected))
+        val (rest, picked) = MapFeatures.splitSelected(MapFeatures.quests(quests, selected))
+        holder.show(MapSource.QUESTS, rest)
+        holder.show(MapSource.QUEST_SEL, picked)
         holder.show(MapSource.LINES, MapFeatures.lines(quests))
         holder.show(MapSource.AREAS, MapFeatures.areas(quests))
     }

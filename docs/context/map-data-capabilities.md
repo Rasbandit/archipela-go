@@ -12,7 +12,7 @@ Measured on ONE suburban foothill area (3.5 km around the owner's home, public O
 | -- | -- | -- |
 | Ways total (paths, sidewalks, service, roads) | 5,540 | street/path fill (done) |
 | Footway / service / residential / cycleway / path / track / steps | 2165 / 2062 / 580 / 272 / 145 / 41 / 29 | foot vs bike vs car zones |
-| Parks and reserves (`leisure=park\|nature_reserve`) | 28, all mapped as polygons, 17 named | park quests, area coverage, perimeter loops |
+| Parks and reserves (`leisure=park\|nature_reserve`) | 28, all mapped as polygons, 17 named | park quests (time spent inside), area coverage |
 | Playgrounds / benches / shelters / toilets | 47 / 36 / 19 / 12 | family, rest/dwell spots |
 | Artwork (`tourism=artwork`) | 85 | "art walk" discovery points |
 | Peaks (with `ele`) | 5 (3 have elevation) | summit quests |

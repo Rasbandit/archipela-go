@@ -15,6 +15,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.unit.dp
@@ -37,9 +39,9 @@ private data class NavTab(
 
 private val NAV_TABS =
     listOf(
+        NavTab("Play", ApgoIcons.Play),
         NavTab("Realms", ApgoIcons.Realms),
         NavTab("New Game", ApgoIcons.NewGame),
-        NavTab("Play", ApgoIcons.Play),
         NavTab("Activity", ApgoIcons.Activity),
     )
 
@@ -55,12 +57,11 @@ internal fun AppRoot(
     } else {
         // One root for the screen and its dialogs (dialogs open their own windows, so this adds nothing visible).
         Box(modifier) {
-            m.away?.let { AwayDialog(it) { m.away = null } }
-            val othersUp = listOf(m.away != null, m.scans.ask != null, m.yamlText != null, backgroundPromptUp)
+            val othersUp = listOf(m.scans.ask != null, m.yamlText != null, backgroundPromptUp)
             if (showHomeOffer(othersUp)) HomeWifiDialog(m.presence)
-            // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves
-            // the app as usual.
-            BackHandler(enabled = m.tab != AppTab.REALMS) { m.tab = AppTab.REALMS }
+            // Back from any other tab goes to Play; the realm editor handles its own Back (to the list); on Play it leaves the app
+            // as usual.
+            BackHandler(enabled = m.tab != AppTab.PLAY) { m.tab = AppTab.PLAY }
             Scaffold(bottomBar = { AppNavigationBar(m) }) { pad -> AppBody(m, Modifier.padding(pad)) }
             ScanAskDialog(m)
             YamlDialog(m)
@@ -70,6 +71,13 @@ internal fun AppRoot(
 
 @Composable
 private fun AppNavigationBar(m: AppModel) {
+    // No pill behind the selected icon: the icon and label colour alone mark it.
+    val colors =
+        NavigationBarItemDefaults.colors(
+            selectedIconColor = MaterialTheme.colorScheme.primary,
+            selectedTextColor = MaterialTheme.colorScheme.primary,
+            indicatorColor = Color.Transparent,
+        )
     NavigationBar {
         NAV_TABS.forEachIndexed { i, tab ->
             NavigationBarItem(
@@ -80,6 +88,7 @@ private fun AppNavigationBar(m: AppModel) {
                 },
                 icon = { Icon(tab.icon, contentDescription = tab.label) },
                 label = { Text(tab.label) },
+                colors = colors,
             )
         }
     }

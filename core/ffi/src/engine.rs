@@ -2,19 +2,18 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use apgo_core::assign::SurfacePref;
 use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Kind, Mode};
 use apgo_core::chain::ChainUnit;
-use apgo_core::game::{AwayOptions, Backend, Event, Game, NearMiss, NewGame, QuestState};
-use apgo_core::geo::{distance_m, Point};
+use apgo_core::game::{Backend, Event, Game, NearMiss, NewGame, QuestState};
+use apgo_core::geo::{distance_m, simplify, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::marks::Mark;
 use apgo_core::num::count_u32;
-use apgo_core::realm::{closest_proximity, Proximity, Realm, RealmStore, Shape};
+use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
 use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_realm, Atlas};
 use apgo_core::slot::SlotData;
@@ -161,13 +160,12 @@ pub struct ScanPlanOut {
     pub missing: u32,
 }
 
-/// How far a running scan has got.
-#[derive(Debug, uniffi::Record)]
-pub struct ScanProgressOut {
-    /// Requests finished so far.
-    pub done: u32,
-    /// Requests in all.
-    pub total: u32,
+/// Told how a realm scan is going, as each map request finishes (called on the scanning thread): the app shows progress from these
+/// calls instead of polling.
+#[uniffi::export(with_foreign)]
+pub trait ScanListener: Send + Sync {
+    /// Requests finished so far out of all of them.
+    fn progress(&self, done: u32, total: u32);
 }
 
 /// A quest kind a realm can offer, with how many places serve it.
@@ -407,6 +405,8 @@ pub struct ZoneOut {
 /// Everything the Play screen shows besides the quest list.
 #[derive(Debug, uniffi::Record)]
 pub struct HudOut {
+    /// Whether time away is running, so its live value moves with the clock (the Play screen redraws it now and then while shown).
+    pub away_running: bool,
     /// Each goal with its own progress (one entry for a single-goal game).
     pub goals: Vec<GoalLineOut>,
     /// Short text describing the win condition.
@@ -523,7 +523,7 @@ fn describe(t: &Target) -> (&'static str, Option<Point>, Option<Point>, f64, Vec
         Target::RoundTrip { far, r, .. } => ("roundtrip", Some(*far), None, *r, vec![], text),
         Target::Cells { cell_m, .. } => ("cells", None, None, *cell_m, vec![], text),
         Target::Steps { .. } => ("steps", None, None, 0.0, vec![], text),
-        Target::Away { min_distance_m, .. } => ("away", None, None, *min_distance_m, vec![], text),
+        Target::Away { .. } => ("away", None, None, 0.0, vec![], text),
     }
 }
 
@@ -579,6 +579,10 @@ pub struct AwayReportOut {
 const NEAR_MISS_RADIUS_M: f64 = 100.0;
 /// Longest the open game goes unsaved while the player moves without events.
 const SAVE_INTERVAL_MS: i64 = 30_000;
+/// The drawn trace drops fixes within this of the last kept one (standing still), in metres.
+const TRACE_MIN_STEP_M: f64 = 8.0;
+/// The drawn trace smooths out wobble smaller than this, in metres.
+const TRACE_TOLERANCE_M: f64 = 4.0;
 
 /// The game engine: realms, scanning, game setup and play. One per app, shared by all screens.
 #[derive(uniffi::Object)]
@@ -600,9 +604,8 @@ pub struct Engine {
     save_policy: Mutex<SavePolicy>,
     /// Shapes of the open game's zone realms, for the "inside a zone" check on each fix.
     zone_shapes: Mutex<Vec<Shape>>,
-    /// Requests finished and in all, for the scan in progress.
-    scan_done: AtomicU32,
-    scan_total: AtomicU32,
+    // Where the last fix was relative to the zones, worked out once in `on_fix` for presence to read.
+    last_proximity: Mutex<Option<Proximity>>,
 }
 
 impl Engine {
@@ -659,7 +662,6 @@ impl Engine {
     /// Make `game` the open game and remember the shapes of its zones' realms (for "inside a zone" checks).
     fn install(&self, mut game: Game) {
         let store = self.store();
-        game.backfill_away(|id| store.get(id).map(|r| r.shape)); // old saves: Automatic distance per zone
         if !game.streets_attached() {
             // A saved game keeps only a thin sample of streets: index every street of its zones so trap targets land on one.
             let atlases: Vec<Atlas> =
@@ -667,8 +669,12 @@ impl Engine {
             game.attach_streets(&atlases.iter().collect::<Vec<_>>());
         }
         let shapes = game.zone_realms.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect();
-        *self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = shapes;
+        self.set_zones(shapes);
         self.save_policy.lock().unwrap_or_else(std::sync::PoisonError::into_inner).reset();
+        // Only one game is played at a time; remember which, so closing the app without pausing resumes it on the next start.
+        if let Err(e) = Game::mark_playing(&self.dir, &game.id) {
+            self.note(format!("could not remember game {} as being played: {e}", game.id));
+        }
         let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Keep the outgoing game's progress (unless the new one replaces that very save).
         if let Some(old) = slot.as_ref().filter(|old| old.id != game.id) {
@@ -680,6 +686,12 @@ impl Engine {
     }
 
     /// Distance in metres from a point to the nearest zone area of the open game (0 inside), or `None` with no game.
+    // The open game's zone shapes; a new set (another game, or none) forgets where the last fix was relative to the old ones.
+    fn set_zones(&self, shapes: Vec<Shape>) {
+        *self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = shapes;
+        *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
     fn zone_distance_m(&self, p: Point) -> Option<f64> {
         let shapes = self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         shapes.iter().map(|s| s.distance_m(p)).reduce(f64::min)
@@ -762,8 +774,7 @@ impl Engine {
             game: Mutex::new(None),
             save_policy: Mutex::new(SavePolicy::new(SAVE_INTERVAL_MS)),
             zone_shapes: Mutex::new(Vec::new()),
-            scan_done: AtomicU32::default(),
-            scan_total: AtomicU32::default(),
+            last_proximity: Mutex::new(None),
         })
     }
 
@@ -870,28 +881,16 @@ impl Engine {
         ScanPlanOut { tiles: count_u32(p.tiles), requests: count_u32(p.jobs), missing: count_u32(p.missing()) }
     }
 
-    /// Progress of the scan in progress: requests finished out of all of them.
-    pub fn scan_progress(&self) -> ScanProgressOut {
-        use std::sync::atomic::Ordering::Relaxed;
-        ScanProgressOut { done: self.scan_done.load(Relaxed), total: self.scan_total.load(Relaxed) }
-    }
-
-    /// Scan the realm over the network (through the shared tile cache) and save its atlas. Returns what it offers.
-    /// Scan a realm over the network and save its atlas.
+    /// Scan the realm over the network (through the shared tile cache) and save its atlas, telling `listener` as each request
+    /// finishes. Returns what the realm offers.
     ///
     /// # Errors
     /// Returns an error if the realm does not exist, every map request failed, or the atlas cannot be saved.
-    pub fn scan_realm(&self, id: String, now_ms: u64) -> Result<Vec<OfferOut>, CoreError> {
-        use std::sync::atomic::Ordering::Relaxed;
+    pub fn scan_realm(&self, id: String, now_ms: u64, listener: Arc<dyn ScanListener>) -> Result<Vec<OfferOut>, CoreError> {
         let store = self.store();
         let realm = store.get(&id).ok_or_else(|| err("realm not found"))?;
-        self.scan_done.store(0, Relaxed);
-        self.scan_total.store(0, Relaxed);
-        let atlas = scan_realm(&realm, &self.catalog, Some(&self.cache()), now_ms, &|done, total| {
-            self.scan_done.store(count_u32(done), Relaxed);
-            self.scan_total.store(count_u32(total), Relaxed);
-        })
-        .map_err(err)?;
+        let atlas =
+            scan_realm(&realm, &self.catalog, Some(&self.cache()), now_ms, &|done, total| listener.progress(count_u32(done), count_u32(total))).map_err(err)?;
         store.save_atlas(&atlas).map_err(err)?;
         // The realm may have been edited while the scan ran: stamp the scan time on its current state, not on the copy read before.
         let mut current = store.get(&id).ok_or_else(|| err("realm was deleted during the scan"))?;
@@ -1031,8 +1030,6 @@ impl Engine {
         seed: u64,
         surface: String,
         avoid_stairs: bool,
-        away_zone_only: bool,
-        away_distance_m: u32,
     ) -> Result<(), CoreError> {
         let opts = to_core(o)?;
         if zone_realms.len() != opts.zone_modes.len() {
@@ -1055,7 +1052,6 @@ impl Engine {
                 solo_rewards: generated.rewards,
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
-                away: AwayOptions { zone_only: away_zone_only, custom_m: (away_distance_m > 0).then_some(f64::from(away_distance_m)) },
             },
             &self.catalog,
         )
@@ -1080,8 +1076,6 @@ impl Engine {
         seed: u64,
         surface: String,
         avoid_stairs: bool,
-        away_zone_only: bool,
-        away_distance_m: u32,
     ) -> Result<(), CoreError> {
         let slot = SlotData::from_json(&slot_json).map_err(err)?;
         let realms = self.realm_atlases(&zone_realms)?;
@@ -1100,7 +1094,6 @@ impl Engine {
                 solo_rewards: BTreeMap::default(),
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
-                away: AwayOptions { zone_only: away_zone_only, custom_m: (away_distance_m > 0).then_some(f64::from(away_distance_m)) },
             },
             &self.catalog,
         )
@@ -1134,8 +1127,9 @@ impl Engine {
         Ok(())
     }
 
-    /// Close the open game, saving it first.
+    /// Close the open game, saving it first. This is pausing: the next start no longer resumes it.
     pub fn close_game(&self) {
+        Game::clear_playing(&self.dir);
         let mut game = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(g) = game.as_ref() {
             *self.last_game.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(g.id.clone());
@@ -1145,7 +1139,7 @@ impl Engine {
         }
         *game = None;
         drop(game);
-        self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+        self.set_zones(Vec::new());
     }
 
     /// Delete a saved game; its file is archived, not erased.
@@ -1166,9 +1160,15 @@ impl Engine {
             hit
         };
         if was_open {
-            self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+            Game::clear_playing(&self.dir);
+            self.set_zones(Vec::new());
         }
         Ok(())
+    }
+
+    /// The id of the open game, from memory (no disk access); `None` with no game open.
+    pub fn open_game_id(&self) -> Option<String> {
+        self.game_id()
     }
 
     /// Whether a game is open.
@@ -1176,11 +1176,17 @@ impl Engine {
         self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
     }
 
+    /// The game that was being played (opened and not paused) when the app last stopped: open it on start. `None` when the
+    /// player paused, or that game was deleted.
+    pub fn playing_game(&self) -> Option<String> {
+        Game::playing(&self.dir)
+    }
+
     // ---------- play ----------
     /// Every quest of the open game.
-    pub fn quests(&self) -> Vec<QuestOut> {
+    pub fn quests(&self, now_ms: i64) -> Vec<QuestOut> {
         self.with_game(|g| {
-            g.quest_views()
+            g.quest_views(now_ms)
                 .into_iter()
                 .map(|q| {
                     let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target);
@@ -1248,11 +1254,12 @@ impl Engine {
     pub fn hud(&self, now_ms: i64) -> Option<HudOut> {
         self.with_game(|g| {
             let s = g.goal_status(now_ms);
-            let views = g.quest_views();
+            let views = g.quest_views(now_ms);
             let mut letters: Vec<char> = g.items.iter().filter_map(|i| i.strip_prefix("Letter ").and_then(|s| s.chars().next())).collect();
             letters.sort_unstable();
             let tools: Vec<String> = ["Running Shoes", "Bike", "Car"].iter().filter(|t| g.items.iter().any(|i| i == *t)).map(ToString::to_string).collect();
             HudOut {
+                away_running: g.away_running(),
                 goals: g
                     .goal_statuses(now_ms)
                     .into_iter()
@@ -1283,10 +1290,13 @@ impl Engine {
     pub fn on_fix(&self, lat: f64, lon: f64, t_ms: i64, accuracy_m: f64, steps: Option<i64>, simulated: bool) -> Vec<EventOut> {
         let fix = Fix { lat, lon, t_ms, accuracy_m };
         let at = Some((lat, lon));
-        let inside = self.zone_distance_m(Point::new(lat, lon)).is_none_or(|d| d == 0.0);
+        // One pass over the zone shapes per fix: the inside flag for the game and the proximity presence reads next.
+        let zone_d = self.zone_distance_m(Point::new(lat, lon));
+        if self.has_game() {
+            *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Proximity::of_distance(zone_d);
+        }
         let Some((game_id, ev, entries, near)) = self
             .with_game(|g| {
-                g.set_in_zone(inside);
                 let ev = g.on_fix(fix, steps);
                 self.save_if_due(g, t_ms, !ev.is_empty());
                 (g.id.clone(), g.journal_events(&ev, t_ms, at), g.explain_near(&fix, NEAR_MISS_RADIUS_M), ev)
@@ -1314,9 +1324,9 @@ impl Engine {
     }
 
     /// The progressive quests of the open game, one entry per bar.
-    pub fn chains(&self) -> Vec<ChainOut> {
+    pub fn chains(&self, now_ms: i64) -> Vec<ChainOut> {
         self.with_game(|g| {
-            g.chain_views()
+            g.chain_views(now_ms)
                 .into_iter()
                 .map(|c| ChainOut {
                     id: c.id,
@@ -1410,10 +1420,9 @@ impl Engine {
         self.journal_do(|j| j.log(&id, &JournalEvent { t_ms, kind: k.into(), detail: String::new(), at: None }));
     }
 
-    /// "inside" | "near" | "far" for the open game's zones, "unknown" with no game or no zones.
-    pub fn zone_proximity(&self, lat: f64, lon: f64) -> String {
-        let p = Point::new(lat, lon);
-        let best = closest_proximity(&self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner), p);
+    /// "inside" | "near" | "far" for where the last fix was relative to the open game's zones; "unknown" with no fix or no zones.
+    pub fn last_zone_proximity(&self) -> String {
+        let best = *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match best {
             Some(Proximity::Inside) => "inside",
             Some(Proximity::Near) => "near",
@@ -1424,8 +1433,26 @@ impl Engine {
     }
 
     /// Presence rules (home Wi-Fi, car) turn counting off and on.
-    pub fn set_counting(&self, on: bool) {
-        self.with_game(|g| g.set_counting(on));
+    pub fn set_counting(&self, on: bool, t_ms: i64) {
+        self.with_game(|g| g.set_counting(on, t_ms));
+    }
+
+    /// When the next time-away mark falls due if nothing changes: the app schedules one wake-up then and calls [`Self::tick`].
+    pub fn next_due_ms(&self, now_ms: i64) -> Option<i64> {
+        self.with_game(|g| g.next_due_ms(now_ms)).flatten()
+    }
+
+    /// A scheduled wake-up: credit time away up to `t_ms` and report what completed.
+    pub fn tick(&self, t_ms: i64) -> Vec<EventOut> {
+        let Some((id, entries, ev)) = self.with_game(|g| {
+            let ev = g.tick(t_ms);
+            self.save_if_due(g, t_ms, !ev.is_empty());
+            (g.id.clone(), g.journal_events(&ev, t_ms, None), ev)
+        }) else {
+            return Vec::new();
+        };
+        self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&id, e)));
+        ev.into_iter().map(ev_out).collect()
     }
 
     /// Record a presence change ("Home Wi-Fi connected, paused") in the activity log.
@@ -1441,11 +1468,24 @@ impl Engine {
         j.last_of_kind(&id, kind::APP_BACKGROUND).ok().flatten()
     }
 
-    /// The trace of the open game as separate lines.
+    /// A number that changes whenever something is written to the activity log: reload it only when this moves.
+    pub fn journal_revision(&self) -> u64 {
+        self.journal.as_ref().map_or(0, |j| j.lock().unwrap_or_else(std::sync::PoisonError::into_inner).revision())
+    }
+
+    /// The trace of the open game as separate lines, simplified for drawing: standing still collapses to one spot and GPS wobble is
+    /// smoothed out (the saved points are untouched).
     pub fn track(&self, from_ms: i64, to_ms: i64) -> Vec<TrackSegmentOut> {
         let (Some(id), Some(j)) = (self.game_id(), self.journal.as_ref()) else { return Vec::new() };
         let segs = j.lock().unwrap_or_else(std::sync::PoisonError::into_inner).segments(&id, from_ms, to_ms, DEFAULT_MAX_GAP_MS).unwrap_or_default();
-        segs.into_iter().map(|s| TrackSegmentOut { points: s.iter().map(|p| GeoPoint { lat: p.lat, lon: p.lon }).collect() }).collect()
+        segs.into_iter()
+            .map(|s| {
+                let pts: Vec<Point> = s.iter().map(|p| Point::new(p.lat, p.lon)).collect();
+                TrackSegmentOut {
+                    points: simplify(&pts, TRACE_MIN_STEP_M, TRACE_TOLERANCE_M).into_iter().map(|p| GeoPoint { lat: p.lat, lon: p.lon }).collect(),
+                }
+            })
+            .collect()
     }
 
     /// Everything that happened in the open game between two moments.

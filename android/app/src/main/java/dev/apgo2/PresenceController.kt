@@ -23,9 +23,8 @@ import dev.apgo2.presence.Signals
 import dev.apgo2.presence.WifiId
 import dev.apgo2.presence.Zone
 
-private const val REEVALUATE_MS = 5_000L
+private const val SETTLE_MARGIN_MS = 50L // a look scheduled for the exact due time must not land a hair early
 private const val SEED_TIMEOUT_MS = 3_000L
-private const val SEED_POLL_MS = 1_000L
 private const val TAG = "presence"
 private const val NANOS_PER_MS = 1_000_000L
 
@@ -94,31 +93,39 @@ internal class PresenceController(
         val t = model.now()
         if (model.hud == null) zone = Zone.Unknown
         if (seeding.waiting) { // restart in progress: keep the last decision (the core flag still follows it for a newly opened game)
-            model.engine.setCounting(decision.counting)
+            model.engine.setCounting(decision.counting, t)
+            applyLocation() // holds GPS off for an open game until home is known
             return
         }
         checkHomeOffer(t)
         val home = if (seeding.complete) homeDebounce.feed(rawHome(), t) else rawHome()
         val car = if (seeding.complete) carDebounce.feed(rawCar(), t) else rawCar()
-        // A debounced change gets no event of its own (GPS may be off), so look again until it has settled.
+        // A debounced change gets no event of its own (GPS may be off), so look once more exactly when it settles.
         main.removeCallbacks(reevaluate)
-        if (seeding.complete && (homeDebounce.pending || carDebounce.pending)) main.postDelayed(reevaluate, REEVALUATE_MS)
+        val settle = listOfNotNull(homeDebounce.settlesInMs(t), carDebounce.settlesInMs(t)).minOrNull()
+        if (seeding.complete && settle != null) main.postDelayed(reevaluate, settle + SETTLE_MARGIN_MS)
         val d = PresencePolicy.decide(Signals(playing = model.hud != null, homeWifi = home, carBluetooth = car, zone = zone))
         // Every run, not only on change: a game that replaces an open one starts counting again. The core ignores an unchanged value.
-        model.engine.setCounting(d.counting)
-        if (d == decision) return
+        model.engine.setCounting(d.counting, t)
+        model.due.schedule() // leaving or reaching home moves the next due time
+        if (d == decision) {
+            applyLocation() // unchanged decision, but the hold above may just have ended (cheap: a same rate is a no-op)
+            return
+        }
         val changedState = d.state != decision.state
         decision = d
         if (changedState) {
             Diag.info(TAG, d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
             if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
+            model.noteJournal()
         }
         applyLocation()
     }
 
     /** Start, change or stop location to match the presence decision. */
     fun applyLocation() {
-        val rate = if (locationPermitted) GpsPolicy.forDecision(decision, appVisible) else null
+        val holding = (seeding.waiting || seeding.unstarted) && model.hud != null
+        val rate = if (locationPermitted) GpsPolicy.forDecision(decision, appVisible, holding) else null
         if (rate == null) model.sensors.stopLocation() else model.sensors.startLocation(rate)
     }
 
@@ -179,8 +186,9 @@ internal class PresenceController(
         val plan = seeding.poll(SystemClock.elapsedRealtime(), monitor.wifiReported, monitor.bluetoothReady)
         if (plan.home) homeDebounce.seed(rawHome())
         if (plan.car) carDebounce.seed(rawCar())
+        // The monitor's callbacks seed early when a reading arrives; otherwise look once, at the timeout.
         main.removeCallbacks(seedPoll)
-        if (seeding.waiting) main.postDelayed(seedPoll, SEED_POLL_MS)
+        seeding.timeoutInMs(SystemClock.elapsedRealtime())?.let { main.postDelayed(seedPoll, it + SETTLE_MARGIN_MS) }
         evaluate()
     }
 

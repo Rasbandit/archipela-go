@@ -6,13 +6,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import uniffi.apgo_ffi.ApEvent
+import uniffi.apgo_ffi.ApPoll
 import uniffi.apgo_ffi.ApSession
 import uniffi.apgo_ffi.GeoPoint
+import uniffi.apgo_ffi.apNeedsSync
 import java.util.UUID
 import kotlin.random.Random
 
@@ -36,6 +39,10 @@ internal class ApController(
     var slotJson by mutableStateOf<String?>(null)
     var zoneModes by mutableStateOf<List<String>>(emptyList())
     private var syncedChecked = false
+    private var pollJob: Job? = null
+
+    // The game last synced with this session (its id), so a newly opened or started game syncs at once.
+    private var syncedFor: String? = null
 
     /** Open a session to [url] as [slot]. */
     fun connect(
@@ -43,36 +50,57 @@ internal class ApController(
         slot: String,
     ) {
         syncedChecked = false
+        syncedFor = null
         slotJson = null
         hint = null
         val s = ApSession.connect(url, slot, null, ctx.cacheDir.resolve("ap").absolutePath)
         sessions.replace(s)
+        // Polled from the model's scope, not the screen: items keep arriving while the app tracks in the background. Ends by itself
+        // when this session is replaced.
+        pollJob?.cancel()
+        pollJob =
+            scope.launch {
+                val poll = ApPoll() // the back-off lives in the core
+                while (session === s) delay(poll.nextDelayMs(tick()).toLong())
+            }
         scope.launch {
             delay(LAN_HINT_AFTER_MS)
             if (session === s && s.status() == "connecting" && ctx.lacksLocalNetwork()) hint = LAN_HINT
         }
     }
 
-    /** Called from a coroutine loop while a session exists. */
-    suspend fun tick() {
+    /**
+     * Called from the poll loop started in [connect]; true when the server sent anything (the loop then polls again soon, see
+     * [ApPoll]). The open game is synced only when items or server data changed, or it was never synced with this session.
+     */
+    suspend fun tick(): Boolean {
+        var active = false
         sessions.use { s ->
             val events = withContext(Dispatchers.IO) { runCatching { s.poll() }.getOrDefault(emptyList()) }
-            if (session !== s) return // reconnected mid-poll: these events belong to the old server
+            if (session !== s) return false // reconnected mid-poll: these events belong to the old server
+            active = events.isNotEmpty()
             events.forEach { handle(s, it) }
             s.status().let {
                 if (it != status) Diag.info("ap", "status", "status" to it)
                 status = it
             }
-            if (model.engine.hasGame() && model.hud?.backend == "archipelago") syncGame(s)
+            // The open Archipelago game, from the engine's memory; none (no game, a solo game, or paused) forgets the last sync, so a
+            // game reopened after a pause catches up at once.
+            val game = model.engine.openGameId()?.takeIf { model.hud?.backend == "archipelago" }
+            if (game == null) syncedFor = null
+            val changed = events.any { it is ApEvent.Connected || it is ApEvent.ReceivedItems || it is ApEvent.Updated }
+            if (apNeedsSync(changed, syncedFor, game)) {
+                syncGame(s)
+                syncedFor = game
+            }
         }
+        return active
     }
 
     /** Start a game from the connected slot's data. */
     fun startGame(
         zoneRealms: List<String>,
         name: String,
-        awayZoneOnly: Boolean,
-        awayDistanceM: UInt,
     ) {
         val json = slotJson
         if (json == null) {
@@ -93,8 +121,6 @@ internal class ApController(
                             seed,
                             model.surfacePref,
                             model.avoidStairs,
-                            awayZoneOnly,
-                            awayDistanceM,
                         )
                     }
                 }
@@ -162,6 +188,6 @@ internal class ApController(
         }
         val pos = model.me?.let { GeoPoint(it.latitude, it.longitude) }
         model.handle(model.engine.syncItems(items, model.now(), pos))
-        model.refreshPlay()
+        model.refreshPlay(withTrace = false) // items never change where you walked
     }
 }

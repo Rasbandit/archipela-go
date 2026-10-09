@@ -10,22 +10,12 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * Keeps the app a foreground process while a game is open, so location and step updates (see [Sensors]) keep
  * arriving with the screen off. It holds no logic of its own; the user sees it as an ongoing notification.
  */
 class TrackingService : Service() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var beat: Job? = null
-
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(
@@ -51,21 +41,11 @@ class TrackingService : Service() {
             startForeground(ID, n) // the foreground service type only exists from Android 10
         }
         Diag.info("service", "started", "restart" to (intent == null))
-        if (beat?.isActive != true) {
-            beat =
-                scope.launch {
-                    while (true) {
-                        delay(HEARTBEAT_MS)
-                        (application as ApgoApp).model.diag.heartbeat()
-                    }
-                }
-        }
         return START_STICKY
     }
 
     override fun onDestroy() {
         Diag.info("service", "stopped")
-        scope.cancel()
         super.onDestroy()
     }
 
@@ -73,7 +53,6 @@ class TrackingService : Service() {
     companion object {
         private const val CHANNEL = "tracking"
         private const val ID = 1
-        private const val HEARTBEAT_MS = 60_000L
 
         /** Starts the foreground service. */
         fun start(ctx: Context) = ctx.startForegroundService(Intent(ctx, TrackingService::class.java))

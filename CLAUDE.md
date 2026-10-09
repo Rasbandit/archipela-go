@@ -30,13 +30,20 @@ via UniFFI. iOS later with SwiftUI over the same core. Apworld in Python. Monore
 ## Key decisions (full log: `docs/context/project-decisions.md`)
 
 - Own apworld, game `Archipela-Go 2: Electric Boogaloo`, new ID offset. Archipelago's own conventions are the golden rule.
-- Realms are places; **travel mode is chosen per zone in a game**; zones are gated by keys and tools; quests come from a 76-kind catalog on real finds.
+- Realms are places; **travel mode is chosen per zone in a game**; zones are gated by keys and tools; quests come from a 75-kind catalog on real finds.
 - Several win conditions (any / all / at least N) are client-evaluated and reported with `StatusUpdate`; slot_data is schema 3.
 - Scans use a global tile grid and a shared cache; the editor autosaves with undo/redo; one design system (`ui/`) and one help-text file.
 - Licence: `android/` is PolyForm Noncommercial 1.0.0, everything else MIT (`working-in-this-repo.md`).
 
 ## Conventions
 
+- **Hard rule: build for Android and iOS alike.** Game logic, game state, persistence and decisions (what to show, what to resume,
+  what counts as done) live in the Rust core behind UniFFI, with core tests. The Kotlin (and later Swift) layer only draws the UI
+  and wraps platform APIs (sensors, permissions, notifications, Bluetooth/Wi-Fi). If iOS would have to re-implement it, it belongs
+  in the core. Platform settings stores (SharedPreferences, UserDefaults) are only for per-device UI conveniences.
+- **Hard rule: events over polling, to save CPU and battery.** Drive game logic from events (presence changes, GPS fixes that
+  arrive anyway, geofences, one scheduled wake-up at the moment something becomes due) and compute derived values lazily when
+  asked (e.g. "time away = saved minutes + now - start"). No timers that tick to update state, no extra GPS just to measure time.
 - Conventional commits (`feat:`, `fix:`, `docs:`), subject under 50 chars. Small, tightly scoped steps.
 - TDD: failing tests first; never edit tests to fit bad code.
 - Upstream code is MIT (keep notice if copying); upstream apworld has NO license: reimplement, never copy.

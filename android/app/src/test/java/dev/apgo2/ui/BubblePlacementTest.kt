@@ -40,4 +40,9 @@ class BubblePlacementTest {
             )
         assertEquals(8, x)
     }
+
+    @Test fun theGapClearsThePinStandingOnThePoint() {
+        assertEquals("the pin plus a 6 dp clearance", 100 + 12, BubblePlacement.gapPx(100f, density = 2f))
+        assertEquals(6, BubblePlacement.gapPx(0f, density = 1f))
+    }
 }

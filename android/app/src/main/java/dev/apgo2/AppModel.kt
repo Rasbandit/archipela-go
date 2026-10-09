@@ -4,6 +4,7 @@ import android.content.Context
 import android.location.Location
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -12,7 +13,6 @@ import dev.apgo2.presence.PresenceSettings
 import kotlinx.coroutines.CoroutineScope
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.AuditEventOut
-import uniffi.apgo_ffi.AwayReportOut
 import uniffi.apgo_ffi.ChainOut
 import uniffi.apgo_ffi.Engine
 import uniffi.apgo_ffi.EventOut
@@ -25,21 +25,19 @@ import uniffi.apgo_ffi.RealmOut
 import uniffi.apgo_ffi.ZoneOut
 import kotlin.random.Random
 
-private const val AWAY_MIN_MS = 60_000L
-
 // Reloading the whole trace on every fix gets slower as it grows; every 10 s is plenty for a line on a map.
 private const val TRACE_REFRESH_MS = 10_000L
 
-// Step readings without events only refresh the Play screen this often.
-private const val STEP_REFRESH_MS = 5_000L
+// Step readings without events refresh the Play screen only once the count moved this much (a visible change).
+private const val STEP_REFRESH_STEPS = 50L
 private const val LOG_LIMIT = 60
 private const val EVENT_LOG_CHARS = 300
 
 /** The bottom-bar tabs, by index. */
 internal object AppTab {
-    const val REALMS = 0
-    const val NEW_GAME = 1
-    const val PLAY = 2
+    const val PLAY = 0
+    const val REALMS = 1
+    const val NEW_GAME = 2
     const val ACTIVITY = 3
 }
 
@@ -62,11 +60,12 @@ internal class AppModel(
     val ap = ApController(this, ctx, scope)
     val sim = DevSimulator(this, scope)
     val diag = FieldDiagnostics(this, ctx)
+    val due = DueTimer(this, scope)
     private val traceThrottle = Throttle(TRACE_REFRESH_MS)
-    private val stepRefreshThrottle = Throttle(STEP_REFRESH_MS)
+    private val stepRefresh = StepRefresh(STEP_REFRESH_STEPS)
 
     /** The tab showing, one of [AppTab]. */
-    var tab by mutableIntStateOf(AppTab.REALMS)
+    var tab by mutableIntStateOf(AppTab.PLAY)
 
     /** The realm editor: null shows the realm list, "" a new realm, otherwise the id of the realm being edited. */
     var editing by mutableStateOf<String?>(null)
@@ -81,12 +80,14 @@ internal class AppModel(
     /** Where you have been in this game: one line per unbroken stretch of GPS. */
     var trace by mutableStateOf<List<List<LatLng>>>(emptyList())
 
-    /** Set when you come back to the app after being away; shown once. */
-    var away by mutableStateOf<AwayReportOut?>(null)
     var games by mutableStateOf<List<GameInfo>>(emptyList())
 
     /** What happened in the open (or last paused) game, newest first; see [GameLibrary.refreshActivity]. */
     var activity by mutableStateOf<List<AuditEventOut>>(emptyList())
+
+    /** Moves whenever the engine wrote to the activity log; the Activity tab reloads on a change instead of on a timer. */
+    var journalRev by mutableLongStateOf(0L)
+        private set
     val log = mutableStateListOf<String>()
     var realLoc by mutableStateOf<Location?>(null)
     var simPos by mutableStateOf<LatLng?>(null)
@@ -138,9 +139,9 @@ internal class AppModel(
     /** Reload the open game's quests, zones, chains and HUD (and its trace, when [withTrace]). */
     fun refreshPlay(withTrace: Boolean = true) {
         if (engine.hasGame()) {
-            quests = engine.quests()
+            quests = engine.quests(now())
             zones = engine.zones()
-            chains = engine.chains()
+            chains = engine.chains(now())
             hud = engine.hud(now())
             if (withTrace) trace = engine.track(0L, Long.MAX_VALUE).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
         } else {
@@ -151,6 +152,13 @@ internal class AppModel(
             hud = null
             trace = emptyList()
         }
+        noteJournal()
+        due.schedule()
+    }
+
+    /** Pick up whether the activity log changed (a cheap read; call after anything that may have logged). */
+    fun noteJournal() {
+        journalRev = engine.journalRevision().toLong()
     }
 
     /** The phone's step counter changed: credit it to the open game (the engine ignores it when no game is open). */
@@ -159,8 +167,8 @@ internal class AppModel(
         if (!engine.hasGame()) return
         val events = engine.onSteps(total, now())
         handle(events)
-        // The counter reports about twice a second: refresh the screen when something happened, otherwise only now and then.
-        if (events.isNotEmpty() || stepRefreshThrottle.due(now())) refreshPlay(withTrace = false)
+        // The counter reports in batches: refresh when something happened or the count moved enough to show, never on a timer.
+        if (events.isNotEmpty() || stepRefresh.due(total, engine.openGameId())) refreshPlay(withTrace = false)
     }
 
     /** A location fix arrived: feed the engine, update presence and the screen. */
@@ -168,7 +176,7 @@ internal class AppModel(
         if (!engine.hasGame() || simPos != null) return
         diag.recordFix(loc)
         handle(engine.onFix(loc.latitude, loc.longitude, now(), loc.accuracy.toDouble(), stepsTotal, false))
-        presence.updateZone(engine.zoneProximity(loc.latitude, loc.longitude))
+        presence.updateZone(engine.lastZoneProximity())
         presence.evaluate()
         refreshPlay(withTrace = traceThrottle.due(now()))
         diag.logProgress()
@@ -178,21 +186,23 @@ internal class AppModel(
     fun onBackground() {
         engine.saveGame()
         engine.logAppState(false, now())
+        noteJournal()
         Diag.info("lifecycle", "background")
         diag.drainCore()
     }
 
-    /** Back on screen: if you were gone a while, build the report of what the phone recorded. */
+    /** Back on screen: log it, and how long the app was away. */
     fun onForeground() {
         val left = engine.lastBackgroundMs()
         val t = now()
         engine.logAppState(true, t)
+        noteJournal()
         Diag.info("lifecycle", "foreground", "away_ms" to (left?.let { t - it } ?: -1L))
-        if (left != null && t - left >= AWAY_MIN_MS) away = engine.awayReport(left, t)
     }
 
     /** Show what the engine reported, and pass on to Archipelago what it needs to hear. */
     fun handle(events: List<EventOut>) {
+        noteJournal()
         events.forEach { Diag.info("event", it.toString().take(EVENT_LOG_CHARS)) }
         for (e in events) {
             when (e) {

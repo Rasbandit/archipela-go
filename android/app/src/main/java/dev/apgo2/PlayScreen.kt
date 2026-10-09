@@ -33,15 +33,21 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import dev.apgo2.presence.PresenceText
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.BubblePlacement
 import dev.apgo2.ui.FeedbackText
 import dev.apgo2.ui.METERS_PER_KM
 import dev.apgo2.ui.MapBubble
+import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.Tone
 import dev.apgo2.ui.Units
+import kotlinx.coroutines.delay
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.GameInfo
 import uniffi.apgo_ffi.GoalLineOut
@@ -51,12 +57,12 @@ import uniffi.apgo_ffi.ZoneOut
 
 // Quests shown in the Progress section before "Show all".
 private const val PROGRESS_ROWS = 3
+private const val LIVE_REDRAW_MS = 60_000L
 private const val HIDDEN = "hidden"
 private const val LOG_LINES = 3
 private const val MAP_WEIGHT = 0.55f
 private const val PANEL_WEIGHT = 0.45f
 private const val QUEST_BUBBLE_DP = 200
-private const val BUBBLE_GAP_DP = 26
 
 /** The Play tab: the open game with its map, goals and progress; without one, the saved games. */
 @Composable
@@ -65,6 +71,20 @@ internal fun PlayScreen(
     modifier: Modifier = Modifier,
 ) {
     val hud = m.hud
+    // Time away moves with the clock, but nothing ticks in the core: while it runs and this screen is on show, redraw once a minute
+    // (display only: no GPS, and nothing while the app is in the background).
+    val owner = LocalLifecycleOwner.current
+    val awayRunning = hud?.awayRunning == true
+    LaunchedEffect(owner, awayRunning) {
+        if (awayRunning) {
+            owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    delay(LIVE_REDRAW_MS)
+                    m.refreshPlay(withTrace = false)
+                }
+            }
+        }
+    }
     if (hud == null) NoGameOpen(m, modifier) else GameView(m, hud, modifier)
 }
 
@@ -147,7 +167,8 @@ private fun PlayMap(
     var anchorPx by remember { mutableStateOf<Offset?>(null) }
     LaunchedEffect(m.selected, bubblePx) {
         val a = selected?.anchor ?: return@LaunchedEffect
-        val room = (if (bubblePx > 0) bubblePx else (QUEST_BUBBLE_DP * density).toInt()) + (BUBBLE_GAP_DP * density).toInt()
+        val pin = MapMarkers.selectedQuestPinHeightPx()
+        val room = (if (bubblePx > 0) bubblePx else (QUEST_BUBBLE_DP * density).toInt()) + BubblePlacement.gapPx(pin, density)
         focus = MapFocus(LatLng(a.lat, a.lon), ++focusNonce, room)
     }
     Box(modifier) {
@@ -161,6 +182,7 @@ private fun PlayMap(
             m.selected,
             { ll -> nearestQuest(m.quests, ll)?.let { m.selected = it.locationId } },
             Modifier.fillMaxSize(),
+            onQuestClick = { m.selected = it },
             home = m.home?.let { LatLng(it.lat, it.lon) },
             trace = m.trace,
             focus = focus,
@@ -202,7 +224,12 @@ private fun BoxScope.QuestPopup(
     if (q.anchor == null) {
         MapOverlayCard(Modifier.align(Alignment.BottomCenter), content = details)
     } else if (anchorPx != null) {
-        MapBubble(anchorPx, onSize = { onBubbleSize(it.height) }, content = details)
+        MapBubble(
+            anchorPx,
+            MapMarkers.selectedQuestPinHeightPx(),
+            onSize = { onBubbleSize(it.height) },
+            content = details,
+        )
     }
 }
 

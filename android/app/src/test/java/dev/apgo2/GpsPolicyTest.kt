@@ -8,11 +8,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GpsPolicyTest {
-    @Test fun playingPingsEveryFiveSecondsEvenWhenStanding() {
-        // Dwell and Away quests accrue time from fixes: a distance filter would starve them while you stand still.
+    @Test fun playingPingsEveryFiveSecondsOnlyOnceYouMove() {
+        // Dwell and time away finish on a scheduled tick, not on fixes: standing still needs no GPS.
         val r = GpsPolicy.forState(playing = true)
         assertEquals(5_000L, r.intervalMs)
-        assertEquals(0f, r.minDistanceM)
+        assertEquals(10f, r.minDistanceM)
     }
 
     @Test fun idlePingsLessOften() {
@@ -25,11 +25,6 @@ class GpsPolicyTest {
         val p = GpsPolicy.forState(true)
         val i = GpsPolicy.forState(false)
         assertTrue(p.intervalMs < i.intervalMs && p.minDistanceM <= i.minDistanceM)
-    }
-
-    @Test fun playingStaysUnderTheCoreGapLimit() {
-        // core verify.rs drops gaps over 5 minutes (Away quests): the cadence must stay far below that.
-        assertTrue(GpsPolicy.forState(true).intervalMs * 10 < 5 * 60_000L)
     }
 }
 
@@ -61,5 +56,12 @@ class GpsDecisionTest {
         val d = Decision(PresenceState.Stopped, GpsMode.Off, counting = false)
         assertEquals("visible", GpsPolicy.forState(playing = false), GpsPolicy.forDecision(d, appVisible = true))
         assertEquals("hidden", null, GpsPolicy.forDecision(d, appVisible = false))
+    }
+
+    @Test fun noLocationWhileAGameWaitsToLearnWhetherYouAreHome() {
+        // At start-up the decision is still Stopped while Wi-Fi is read; the "show my dot" rule must not wake GPS for a game then.
+        val d = Decision(PresenceState.Stopped, GpsMode.Off, counting = false)
+        assertEquals("holding", null, GpsPolicy.forDecision(d, appVisible = true, holding = true))
+        assertEquals("not holding", GpsPolicy.forState(playing = false), GpsPolicy.forDecision(d, appVisible = true, holding = false))
     }
 }

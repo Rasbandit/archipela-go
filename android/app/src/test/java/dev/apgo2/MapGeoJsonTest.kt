@@ -151,14 +151,30 @@ class MapFeaturesTest {
         pins.forEach { assertTrue(it.props().getBoolean(MapProp.SELECTED)) }
     }
 
-    @Test fun questPinPropsCarryImageScaleAndOrder() {
+    @Test fun questPinPropsCarryImageIdAndOrder() {
         val pins = MapFeatures.quests(listOf(quest(1, state = "progress", difficulty = "Hard"), quest(2, boss = true)), selected = 2L)
         val (hard, boss) = pins.map { it.props() }
-        assertEquals("quest|street_smarts|reach|progress", hard.getString(MapProp.IMAGE))
+        assertEquals("a hard quest gets 3 pips", "quest|street_smarts|reach|progress|3", hard.getString(MapProp.IMAGE))
+        assertEquals("a tap on the pin finds its quest", "1", hard.getString(MapProp.ID))
         assertFalse(hard.getBoolean(MapProp.SELECTED))
         assertTrue(boss.getBoolean(MapProp.SELECTED))
-        assertTrue(boss.getDouble(MapProp.SCALE) > hard.getDouble(MapProp.SCALE))
+        assertFalse("pins carry no size of their own: all are one size", boss.has("scale") || hard.has("scale"))
         assertTrue("in progress is drawn first", hard.getInt(MapProp.SORT) < boss.getInt(MapProp.SORT))
+    }
+
+    @Test fun theSelectedPinIsKeptOutOfTheClusteredSet() {
+        val pins = MapFeatures.quests(listOf(quest(1), quest(2, shape = "courier", anchorB = geo(5.0, 6.0)), quest(3)), selected = 2L)
+        val (rest, selected) = MapFeatures.splitSelected(pins)
+        assertEquals("both courier stops stay with the selection", 2, selected.size)
+        assertEquals(2, rest.size)
+        rest.forEach { assertFalse(it.props().getBoolean(MapProp.SELECTED)) }
+    }
+
+    @Test fun nothingSelectedLeavesEveryPinClustered() {
+        val (rest, selected) = MapFeatures.splitSelected(MapFeatures.quests(listOf(quest(1), quest(2)), selected = null))
+        assertEquals(2, rest.size)
+        assertTrue(selected.isEmpty())
+        assertTrue(MapFeatures.splitSelected(emptyList()).let { it.first.isEmpty() && it.second.isEmpty() })
     }
 
     @Test fun linesAreDrawnForLineAndAreaQuestsWithAPath() {
@@ -174,6 +190,7 @@ class MapFeaturesTest {
                 ),
             )
         assertEquals(listOf("open", "done"), lines.map { it.props().getString(MapProp.STATE) })
+        assertEquals("parks and trails are drawn differently", listOf("line", "area"), lines.map { it.props().getString(MapProp.SHAPE) })
         lines.forEach { assertEquals("LineString", it.geomType()) }
     }
 

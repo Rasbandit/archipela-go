@@ -9,6 +9,11 @@
 - Never use built-in WebSearch/WebFetch: use Perplexity/Firecrawl/GitHub MCPs. Life OS / work-log tagging is skipped here.
 - **Archipelago standards are the golden rule**: copy patterns from official worlds (see `archipelago-game-model.md`) and verify with real generation.
 - Be honest about what was verified; say plainly when something was only checked on the emulator.
+- **Android and iOS alike** (hard rule, `CLAUDE.md`): game logic, state and persistence in the Rust core; Kotlin/Swift only draw and wrap platform APIs.
+- **Events over polling** (hard rule, `CLAUDE.md`): battery matters most. Drive logic from events (presence changes, fixes that arrive anyway, one scheduled
+  wake-up when something falls due: core `next_due_ms`/`tick`, app `DueTimer`) and compute derived values when asked. No ticking loops; GPS only reports
+  movement while playing. The polling audit of 2026-10-09 removed the AP 300 ms full refresh, the Activity 3 s reload, the 60 s service heartbeat, presence
+  re-check polls, the 5 s step refresh, scan-progress polling and GPS-for-timing.
 
 ## Parallel sessions: always work in a worktree
 

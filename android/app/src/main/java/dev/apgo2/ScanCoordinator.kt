@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.apgo_ffi.OfferOut
+import uniffi.apgo_ffi.ScanListener
 import uniffi.apgo_ffi.ScanPlanOut
 
 // At most one download per realm in this time.
@@ -19,7 +20,6 @@ private const val BIG_SCAN_REQUESTS = 60
 
 private const val QUIET_RETRY_MS = 45_000L
 private const val MAX_QUIET_RETRIES = 4
-private const val PROGRESS_POLL_MS = 400L
 private const val SCANNING_TEXT = "Looking for finds…"
 
 /** A scan that needs a lot of downloading and waits for the player's go-ahead. */
@@ -120,20 +120,21 @@ internal class ScanCoordinator(
     private suspend fun runWithProgress(id: String): Result<List<OfferOut>> {
         model.busy = SCANNING_TEXT
         busyFraction = null
-        val progress =
-            scope.launch {
-                while (true) {
-                    val p = model.engine.scanProgress()
-                    if (p.total > 0u) {
-                        busyFraction = p.done.toFloat() / p.total.toFloat()
-                        model.busy = "$SCANNING_TEXT ${p.done} of ${p.total}"
+        // The core calls this as each map request finishes (on the scanning thread): no polling.
+        val listener =
+            object : ScanListener {
+                override fun progress(
+                    done: UInt,
+                    total: UInt,
+                ) {
+                    if (total == 0u) return
+                    scope.launch(Dispatchers.Main) {
+                        busyFraction = done.toFloat() / total.toFloat()
+                        model.busy = "$SCANNING_TEXT $done of $total"
                     }
-                    delay(PROGRESS_POLL_MS)
                 }
             }
-        val result = withContext(Dispatchers.IO) { runCatching { model.engine.scanRealm(id, model.now().toULong()) } }
-        progress.cancel()
-        return result
+        return withContext(Dispatchers.IO) { runCatching { model.engine.scanRealm(id, model.now().toULong(), listener) } }
     }
 
     private fun showOutcome(

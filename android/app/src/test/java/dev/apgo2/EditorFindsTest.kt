@@ -1,5 +1,7 @@
 package dev.apgo2
 
+import dev.apgo2.ui.BubblePlacement
+import dev.apgo2.ui.MapMarkers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -52,7 +54,11 @@ class EditorFindsTest {
         f.show(find("a"), density = 2f)
         assertEquals("a", f.selected)
         assertEquals(1, f.focus?.nonce)
-        assertEquals(230 * 2 + 26 * 2, f.focus?.roomAbovePx)
+        assertEquals(
+            "the callout plus the pin under it",
+            230 * 2 + BubblePlacement.gapPx(MapMarkers.selectedFindPinHeightPx(), 2f),
+            f.focus?.roomAbovePx,
+        )
         f.show(find("a"), density = 2f)
         assertEquals(2, f.focus?.nonce)
     }
@@ -67,6 +73,6 @@ class EditorFindsTest {
         assertNull(f.focus)
         f.bubblePx = 100
         f.refocusOnBubble(density = 1f)
-        assertEquals(100 + 26, f.focus?.roomAbovePx)
+        assertEquals(100 + BubblePlacement.gapPx(MapMarkers.selectedFindPinHeightPx(), 1f), f.focus?.roomAbovePx)
     }
 }

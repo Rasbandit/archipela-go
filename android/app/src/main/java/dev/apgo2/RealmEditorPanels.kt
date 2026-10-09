@@ -49,6 +49,7 @@ import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.MIN_POLYGON_CORNERS
 import dev.apgo2.ui.MapBubble
+import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.MarkToggle
 import dev.apgo2.ui.RealmStatsBox
@@ -313,7 +314,7 @@ internal fun FindBubble(
     onMark: (String) -> Unit,
     onClose: () -> Unit,
 ) {
-    MapBubble(at, onSize) {
+    MapBubble(at, MapMarkers.selectedFindPinHeightPx(), onSize) {
         BubbleHeader(f, onMark, onClose)
         f.kinds.take(MAX_BUBBLE_KINDS).forEach { k ->
             Column(Modifier.padding(end = 8.dp)) {

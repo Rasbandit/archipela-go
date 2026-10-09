@@ -48,8 +48,23 @@ class PresenceSeedingTest {
         assertEquals(SeedPlan(true, true), s.poll(13_000, wifiReported = false, bluetoothReady = false))
     }
 
-    @Test fun notWaitingBeforeTheFirstRestart() {
-        assertEquals(false, PresenceSeeding().waiting)
+    @Test fun neverStartedIsNotWaitingButIsUnstarted() {
+        // Without location permission the watcher never starts: presence must still decide (and count), so this is not "waiting";
+        // "unstarted" only holds GPS off at app start until the watcher has read Wi-Fi.
+        val fresh = PresenceSeeding()
+        assertEquals(false, fresh.waiting)
+        assertEquals(true, fresh.unstarted)
         assertEquals("started and incomplete", true, started().waiting)
+        assertEquals(false, started().unstarted)
+    }
+
+    @Test fun theSeedTimeoutSaysWhenItWillFire() {
+        val s = started(1_000)
+        assertEquals(3_000L, s.timeoutInMs(1_000))
+        assertEquals(1_000L, s.timeoutInMs(3_000))
+        assertEquals("overdue is now", 0L, s.timeoutInMs(9_000))
+        s.poll(9_000, wifiReported = false, bluetoothReady = false)
+        assertEquals("all seeded: nothing to wait for", null, s.timeoutInMs(9_000))
+        assertEquals("never started: nothing scheduled", null, PresenceSeeding(3_000).timeoutInMs(0))
     }
 }

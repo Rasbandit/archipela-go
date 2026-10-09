@@ -48,6 +48,22 @@ pub enum Proximity {
 /// Distance from an area at which precise GPS starts, in metres.
 pub const NEAR_ZONE_M: f64 = 300.0;
 
+impl Proximity {
+    /// Inside, near or far, from the distance to the nearest zone (0 inside); `None` with no zones. The one place the thresholds live.
+    #[must_use]
+    pub fn of_distance(d: Option<f64>) -> Option<Self> {
+        d.map(|d| {
+            if d == 0.0 {
+                Self::Inside
+            } else if d <= NEAR_ZONE_M {
+                Self::Near
+            } else {
+                Self::Far
+            }
+        })
+    }
+}
+
 /// The closest classification of `p` across `shapes` (Inside beats Near beats Far); `None` with no shapes.
 #[must_use]
 pub fn closest_proximity(shapes: &[Shape], p: Point) -> Option<Proximity> {
@@ -122,14 +138,7 @@ impl Shape {
     /// Where `p` is relative to this area: inside, within `NEAR_ZONE_M` of it, or far.
     #[must_use]
     pub fn proximity(&self, p: Point) -> Proximity {
-        let d = self.distance_m(p);
-        if d == 0.0 {
-            Proximity::Inside
-        } else if d <= NEAR_ZONE_M {
-            Proximity::Near
-        } else {
-            Proximity::Far
-        }
+        Proximity::of_distance(Some(self.distance_m(p))).unwrap_or(Proximity::Far)
     }
 
     /// Whether the shape is big enough to play in.
@@ -481,6 +490,14 @@ mod tests {
         assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 100.0)), Proximity::Inside);
         assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 700.0)), Proximity::Near);
         assert_eq!(s.proximity(crate::geo::destination(c, 0.0, 900.0)), Proximity::Far);
+    }
+
+    #[test]
+    fn proximity_follows_the_distance_to_the_nearest_zone() {
+        assert_eq!(Proximity::of_distance(Some(0.0)), Some(Proximity::Inside));
+        assert_eq!(Proximity::of_distance(Some(NEAR_ZONE_M)), Some(Proximity::Near));
+        assert_eq!(Proximity::of_distance(Some(NEAR_ZONE_M + 1.0)), Some(Proximity::Far));
+        assert_eq!(Proximity::of_distance(None), None, "no zones");
     }
 
     #[test]
