@@ -37,9 +37,9 @@ private data class NavTab(
 
 private val NAV_TABS =
     listOf(
+        NavTab("Play", ApgoIcons.Play),
         NavTab("Realms", ApgoIcons.Realms),
         NavTab("New Game", ApgoIcons.NewGame),
-        NavTab("Play", ApgoIcons.Play),
         NavTab("Activity", ApgoIcons.Activity),
     )
 
@@ -57,9 +57,9 @@ internal fun AppRoot(
         Box(modifier) {
             val othersUp = listOf(m.scans.ask != null, m.yamlText != null, backgroundPromptUp)
             if (showHomeOffer(othersUp)) HomeWifiDialog(m.presence)
-            // Back from New Game or Play goes to Realms; the realm editor handles its own Back (to the list); on the list it leaves
-            // the app as usual.
-            BackHandler(enabled = m.tab != AppTab.REALMS) { m.tab = AppTab.REALMS }
+            // Back from any other tab goes to Play; the realm editor handles its own Back (to the list); on Play it leaves the app
+            // as usual.
+            BackHandler(enabled = m.tab != AppTab.PLAY) { m.tab = AppTab.PLAY }
             Scaffold(bottomBar = { AppNavigationBar(m) }) { pad -> AppBody(m, Modifier.padding(pad)) }
             ScanAskDialog(m)
             YamlDialog(m)

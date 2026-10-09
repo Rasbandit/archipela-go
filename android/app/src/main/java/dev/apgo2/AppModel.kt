@@ -34,9 +34,9 @@ private const val EVENT_LOG_CHARS = 300
 
 /** The bottom-bar tabs, by index. */
 internal object AppTab {
-    const val REALMS = 0
-    const val NEW_GAME = 1
-    const val PLAY = 2
+    const val PLAY = 0
+    const val REALMS = 1
+    const val NEW_GAME = 2
     const val ACTIVITY = 3
 }
 
@@ -63,7 +63,7 @@ internal class AppModel(
     private val stepRefreshThrottle = Throttle(STEP_REFRESH_MS)
 
     /** The tab showing, one of [AppTab]. */
-    var tab by mutableIntStateOf(AppTab.REALMS)
+    var tab by mutableIntStateOf(AppTab.PLAY)
 
     /** The realm editor: null shows the realm list, "" a new realm, otherwise the id of the realm being edited. */
     var editing by mutableStateOf<String?>(null)
