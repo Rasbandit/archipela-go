@@ -331,16 +331,14 @@ private class MapHolder(
                 bottom = inputs.overlayBottomDp.value * density,
                 margin = FOCUS_MARGIN_DP * density,
             )
-        val shift = FocusShift.needed(p.x, p.y, f.roomAbovePx.toFloat(), CALLOUT_PIN_DP * density, visible)
+        val above = f.roomAbovePx.toFloat()
+        val below = CALLOUT_PIN_DP * density
+        val shift = FocusShift.needed(p.x, p.y, above, below, visible)
         when {
-            // Far away: centre it in the visible area (the camera's padding is the overlays), at the same zoom.
-            FocusShift.far(shift, visible) -> {
-                m.animateCamera(CameraUpdateFactory.newLatLng(f.at), FOCUS_SCROLL_MS.toInt())
-            }
+            // Far away: centre it with its callout in the visible area, at the same zoom.
+            FocusShift.far(shift, visible) -> nudge(m, FocusShift.centred(p.x, p.y, above, below, visible))
 
-            shift != 0f to 0f -> {
-                nudge(m, shift)
-            }
+            shift != 0f to 0f -> nudge(m, shift)
         }
     }
 

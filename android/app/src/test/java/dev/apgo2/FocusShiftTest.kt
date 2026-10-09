@@ -48,4 +48,10 @@ class FocusShiftTest {
         // Pin bottom at 1700 wants a lift of 320, but the callout top at 200 can only rise by 80 to stay at 120.
         assertEquals(0f to 80f, shift(500f, 1100f, above = 900f, below = 600f))
     }
+
+    @Test fun aFarPointIsCentredTogetherWithItsCallout() {
+        // The visible area runs 100..1400 (centre 750, x 500). The block runs from y - 300 to y + 50, so its middle is y - 125.
+        assertEquals(4500f to 5125f, FocusShift.centred(5000f, 6000f, 300f, 50f, view))
+        assertEquals(0f to 0f, FocusShift.centred(500f, 875f, 300f, 50f, view))
+    }
 }

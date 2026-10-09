@@ -44,6 +44,19 @@ internal object FocusShift {
         return dx to dy
     }
 
+    /** The view shift (x, y) that puts the middle of the point with its callout and pin (as in [needed]) in the middle of [v]. */
+    fun centred(
+        x: Float,
+        y: Float,
+        above: Float,
+        below: Float,
+        v: View,
+    ): Pair<Float, Float> {
+        val blockMiddle = y + (below - above) / 2
+        val visibleMiddle = v.top + (v.height - v.top - v.bottom) / 2
+        return x - v.width / 2 to blockMiddle - visibleMiddle
+    }
+
     /** Whether [shift] is more than a screen: then the point is far away and is better centred than nudged to an edge. */
     fun far(
         shift: Pair<Float, Float>,
