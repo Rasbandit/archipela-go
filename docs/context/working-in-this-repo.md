@@ -57,6 +57,14 @@ owner: never switch branches or edit files there. A `git switch` by one session 
 - `pkill -f` kills your own shell; stop servers via pid file / port listener. `adb shell input swipe` from a screen edge triggers Android's Back gesture.
 - Do not start swipes at x<60 or x>1020 on the 1080-wide emulator. UI coordinates in screenshots are scaled by 1.2 (the Read tool says so).
 - MapLibre does not always repaint after a GeoJSON change on a still camera: call `map.triggerRepaint()`. A bounds fit REPLACES the map padding: include overlay padding.
+- MapLibre's `scrollBy` fires no camera-move events, so anything tracking the camera (the quest callout) goes stale: move with
+  `animateCamera` to a shifted centre instead. Call `cancelTransitions()` before a refocus or two scrolls add up. A fill layer at opacity 0
+  is not hit by `queryRenderedFeatures`: ask the core (`park_at`) instead.
+- Compose: a plain `Column` over an `AndroidView` lets touches through to the map; an empty `pointerInput(Unit) {}` makes it a hit target.
+  A value that changes every frame (a sliding panel) must be read in layout or in a `snapshotFlow`, not in composition, or the whole
+  screen recomposes each frame.
+- Lefthook fails (prints `git diff` usage) when a file is only partly staged, and the next `git add` then sweeps the rest into the wrong
+  commit. To split one file across commits, make the working copy match the index first (back up the file, `git checkout -- file`).
 - Read editor state inside click handlers (not from vals captured at composition) or undo/redo saves stale values.
 - UniFFI: a record field named `message` clashes with Kotlin's Throwable.message; rustls needs the ring provider installed explicitly; generated Kotlin lives in `src/main/kotlin`.
 - Compose icons: Lucide names differ from memory (e.g. no `CloudCheck`; lucide 2 renamed `CircleHelp` to `CircleQuestionMark`). A wrong name is a compile error: fix by trying the compiler.

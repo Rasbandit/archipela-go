@@ -121,14 +121,15 @@ internal object MapFeatures {
     /** The routes of line and area quests. */
     fun lines(quests: List<QuestOut>): List<JSONObject> =
         quests.filter { it.state != HIDDEN && it.path.size >= 2 && (it.shape == "line" || it.shape == "area") }.map {
-            val props = JSONObject().put(MapProp.STATE, it.state).put(MapProp.SHAPE, it.shape)
+            val props = JSONObject().put(MapProp.ID, it.locationId.toString()).put(MapProp.STATE, it.state).put(MapProp.SHAPE, it.shape)
             GeoJson.feature(GeoJson.lineString(it.path.map { p -> p.lat to p.lon }), props)
         }
 
     /** The outlines of area quests. */
     fun areas(quests: List<QuestOut>): List<JSONObject> =
         quests.filter { it.state != HIDDEN && it.shape == "area" && it.path.size >= MIN_POLYGON_POINTS }.map {
-            GeoJson.feature(GeoJson.polygon(it.path.map { p -> p.lat to p.lon }), JSONObject().put(MapProp.STATE, it.state))
+            val props = JSONObject().put(MapProp.ID, it.locationId.toString()).put(MapProp.STATE, it.state)
+            GeoJson.feature(GeoJson.polygon(it.path.map { p -> p.lat to p.lon }), props)
         }
 
     /** Where you have been, one line per unbroken stretch of GPS. */

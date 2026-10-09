@@ -153,11 +153,20 @@ internal object MapSource {
 internal object MapStyle {
     const val URL = "https://tiles.openfreemap.org/styles/liberty"
 
+    /**
+     * The map data's credit, always on show over the map (OpenStreetMap's licence asks that it be seen without a tap; MapLibre's
+     * own logo is not required and is hidden). A tap opens the full list of sources.
+     */
+    const val CREDIT = "© OpenStreetMap · © OpenMapTiles"
+
     /** The layers a tap on a find pin is looked up in. */
     val FIND_LAYERS = arrayOf("finds-layer", "finds-sel")
 
     /** The layers a tap on a quest pin is looked up in. */
     val QUEST_LAYERS = arrayOf("quests-pins", "quests-pins-sel")
+
+    /** Then the quests' trails and park outlines (both carry their quest's id). */
+    val QUEST_LINE_LAYERS = arrayOf("route-line", "route-casing", "park-line")
 
     /** The cluster circle layer of each clustered source: a tap on one zooms in until it splits. */
     val CLUSTER_LAYERS = MapSource.CLUSTERED.associateBy { clusterLayer(it) }

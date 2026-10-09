@@ -109,6 +109,10 @@ internal class AppModel(
     val me: LatLng?
         get() = simPos ?: realLoc?.let { LatLng(it.latitude, it.longitude) }
 
+    /** Where you were when the app last left the screen (saved in the core): where a map starts before the first fix. */
+    var lastPlace by mutableStateOf(engine.lastPlace()?.let { LatLng(it.lat, it.lon) })
+        private set
+
     /** The current time in ms. */
     fun now() = System.currentTimeMillis()
 
@@ -187,10 +191,19 @@ internal class AppModel(
     /** The app left the screen: the trace has a gap from now on. */
     fun onBackground() {
         engine.saveGame()
+        rememberPlace()
         engine.logAppState(false, now())
         noteJournal()
         Diag.info("lifecycle", "background")
         diag.drainCore()
+    }
+
+    // Keep where you are for the next map that opens before a fix; a failed save only costs that map its head start.
+    private fun rememberPlace() {
+        val at = me ?: return
+        runCatching { engine.setLastPlace(GeoPoint(at.latitude, at.longitude)) }
+            .onSuccess { lastPlace = at }
+            .onFailure { Diag.warn("map", "last place not saved", "error" to it.message) }
     }
 
     /** Back on screen: log it, and how long the app was away. */

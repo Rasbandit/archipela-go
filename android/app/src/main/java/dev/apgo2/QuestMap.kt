@@ -3,7 +3,19 @@ package dev.apgo2
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PointF
+import android.graphics.RectF
 import android.view.MotionEvent
+import android.view.View
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -14,12 +26,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.apgo2.ui.METERS_PER_DEGREE
@@ -33,7 +48,9 @@ import org.maplibre.android.camera.CameraUpdate
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.AttributionDialogManager
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -46,20 +63,30 @@ import kotlin.math.cos
 import kotlin.math.hypot
 
 private const val GRAB_DP = 32
+
+// How far from a finger a pin, trail or park outline still counts as tapped.
+private const val TAP_SLOP_DP = 16
 private const val NOT_DRAGGING = -1
 private const val RING_HANDLE = 1
 private const val FRAME_PAD_DP = 24
 private const val OVERVIEW_PAD_PX = 60
 private const val SETTLE_MS = 400L
 private const val RING_SETTLE_MS = 250L
-private const val PADDING_EASE_MS = 350
+
+/** How long the map takes to ease to new overlay padding; an overlay that slides should take as long, with [OverlayEasing]. */
+internal const val OVERLAY_EASE_MS = 350
+
+/** MapLibre's own camera easing curve, so a sliding overlay keeps pace with the map. */
+internal val OverlayEasing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
 private const val FIT_ANIM_MS = 500
-private const val FOCUS_ZOOM_IN = 17.0
-private const val FOCUS_MIN_ZOOM = 16.0
+private const val FOCUS_MARGIN_DP = 16
+private const val FOCUS_SCROLL_MS = 300L
 private const val CALLOUT_PIN_DP = 20f
 private const val NEIGHBOURHOOD_ZOOM = 14.0
 private const val TIGHT_SPAN_DEG = 0.004
 private const val MIN_FIT_POINTS = 2
+private const val REVEAL_MS = 200
+private const val CREDIT_BACKDROP_ALPHA = 0.75f
 
 /** A find drawn on the map: an icon pin for its quest kind, coloured by the player's mark ("none" | "favorite" | "banned"). */
 internal data class MapFind(
@@ -79,8 +106,8 @@ internal data class MapFit(
 
 /**
  * Ask the map to bring a point into view; [nonce] changes each time so the same point can be asked for twice. [roomAbovePx] is
- * the height of a callout that sits above the point: the point and its callout are centred together in the visible area. Zooms in
- * only when the map is zoomed out.
+ * the height of a callout that sits above the point. The map scrolls only as far as it takes to show the point and its callout in
+ * the visible area, and not at all when they already show; it never zooms.
  */
 internal data class MapFocus(
     val at: LatLng,
@@ -95,11 +122,12 @@ private class LatestInputs(
     val onLongClick: State<((LatLng) -> Unit)?>,
     val handles: State<List<LatLng>>,
     val onFindClick: State<((String) -> Unit)?>,
-    val onQuestClick: State<((Long) -> Unit)?>,
+    val onQuestClick: State<((Long, LatLng?) -> Unit)?>,
+    val parkAt: State<((LatLng) -> Long?)?>,
     val anchor: State<LatLng?>,
     val onAnchor: State<((Offset?) -> Unit)?>,
     val overlayTopDp: State<Int>,
-    val overlayBottomDp: State<Int>,
+    val overlayBottomDp: State<() -> Int>,
     val onHandleMove: State<((Int, LatLng) -> Unit)?>,
     val onHandleRelease: State<(() -> Unit)?>,
     val circle: State<Pair<LatLng, Double>?>,
@@ -176,24 +204,40 @@ private class HandleDragger(
     }
 }
 
-// The map view with what hangs off it: the loaded style, the camera helpers and the touch handling.
+// The map view with what hangs off it: the loaded style, the camera helpers and the touch handling. The camera starts at [start]
+// (near what it will frame) so the first frame is never the whole world.
 @Stable
 private class MapHolder(
     context: Context,
     private val density: Float,
     private val inputs: LatestInputs,
+    start: LatLng?,
 ) {
     val view: MapView
     var style by mutableStateOf<Style?>(null)
     var map by mutableStateOf<MapLibreMap?>(null)
     var centered by mutableStateOf(false)
+
+    // The style could not be loaded (no network and nothing cached): there will be no framing to wait for.
+    var failed by mutableStateOf(false)
     val dragger = HandleDragger(inputs, density)
     private val addedImages = mutableSetOf<String>()
     private var padApplied = false
 
     init {
         MapLibre.getInstance(context)
-        view = MapView(context)
+        // No MapLibre logo or "i" button: the map shows its data credit itself (see MapCredit).
+        val options = MapLibreMapOptions.createFromAttributes(context).logoEnabled(false).attributionEnabled(false)
+        start?.let {
+            options.camera(
+                CameraPosition
+                    .Builder()
+                    .target(it)
+                    .zoom(NEIGHBOURHOOD_ZOOM)
+                    .build(),
+            )
+        }
+        view = MapView(context, options)
     }
 
     // Connect to the map once it exists: taps, drags, camera reports and the style.
@@ -208,6 +252,10 @@ private class MapHolder(
         m.addOnMapLongClickListener { ll -> inputs.onLongClick.value?.invoke(ll) != null }
         // Cluster rings appear as the camera moves, so their images are drawn when the map first asks for them.
         view.addOnStyleImageMissingListener { id -> m.style?.let { ensureImage(it, id) } }
+        view.addOnDidFailLoadingMapListener { why ->
+            Diag.warn("map", "the map did not load", "why" to why)
+            failed = true
+        }
         m.setStyle(Style.Builder().fromUri(MapStyle.URL)) { s ->
             MapStyle.install(s)
             style = s
@@ -235,21 +283,28 @@ private class MapHolder(
     fun repaint() = map?.triggerRepaint()
 
     // The map's padding is the part of it covered by overlays. Changing it keeps the camera target, so the point that was at the
-    // centre of the visible map slides to the centre of the new visible area. The first value is applied at once, later ones ease.
+    // centre of the visible map slides to the centre of the new visible area. The first value is applied at once, later ones ease,
+    // unless the overlay moves smoothly by itself ([follow]): then each step is applied at once, so the map moves with it.
     fun applyPadding(
         topDp: Int,
         bottomDp: Int,
+        follow: Boolean,
     ) {
         val m = map ?: return
         if (topDp == 0 && bottomDp == 0 && !padApplied) return
-        val top = topDp * density
-        val bottom = bottomDp * density
-        if (padApplied) {
-            m.easeCamera(CameraUpdateFactory.paddingTo(0.0, top.toDouble(), 0.0, bottom.toDouble()), PADDING_EASE_MS)
+        val top = (topDp * density).toDouble()
+        val bottom = (bottomDp * density).toDouble()
+        if (padApplied && !follow) {
+            m.easeCamera(CameraUpdateFactory.paddingTo(0.0, top, 0.0, bottom), OVERLAY_EASE_MS)
         } else {
-            m.moveCamera(CameraUpdateFactory.paddingTo(0.0, top.toDouble(), 0.0, bottom.toDouble()))
+            m.moveCamera(CameraUpdateFactory.paddingTo(0.0, top, 0.0, bottom))
             padApplied = true
         }
+    }
+
+    // The full list of the map's sources, with their links (MapLibre's own dialog, as its "i" button would open).
+    fun showSources() {
+        map?.let { AttributionDialogManager(view.context, it).onClick(view) }
     }
 
     // Fit the points in view, after a padding change has settled.
@@ -271,22 +326,39 @@ private class MapHolder(
     // target sits at the centre of the padded view, so the top padding is chosen to put the target (the point) where it belongs.
     fun focusOn(f: MapFocus) {
         val m = map ?: return
-        val height = view.height.toFloat()
-        if (height <= 0f) return
-        val bottom = inputs.overlayBottomDp.value * density
-        val top0 = inputs.overlayTopDp.value * density
-        val block = f.roomAbovePx + CALLOUT_PIN_DP * density // the callout, then the pin itself
-        val pinY = top0 + (height - bottom - top0 - block).coerceAtLeast(0f) / 2f + f.roomAbovePx
-        val top = (2f * pinY - height + bottom).coerceAtLeast(top0)
-        val zoom = if (m.cameraPosition.zoom < FOCUS_MIN_ZOOM) FOCUS_ZOOM_IN else m.cameraPosition.zoom
-        val camera =
-            CameraPosition
-                .Builder()
-                .target(f.at)
-                .zoom(zoom)
-                .padding(0.0, top.toDouble(), 0.0, bottom.toDouble())
-                .build()
-        m.animateCamera(CameraUpdateFactory.newCameraPosition(camera))
+        if (view.height <= 0) return
+        // A refocus (the callout got measured) can come while the last one still moves: stop it and measure from where it is, so
+        // the two do not add up.
+        m.cancelTransitions()
+        val p = m.projection.toScreenLocation(f.at)
+        val visible =
+            FocusShift.View(
+                width = view.width.toFloat(),
+                height = view.height.toFloat(),
+                top = inputs.overlayTopDp.value * density,
+                bottom = inputs.overlayBottomDp.value() * density,
+                margin = FOCUS_MARGIN_DP * density,
+            )
+        val above = f.roomAbovePx.toFloat()
+        val below = CALLOUT_PIN_DP * density
+        val shift = FocusShift.needed(p.x, p.y, above, below, visible)
+        when {
+            // Far away: centre it with its callout in the visible area, at the same zoom.
+            FocusShift.far(shift, visible) -> nudge(m, FocusShift.centred(p.x, p.y, above, below, visible))
+
+            shift != 0f to 0f -> nudge(m, shift)
+        }
+    }
+
+    // Move the camera's centre by [shift] screen pixels. animateCamera, unlike scrollBy, reports the move, which keeps a callout on
+    // its point.
+    private fun nudge(
+        m: MapLibreMap,
+        shift: Pair<Float, Float>,
+    ) {
+        val c = m.projection.toScreenLocation(m.cameraPosition.target ?: return)
+        val to = m.projection.fromScreenLocation(PointF(c.x + shift.first, c.y + shift.second))
+        m.animateCamera(CameraUpdateFactory.newLatLng(to), FOCUS_SCROLL_MS.toInt())
     }
 
     // Keep a circle being edited fully in view as its radius changes (not when it only moves).
@@ -337,7 +409,7 @@ private class MapHolder(
             pad,
             pad + (inputs.overlayTopDp.value * density).toInt(),
             pad,
-            pad + (inputs.overlayBottomDp.value * density).toInt(),
+            pad + (inputs.overlayBottomDp.value() * density).toInt(),
         )
 
     // A tap on a cluster zooms in until it splits; on a find or quest pin (anywhere on it, head included) it selects it; any other
@@ -350,21 +422,34 @@ private class MapHolder(
         if (zoomIntoCluster(m, at)) return true
         val onFind = inputs.onFindClick.value
         val onQuest = inputs.onQuestClick.value
-        val find = onFind?.let { pinId(m, at, MapStyle.FIND_LAYERS) }
-        val quest = onQuest?.let { pinId(m, at, MapStyle.QUEST_LAYERS)?.toLongOrNull() }
+        val slop = TAP_SLOP_DP * density
+        val near = RectF(at.x - slop, at.y - slop, at.x + slop, at.y + slop)
+        val find = onFind?.let { featureId(m, near, MapStyle.FIND_LAYERS) }
+        // A pin wins over a trail, a trail over the park it may cross; then a tap anywhere inside a park picks it (asked of the
+        // caller: an open park's fill is not drawn, so the map cannot find it).
+        val pin = onQuest?.let { featureId(m, near, MapStyle.QUEST_LAYERS)?.toLongOrNull() }
+        val shape =
+            onQuest?.takeIf { pin == null }?.let {
+                featureId(m, near, MapStyle.QUEST_LINE_LAYERS)?.toLongOrNull() ?: inputs.parkAt.value?.invoke(ll)
+            }
         when {
             find != null -> onFind(find)
-            quest != null -> onQuest(quest)
+
+            pin != null -> onQuest(pin, null)
+
+            shape != null -> onQuest(shape, ll)
+
+            // a trail or park: its details show where it was touched
             else -> inputs.onClick.value(ll)
         }
         return true
     }
 
-    private fun pinId(
+    private fun featureId(
         m: MapLibreMap,
-        at: PointF,
+        area: RectF,
         layers: Array<String>,
-    ): String? = m.queryRenderedFeatures(at, *layers).firstOrNull()?.getStringProperty(MapProp.ID)
+    ): String? = m.queryRenderedFeatures(area, *layers).firstOrNull()?.getStringProperty(MapProp.ID)
 
     private fun zoomIntoCluster(
         m: MapLibreMap,
@@ -413,7 +498,10 @@ internal fun QuestMap(
     circle: Pair<LatLng, Double>? = null,
     /** Height of overlays covering the top and bottom of the map, so framing keeps the circle clear of them. */
     overlayTopDp: Int = 0,
-    overlayBottomDp: Int = 0,
+    /** Read only where it is used (not while composing), so an overlay that slides moves the map without recomposing it. */
+    overlayBottomDp: () -> Int = { 0 },
+    /** True when the overlays slide smoothly by themselves (a dragged panel): the map follows each step instead of easing. */
+    overlaysFollowed: Boolean = false,
     /** Points the user can pick up and drag; [onHandleMove] gets the handle index and its new position. */
     handles: List<LatLng> = emptyList(),
     onHandleMove: ((Int, LatLng) -> Unit)? = null,
@@ -425,7 +513,9 @@ internal fun QuestMap(
     finds: List<MapFind> = emptyList(),
     onFindClick: ((String) -> Unit)? = null,
     /** Tapping a quest pin calls this with its location id (a tap elsewhere goes to [onMapClick]). */
-    onQuestClick: ((Long) -> Unit)? = null,
+    onQuestClick: ((Long, LatLng?) -> Unit)? = null,
+    /** The park quest a point is inside, if any: a tap there picks it like a tap on its outline. */
+    parkAt: ((LatLng) -> Long?)? = null,
     /** Fly the camera here (kept clear of the bottom overlay). */
     focus: MapFocus? = null,
     fit: MapFit? = null,
@@ -439,6 +529,10 @@ internal fun QuestMap(
     editable: Boolean = true,
     /** Where you have been: one line per unbroken stretch of GPS. */
     trace: List<List<LatLng>> = emptyList(),
+    /** Where to start when there is nothing to frame yet (the last place you were). */
+    lastPlace: LatLng? = null,
+    /** False while the map is kept but hidden (another tab is up): it stops drawing and keeps its camera, style and tiles. */
+    onShow: Boolean = true,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -449,6 +543,7 @@ internal fun QuestMap(
             handles = rememberUpdatedState(handles),
             onFindClick = rememberUpdatedState(onFindClick),
             onQuestClick = rememberUpdatedState(onQuestClick),
+            parkAt = rememberUpdatedState(parkAt),
             anchor = rememberUpdatedState(anchor),
             onAnchor = rememberUpdatedState(onAnchor),
             overlayTopDp = rememberUpdatedState(overlayTopDp),
@@ -457,54 +552,69 @@ internal fun QuestMap(
             onHandleRelease = rememberUpdatedState(onHandleRelease),
             circle = rememberUpdatedState(circle),
         )
-    val holder = remember { MapHolder(context, density, inputs) }
-    MapLifecycle(holder.view)
+    val points = remember(quests, realms, me, home, draft) { framePoints(quests, realms, me, home, draft) }
+    val holder = remember { MapHolder(context, density, inputs, MapStart.center(listOfNotNull(circle?.first) + points, lastPlace)) }
+    MapLifecycle(holder.view, onShow)
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
     SyncContent(holder, quests, realms, selected, finds, trace)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
     SyncPins(holder, thaw, waypoint, home, me)
-    MapCamera(holder, overlayTopDp, overlayBottomDp, fit, focus, anchor)
-    MapFraming(holder, circle, me, home, quests, realms, draft)
-    AndroidView(factory = { holder.view }, modifier = modifier)
+    MapCamera(holder, inputs, overlaysFollowed, fit, focus, anchor)
+    MapFraming(holder, circle, me, quests, realms, points)
+    // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
+    // tiles loading happen out of sight. A map that fails to load is shown as it is rather than covered for good.
+    val framed = holder.centered || holder.failed || (holder.style != null && circle == null && points.isEmpty())
+    val cover by animateFloatAsState(if (framed) 0f else 1f, tween(REVEAL_MS), label = "map cover")
+    Box(modifier) {
+        AndroidView(factory = { holder.view }, modifier = Modifier.matchParentSize())
+        MapCredit(holder::showSources, Modifier.align(Alignment.TopEnd).padding(top = overlayTopDp.dp))
+        if (cover > 0f) Box(Modifier.matchParentSize().alpha(cover).background(MaterialTheme.colorScheme.surface))
+    }
 }
 
-// Hands the map view the activity's lifecycle events.
+// The map data's credit in the map's top corner (clear of a bottom panel and its grip), below whatever covers its top; a tap
+// lists the sources.
 @Composable
-private fun MapLifecycle(mapView: MapView) {
+private fun MapCredit(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        MapStyle.CREDIT,
+        modifier
+            .padding(4.dp)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = CREDIT_BACKDROP_ALPHA), RoundedCornerShape(4.dp))
+            .clickable(onClickLabel = "Map data sources", onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+}
+
+// Hands the map view the activity's lifecycle events while it is on show; a hidden map is stopped and made invisible (so it stops
+// drawing), and a map leaving the screen is destroyed.
+@Composable
+private fun MapLifecycle(
+    mapView: MapView,
+    onShow: Boolean,
+) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, mapView) {
-        val observer =
-            LifecycleEventObserver { _, event ->
-                when (event) {
-                    Lifecycle.Event.ON_CREATE -> {
-                        mapView.onCreate(null)
-                    }
-
-                    Lifecycle.Event.ON_START -> {
-                        mapView.onStart()
-                    }
-
-                    Lifecycle.Event.ON_RESUME -> {
-                        mapView.onResume()
-                    }
-
-                    Lifecycle.Event.ON_PAUSE -> {
-                        mapView.onPause()
-                    }
-
-                    Lifecycle.Event.ON_STOP -> {
-                        mapView.onStop()
-                    }
-
-                    Lifecycle.Event.ON_DESTROY -> {
-                        mapView.onDestroy()
-                    }
-
-                    else -> {}
-                }
-            }
+    val life =
+        remember(mapView) {
+            MapLife({ mapView.onCreate(null) }, mapView::onStart, mapView::onResume, mapView::onPause, mapView::onStop, mapView::onDestroy)
+        }
+    val shown by rememberUpdatedState(onShow)
+    DisposableEffect(lifecycle, life) {
+        val observer = LifecycleEventObserver { _, _ -> life.update(lifecycle.currentState, shown) }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycle.removeObserver(observer)
+            life.destroy()
+        }
+    }
+    LaunchedEffect(life, onShow) {
+        mapView.visibility = if (onShow) View.VISIBLE else View.INVISIBLE
+        life.update(lifecycle.currentState, onShow)
     }
 }
 
@@ -583,14 +693,19 @@ private fun SyncPins(
 @Composable
 private fun MapCamera(
     holder: MapHolder,
-    overlayTopDp: Int,
-    overlayBottomDp: Int,
+    inputs: LatestInputs,
+    overlaysFollowed: Boolean,
     fit: MapFit?,
     focus: MapFocus?,
     anchor: LatLng?,
 ) {
     val map = holder.map
-    LaunchedEffect(map, overlayTopDp, overlayBottomDp) { holder.applyPadding(overlayTopDp, overlayBottomDp) }
+    val follow by rememberUpdatedState(overlaysFollowed)
+    // The overlays are read here, outside composition: each change (every frame of a slide) only moves the camera.
+    LaunchedEffect(map) {
+        snapshotFlow { inputs.overlayTopDp.value to inputs.overlayBottomDp.value() }
+            .collect { (top, bottom) -> holder.applyPadding(top, bottom, follow) }
+    }
     LaunchedEffect(fit) { fit?.let { holder.fit(it) } }
     LaunchedEffect(anchor, map) { map?.let { holder.reportAnchor(it) } }
     LaunchedEffect(focus) { focus?.let { holder.focusOn(it) } }
@@ -602,14 +717,13 @@ private fun MapFraming(
     holder: MapHolder,
     circle: Pair<LatLng, Double>?,
     me: LatLng?,
-    home: LatLng?,
     quests: List<QuestOut>,
     realms: List<RealmOut>,
-    draft: List<LatLng>,
+    points: List<LatLng>,
 ) {
     val style = holder.style
     LaunchedEffect(style, circle?.second) { if (style != null && circle != null) holder.frameCircle(circle) }
-    LaunchedEffect(style, me, quests.isNotEmpty(), realms.size) { holder.frameAction(framePoints(quests, realms, me, home, draft)) }
+    LaunchedEffect(style, me, quests.isNotEmpty(), realms.size) { holder.frameAction(points) }
 }
 
 // What the first view should show: the visible quests, you, home and the shape being drawn; the realms when there is none of those.

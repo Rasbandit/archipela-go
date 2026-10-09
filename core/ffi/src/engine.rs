@@ -1294,6 +1294,20 @@ impl Engine {
         .unwrap_or_default()
     }
 
+    /// The park quest (shown on the map, not hidden) whose outline holds the point, for a tap anywhere inside a park; the innermost
+    /// when parks nest.
+    pub fn park_at(&self, lat: f64, lon: f64, now_ms: i64) -> Option<i64> {
+        self.with_game(|g| {
+            let views = g.quest_views(now_ms);
+            let parks = views.iter().filter(|q| q.state != QuestState::Hidden).filter_map(|q| match &q.target {
+                Target::DwellArea { poly, .. } => Some((q.location_id, poly.as_slice())),
+                _ => None,
+            });
+            apgo_core::geo::smallest_containing(Point::new(lat, lon), parks)
+        })
+        .flatten()
+    }
+
     /// The zones of the open game.
     pub fn zones(&self) -> Vec<ZoneOut> {
         let store = self.store();
@@ -1717,6 +1731,16 @@ mod tests {
         e.delete_realm("r0".into()).unwrap();
         e.on_fix(p.lat, p.lon, 2_000, 5.0, None, false);
         assert_eq!(e.last_zone_proximity(), "unknown", "the deleted outline no longer counts");
+    }
+
+    #[test]
+    fn a_point_is_in_no_park_without_parks_or_a_game() {
+        let e = engine_with_game("park-at");
+        assert!(e.quests(0).iter().all(|q| q.shape != "area"), "the test game has no parks");
+        assert_eq!(e.park_at(home().lat, home().lon, 0), None);
+        let d = std::env::temp_dir().join(format!("apgo-ffi-no-game-{}", std::process::id()));
+        assert_eq!(Engine::new(d.to_string_lossy().into_owned()).park_at(0.0, 0.0, 0), None);
+        let _ = std::fs::remove_dir_all(d);
     }
 
     #[test]

@@ -213,6 +213,13 @@ class MapFeaturesTest {
         assertEquals("Polygon", areas.single().geomType())
     }
 
+    @Test fun trailsAndParksCarryTheirQuestSoATapCanFindIt() {
+        val two = listOf(geo(0.0, 0.0), geo(1.0, 1.0))
+        val quests = listOf(quest(7, shape = "line", path = two), quest(8, shape = "area", path = triangle))
+        assertEquals(listOf("7", "8"), MapFeatures.lines(quests).map { it.props().getString(MapProp.ID) })
+        assertEquals(listOf("8"), MapFeatures.areas(quests).map { it.props().getString(MapProp.ID) })
+    }
+
     @Test fun traceDropsSinglePointStretches() {
         val t = MapFeatures.trace(listOf(listOf(LatLng(0.0, 0.0)), listOf(LatLng(0.0, 0.0), LatLng(1.0, 1.0)), emptyList()))
         assertEquals(1, t.size)

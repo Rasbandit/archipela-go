@@ -98,7 +98,8 @@ first diag line prints `GpsMode$Off@hash` (cosmetic, no toString).
 - `return_home`, `death_link` are ignored client-side; Effort Reduction / Collection items are received but not applied; no chat/hints/release UI.
 - Per-zone quest types exist in solo; the apworld has one list, so export sends the union.
 - Public Overpass servers are slow (a first scan of a new area can take minutes); a self-hosted Overpass was discussed and deferred.
-- No attribution/About screen yet (OSM, OpenFreeMap, Lucide ISC are required for a store release). No APK signing; debug APK is ~90 MB.
+- No About screen yet. The map shows its OSM/OpenMapTiles credit itself and `THIRD_PARTY_NOTICES.md` carries the MapLibre, map data
+  and Lucide notices, but a store release should show those notices in the app. No APK signing; debug APK is ~90 MB.
 - The apworld has no tutorial/game-info pages (WebWorld only carries option groups).
 - Launcher icon is the default; our own icon is not designed. The Archipelago logo (CC BY-NC) must not be bundled (`ui-design-system.md`).
 - Licensing: `android/` is PolyForm Noncommercial 1.0.0, everything else MIT; no contributor agreement yet (#82, see `working-in-this-repo.md`).

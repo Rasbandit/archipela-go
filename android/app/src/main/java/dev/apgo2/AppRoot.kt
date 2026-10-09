@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.unit.dp
@@ -116,16 +117,25 @@ private fun AppBody(
             )
         }
         Box(Modifier.weight(1f)) {
+            // Play stays composed (laid out, not placed) under the other tabs, so its map returns with no reload or camera jump.
+            val onPlay = m.tab == AppTab.PLAY
+            PlayScreen(m, if (onPlay) Modifier else Modifier.unplaced(), onShow = onPlay)
             when (m.tab) {
                 AppTab.REALMS -> RealmsScreen(m)
                 AppTab.NEW_GAME -> NewGameScreen(m)
                 AppTab.ACTIVITY -> ActivityScreen(m)
                 AppTab.SETTINGS -> SettingsScreen(m)
-                else -> PlayScreen(m)
             }
         }
     }
 }
+
+// Measured but never placed: not drawn, not touchable and not read out, yet everything in it (a map view included) is kept.
+private fun Modifier.unplaced() =
+    layout { measurable, constraints ->
+        val p = measurable.measure(constraints)
+        layout(p.width, p.height) {}
+    }
 
 // Asks before a big download.
 @Composable

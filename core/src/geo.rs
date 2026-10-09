@@ -168,6 +168,17 @@ pub fn point_in_polygon(p: Point, v: &[Point]) -> bool {
     inside
 }
 
+/// The key of the smallest outline (by its bounding box) that holds `p`, so a park inside a bigger park wins; `None` when none
+/// does. An outline needs three corners; one across the antimeridian is measured the short way.
+pub fn smallest_containing<'a, K>(p: Point, shapes: impl IntoIterator<Item = (K, &'a [Point])>) -> Option<K> {
+    let bbox = |v: &[Point]| {
+        let around = v.first().map_or(0.0, |q| q.lon);
+        let span = |vals: Vec<f64>| vals.iter().copied().fold(f64::NEG_INFINITY, f64::max) - vals.iter().copied().fold(f64::INFINITY, f64::min);
+        span(v.iter().map(|q| q.lat).collect()) * span(v.iter().map(|q| unwrap_lon(q.lon, around)).collect())
+    };
+    shapes.into_iter().filter(|(_, v)| v.len() >= 3 && point_in_polygon(p, v)).min_by(|a, b| bbox(a.1).total_cmp(&bbox(b.1))).map(|(k, _)| k)
+}
+
 /// A point guaranteed to be inside `poly` (falls back to the first vertex nudged inward for degenerate shapes).
 #[must_use]
 #[allow(clippy::many_single_char_names)] // short loop and geometry names (c, n, i, j, a, b)
@@ -212,6 +223,36 @@ mod tests {
 
     fn east(from: Point, m: f64) -> Point {
         destination(from, 90.0, m)
+    }
+
+    fn square(lat: f64, lon: f64, side: f64) -> Vec<Point> {
+        vec![Point::new(lat, lon), Point::new(lat, lon + side), Point::new(lat + side, lon + side), Point::new(lat + side, lon)]
+    }
+
+    #[test]
+    fn a_point_picks_the_smallest_outline_around_it() {
+        let big = square(0.0, 0.0, 1.0);
+        let small = square(0.4, 0.4, 0.2);
+        let elsewhere = square(5.0, 5.0, 1.0);
+        let shapes = [(1, big.as_slice()), (2, small.as_slice()), (3, elsewhere.as_slice())];
+        assert_eq!(smallest_containing(Point::new(0.5, 0.5), shapes), Some(2), "inside both: the inner one");
+        assert_eq!(smallest_containing(Point::new(0.1, 0.1), shapes), Some(1));
+        assert_eq!(smallest_containing(Point::new(3.0, 3.0), shapes), None, "inside none");
+    }
+
+    #[test]
+    fn an_outline_across_the_antimeridian_is_measured_the_short_way() {
+        // 1° wide across lon 180, inside a 2° square that does not cross it: the narrow one is the smaller.
+        let across = vec![Point::new(0.0, 179.5), Point::new(0.0, -179.5), Point::new(1.0, -179.5), Point::new(1.0, 179.5)];
+        let wide = square(-0.5, 178.0, 2.0);
+        let p = Point::new(0.5, 179.8);
+        assert_eq!(smallest_containing(p, [(1, wide.as_slice()), (2, across.as_slice())]), Some(2));
+    }
+
+    #[test]
+    fn an_outline_with_too_few_corners_holds_nothing() {
+        let line = [Point::new(0.0, 0.0), Point::new(1.0, 1.0)];
+        assert_eq!(smallest_containing(Point::new(0.5, 0.5), [(1, line.as_slice())]), None);
     }
 
     #[test]

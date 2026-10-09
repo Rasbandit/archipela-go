@@ -369,7 +369,7 @@ private fun EditorMap(
         onMapLongClick = { m.realmOps.setHome(it) },
         circle = if (s.polygon) null else s.circleCenter?.let { it to s.radius.toDouble() },
         overlayTopDp = OVERLAY_TOP_DP,
-        overlayBottomDp = (s.panelPx / density).toInt(),
+        overlayBottomDp = { (s.panelPx / density).toInt() },
         handles = s.handles(),
         onHandleMove = if (editing) s::moveHandle else null,
         onHandleRelease = s::commit,
@@ -378,6 +378,7 @@ private fun EditorMap(
         onFindClick = if (editing) null else { fid -> view.visible.firstOrNull { it.id == fid }?.let { s.finds.show(it, density) } },
         focus = s.finds.focus,
         fit = s.fit,
+        lastPlace = m.lastPlace,
         anchor = view.visible.firstOrNull { it.id == s.finds.selected }?.let { LatLng(it.at.lat, it.at.lon) },
         onAnchor = { s.anchor = it },
     )
