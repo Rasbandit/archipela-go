@@ -53,7 +53,7 @@ internal object MapMarkers {
     private const val STATE_DONE = "done"
     private const val FULL_TURN = 360f
 
-    enum class Badge { None, Progress, Done, Locked }
+    enum class Badge { None, Progress, Locked }
 
     /** Pixel size of a quest pin's bitmap; [QUEST_SCALE] is the factor the map draws it at. */
     const val QUEST_PIN_PX = 200
@@ -118,7 +118,6 @@ internal object MapMarkers {
     fun badge(state: String): Badge =
         when (state) {
             STATE_PROGRESS -> Badge.Progress
-            STATE_DONE -> Badge.Done
             STATE_LOCKED -> Badge.Locked
             else -> Badge.None
         }

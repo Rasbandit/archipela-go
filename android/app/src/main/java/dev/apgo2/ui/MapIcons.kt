@@ -196,8 +196,8 @@ internal fun renderMarker(
     }
 
 /**
- * A quest pin: the find pin's shape with the quest's state as a badge on the lower right of the head: a check when done, an
- * amber dot in progress, a lock when locked.
+ * A quest pin: the find pin's shape, its body in the state colour, with a badge on the lower right of the head: an amber dot in
+ * progress, a lock when locked. Done needs none (the pin is green).
  */
 internal fun renderQuestPin(
     icon: ImageVector,
@@ -217,18 +217,13 @@ internal fun renderQuestPin(
             val r = s * 0.2f
             val c = Offset(s - r, body - r)
             drawCircle(Color.White, radius = r, center = c)
-            val color =
-                when (badge) {
-                    MapMarkers.Badge.Done -> ApgoPalette.questDone
-                    MapMarkers.Badge.Progress -> ApgoPalette.questProgress
-                    else -> ApgoPalette.questLocked
-                }
-            drawCircle(color, radius = r - s * 0.025f, center = c)
+            val locked = badge == MapMarkers.Badge.Locked
+            drawCircle(if (locked) ApgoPalette.questLocked else ApgoPalette.questProgress, radius = r - s * 0.025f, center = c)
             val g = r * 1.15f
-            when (badge) {
-                MapMarkers.Badge.Done -> icon(ApgoIcons.Check, c.x - g / 2, g, Color.White, width = 3f, top = c.y - g / 2)
-                MapMarkers.Badge.Locked -> icon(ApgoIcons.Locked, c.x - g / 2, g, Color.White, width = 2.6f, top = c.y - g / 2)
-                else -> drawCircle(Color.White, radius = r * 0.35f, center = c)
+            if (locked) {
+                icon(ApgoIcons.Locked, c.x - g / 2, g, Color.White, width = 2.6f, top = c.y - g / 2)
+            } else {
+                drawCircle(Color.White, radius = r * 0.35f, center = c)
             }
         }
     }

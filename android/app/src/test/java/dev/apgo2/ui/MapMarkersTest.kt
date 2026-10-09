@@ -51,7 +51,7 @@ class MapMarkersTest {
     @Test fun eachQuestStateHasItsBadge() {
         assertEquals(MapMarkers.Badge.None, MapMarkers.badge("open"))
         assertEquals(MapMarkers.Badge.Progress, MapMarkers.badge("progress"))
-        assertEquals(MapMarkers.Badge.Done, MapMarkers.badge("done"))
+        assertEquals("done needs no badge: the green pin says it", MapMarkers.Badge.None, MapMarkers.badge("done"))
         assertEquals(MapMarkers.Badge.Locked, MapMarkers.badge("locked"))
         assertEquals(MapMarkers.Badge.None, MapMarkers.badge("something-new"))
     }
