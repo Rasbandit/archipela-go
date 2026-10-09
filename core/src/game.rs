@@ -24,7 +24,7 @@ use crate::slot::GoalSpec;
 use crate::slot::SlotData;
 use crate::traps::Traps;
 use crate::units::{distance, distance_rounded, speed_kmh, Round, UnitSystem};
-use crate::verify::{implied_speed_kmh, Fix, Status, Tracker, MAX_ACCURACY_M, MAX_OUTLIER_STREAK, MAX_PLAUSIBLE_KMH};
+use crate::verify::{collect_progress, implied_speed_kmh, Collected, Fix, Status, Tracker, MAX_ACCURACY_M, MAX_OUTLIER_STREAK, MAX_PLAUSIBLE_KMH};
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -93,6 +93,8 @@ pub struct QuestView {
     pub reward: Option<String>,
     /// The chain this quest is a milestone of, if any.
     pub chain_id: Option<String>,
+    /// A forager quest's items picked, carried and banked so far (`None` for other quests, or before anything was picked).
+    pub collected: Option<Collected>,
 }
 
 /// One milestone of a chain, as the UI shows it.
@@ -300,6 +302,9 @@ pub struct Game {
     /// Saved progress of progressive quests.
     #[serde(default)]
     pub counters: Counters,
+    /// Forager quests: location id -> items picked, carried and banked. Kept across restarts and Shuffle traps.
+    #[serde(default)]
+    pub collected: BTreeMap<i64, Collected>,
     /// Progress of each started quest (a courier pickup, a dwell's best stretch, coverage); missing in old saves. Loaded
     /// trackers are detached until `reattach_trackers`, and an entry that cannot be read is dropped, never the whole save.
     #[serde(default, deserialize_with = "lenient_trackers")]
@@ -361,7 +366,12 @@ pub struct NewGame<'a> {
 /// How close the player must get for the quest's checkpoint (None for quests without one).
 fn reach_radius(t: &Target) -> Option<f64> {
     match t {
-        Target::Point { r, .. } | Target::Dwell { r, .. } | Target::DwellArea { r, .. } | Target::Courier { r, .. } | Target::RoundTrip { r, .. } => Some(*r),
+        Target::Point { r, .. }
+        | Target::Dwell { r, .. }
+        | Target::DwellArea { r, .. }
+        | Target::Courier { r, .. }
+        | Target::RoundTrip { r, .. }
+        | Target::Collect { r, .. } => Some(*r),
         Target::Line { corridor_m, .. } => Some(*corridor_m),
         _ => None,
     }
@@ -478,6 +488,7 @@ impl Game {
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
             counters: Counters { cells_counted: true, ..Counters::default() },
+            collected: BTreeMap::new(),
             trackers: BTreeMap::new(),
             last_fix: None,
             unlocked_at: BTreeMap::new(),
@@ -548,11 +559,14 @@ impl Game {
                 let member = self.member_progress(&chains, a.location_id, now_ms);
                 let progress = member.as_ref().map_or_else(
                     || {
-                        self.trackers.get(&a.location_id).map_or(0.0, |t| match t.status() {
-                            Status::Active(p) => p,
-                            Status::Done => 1.0,
-                            Status::Idle => 0.0,
-                        })
+                        self.trackers.get(&a.location_id).map_or_else(
+                            || self.saved_progress(a),
+                            |t| match t.status() {
+                                Status::Active(p) => p,
+                                Status::Done => 1.0,
+                                Status::Idle => 0.0,
+                            },
+                        )
                     },
                     |(_, p)| *p,
                 );
@@ -588,6 +602,7 @@ impl Game {
                     blurb: a.blurb.clone(),
                     reward: if done { self.solo_rewards.get(&a.location_id).cloned() } else { None },
                     chain_id: member.map(|(id, _)| id),
+                    collected: self.collected.get(&a.location_id).cloned(),
                 }
             })
             .collect()
@@ -650,6 +665,33 @@ impl Game {
             (counter - prev) / (at - prev)
         };
         Some((c.id.clone(), to_f32(p)))
+    }
+
+    /// Progress kept in the save for a quest that has no tracker yet this session (a forager after a restart).
+    fn saved_progress(&self, a: &Assignment) -> f32 {
+        match (&a.target, self.collected.get(&a.location_id)) {
+            (Target::Collect { need, .. }, Some(c)) => collect_progress(c, *need),
+            _ => 0.0,
+        }
+    }
+
+    /// Feeds a fix to a quest's tracker (made on first use, resuming saved forager progress) and keeps a forager's progress in the save.
+    fn update_tracker(&mut self, id: i64, fix: &Fix, steps_total: Option<i64>) -> Option<Status> {
+        if !self.trackers.contains_key(&id) {
+            let a = self.assignments.iter().find(|a| a.location_id == id)?;
+            let target = self.adjusted(&a.target);
+            let t = match self.collected.get(&id) {
+                Some(c) => Tracker::with_collected(target, self.home, c.clone()),
+                None => Tracker::new(target, self.home),
+            };
+            self.trackers.insert(id, t);
+        }
+        let t = self.trackers.get_mut(&id)?;
+        let status = t.update(fix, steps_total);
+        if let Some(c) = t.collected().filter(|c| **c != Collected::default()) {
+            self.collected.insert(id, c.clone());
+        }
+        Some(status)
     }
 
     fn adjusted(&self, t: &Target) -> Target {
@@ -948,15 +990,8 @@ impl Game {
                 if speed.is_some_and(|s| !speed_ok(mode, s)) {
                     continue;
                 }
-                if !self.trackers.contains_key(&id) {
-                    let Some(a) = self.assignments.iter().find(|a| a.location_id == id) else { continue };
-                    let t = Tracker::new(self.adjusted(&a.target), self.home);
-                    self.trackers.insert(id, t);
-                }
-                if let Some(t) = self.trackers.get_mut(&id) {
-                    if t.update(&fix, steps_total) == Status::Done {
-                        finished.push(id);
-                    }
+                if self.update_tracker(id, &fix, steps_total) == Some(Status::Done) {
+                    finished.push(id);
                 }
             }
         }
@@ -2481,5 +2516,88 @@ mod tests {
         v.as_object_mut().unwrap().insert("away".into(), serde_json::json!({"zone_only": true, "distance_m": {"1": 900.0}}));
         let back: Game = serde_json::from_value(v).unwrap();
         assert!(back.counters.progress.is_empty() && back.counters.away_mark.is_none(), "an old save's away settings are ignored");
+    }
+
+    /// A solo game whose only quest (2000) is a forager: 6 acorns 100 m apart going north from 500 m, need 3.
+    fn forager_game() -> (Game, Vec<Point>) {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let pts: Vec<Point> = (0..6u32).map(|i| destination(home(), 0.0, 500.0 + 100.0 * f64::from(i))).collect();
+        let mut a = chain::tests_support::member(2000, 1, "forager", Target::Collect { pts: pts.clone(), need: 3, r: 25.0, theme: "acorns".into() });
+        a.family = "courier".into();
+        g.assignments = vec![a];
+        g.done.clear();
+        g.solo_rewards = BTreeMap::from([(2000, "Hydrate!".to_string())]);
+        (g, pts)
+    }
+
+    fn carried_banked(g: &Game) -> (u32, u32) {
+        g.collected.get(&2000).map_or((0, 0), |c| (c.carried, c.banked))
+    }
+
+    #[test]
+    fn a_forager_banks_over_several_outings_and_completes_on_the_arrival_that_reaches_the_need() {
+        let (mut g, pts) = forager_game();
+        g.on_fix(fixat(pts[0], 600), None);
+        g.on_fix(fixat(pts[1], 1200), None);
+        assert_eq!(carried_banked(&g), (2, 0));
+        assert!(done_ids(&g.on_fix(fixat(home(), 1800), None)).is_empty(), "2 of 3 banked");
+        assert_eq!(carried_banked(&g), (0, 2));
+        g.on_fix(fixat(pts[2], 2400), None);
+        assert_eq!(done_ids(&g.on_fix(fixat(home(), 3000), None)), vec![2000]);
+    }
+
+    #[test]
+    fn forager_progress_survives_a_restart_and_an_old_save_without_it_loads() {
+        let dir = std::env::temp_dir().join(format!("apgo-forager-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (mut g, pts) = forager_game();
+        g.on_fix(fixat(pts[0], 600), None);
+        g.on_fix(fixat(home(), 1200), None);
+        g.on_fix(fixat(pts[1], 1800), None);
+        g.save(&dir).unwrap();
+        let mut back = Game::load(&dir, "g1").unwrap();
+        assert_eq!(back.collected, g.collected);
+        let v = back.quest_views(1800).remove(0);
+        assert!((v.progress - 0.5).abs() < 1e-6 && v.state == QuestState::InProgress, "(1 + 0.5) / 3 before any new fix: {}", v.progress);
+        assert_eq!(v.collected, g.collected.get(&2000).cloned());
+        back.on_fix(fixat(home(), 2400), None);
+        assert_eq!(carried_banked(&back), (0, 2), "what was carried before the restart is banked");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let mut old = serde_json::to_value(&g).unwrap();
+        old.as_object_mut().unwrap().remove("collected");
+        let loaded: Game = serde_json::from_value(old).unwrap();
+        assert!(loaded.collected.is_empty());
+    }
+
+    #[test]
+    fn nothing_is_picked_or_banked_while_counting_is_off_or_a_freeze_trap_blocks_checks() {
+        let (mut g, pts) = forager_game();
+        g.set_counting(false, 0);
+        g.on_fix(fixat(pts[0], 600), None);
+        assert_eq!(carried_banked(&g), (0, 0), "counting off: no pickup");
+        g.set_counting(true, 900);
+        freeze(&mut g);
+        g.on_fix(fixat(pts[5], 1200), None);
+        assert_eq!(carried_banked(&g), (0, 0), "frozen: no pickup");
+        // Clear the trap, pick one, freeze again: a home fix must not bank either.
+        g.traps.active.clear();
+        g.on_fix(fixat(pts[4], 1350), None);
+        assert_eq!(carried_banked(&g), (1, 0));
+        freeze(&mut g);
+        g.on_fix(fixat(home(), 1500), None);
+        assert_eq!(carried_banked(&g), (1, 0), "frozen: no banking");
+    }
+
+    #[test]
+    fn carried_items_wait_out_home_wifi_and_bank_on_the_next_accepted_home_fix() {
+        let (mut g, pts) = forager_game();
+        g.on_fix(fixat(pts[0], 600), None);
+        g.set_counting(false, 900); // home Wi-Fi before the arrival fix
+        g.on_fix(fixat(home(), 1200), None);
+        assert_eq!(carried_banked(&g), (1, 0), "still carried");
+        g.set_counting(true, 4000); // leaving home on the next walk
+        g.on_fix(fixat(destination(home(), 0.0, 60.0), 5000), None);
+        assert_eq!(carried_banked(&g), (0, 1));
     }
 }
