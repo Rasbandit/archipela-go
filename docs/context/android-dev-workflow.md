@@ -83,6 +83,14 @@ AGP 9.4.1, Gradle 9.8.1, Kotlin 2.4.20, Compose BOM 2026.09.00, UniFFI 0.32.2, c
 - Debug `.so` was 57 MB with symbols; `[profile.dev] debug = 0` + arm64-only brings it to ~8 MB.
 - App draws edge-to-edge on Android 15+: add `statusBarsPadding()`.
 - sdkmanager prints "SDK XML version 4" warning with these tools: harmless.
+- Testing a `START_STICKY` restart of `TrackingService` (no activity): open a game, press HOME, then `adb shell am crash dev.apgo2.app`.
+  Android restarts the service in a new process about 1 s later. `Diag` writes to a file, not logcat: read
+  `adb shell 'cat /sdcard/Android/data/dev.apgo2.app/files/diag/$(ls /sdcard/Android/data/dev.apgo2.app/files/diag | tail -1)'` and look for
+  `service started restart=true` then `resume without screen` (#93).
+- `scripts/android_ui.py tap` sometimes matches a label but the tap does not land (seen in setup on 2026-10-09); fall back to
+  `adb shell input tap x y` with screenshot coordinates times 1.2.
+- MapLibre logs `Invalid geometry in line layer` once at first style load even with our draft source empty; after #97 our own layers
+  add none (drawing circles and polygons logs nothing). The remaining line is likely base-map tiles.
 
 ## Privacy note
 
