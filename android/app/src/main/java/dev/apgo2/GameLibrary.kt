@@ -36,10 +36,12 @@ internal class GameLibrary(
                             model.surfacePref,
                             model.avoidStairs,
                         )
+                        model.stepCal.loadInto(model.engine)
                     }
                 }
             model.busy = null
             r.onSuccess {
+                refreshStreets(null)
                 model.sim.resetClock()
                 model.log.clear()
                 model.refreshAll()
@@ -57,17 +59,40 @@ internal class GameLibrary(
         yaml.onFailure { model.fail("yaml", "YAML failed", it) }
     }
 
-    /** Open a saved game and go to the Play tab. */
+    /** Open a saved game and go to the Play tab at once; its street graph follows from [refreshStreets]. */
     fun openGame(id: String) {
-        val opened = runCatching { model.engine.openGame(id) }
-        opened.onSuccess {
-            Diag.info("game", "opened", "id" to id)
-            model.engine.logSession(true, model.now())
-            model.sim.resetClock()
-            model.refreshAll()
-            model.nav.show(AppTab.PLAY)
+        scope.launch {
+            val opened =
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        model.engine.openGame(id)
+                        model.stepCal.loadInto(model.engine)
+                    }
+                }
+            opened.onSuccess {
+                Diag.info("game", "opened", "id" to id)
+                refreshStreets(null)
+                model.engine.logSession(true, model.now())
+                model.sim.resetClock()
+                model.refreshAll()
+                model.nav.show(AppTab.PLAY)
+            }
+            opened.onFailure { model.fail("open_game", "Could not open", it) }
         }
-        opened.onFailure { model.fail("open_game", "Could not open", it) }
+    }
+
+    /**
+     * Build the open game's street graph (and trap-target street index) in the background and swap it in: after a game is opened or
+     * started (the game plays without it meanwhile, no busy state), and after a realm it plays in ([realmId]) was edited or rescanned.
+     */
+    fun refreshStreets(realmId: String?) {
+        scope.launch(Dispatchers.IO) {
+            val r = runCatching { model.engine.refreshStreets(realmId) }
+            r.onFailure { Diag.error("streets", "street graph build failed", it, "realm" to realmId) }
+            r.getOrNull()?.let {
+                Diag.info("streets", "street graph built", "ms" to it.buildMs, "segments" to it.segments, "degraded" to it.degraded)
+            }
+        }
     }
 
     /** On app start: reopen the game that was being played (opened and not paused) when the app stopped, on the Play tab. */
@@ -79,6 +104,7 @@ internal class GameLibrary(
     fun pause() {
         model.engine.logSession(false, model.now())
         Diag.info("game", "paused")
+        model.stepCal.saveFrom(model.engine)
         model.engine.closeGame()
         model.simPos = null
         model.selected = null

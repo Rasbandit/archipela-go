@@ -130,7 +130,7 @@ internal class RealmEditorState(
     val current: RealmOut? get() = m.realms.firstOrNull { it.id == id }
 
     // A new circle follows your GPS until it is edited.
-    val circleCenter: LatLng? get() = center ?: m.me
+    val circleCenter: LatLng? get() = center ?: m.here
 
     val shapeDirty: Boolean get() = outlineKey() != scannedKey
 
@@ -144,7 +144,7 @@ internal class RealmEditorState(
 
     // A finished edit: freeze a following circle in place, save, and record it for Undo.
     fun commit() {
-        if (center == null && !polygon) center = m.me
+        if (center == null && !polygon) center = m.here
         if (persist()) history.push(snapshot())
     }
 
@@ -228,7 +228,7 @@ internal class RealmEditorState(
     // Save what is on screen. Returns false when there is nothing to save yet (no location, or a polygon is not drawn).
     private fun persist(): Boolean {
         if (deleted) return false
-        val c = center ?: m.me // read now: the value captured when the screen was last drawn may be older than this edit
+        val c = center ?: m.here // read now: the value captured when the screen was last drawn may be older than this edit
         val rid =
             m.realmOps.save(
                 id,
@@ -359,7 +359,7 @@ private fun EditorMap(
         emptyList(),
         emptyList(),
         if (s.polygon) m.draft.toList() else emptyList(),
-        m.me,
+        m.mePin,
         null,
         null,
         null,

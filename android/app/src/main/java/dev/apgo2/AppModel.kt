@@ -31,6 +31,9 @@ private const val TRACE_REFRESH_MS = 10_000L
 // Step readings without events refresh the Play screen only once the count moved this much (a visible change).
 private const val STEP_REFRESH_STEPS = 50L
 private const val LOG_LIMIT = 60
+
+// The provider name of a Wi-Fi or cell fix (LocationManager's, and fused fixes without satellites, [GnssEvidence]).
+private const val NETWORK_PROVIDER = "network"
 private const val EVENT_LOG_CHARS = 300
 
 /** The bottom-bar tabs, by index. */
@@ -68,7 +71,8 @@ internal class AppNav {
 
 /**
  * The app's state, shared by every screen, and the engine behind it. Work is split over the collaborators it owns: [presence]
- * (is the player playing), [scans], [realmOps], [library] (games), [ap] (Archipelago), [setup], [units], [sim] and [diag].
+ * (is the player playing), [scans], [realmOps], [library] (games), [ap] (Archipelago), [setup], [units], [sim], [diag] and [pins]
+ * (the map pin).
  */
 internal class AppModel(
     private val ctx: Context,
@@ -78,6 +82,7 @@ internal class AppModel(
     val sensors = Sensors(ctx, this)
     val settings = PresenceSettings(ctx)
     val units = UnitSettings(this)
+    val stepCal = StepCalStore(ctx)
     val presence = PresenceController(this, ctx)
     val setup = SetupWizard(this)
     val scans = ScanCoordinator(this, scope)
@@ -89,6 +94,22 @@ internal class AppModel(
     val due = DueTimer(this, scope, ctx)
     private val traceThrottle = Throttle(TRACE_REFRESH_MS)
     private val stepRefresh = StepRefresh(STEP_REFRESH_STEPS)
+    val pins = PinFeed(this)
+    private val sessionTrace = TraceBuffer()
+    private var olderTrace: List<List<LatLng>> = emptyList()
+
+    // Bench only: `adb shell run-as dev.apgo2.app touch files/allow_mock` lets mock fixes through in a debuggable build. It is read
+    // once at start: force-stop the app (`adb shell am force-stop dev.apgo2.app`) for a new or removed flag to take effect.
+    private val debuggable = ctx.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+    private val mockAllowed =
+        MockPolicy.allowed(
+            debuggable,
+            java.io.File(ctx.filesDir, "allow_mock").exists(),
+        )
+
+    init {
+        presence.watchScreen(ctx)
+    }
 
     val nav = AppNav()
 
@@ -123,14 +144,33 @@ internal class AppModel(
     var selectedChain by mutableStateOf<String?>(null)
     var yamlText by mutableStateOf<String?>(null)
 
+    /** The newest fix was a Wi-Fi or cell position (provider `network`): it never counts for quests (adversarial review I2). */
+    var networkOnly by mutableStateOf(false)
+
     /** Cumulative steps since boot from the phone's step counter (null when unavailable or not permitted). */
     var stepsTotal by mutableStateOf<Long?>(null)
 
     /** Surface preference: any, prefer_paved or paved_only. */
     var surfacePref by mutableStateOf("any")
     var avoidStairs by mutableStateOf(false)
-    val me: LatLng?
-        get() = simPos ?: realLoc?.let { LatLng(it.latitude, it.longitude) }
+
+    /** The player's pin on any map, for drawing only: the simulator, else the filtered position, else the raw fix (no game open). */
+    val mePin: MePin?
+        get() =
+            simPos?.let { MePins.at(it.latitude, it.longitude, null) }
+                ?: pins.pin
+                ?: realLoc?.let { MePins.at(it.latitude, it.longitude, it.accuracy.toDouble()) }
+
+    /**
+     * Where the player is, for UI defaults (the realm editor's and home picker's centre, ruling T15-me): the simulator, else the
+     * estimate behind the pin, else the raw fix. Game logic uses [acceptedHere].
+     */
+    val here: LatLng?
+        get() = Here.pick(simPos, pins.pin?.fix?.let { LatLng(it.lat, it.lon) }, realLoc?.let { LatLng(it.latitude, it.longitude) })
+
+    /** Where the player is for game logic: the simulator, else the open game's last accepted estimate (adversarial review M3). */
+    val acceptedHere: LatLng?
+        get() = Here.logic(simPos, engine.lastAcceptedPos()?.let { LatLng(it.lat, it.lon) })
 
     /** Where you were when the app last left the screen (saved in the core): where a map starts before the first fix. */
     var lastPlace by mutableStateOf(engine.lastPlace()?.let { LatLng(it.lat, it.lon) })
@@ -165,24 +205,37 @@ internal class AppModel(
         presence.evaluate() // the `playing` signal follows `hud`, which every game start, open and pause goes through here
     }
 
-    /** Reload the open game's quests, zones, chains and HUD (and its trace, when [withTrace]). */
+    /** Reload the open game's quests, zones, chains, HUD and pin (and its trace, when [withTrace]). */
     fun refreshPlay(withTrace: Boolean = true) {
         if (engine.hasGame()) {
             quests = engine.quests(now())
             zones = engine.zones()
             chains = engine.chains(now())
             hud = engine.hud(now())
-            if (withTrace) trace = engine.track(0L, Long.MAX_VALUE).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
+            if (withTrace) {
+                // This session's lines follow the streets where the match is confident (broken where the filter restarted far away);
+                // the engine sends only what changed (Task 19b). The journal draws everything before them, reloaded only when the
+                // session's start is unknown or moved, or the session's line was replaced.
+                val delta = engine.traceMatchedSince(sessionTrace.cursor)
+                if (sessionTrace.apply(delta)) {
+                    olderTrace =
+                        engine.track(0L, (delta.fromMs ?: Long.MAX_VALUE) - 1).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
+                }
+                trace = (olderTrace + sessionTrace.lines()).filter { it.size >= 2 }
+            }
         } else {
             quests = emptyList()
             zones = emptyList()
             chains = emptyList()
             selectedChain = null
             hud = null
+            sessionTrace.clear()
+            olderTrace = emptyList()
             trace = emptyList()
         }
         noteJournal()
         due.schedule()
+        pins.refresh() // also clears the pin of a closed game, and of the last game when another one opens
     }
 
     /** Pick up whether the activity log changed (a cheap read; call after anything that may have logged). */
@@ -190,21 +243,33 @@ internal class AppModel(
         journalRev = engine.journalRevision().toLong()
     }
 
-    /** The phone's step counter changed: credit it to the open game (the engine ignores it when no game is open). */
-    fun onSteps(total: Long) {
+    /** The phone's step counter changed at [eventMs]: credit it to the open game (the engine ignores it when no game is open). */
+    fun onSteps(
+        total: Long,
+        eventMs: Long = now(),
+    ) {
         stepsTotal = total
         if (!engine.hasGame()) return
-        val events = engine.onSteps(total, now())
+        val events = engine.onSteps(total, eventMs, null)
         handle(events)
+        pins.refresh()
         // The counter reports in batches: refresh when something happened or the count moved enough to show, never on a timer.
         if (events.isNotEmpty() || stepRefresh.due(total, engine.openGameId())) refreshPlay(withTrace = false)
     }
 
-    /** A location fix arrived: feed the engine, update presence and the screen. */
-    fun onFix(loc: Location) {
+    /** A location fix arrived: feed the engine (at the time the fix was taken), update presence and the screen. */
+    fun onFix(
+        loc: Location,
+        sample: FixSample,
+    ) {
         if (!engine.hasGame() || simPos != null) return
+        networkOnly = sample.provider == NETWORK_PROVIDER
         diag.recordFix(loc)
-        handle(engine.onFix(loc.latitude, loc.longitude, now(), loc.accuracy.toDouble(), stepsTotal, false))
+        val t0 = System.nanoTime()
+        val events = engine.onFix(sample.toFixIn(mockAllowed), stepsTotal, false)
+        if (debuggable) diag.recordOnFix(System.nanoTime() - t0)
+        handle(events)
+        // Ruling E2: the engine places the zone from this fix's estimate in the same pass (the raw fix only before the first one).
         presence.updateZone(engine.lastZoneProximity())
         presence.evaluate()
         refreshPlay(withTrace = traceThrottle.due(now()))
@@ -213,6 +278,7 @@ internal class AppModel(
 
     /** The app left the screen: the trace has a gap from now on. */
     fun onBackground() {
+        stepCal.saveFrom(engine)
         engine.saveGame()
         rememberPlace()
         engine.logAppState(false, now())
@@ -223,7 +289,7 @@ internal class AppModel(
 
     // Keep where you are for the next map that opens before a fix; a failed save only costs that map its head start.
     private fun rememberPlace() {
-        val at = me ?: return
+        val at = here ?: return
         runCatching { engine.setLastPlace(GeoPoint(at.latitude, at.longitude)) }
             .onSuccess { lastPlace = at }
             .onFailure { Diag.warn("map", "last place not saved", "error" to it.message) }

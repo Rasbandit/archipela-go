@@ -22,6 +22,7 @@ import dev.apgo2.presence.PresenceState
 import dev.apgo2.presence.Signals
 import dev.apgo2.presence.WifiId
 import dev.apgo2.presence.Zone
+import uniffi.apgo_ffi.PositionOut
 
 private const val SETTLE_MARGIN_MS = 50L // a look scheduled for the exact due time must not land a hair early
 private const val SEED_TIMEOUT_MS = 3_000L
@@ -48,6 +49,14 @@ internal class PresenceController(
         private set
     private var offerDismissedAtMs: Long? = null
     var appVisible = true
+        set(v) {
+            if (field != v) Diag.raw("rawstate", RawLines.state(decision.state.name, decision.counting, zone.name.lowercase(), v))
+            field = v
+        }
+
+    /** Whether the screen is on (the in-zone rate is 1 s with it on, 5 s with it off). */
+    var screenOn = true
+        private set
     private val homeDebounce = Debouncer()
     private val carDebounce = Debouncer()
     private var zone = Zone.Unknown
@@ -125,16 +134,24 @@ internal class PresenceController(
             applyLocation() // unchanged decision, but the hold above may just have ended (cheap: a same rate is a no-op)
             return
         }
-        val changedState = d.state != decision.state
-        val arrived = PresencePolicy.arrivedHome(decision.state, d.state)
+        val prev = decision
         decision = d
-        if (changedState) {
-            Diag.info(TAG, d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
-            if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
-            model.noteJournal()
-        }
-        if (arrived && model.hud != null) bankAtHome()
+        Diag.raw("rawstate", RawLines.state(d.state.name, d.counting, zone.name.lowercase(), appVisible))
+        if (d.state != prev.state) onStateChange(prev.state, d, t)
         applyLocation()
+    }
+
+    // The presence state changed: log it, bank on arriving home, and let a newly opened game ask for a cold-start fix.
+    private fun onStateChange(
+        prev: PresenceState,
+        d: Decision,
+        t: Long,
+    ) {
+        Diag.info(TAG, d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
+        if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
+        model.noteJournal()
+        if (PresencePolicy.arrivedHome(prev, d.state) && model.hud != null) bankAtHome()
+        if (prev == PresenceState.Stopped) model.sensors.allowColdStart()
     }
 
     // Presence arrived home (home Wi-Fi): forager quests bank what they carry, even with no GPS fix.
@@ -144,24 +161,66 @@ internal class PresenceController(
         model.refreshPlay(withTrace = false)
     }
 
+    /** Follow screen on/off for the life of the process: each change re-applies the location rate (an unchanged rate is a no-op). */
+    fun watchScreen(ctx: Context) {
+        val r =
+            object : android.content.BroadcastReceiver() {
+                override fun onReceive(
+                    c: Context,
+                    i: android.content.Intent,
+                ) {
+                    screenOn = i.action == android.content.Intent.ACTION_SCREEN_ON
+                    applyLocation()
+                }
+            }
+        val filter =
+            android.content.IntentFilter().apply {
+                addAction(android.content.Intent.ACTION_SCREEN_ON)
+                addAction(android.content.Intent.ACTION_SCREEN_OFF)
+            }
+        androidx.core.content.ContextCompat
+            .registerReceiver(ctx, r, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        // Read after registering, so a change in between is not lost.
+        screenOn = ctx.getSystemService(android.os.PowerManager::class.java).isInteractive
+    }
+
     /** Start, change or stop location to match the presence decision. */
     fun applyLocation() {
         val holding = (seeding.waiting || seeding.unstarted) && model.hud != null
-        val rate = if (locationPermitted) GpsPolicy.forDecision(decision, appVisible, holding) else null
+        val rate = if (locationPermitted) GpsPolicy.forDecision(decision, appVisible, screenOn, holding) else null
         if (rate == null) model.sensors.stopLocation() else model.sensors.startLocation(rate)
+        val inZone = rate != null && decision.state == PresenceState.InZone
+        if (inZone) model.sensors.startGnss() else model.sensors.stopGnss()
+        if (inZone) {
+            model.sensors.startHeading(
+                CompassRate.periodUs(screenOn, appVisible),
+                onScreen = screenOn && appVisible,
+            )
+        } else {
+            model.sensors.stopHeading()
+        }
+        model.sensors.setFastSteps(inZone)
     }
 
-    // Runs after every fix and Wi-Fi change (both end in [evaluate]). A simulated position is not a real visit home.
+    // Runs after every fix and Wi-Fi change (both end in [evaluate]). A simulated position is not a real visit home. The fix is the
+    // filter's estimate while it is from GPS ([HomeOfferFix]); otherwise the raw fix.
     private fun checkHomeOffer(t: Long) {
+        val pos = if (model.simPos == null) model.engine.position(t) else null
         val loc = model.realLoc?.takeIf { it.hasAccuracy() && model.simPos == null }
+        val (fix, fixAgeMs) =
+            HomeOfferFix.choose(
+                pos,
+                loc?.let { GeoFix(it.latitude, it.longitude, it.accuracy.toDouble()) },
+                // Monotonic age, immune to GPS/wall-clock skew; the "Later" cooldown stays on the wall clock (nowMs).
+                loc?.let { (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / NANOS_PER_MS },
+            )
         val pin = model.realmOps.homePoint()
         val signals =
             OfferSignals(
                 saved = model.settings.homeNetworks,
                 playing = model.hud != null,
-                fix = loc?.let { GeoFix(it.latitude, it.longitude, it.accuracy.toDouble()) },
-                // Monotonic age, immune to GPS/wall-clock skew; the "Later" cooldown stays on the wall clock (nowMs).
-                fixAgeMs = loc?.let { (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / NANOS_PER_MS },
+                fix = fix,
+                fixAgeMs = fixAgeMs,
                 home = pin?.let { GeoFix(it.lat, it.lon, 0.0) },
                 wifi = monitor.currentWifi,
                 muted = model.settings.mutedHomeOffers,
@@ -222,4 +281,13 @@ internal class PresenceController(
             PresenceState.InZone -> "Tracking"
             PresenceState.Stopped -> "Stopped playing" // not logged (only with a game open), kept so the when is exhaustive
         }
+}
+
+/** The fix the home Wi-Fi offer judges, with its age: the estimate while it is from GPS (not bridged, predicted, stale), else raw. */
+internal object HomeOfferFix {
+    fun choose(
+        est: PositionOut?,
+        raw: GeoFix?,
+        rawAgeMs: Long?,
+    ): Pair<GeoFix?, Long?> = if (est?.source == "gps") GeoFix(est.estLat, est.estLon, est.uncertaintyM) to est.ageMs else raw to rawAgeMs
 }

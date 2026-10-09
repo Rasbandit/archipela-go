@@ -77,4 +77,8 @@ class PaletteTest {
         assertEquals(ApgoPalette.family("dwell"), ApgoPalette.kind("bench_warmer", "dwell"))
         assertEquals(ApgoPalette.teal, ApgoPalette.kind("unknown", "unknown"))
     }
+
+    @Test fun theUncertainPinColourDiffersFromTheNormalOne() {
+        assertTrue(ApgoPalette.me != ApgoPalette.meUncertain)
+    }
 }

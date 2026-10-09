@@ -63,6 +63,14 @@ tasks.withType<Test>().configureEach {
     jvmArgs("--enable-native-access=ALL-UNNAMED") // JNA loads native code; newer JDKs block that without this
 }
 
+// A release APK carries a release-profile core: a debug core honours the dev simulator's flag (adversarial re-review N4).
+val releaseCore by tasks.registering(Exec::class) {
+    description = "Builds the Rust core in the release profile with scripts/android_core.sh release."
+    workingDir = rootProject.file("..")
+    commandLine("bash", "scripts/android_core.sh", "release")
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(releaseCore) }
+
 dependencies {
     detektPlugins(libs.compose.rules.detekt)
     implementation(platform(libs.compose.bom))
@@ -75,6 +83,7 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation("${libs.jna.get()}@aar")
     implementation(libs.maplibre)
+    implementation(libs.play.services.location)
     implementation(libs.lucide)
     testImplementation(libs.junit)
     testImplementation(libs.org.json) // android.jar stubs org.json out in local unit tests
@@ -84,6 +93,6 @@ dependencies {
 kover {
     reports {
         filters { excludes { packages("uniffi.*") } } // generated bindings
-        verify { rule { minBound(18) } }
+        verify { rule { minBound(21) } }
     }
 }

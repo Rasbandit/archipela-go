@@ -143,6 +143,7 @@ internal class ScanCoordinator(
     ) {
         result.onSuccess {
             model.offers[id] = it
+            model.library.refreshStreets(id) // an open game playing in this realm gets the new scan's streets
             model.status = ""
         }
         result.onFailure {

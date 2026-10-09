@@ -6,7 +6,6 @@ import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.hex
 import dev.apgo2.ui.renderMarker
-import dev.apgo2.ui.renderPin
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
@@ -79,12 +78,9 @@ private const val KNOB_STROKE = 3f
 private const val LABEL_SIZE = 14f
 private const val LABEL_HALO_WIDTH = 2.5f
 private const val LABEL_RAISE = -0.3f
-private const val ME_PIN_PX = 120
 private const val HOME_PIN_PX = 168
-private const val ME_SIZE = 0.75f
 private const val HOME_SIZE = 0.8f
 private const val ROUND = "round"
-private const val BADGE_ME = "badge-me"
 private const val BADGE_HOME = "marker-home"
 private const val GEOMETRY_POINT = "Point"
 private const val GEOMETRY_POLYGON = "Polygon"
@@ -124,7 +120,6 @@ internal object MapSource {
     const val RADIUS = "radius"
     const val RING_KNOBS = "ringknobs"
     const val RING_LABEL = "ringlabel"
-    const val ME = "me"
     val ALL =
         listOf(
             REALMS,
@@ -142,7 +137,6 @@ internal object MapSource {
             RADIUS,
             RING_KNOBS,
             RING_LABEL,
-            ME,
         )
 
     /** Pin sources that merge pins too close to tell apart into one numbered circle. */
@@ -158,6 +152,9 @@ internal object MapStyle {
      * own logo is not required and is hidden). A tap opens the full list of sources.
      */
     const val CREDIT = "© OpenStreetMap · © OpenMapTiles"
+
+    /** The home badge; the player's pin is drawn just below it. */
+    const val HOME_LAYER = "home-layer"
 
     /** The layers a tap on a find pin is looked up in. */
     val FIND_LAYERS = arrayOf("finds-layer", "finds-sel")
@@ -180,17 +177,10 @@ internal object MapStyle {
         }
         addLayers(style, realmLayers() + traceLayers() + questLayers() + findLayers() + draftLayers() + markLayers())
         addLayers(style, radiusLayers())
-        // You and home are badges: a person on blue, a house on green.
-        style.addImage(BADGE_ME, renderPin(ApgoIcons.Me, ME_PIN_PX, fill = ApgoPalette.me))
+        // Home is a house on green. You are MapLibre's location component (see MapHolder.showMe), drawn just below home: when you
+        // are both in the same spot the house is the one you see.
         style.addImage(BADGE_HOME, renderMarker(ApgoIcons.Home, HOME_PIN_PX, ApgoPalette.home))
-        // You first, then home on top: when they are in the same spot the house is the one you see.
-        addLayers(
-            style,
-            listOf(
-                badgeLayer("me-layer", MapSource.ME, BADGE_ME, ME_SIZE),
-                badgeLayer("home-layer", MapSource.HOME, BADGE_HOME, HOME_SIZE),
-            ),
-        )
+        addLayers(style, listOf(badgeLayer(HOME_LAYER, MapSource.HOME, BADGE_HOME, HOME_SIZE)))
     }
 
     private fun addLayers(

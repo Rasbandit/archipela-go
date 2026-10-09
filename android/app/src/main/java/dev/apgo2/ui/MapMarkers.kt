@@ -46,6 +46,14 @@ internal sealed interface MarkerSpec {
     ) : MarkerSpec {
         override val key get() = "item|$theme|$state"
     }
+
+    /** The player on the map: the person pin, or an arrow when there is a heading; hollow while bridged, grey when stale. */
+    data class Me(
+        val heading: Boolean,
+        val state: String,
+    ) : MarkerSpec {
+        override val key get() = "me|${if (heading) "h" else "n"}|$state|pin"
+    }
 }
 
 /**
@@ -94,6 +102,9 @@ internal object MapMarkers {
     /** Bitmap size of a cluster ring. */
     const val RING_PX = 112
 
+    /** Pixel size of the player's pin bitmap. */
+    const val ME_PIN_PX = 120
+
     // A map image is drawn at its own pixel size times its size factor (its bitmap density is the screen's).
 
     /** On-screen height of the selected quest's pin, head to point: what a callout above the point must clear. */
@@ -111,6 +122,7 @@ internal object MapMarkers {
             p[0] == "item" -> if (rest.size == 2) MarkerSpec.Item(rest[0], rest[1]) else null
             p.size != KEY_PARTS -> null
             p[0] == "pin" -> MarkerSpec.Find(rest[0], rest[1], rest[2])
+            p[0] == "me" -> MarkerSpec.Me(rest[0] == "h", rest[1])
             else -> null
         }
     }
@@ -206,6 +218,15 @@ internal object MapMarkers {
 
             is MarkerSpec.Item -> {
                 renderQuestPin(ApgoIcons.collectible(spec.theme), QUEST_PIN_PX, fill = questFill(spec.state), badge = Badge.None, pips = 0)
+            }
+
+            is MarkerSpec.Me -> {
+                val icon = if (spec.heading) ApgoIcons.Heading else ApgoIcons.Me
+                when (spec.state) {
+                    "bridged" -> renderPin(icon, ME_PIN_PX, fill = ApgoPalette.onMap, glyph = ApgoPalette.me, ring = ApgoPalette.me)
+                    "stale" -> renderPin(icon, ME_PIN_PX, fill = ApgoPalette.meUncertain)
+                    else -> renderPin(icon, ME_PIN_PX, fill = ApgoPalette.me)
+                }
             }
         }
 }

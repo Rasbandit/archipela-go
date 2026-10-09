@@ -31,14 +31,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
+import dev.apgo2.ui.MarkerSpec
 import dev.apgo2.ui.circleRing
 import kotlinx.coroutines.delay
 import org.json.JSONObject
@@ -48,6 +51,9 @@ import org.maplibre.android.camera.CameraUpdate
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.location.LocationComponentActivationOptions
+import org.maplibre.android.location.LocationComponentOptions
+import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.AttributionDialogManager
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
@@ -87,6 +93,10 @@ private const val TIGHT_SPAN_DEG = 0.004
 private const val MIN_FIT_POINTS = 2
 private const val REVEAL_MS = 200
 private const val CREDIT_BACKDROP_ALPHA = 0.75f
+private const val ME_ACCURACY_ALPHA = 0.15f
+
+// The player's pin bitmap is drawn at this factor at every zoom (as the old badge was).
+private const val ME_ICON_SCALE = 0.75f
 
 /** A find drawn on the map: an icon pin for its quest kind, coloured by the player's mark ("none" | "favorite" | "banned"). */
 internal data class MapFind(
@@ -223,6 +233,9 @@ private class MapHolder(
     val dragger = HandleDragger(inputs, density)
     private val addedImages = mutableSetOf<String>()
     private var padApplied = false
+
+    // The player pin's look as last applied (see showMe).
+    var meSpec: MarkerSpec.Me? = null
 
     init {
         MapLibre.getInstance(context)
@@ -486,7 +499,7 @@ internal fun QuestMap(
     quests: List<QuestOut>,
     realms: List<RealmOut>,
     draft: List<LatLng>,
-    me: LatLng?,
+    me: MePin?,
     thaw: LatLng?,
     waypoint: LatLng?,
     selected: Long?,
@@ -552,7 +565,11 @@ internal fun QuestMap(
             onHandleRelease = rememberUpdatedState(onHandleRelease),
             circle = rememberUpdatedState(circle),
         )
-    val points = remember(quests, realms, me, home, draft) { framePoints(quests, realms, me, home, draft) }
+    // Framing keys on whether you are known, not on where: the pin moves several times a second, which would restart (and starve) the
+    // framing wait.
+    val meAt by rememberUpdatedState(me?.let { LatLng(it.lat, it.lon) })
+    val meKnown = me != null
+    val points = remember(quests, realms, meKnown, home, draft) { framePoints(quests, realms, meAt, home, draft) }
     val holder = remember { MapHolder(context, density, inputs, MapStart.center(listOfNotNull(circle?.first) + points, lastPlace)) }
     MapLifecycle(holder.view, onShow)
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
@@ -560,7 +577,7 @@ internal fun QuestMap(
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
     SyncPins(holder, thaw, waypoint, home, me)
     MapCamera(holder, inputs, overlaysFollowed, fit, focus, anchor)
-    MapFraming(holder, circle, me, quests, realms, points)
+    MapFraming(holder, circle, meKnown, quests, realms, points)
     // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
     // tiles loading happen out of sight. A map that fails to load is shown as it is rather than covered for good.
     val framed = holder.centered || holder.failed || (holder.style != null && circle == null && points.isEmpty())
@@ -678,7 +695,7 @@ private fun SyncPins(
     thaw: LatLng?,
     waypoint: LatLng?,
     home: LatLng?,
-    me: LatLng?,
+    me: MePin?,
 ) {
     val style = holder.style
     LaunchedEffect(style, thaw, waypoint) { holder.show(MapSource.MARKS, MapFeatures.marks(thaw, waypoint)) }
@@ -686,7 +703,7 @@ private fun SyncPins(
         holder.show(MapSource.HOME, MapFeatures.pin(home))
         holder.repaint()
     }
-    LaunchedEffect(style, me) { holder.show(MapSource.ME, MapFeatures.pin(me)) }
+    LaunchedEffect(style, me) { holder.showMe(me) }
 }
 
 // Moves the camera when the caller asks: overlay padding, fit these points, focus this point, keep the anchor reported.
@@ -716,14 +733,14 @@ private fun MapCamera(
 private fun MapFraming(
     holder: MapHolder,
     circle: Pair<LatLng, Double>?,
-    me: LatLng?,
+    meKnown: Boolean,
     quests: List<QuestOut>,
     realms: List<RealmOut>,
     points: List<LatLng>,
 ) {
     val style = holder.style
     LaunchedEffect(style, circle?.second) { if (style != null && circle != null) holder.frameCircle(circle) }
-    LaunchedEffect(style, me, quests.isNotEmpty(), realms.size) { holder.frameAction(points) }
+    LaunchedEffect(style, meKnown, quests.isNotEmpty(), realms.size) { holder.frameAction(points) }
 }
 
 // What the first view should show: the visible quests, you, home and the shape being drawn; the realms when there is none of those.
@@ -747,3 +764,59 @@ private fun realmPoints(r: RealmOut): List<LatLng> =
     } else {
         listOfNotNull(r.circle?.let { LatLng(it.center.lat, it.center.lon) })
     }
+
+// The location component's look for the player's pin [spec]: its images, the accuracy circle in the palette colour, below home.
+private fun meOptions(
+    context: android.content.Context,
+    spec: MarkerSpec.Me,
+): LocationComponentOptions =
+    LocationComponentOptions
+        .builder(context)
+        .foregroundName(spec.key)
+        .backgroundName(spec.key)
+        .gpsName(spec.key)
+        .accuracyColor(ApgoPalette.me.toArgb())
+        .accuracyAlpha(ME_ACCURACY_ALPHA)
+        .elevation(0f)
+        .enableStaleState(false)
+        .minZoomIconScale(ME_ICON_SCALE)
+        .maxZoomIconScale(ME_ICON_SCALE)
+        .layerBelow(MapStyle.HOME_LAYER)
+        .build()
+
+// The player: MapLibre's location component in custom mode. We push the core's position as a look-ahead update, which glides
+// until the location's time (MePins.glideEndMs); a reset, relocation or big jump arrives with animation 0 (snap). The accuracy
+// circle is the component's own, in the palette colour. Always RenderMode.NORMAL: the foreground image turns with the location's
+// bearing in every mode, and GPS mode would hide the circle; the arrow is a pin image of its own (MarkerSpec.Me.heading). The
+// component's own stale state is off: staleness is ours ("stale" pin from position()).
+@SuppressLint("MissingPermission") // no location engine: the component never asks Android for a location, positions come from the core
+private fun MapHolder.showMe(pin: MePin?) {
+    val m = map
+    val s = style
+    if (m == null || s == null) return
+    val lc = m.locationComponent
+    if (!lc.isLocationComponentActivated) {
+        MePins.specs().forEach { ensureImage(s, it.key) }
+        val first = pin?.spec ?: MarkerSpec.Me(false, "gps")
+        val opts =
+            LocationComponentActivationOptions
+                .builder(view.context, s)
+                .useDefaultLocationEngine(false)
+                .locationComponentOptions(meOptions(view.context, first))
+                .build()
+        lc.activateLocationComponent(opts)
+        lc.renderMode = RenderMode.NORMAL
+        meSpec = first
+    }
+    if (pin == null) {
+        lc.isLocationComponentEnabled = false
+        return
+    }
+    if (pin.spec != meSpec) {
+        lc.applyStyle(meOptions(view.context, pin.spec))
+        meSpec = pin.spec
+    }
+    // Enabling again would replay the last location without animation: only when it is off.
+    if (!lc.isLocationComponentEnabled) lc.isLocationComponentEnabled = true
+    lc.forceLocationUpdate(listOf(pin.toLocation(System.currentTimeMillis())), true)
+}

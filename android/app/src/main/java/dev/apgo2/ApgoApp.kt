@@ -23,6 +23,7 @@ internal class ApgoApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Diag.init(this)
+        Diag.initRaw(this)
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             Diag.error("crash", "uncaught exception on ${t.name}", e)

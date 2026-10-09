@@ -124,6 +124,53 @@ internal object Help {
         )
     val stairs = HelpTopic("Avoid stairs", "Leaves out quests that are staircases.")
 
+    // ---- keeping tracking alive (battery optimisation), by phone maker
+    val batterySamsung =
+        HelpTopic(
+            "Keep tracking alive on Samsung",
+            "Samsung puts apps to sleep to save battery, which stops quest tracking with the screen off. Tap the button, find " +
+                "Archipela-Go 2 and choose Don't optimise. Also open Settings, Battery, Background usage limits and make sure the app " +
+                "is not in Sleeping apps or Deep sleeping apps.",
+        )
+    val batteryXiaomi =
+        HelpTopic(
+            "Keep tracking alive on Xiaomi, Redmi and POCO",
+            "MIUI and HyperOS stop apps in the background. Tap the button and turn optimisation off for Archipela-Go 2. Then open the " +
+                "app's info page, choose Battery saver and pick No restrictions, and turn on Autostart.",
+        )
+    val batteryHuawei =
+        HelpTopic(
+            "Keep tracking alive on Huawei and Honor",
+            "These phones close apps in the background. Tap the button and allow Archipela-Go 2 to ignore optimisation. Then open " +
+                "Settings, Battery, App launch, find the app and switch it to Manage manually with every option on.",
+        )
+    val batteryOppo =
+        HelpTopic(
+            "Keep tracking alive on OnePlus, OPPO and realme",
+            "These phones freeze apps in the background. Tap the button and turn optimisation off for Archipela-Go 2. Then open the " +
+                "app's info page, choose Battery and allow background activity.",
+        )
+    val batteryOther =
+        HelpTopic(
+            "Keep tracking alive",
+            "Android may pause apps in the background to save battery, which stops quest tracking with the screen off. Tap the button, " +
+                "find Archipela-Go 2 and turn battery optimisation off for it.",
+        )
+
+    // ---- the map pin
+    val hollowDot =
+        HelpTopic(
+            "Why is my dot hollow or grey?",
+            "A hollow dot means GPS dropped out and the game is guessing where you are from your steps and the streets. A grey dot means " +
+                "the last position is more than half a minute old. Neither counts for quests: only a solid dot from GPS does.",
+        )
+    val networkOnly =
+        HelpTopic(
+            "Quests do not count with location from Wi-Fi only",
+            "Your position is coming from Wi-Fi and mobile networks, not from satellites. It shows on the map but never counts " +
+                "for quests: turn on GPS (precise location) in the phone's location settings, and step outside if you are indoors.",
+        )
+
     // ---- Archipelago
     val archipelago =
         HelpTopic(
@@ -159,6 +206,11 @@ internal object SetupText {
     const val CAR_BLUETOOTH_BLOCKED =
         "Android will not ask again. In the app's settings open Permissions, allow Nearby devices, then come back here."
     const val CAR_NONE_PAIRED = "No paired Bluetooth devices found. Pair your car in the phone's Bluetooth settings first."
+    const val BATTERY_TITLE = "Keep tracking alive · optional"
+    const val BATTERY_WHY =
+        "Quests are tracked with the screen off. Your phone's battery saver can stop that; this lets the game keep running while you play."
+    const val BATTERY_DONE = "Battery saver is off for this app. Tracking will keep running."
+    const val BATTERY_BUTTON = "Open battery settings"
     const val HOME_NEEDS_WIFI = "Add your home Wi-Fi so the game pauses at home"
 }
 

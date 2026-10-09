@@ -12,7 +12,10 @@ internal class DiagLog(
     private val maxFileBytes: Long = 2_000_000,
     private val keep: Int = 10,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val prefix: String = "diag",
 ) {
+    private val pattern = Regex("${Regex.escape(prefix)}-(\\d{4})\\.jsonl")
+
     @Synchronized
     fun write(
         level: String,
@@ -67,11 +70,11 @@ internal class DiagLog(
     ) = write("E", tag, msg, if (t == null) fields else fields + ("stack" to t.stackTraceToString()))
 
     /** Log files, oldest first. */
-    fun files(): List<File> = dir.listFiles { f -> f.isFile && PATTERN.matches(f.name) }?.sortedBy { seq(it) } ?: emptyList()
+    fun files(): List<File> = dir.listFiles { f -> f.isFile && pattern.matches(f.name) }?.sortedBy { seq(it) } ?: emptyList()
 
-    private fun seq(f: File) = PATTERN.matchEntire(f.name)!!.groupValues[1].toInt()
+    private fun seq(f: File) = pattern.matchEntire(f.name)!!.groupValues[1].toInt()
 
-    private fun name(n: Int) = "diag-%04d.jsonl".format(n)
+    private fun name(n: Int) = "$prefix-%04d.jsonl".format(n)
 
     private fun value(v: Any?): String =
         when (v) {
@@ -98,19 +101,39 @@ internal class DiagLog(
             }
             append('"')
         }
-
-    companion object {
-        private val PATTERN = Regex("diag-(\\d{4})\\.jsonl")
-    }
 }
 
 /** The app-wide log. Safe to call before [init] (entries are dropped). */
 internal object Diag {
     @Volatile private var log: DiagLog? = null
 
-    /** App-specific external storage, so `adb pull` can read it without run-as (falls back to internal files). */
+    @Volatile private var rawLog: DiagLog? = null
+
+    /**
+     * Internal storage (`files/diag`), pulled with run-as (`scripts/pull_diag.sh`): app-specific external storage is readable by any
+     * app with READ_EXTERNAL_STORAGE on Android 8 and 9 (adversarial review M4). A log left there by an older build is deleted.
+     */
     fun init(ctx: android.content.Context) {
-        log = DiagLog(java.io.File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "diag"))
+        runCatching { ctx.getExternalFilesDir(null)?.let { java.io.File(it, "diag").deleteRecursively() } }
+        log = DiagLog(java.io.File(ctx.filesDir, "diag"))
+    }
+
+    /**
+     * Debug builds only: raw fixes, steps and headings for the replay bench, in `diag/raw/` (10 x 2 MB of their own, so they never push
+     * the normal log out). Release builds never call this, so they never store raw positions.
+     */
+    fun initRaw(ctx: android.content.Context) {
+        val debuggable = ctx.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (!debuggable) return
+        rawLog = DiagLog(java.io.File(ctx.filesDir, "diag/raw"), prefix = "raw")
+    }
+
+    /** A raw-track line (no-op unless [initRaw] enabled it). */
+    fun raw(
+        tag: String,
+        fields: Map<String, Any?>,
+    ) {
+        rawLog?.write("I", tag, "", fields)
     }
 
     fun info(
