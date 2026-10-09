@@ -168,7 +168,7 @@ internal class AppModel(
         val events = engine.onSteps(total, now())
         handle(events)
         // The counter reports in batches: refresh when something happened or the count moved enough to show, never on a timer.
-        if (events.isNotEmpty() || stepRefresh.due(total)) refreshPlay(withTrace = false)
+        if (events.isNotEmpty() || stepRefresh.due(total, engine.openGameId())) refreshPlay(withTrace = false)
     }
 
     /** A location fix arrived: feed the engine, update presence and the screen. */
