@@ -609,6 +609,11 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// The directory the engine keeps its files in.
+    pub(crate) fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
     fn store(&self) -> RealmStore {
         RealmStore::new(&self.dir)
     }
