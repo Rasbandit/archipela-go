@@ -49,6 +49,8 @@ owner: never switch branches or edit files there. A `git switch` by one session 
 | UI driver | `python3 scripts/android_ui.py texts \| tap "Label" [exact] \| tapn \| type \| wait` (honors `ANDROID_SERIAL`; prefix with `timeout 20`) |
 | Dev Archipelago server | `APGO_GOALS="Letter Hunt,The Big One" APGO_REQ=require_all_goals scripts/ap_host.sh start 60`, `scripts/ap_host.sh stop` |
 | Parse a slot_data file with the app's reader | `cd core && cargo run -q --example parse_slot -- file.json` |
+| Pull and replay a walk (location bench) | `scripts/pull_diag.sh <out>`, `python3 scripts/diag_report.py <out>`, then `cd core && cargo run --release --example replay -- <out> --mode walk --compare baseline [--atlas <out>/files/atlas/<realm>.json] [--game <out>/files/games/<id>.json] [--params p.json] [--geojson out.geojson]` (keep pulls out of git: `location-estimation.md`) |
+| Let mock locations through (debug build, bench only) | `adb shell run-as dev.apgo2.app touch files/allow_mock`, then `adb shell am force-stop dev.apgo2.app` (read once at start) |
 
 ## Gotchas that cost time before
 
@@ -72,7 +74,8 @@ owner: never switch branches or edit files there. A `git switch` by one session 
 - Generated `android/app/src/main/kotlin/uniffi/` is excluded from every Kotlin gate (Spotless, detekt, Lint, Kover); never edit or lint it. `core/vendor/` is likewise untouched.
 - `bash scripts/android_bindings.sh` builds the bindings on the host (no NDK) for `just check-android` and CI; `android_core.sh` is for device builds.
 - Raising a coverage floor: python `fail_under` in `apworld/pyproject.toml`, rust `--fail-under-lines` in the `check-rust` justfile recipe, kotlin `minBound` in `android/app/build.gradle.kts`.
-  Set it to the measured line coverage rounded down. Floors only go up.
+  Set it to the measured line coverage rounded down. Floors only go up. Current floors (2026-10-09): python 99, rust 91, kotlin 21
+  (`CLAUDE.md` still says rust 80, kotlin 17).
 - Every `allow` / `ignore` / `@Suppress` / `noqa` must be as local as possible and carry a reason comment.
 - Mutation testing: mutmut must see the world as `worlds.ap_go2` (its keys come from the file path), hence the staging in
   `scripts/mutate_py.sh`. cargo-mutants runs in place (`yaml.rs`, `slot.rs` include files outside `core/`); a stopped run can leave a
@@ -83,14 +86,15 @@ owner: never switch branches or edit files there. A `git switch` by one session 
 ## Where things are decided (pointers, do not duplicate)
 
 `project-decisions.md` (decision log), `ui-design-system.md` (palette, components, icons, help, editor model), `scan-and-tile-cache.md`,
-`archipelago-game-model.md` (incl. several goals), `quest-catalog.md` (generated), `map-data-capabilities.md`, `progression-zones-and-tools.md`.
+`archipelago-game-model.md` (incl. several goals), `quest-catalog.md` (generated), `map-data-capabilities.md`, `progression-zones-and-tools.md`,
+`location-estimation.md` (filter, map matching, gap bridging, bench).
 
 ## Backlog
 
 **Tracking lives in GitHub issues** (`gh issue list` on `Rasbandit/archipela-go`); new ideas, bugs and follow-ups are filed there (label `enhancement` or `bug`). The list below is the
 older pre-issues backlog: file an issue when one of these is picked up, then delete it here.
 
-1. ~~Foreground service + background location~~ (done), **real outdoor test and retest** (see `outdoor-test-plan.md`). Activity Recognition for mode proof is still open. Street snapping of the displayed position/trace is an idea (after the retest).
+1. ~~Foreground service + background location~~ (done), **real outdoor test and retest** (see `outdoor-test-plan.md`). Activity Recognition for mode proof is still open. Street snapping of the displayed position/trace is done (`location-estimation.md`); its outdoor check is #117.
 2. Rewrite `scripts/e2e_emulator.sh` for the current flows (editor, New Game zones, scan wait) and make it pass cleanly.
 3. Re-test the full Archipelago session (connect, checks, items, goal, several goals) against `ap_host.sh`; apply `return_home`, DeathLink, Effort Reduction items; chat/hints.
 4. About/attribution screen (OSM, OpenFreeMap, Lucide) and an own launcher icon; signing; release build size.

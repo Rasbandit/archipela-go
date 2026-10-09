@@ -19,6 +19,16 @@ location) -> `android-start`. Also: `just android-logs`, `just android-shot`, `s
 uiautomator, no coordinates needed). Rust-only logic is faster to iterate on desktop: `cd core && cargo test` and `cargo run --example gen_zone`.
 `APGO_ABIS="arm64-v8a x86_64"` also builds for an emulator.
 
+## Release build: the core's profile is coupled to the APK's
+
+`just android-release` (`./gradlew assembleRelease`) builds the core first: Gradle's `releaseCore` task (a dependency of
+`preReleaseBuild`) runs `scripts/android_core.sh release`. Gradle otherwise packages whatever `.so` is in `jniLibs`, and a debug-profile
+core honours the dev simulator's `simulated` flag (`SIM_ALLOWED = cfg!(debug_assertions)`, adversarial re-review N4).
+`scripts/tests/android_release_core_test.sh` (in `check-android`) checks the dependency with a Gradle dry run. `android_core.sh` empties
+`jniLibs` first, so a stale library of another ABI or profile (the emulator loop's debug x86_64 core) never ships; after a release
+build `jniLibs` holds the release core until the next `android-run`. The release profile strips the library, UniFFI metadata included,
+so release bindings come from a host build of the same source.
+
 ## Archipelago connection (Spike C, proven 2026-10-07)
 
 Phone joined a local server running OUR apworld, received `slot_data` (contract v1), sent location checks, got items back (server log:
@@ -77,6 +87,12 @@ AGP 9.4.1, Gradle 9.8.1, Kotlin 2.4.20, Compose BOM 2026.09.00, UniFFI 0.32.2, c
   `LocalNetwork.kt` asks on Connect when the server name or any resolved address is local, then always connects (VPN routes are not gated);
   a hint shows after a denial or 10 s stuck connecting. `localhost` via `adb reverse` is loopback and not gated. Bluetooth shares the
   Nearby devices group, so test the prompt from a fresh install.
+- `LocationManager.requestLocationUpdates(provider, minTime, minDistance, listener)` on the `fused` provider is served as **BALANCED**
+  (Wi-Fi/cell, 20-100 m; the GPS chip stays off unless another app such as Maps keeps it on). Use `LocationRequest.Builder` with
+  `setQuality(QUALITY_HIGH_ACCURACY)` (Android 12+) while playing; `GpsPolicy.Rate.highAccuracy` decides. Check the real quality with
+  `adb shell dumpsys location | grep apgo` (look for `HIGH_ACCURACY` vs `BALANCED` on the registration line). Found 2026-10-08.
+- Wireless adb drops when the phone sleeps or changes network: `adb mdns services` shows its address, then `adb connect <ip:port>`.
+  With the emulator also attached, set `ANDROID_SERIAL` for every `just android-*` recipe.
 - UniFFI error variant fields must not be named `message` (collides with Kotlin `Throwable.message`); use `detail`.
 - AGP 9 built-in Kotlin ignores `build/generated` via `java.srcDir`; generate bindings into `android/app/src/main/kotlin/uniffi` (git-ignored).
 - `Display` + `std::error::Error` must be implemented on the Rust error enum for `#[derive(uniffi::Error)]` returned in `Result`.
