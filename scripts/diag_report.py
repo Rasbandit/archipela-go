@@ -66,7 +66,7 @@ def main(root: Path) -> None:  # noqa: C901, PLR0912  # linear one-shot report, 
     for a, b in pairwise(beats):
         if b["t"] - a["t"] > 90_000:
             print(
-                f"GAP {ts(a['t'])} -> {ts(b['t'])} ({(b['t'] - a['t']) // 1000} s with no heartbeat: process frozen or killed)"
+                f"GAP {ts(a['t'])} -> {ts(b['t'])} ({(b['t'] - a['t']) // 1000} s with no fixes: GPS off (home/car/stopped) or process frozen; see presence lines)"
             )
     for b in beats:
         if b["fixes"] == 0:

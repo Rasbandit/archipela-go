@@ -11,6 +11,7 @@ import android.os.PowerManager
 private const val PROGRESS_BUCKETS = 10
 private const val REJECT_ACCURACY_M = 35f
 private const val MS_PER_SECOND = 1000
+private const val BEAT_EVERY_MS = 60_000L
 
 /** What the phone delivered since the last heartbeat line, and the other facts that explain a gap in the diagnostics log. */
 internal class FieldDiagnostics(
@@ -24,6 +25,7 @@ internal class FieldDiagnostics(
     private var lastFixProvider = ""
     private val progressBuckets = HashMap<Long, Int>()
     private val providerCounts = HashMap<String, Int>()
+    private val beat = Throttle(BEAT_EVERY_MS)
 
     /** Count a location fix for the next heartbeat. */
     fun recordFix(loc: Location) {
@@ -32,6 +34,7 @@ internal class FieldDiagnostics(
         lastFixProvider = loc.provider ?: ""
         if (loc.accuracy > REJECT_ACCURACY_M) rejectedSinceBeat++ else fixesSinceBeat++
         providerCounts.merge(loc.provider ?: "?", 1, Int::plus)
+        if (beat.due(lastFixMs)) heartbeat()
     }
 
     /** Log quest progress each time it crosses a 10% step, so a quest that never moves shows up in the log. */
@@ -48,13 +51,14 @@ internal class FieldDiagnostics(
         }
     }
 
-    /** One line a minute while a game is open: what the sensors delivered, power state and battery. Gaps in these lines are the story. */
-    fun heartbeat() {
+    // At most one line a minute, written when a fix arrives (no timer wakes the phone for it): what the sensors delivered, power
+    // state and battery. No lines while nothing arrives (at home, GPS off) is itself the story; presence changes are logged as
+    // they happen.
+    private fun heartbeat() {
         Diag.info("heartbeat", "tracking", *sensorFields(), *deviceFields(), *gameFields())
         fixesSinceBeat = 0
         rejectedSinceBeat = 0
         providerCounts.clear()
-        model.presence.evaluate() // backstop: a settled debounce never waits longer than a minute
         drainCore()
     }
 
