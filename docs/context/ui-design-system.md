@@ -21,8 +21,8 @@ widgets or write colours themselves.
   zoom 16 pins still too close merge into a numbered cluster (MapLibre source clustering, `MapSource.CLUSTERED`). A quest cluster is a ring split by
   how many quests inside are in each state (`MarkerSpec.Ring`, drawn on demand via the style's missing-image listener); a find cluster is a plain teal
   disc. Tapping a cluster zooms in until it splits. The selected pin lives in its own unclustered, unshrunk source (`MapFeatures.splitSelected`).
-- **Map colour = state, icon = kind.** Blue is only you (dot and walked trace); the realm boundary is a faint neutral grey. Quests, park
-  outlines, trails and cluster rings use the state colours: violet doable, amber in progress, green done, grey locked (`ApgoPalette.quest`,
+- **Map colour = state, icon = kind.** Your walked trace is a thin, faint grey (`ApgoPalette.trace`) and the realm boundary a faint neutral grey:
+  both are background. Quests, park outlines, trails and cluster rings use the state colours: blue doable, amber in progress, green done, grey locked (`ApgoPalette.quest`,
   `MapMarkers.questFill`), so a glance shows which parts of the map are finished. A quest pin's white icon says what kind it is; family colours are
   for the realm editor's finds only. Red never means "not done": it is for errors and bans.
 - Parks are a thin outline, dashed until done, with a fill that shows progress (empty, light, faint). Trails are a solid line in the state colour on a

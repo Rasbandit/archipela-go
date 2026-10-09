@@ -23,8 +23,8 @@ internal object ApgoPalette {
     val grass = Color(0xFF5AFF6A) // Archipelago grass theme
 
     // Quest state: the list dot, the map pin's body, park outlines and trails all agree, so a glance shows what is done and what is
-    // left. Doable is violet: never blue (that is you), red (errors), amber (in progress) or green (done).
-    val questTodo = Color(0xFF7B1FA2)
+    // left. Doable is blue; never red (errors), amber (in progress) or green (done).
+    val questTodo = Color(0xFF0277BD)
     val questProgress = Color(0xFFF9A825)
     val questDone = Color(0xFF2E7D32)
     val questLocked = Color(0xFF9E9E9E)
@@ -32,6 +32,7 @@ internal object ApgoPalette {
 
     // Map and realm editor
     val me = Color(0xFF1565C0)
+    val trace = Color(0xFF5F6B70) // where you walked: a quiet grey that blends into the map
     val realm = Color(0xFF78858C) // a neutral grey: the boundary is background, and blue is kept for you
     val home = Color(0xFF2E7D32)
     val draft = Color(0xFFEF6C00) // the shape being edited
