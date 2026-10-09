@@ -66,7 +66,7 @@ check-rust: core-unmutated
     cd core && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings
     cd core && RUSTDOCFLAGS="-D warnings" cargo doc -p apgo-core -p apgo-ffi --no-deps -q
     cd core && cargo deny check
-    cd core && cargo llvm-cov -p apgo-core -p apgo-ffi --fail-under-lines 80
+    cd core && cargo llvm-cov -p apgo-core -p apgo-ffi --fail-under-lines 84
 
 # --- Mutation testing (slow, not in `check`): a surviving mutant is logic no test pins down ---
 # Python: `just mutate-py` (all), `just mutate-py run "worlds.ap_go2.zones*"`, `just mutate-py results`

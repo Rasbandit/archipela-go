@@ -5,7 +5,7 @@ _Last verified: 2026-10-07 (end of the big UI session). "Verified" = run; "Not d
 ## What exists
 
 A real-world quest game. The player saves **realms** (places, a circle or polygon), the app **scans** each realm's map data into **finds**, and a **game**
-builds **zones** (a realm played by walk/run/bike) filled with quests from a 75-kind catalog. It plays **solo** or as an **Archipelago** client.
+builds **zones** (a realm played by walk/run/bike) filled with quests from a 76-kind catalog. It plays **solo** or as an **Archipelago** client.
 Win conditions: 12 goals, one or several, combined any / all / at least N.
 
 ## Layout
@@ -56,6 +56,12 @@ Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone 
 - Trail finds are consolidated (30 m link, length gates, id-as-name ignored); a trail quest asks for the share of the line that fits the effort.
 - Walkable length = sum of unique street segments (sidewalks/crossings excluded), not points.
 - **Near-a-path rule (#51)**: every point a player must reach (Reach/Dwell targets, DwellArea marker, Courier A and B, RoundTrip far point, boss, Line start, Freeze thaw and Detour waypoint, found at trigger time in the zones' full street index the engine attaches on open) is within `near_path::NEAR_PATH_M` (30 m) of a scanned street/path (`atlas.streets` + `streets_rough`, as the surface preference allows), measured to the street between samples (`Atlas::street_links`, from the per-way `street_runs`/`rough_runs` a scan records; only straight pieces, 0.95-1.05 x 60 m x stride; an atlas without runs has no links, reports `needs_rescan()`, FFI `realm_needs_rescan`), at least the minimum distance from home and 40 m from other quests. `near_path::PathIndex` (30 m grid buckets of points and segments) does `near_path`/`within`, `nearest`/`nearest_on_path`, `snap_into_area[_where]` (polygon places: a path spot inside, else beside the edge), `start_near_path` (loops rotate, open lines are cut) and `share_near`; a line quest's coverage is capped at its share of samples beside a path and the line is dropped under 25 %. Places that cannot be reached from a path are not offered. A sparse zone uses the few street points it has (no grid fallback any more); when they run out a street quest shares a point, and only an empty pool gives the flagged home fallback. Applies to new games and rerolls; saved games keep their quests. Reuse `PathIndex` for future collectibles (#5).
+- **Forager (#5)**: courier-family kind `forager` (walk, run, bike), verify `Collect`. `2 * need` items (need 3/5/7/10 by tier, 10 above
+  tier 4) are street-pool points at least 60 m apart and at least `max(min_distance_m, 125 m)` from home, spread out to the effort
+  distance (`dist_for(want / 2)`), nearest first (the fog anchor). Pickup 25 m; banking on any accepted fix within `verify::HOME_RADIUS_M`,
+  and on joining home Wi-Fi (`PresenceController` calls `Engine::bank_at_home` on the change to `AtHome`).
+  Progress is saved in `Game::collected` (trackers are not saved). A Shuffle trap moves only unpicked items (`assign::replace_unpicked`).
+  Verified by unit tests; emulator check pending; the device walk is not done yet.
 - Zone keys + tools gate zones; every trap has an exit; anti-cheat is light (accuracy 75 m, speed caps).
 
 ## Presence (home Wi-Fi, car Bluetooth, zone duty cycle)
