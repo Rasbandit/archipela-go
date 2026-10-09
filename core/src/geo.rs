@@ -169,11 +169,12 @@ pub fn point_in_polygon(p: Point, v: &[Point]) -> bool {
 }
 
 /// The key of the smallest outline (by its bounding box) that holds `p`, so a park inside a bigger park wins; `None` when none
-/// does. An outline needs three corners.
+/// does. An outline needs three corners; one across the antimeridian is measured the short way.
 pub fn smallest_containing<'a, K>(p: Point, shapes: impl IntoIterator<Item = (K, &'a [Point])>) -> Option<K> {
     let bbox = |v: &[Point]| {
-        let span = |f: fn(&Point) -> f64| v.iter().map(f).fold(f64::NEG_INFINITY, f64::max) - v.iter().map(f).fold(f64::INFINITY, f64::min);
-        span(|q| q.lat) * span(|q| q.lon)
+        let around = v.first().map_or(0.0, |q| q.lon);
+        let span = |vals: Vec<f64>| vals.iter().copied().fold(f64::NEG_INFINITY, f64::max) - vals.iter().copied().fold(f64::INFINITY, f64::min);
+        span(v.iter().map(|q| q.lat).collect()) * span(v.iter().map(|q| unwrap_lon(q.lon, around)).collect())
     };
     shapes.into_iter().filter(|(_, v)| v.len() >= 3 && point_in_polygon(p, v)).min_by(|a, b| bbox(a.1).total_cmp(&bbox(b.1))).map(|(k, _)| k)
 }
@@ -237,6 +238,15 @@ mod tests {
         assert_eq!(smallest_containing(Point::new(0.5, 0.5), shapes), Some(2), "inside both: the inner one");
         assert_eq!(smallest_containing(Point::new(0.1, 0.1), shapes), Some(1));
         assert_eq!(smallest_containing(Point::new(3.0, 3.0), shapes), None, "inside none");
+    }
+
+    #[test]
+    fn an_outline_across_the_antimeridian_is_measured_the_short_way() {
+        // 1° wide across lon 180, inside a 2° square that does not cross it: the narrow one is the smaller.
+        let across = vec![Point::new(0.0, 179.5), Point::new(0.0, -179.5), Point::new(1.0, -179.5), Point::new(1.0, 179.5)];
+        let wide = square(-0.5, 178.0, 2.0);
+        let p = Point::new(0.5, 179.8);
+        assert_eq!(smallest_containing(p, [(1, wide.as_slice()), (2, across.as_slice())]), Some(2));
     }
 
     #[test]

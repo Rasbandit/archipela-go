@@ -25,4 +25,9 @@ class MapStartTest {
         assertEquals(40.5, c.latitude, 1e-9)
         assertEquals(-111.5, c.longitude, 1e-9)
     }
+
+    @Test fun thingsAcrossTheAntimeridianStartBetweenThemTheShortWay() {
+        val c = MapStart.center(listOf(LatLng(0.0, 179.0), LatLng(0.0, -177.0)), last)!!
+        assertEquals(-179.0, c.longitude, 1e-9)
+    }
 }
