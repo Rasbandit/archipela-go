@@ -148,7 +148,7 @@ private fun PlayMap(
     var anchorPx by remember { mutableStateOf<Offset?>(null) }
     LaunchedEffect(m.selected, bubblePx) {
         val a = selected?.anchor ?: return@LaunchedEffect
-        val pin = MapMarkers.selectedQuestPinHeightPx(selected.difficulty, selected.boss)
+        val pin = MapMarkers.selectedQuestPinHeightPx()
         val room = (if (bubblePx > 0) bubblePx else (QUEST_BUBBLE_DP * density).toInt()) + BubblePlacement.gapPx(pin, density)
         focus = MapFocus(LatLng(a.lat, a.lon), ++focusNonce, room)
     }
@@ -207,7 +207,7 @@ private fun BoxScope.QuestPopup(
     } else if (anchorPx != null) {
         MapBubble(
             anchorPx,
-            MapMarkers.selectedQuestPinHeightPx(q.difficulty, q.boss),
+            MapMarkers.selectedQuestPinHeightPx(),
             onSize = { onBubbleSize(it.height) },
             content = details,
         )

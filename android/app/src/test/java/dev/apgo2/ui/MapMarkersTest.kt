@@ -56,20 +56,10 @@ class MapMarkersTest {
         assertEquals(MapMarkers.Badge.None, MapMarkers.badge("something-new"))
     }
 
-    @Test fun pinsGrowWithDifficultyAndTheBossIsBiggest() {
-        val easy = MapMarkers.iconScale("easy", boss = false)
-        val medium = MapMarkers.iconScale("medium", boss = false)
-        val hard = MapMarkers.iconScale("Hard", boss = false)
-        assertTrue(easy < medium && medium < hard)
-        assertTrue(MapMarkers.iconScale("easy", boss = true) > hard)
-        assertEquals("unknown difficulty reads as medium", medium, MapMarkers.iconScale("unknown", boss = false))
-    }
-
-    @Test fun questPinsAreBigEnoughToReadAndNeverUpscaled() {
-        val scales =
-            listOf("easy", "medium", "hard").map { MapMarkers.iconScale(it, boss = false) } + MapMarkers.iconScale("easy", boss = true)
-        assertTrue("a scale over 1 blurs the bitmap", scales.all { it <= 1f })
-        assertTrue("the smallest pin is drawn at least 96 px", scales.min() * MapMarkers.QUEST_PIN_PX >= 96f)
+    @Test fun everyQuestPinIsOneSizeBigEnoughToReadAndNeverUpscaled() {
+        // Difficulty is not shown by size: a pin is a pin, so neighbours never look mismatched.
+        assertTrue("a scale over 1 blurs the bitmap", MapMarkers.QUEST_SCALE <= 1f)
+        assertTrue("a pin is drawn at least 96 px wide", MapMarkers.QUEST_SCALE * MapMarkers.QUEST_PIN_PX >= 96f)
     }
 
     @Test fun aQuestPinIsColouredByItsStateNotItsKind() {
@@ -84,12 +74,8 @@ class MapMarkersTest {
     }
 
     @Test fun aSelectedPinsHeightIsWhatACalloutMustClear() {
-        val easy = MapMarkers.selectedQuestPinHeightPx("easy", boss = false)
-        val boss = MapMarkers.selectedQuestPinHeightPx("easy", boss = true)
-        assertTrue("the boss pin is taller", boss > easy)
-        val expected =
-            MapMarkers.QUEST_PIN_PX * MapMarkers.PIN_HEIGHT_RATIO * MapMarkers.iconScale("easy", false) * MapMarkers.SELECTED_GROWTH
-        assertEquals(expected, easy, 0.01f)
+        val expected = MapMarkers.QUEST_PIN_PX * MapMarkers.PIN_HEIGHT_RATIO * MapMarkers.QUEST_SCALE * MapMarkers.SELECTED_GROWTH
+        assertEquals(expected, MapMarkers.selectedQuestPinHeightPx(), 0.01f)
         assertTrue(MapMarkers.selectedFindPinHeightPx() > 0f)
     }
 

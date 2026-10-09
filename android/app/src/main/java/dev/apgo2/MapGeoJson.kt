@@ -23,7 +23,6 @@ internal object MapProp {
     const val STATE = "state"
     const val SELECTED = "sel"
     const val IMAGE = "img"
-    const val SCALE = "scale"
     const val SORT = "z"
     const val OPACITY = "op"
     const val ID = "id"
@@ -219,7 +218,7 @@ internal object MapFeatures {
             )
         }
 
-    // What a quest pin needs on the map: its image, size, draw order and whether it is the selected one.
+    // What a quest pin needs on the map: its image, draw order, id and whether it is the selected one.
     private fun questProps(
         q: QuestOut,
         selected: Boolean,
@@ -227,7 +226,6 @@ internal object MapFeatures {
         .put(MapProp.STATE, q.state)
         .put(MapProp.SELECTED, selected)
         .put(MapProp.IMAGE, q.mapImageKey)
-        .put(MapProp.SCALE, MapMarkers.iconScale(q.difficulty, q.boss).toDouble())
         .put(MapProp.SORT, MapMarkers.drawOrder(q.state))
         .put(MapProp.ID, q.locationId.toString())
 }

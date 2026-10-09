@@ -267,7 +267,7 @@ internal object MapStyle {
             listOf(
                 SymbolLayer("quests-pins", MapSource.QUESTS).withFilter(notCluster()).withProperties(
                     iconImage(Expression.get(MapProp.IMAGE)),
-                    iconSize(shrinkWhenZoomedOut(Expression.get(MapProp.SCALE))),
+                    iconSize(shrinkWhenZoomedOut(Expression.literal(MapMarkers.QUEST_SCALE))),
                     iconAllowOverlap(true),
                     iconAnchor(Property.ICON_ANCHOR_BOTTOM),
                     symbolSortKey(Expression.get(MapProp.SORT)),
@@ -280,7 +280,7 @@ internal object MapStyle {
                 ),
                 SymbolLayer("quests-pins-sel", MapSource.QUEST_SEL).withProperties(
                     iconImage(Expression.get(MapProp.IMAGE)),
-                    iconSize(Expression.product(Expression.get(MapProp.SCALE), Expression.literal(MapMarkers.SELECTED_GROWTH))),
+                    iconSize(MapMarkers.QUEST_SCALE * MapMarkers.SELECTED_GROWTH),
                     iconAllowOverlap(true),
                     iconAnchor(Property.ICON_ANCHOR_BOTTOM),
                     iconIgnorePlacement(true),

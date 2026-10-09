@@ -38,7 +38,7 @@ internal sealed interface MarkerSpec {
 
 /**
  * The one definition of a map pin, used by the realm editor and the Play map so they cannot drift apart: what it looks like
- * ([render]), what each quest state looks like ([badge]), how big it is ([iconScale]) and in which order pins win a collision
+ * ([render]), what each quest state looks like ([badge]), how big it is ([QUEST_SCALE]) and in which order pins win a collision
  * ([drawOrder]).
  */
 internal object MapMarkers {
@@ -46,11 +46,6 @@ internal object MapMarkers {
     private const val FIND_PIN_PX = 180
     private const val FAVORITE_RING_FRACTION = 0.13f
 
-    // At most 1: a bigger factor would blur the bitmap. The boss is drawn at full size.
-    private const val SCALE_BOSS = 1f
-    private const val SCALE_EASY = 0.62f
-    private const val SCALE_MEDIUM = 0.7f
-    private const val SCALE_HARD = 0.78f
     private const val ORDER_DONE = 3
     private const val ORDER_OTHER = 4
     private const val STATE_PROGRESS = "progress"
@@ -60,8 +55,14 @@ internal object MapMarkers {
 
     enum class Badge { None, Progress, Done, Locked }
 
-    /** Pixel size of a quest pin's bitmap; [iconScale] is the factor the map draws it at. */
+    /** Pixel size of a quest pin's bitmap; [QUEST_SCALE] is the factor the map draws it at. */
     const val QUEST_PIN_PX = 200
+
+    /**
+     * Every quest pin is drawn at this one size (at most 1: more would blur the bitmap). Difficulty is not shown by size, so
+     * neighbouring pins never look mismatched.
+     */
+    const val QUEST_SCALE = 0.78f
 
     /** Pin images are this many times as tall as wide: the head, then the point below it that marks the spot. */
     const val PIN_HEIGHT_RATIO = 1.3f
@@ -82,10 +83,7 @@ internal object MapMarkers {
     // A map image is drawn at its own pixel size times its size factor (its bitmap density is the screen's).
 
     /** On-screen height of the selected quest's pin, head to point: what a callout above the point must clear. */
-    fun selectedQuestPinHeightPx(
-        difficulty: String,
-        boss: Boolean,
-    ): Float = QUEST_PIN_PX * PIN_HEIGHT_RATIO * iconScale(difficulty, boss) * SELECTED_GROWTH
+    fun selectedQuestPinHeightPx(): Float = QUEST_PIN_PX * PIN_HEIGHT_RATIO * QUEST_SCALE * SELECTED_GROWTH
 
     /** On-screen height of the selected find's pin. */
     fun selectedFindPinHeightPx(): Float = FIND_PIN_PX * PIN_HEIGHT_RATIO * FIND_SELECTED_SIZE
@@ -123,18 +121,6 @@ internal object MapMarkers {
             STATE_DONE -> Badge.Done
             STATE_LOCKED -> Badge.Locked
             else -> Badge.None
-        }
-
-    /** Easy < medium < hard < boss. */
-    fun iconScale(
-        difficulty: String,
-        boss: Boolean,
-    ): Float =
-        when {
-            boss -> SCALE_BOSS
-            difficulty.equals("easy", ignoreCase = true) -> SCALE_EASY
-            difficulty.equals("hard", ignoreCase = true) -> SCALE_HARD
-            else -> SCALE_MEDIUM
         }
 
     /** Lower draws and claims space first: what you can act on beats what is done or out of reach. */
