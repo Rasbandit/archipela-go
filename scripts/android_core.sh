@@ -15,11 +15,20 @@ flag=()
 cd "$root/core"
 targets=()
 for abi in ${APGO_ABIS:-arm64-v8a}; do targets+=(-t "$abi"); done
+# Only the ABIs built now are packaged: a stale library of another ABI or profile (a debug x86_64 core from the emulator loop) would
+# ship in the APK.
+rm -rf "$root/android/app/src/main/jniLibs"
 cargo ndk "${targets[@]}" -o "$root/android/app/src/main/jniLibs" build -p apgo-ffi "${flag[@]}"
 
+lib="target/aarch64-linux-android/$profile/libapgo_ffi.so"
+if [ "$profile" = release ]; then
+  # The release profile strips the library, UniFFI metadata included; the bindings come from the same source, so a host build has them.
+  cargo build -q -p apgo-ffi
+  lib="target/debug/libapgo_ffi.so"
+fi
 out="$root/android/app/src/main/kotlin"
 rm -rf "$out/uniffi"
 cargo run -q -p apgo-ffi --bin uniffi-bindgen -- generate \
-  --library "target/aarch64-linux-android/$profile/libapgo_ffi.so" \
+  --library "$lib" \
   --language kotlin --no-format --out-dir "$out"
 echo "core ($profile) built; bindings in android/app/src/main/kotlin/uniffi"
