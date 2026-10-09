@@ -167,6 +167,7 @@ internal object MapStyle {
 
     /** Add every source and layer to a freshly loaded style, in drawing order. */
     fun install(style: Style) {
+        BaseMap.trim(style)
         val empty = GeoJson.collection(emptyList())
         MapSource.ALL.forEach { id ->
             style.addSource(if (id in MapSource.CLUSTERED) GeoJsonSource(id, empty, clusterOptions()) else GeoJsonSource(id, empty))
