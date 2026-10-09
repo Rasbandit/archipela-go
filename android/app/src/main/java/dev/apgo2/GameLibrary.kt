@@ -74,6 +74,11 @@ internal class GameLibrary(
         opened.onFailure { model.fail("open_game", "Could not open", it) }
     }
 
+    /** On app start: reopen the game that was being played (opened and not paused) when the app stopped, on the Play tab. */
+    fun resumePlaying() {
+        if (!model.engine.hasGame()) model.engine.playingGame()?.let(::openGame)
+    }
+
     /** Stop playing: log it, close the game and go to the Play tab, which then lists the saved games to continue. Tracking stops. */
     fun pause() {
         model.engine.logSession(false, model.now())

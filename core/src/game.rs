@@ -1182,6 +1182,32 @@ impl Game {
         std::fs::rename(&from, &to).map_err(|e| e.to_string())
     }
 
+    // The game being played lives in this file under `dir`: written on open, removed on pause, so it survives the app being closed.
+    fn playing_path(dir: &Path) -> PathBuf {
+        dir.join("playing")
+    }
+
+    /// Remember that the game `id` is being played, so a restart resumes it.
+    ///
+    /// # Errors
+    /// Returns a message if the marker cannot be written.
+    pub fn mark_playing(dir: &Path, id: &str) -> Result<(), String> {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        std::fs::write(Self::playing_path(dir), id).map_err(|e| e.to_string())
+    }
+
+    /// Forget the game being played (it was paused): a restart opens on the list of saved games.
+    pub fn clear_playing(dir: &Path) {
+        let _ = std::fs::remove_file(Self::playing_path(dir)); // already absent is fine
+    }
+
+    /// The id of the game that was being played when the app last stopped, if its save still exists.
+    #[must_use]
+    pub fn playing(dir: &Path) -> Option<String> {
+        let id = std::fs::read_to_string(Self::playing_path(dir)).ok()?.trim().to_string();
+        (!id.is_empty() && Self::path_for(dir, &id).exists()).then_some(id)
+    }
+
     /// Write the game to `dir`, safely: the old copy stays intact until the new one is on disk.
     ///
     /// # Errors
@@ -1993,6 +2019,35 @@ mod tests {
         assert!(Game::list_ids(&dir).is_empty());
         assert!(dir.join("games-archive").join("g1.json").exists());
         assert!(Game::archive(&dir, "g1").is_ok(), "archiving twice (or a missing game) is not an error");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_game_being_played_survives_a_restart_until_paused() {
+        let dir = std::env::temp_dir().join(format!("apgo-playing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(Game::playing(&dir), None, "nothing played yet");
+        let g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        g.save(&dir).unwrap();
+        Game::mark_playing(&dir, "g1").unwrap();
+        assert_eq!(Game::playing(&dir), Some("g1".to_string()), "read back as a fresh start would");
+        Game::clear_playing(&dir);
+        assert_eq!(Game::playing(&dir), None, "paused: nothing to resume");
+        Game::clear_playing(&dir); // clearing twice is fine
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_deleted_game_is_never_resumed() {
+        let dir = std::env::temp_dir().join(format!("apgo-playing-gone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        g.save(&dir).unwrap();
+        Game::mark_playing(&dir, "g1").unwrap();
+        Game::archive(&dir, "g1").unwrap();
+        assert_eq!(Game::playing(&dir), None);
+        Game::mark_playing(&dir, "never-saved").unwrap();
+        assert_eq!(Game::playing(&dir), None, "an id with no save is ignored");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

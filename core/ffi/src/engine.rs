@@ -669,6 +669,10 @@ impl Engine {
         let shapes = game.zone_realms.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect();
         *self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = shapes;
         self.save_policy.lock().unwrap_or_else(std::sync::PoisonError::into_inner).reset();
+        // Only one game is played at a time; remember which, so closing the app without pausing resumes it on the next start.
+        if let Err(e) = Game::mark_playing(&self.dir, &game.id) {
+            self.note(format!("could not remember game {} as being played: {e}", game.id));
+        }
         let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Keep the outgoing game's progress (unless the new one replaces that very save).
         if let Some(old) = slot.as_ref().filter(|old| old.id != game.id) {
@@ -1134,8 +1138,9 @@ impl Engine {
         Ok(())
     }
 
-    /// Close the open game, saving it first.
+    /// Close the open game, saving it first. This is pausing: the next start no longer resumes it.
     pub fn close_game(&self) {
+        Game::clear_playing(&self.dir);
         let mut game = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(g) = game.as_ref() {
             *self.last_game.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(g.id.clone());
@@ -1166,6 +1171,7 @@ impl Engine {
             hit
         };
         if was_open {
+            Game::clear_playing(&self.dir);
             self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
         }
         Ok(())
@@ -1174,6 +1180,12 @@ impl Engine {
     /// Whether a game is open.
     pub fn has_game(&self) -> bool {
         self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
+    }
+
+    /// The game that was being played (opened and not paused) when the app last stopped: open it on start. `None` when the
+    /// player paused, or that game was deleted.
+    pub fn playing_game(&self) -> Option<String> {
+        Game::playing(&self.dir)
     }
 
     // ---------- play ----------

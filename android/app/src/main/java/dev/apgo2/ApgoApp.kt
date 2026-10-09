@@ -9,7 +9,10 @@ import kotlinx.coroutines.SupervisorJob
 /** Owns the model for the life of the process, so tracking survives the activity being recreated or destroyed. */
 internal class ApgoApp : Application() {
     val model: AppModel by lazy {
-        AppModel(applicationContext, CoroutineScope(SupervisorJob() + Dispatchers.Main)).apply { refreshAll() }
+        AppModel(applicationContext, CoroutineScope(SupervisorJob() + Dispatchers.Main)).apply {
+            refreshAll()
+            library.resumePlaying()
+        }
     }
 
     override fun onCreate() {
