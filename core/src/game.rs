@@ -9,7 +9,7 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
-use crate::assign::{assign, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx};
+use crate::assign::{assign, replace_unpicked, street_pool, zone_index, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx};
 use crate::catalog::{Catalog, Mode};
 use crate::chain::{self, is_chain_target, Chain, ChainUnit};
 use crate::fog::{anchor, reveal_radius, Fog};
@@ -1103,8 +1103,9 @@ impl Game {
         }
     }
 
-    /// Re-place unfinished quests (Shuffle trap or the player's reroll). Finished quests and chain members never change,
-    /// and a re-placed quest never gets a progressive kind, so no chain gains, loses or shifts a mark.
+    /// Re-place unfinished quests (a Shuffle trap). Finished quests and chain members never change, and a re-placed quest never gets
+    /// a progressive kind, so no chain gains, loses or shifts a mark. A forager keeps its picked items and counts and only its
+    /// unpicked items move.
     ///
     /// # Errors
     /// Returns a message if a zone has no realm assigned or its realm is missing.
@@ -1124,16 +1125,33 @@ impl Game {
             avoid_stairs: self.avoid_stairs,
             allow_progressive: false,
         };
+        // A forager keeps its kind, counts and picked items: only what is still out there moves (and stays put if the zone has no room).
+        let (foragers, todo): (Vec<i64>, Vec<i64>) =
+            todo.into_iter().partition(|i| self.assignments.iter().any(|a| a.location_id == *i && matches!(a.target, Target::Collect { .. })));
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut moved = 0;
+        for id in foragers {
+            let picked = self.collected.get(&id).map(|c| c.picked.clone()).unwrap_or_default();
+            let Some(a) = self.assignments.iter_mut().find(|a| a.location_id == id) else { continue };
+            let Some(z) = zones.iter().find(|z| z.zone == a.zone) else { continue };
+            let index = zone_index(z, &street_pool(z, params.surface), params.surface);
+            if let Some(t) = replace_unpicked(&a.target, &picked, z, &index, &params, a.tier, &mut rng) {
+                a.target = t;
+                self.trackers.remove(&id); // rebuilt from `collected` on the next fix
+                moved += 1;
+            }
+        }
         let fresh = assign(&slots_in(&self.slot, Some(&todo)), &zones, catalog, &params);
         let n = fresh.len();
         for a in fresh {
             self.trackers.remove(&a.location_id);
+            self.collected.remove(&a.location_id); // a different quest must not inherit the old counts
             self.fog.discovered.remove(&a.location_id);
             if let Some(slot) = self.assignments.iter_mut().find(|x| x.location_id == a.location_id) {
                 *slot = a;
             }
         }
-        Ok(n)
+        Ok(n + moved)
     }
 
     /// Human-readable list of active traps (for the HUD).
@@ -2544,6 +2562,47 @@ mod tests {
         assert_eq!(carried_banked(&g), (0, 2));
         g.on_fix(fixat(pts[2], 2400), None);
         assert_eq!(done_ids(&g.on_fix(fixat(home(), 3000), None)), vec![2000]);
+    }
+
+    #[test]
+    fn a_shuffle_trap_moves_only_the_unpicked_forager_items_and_keeps_the_counts() {
+        let (mut g, pts) = forager_game();
+        g.on_fix(fixat(pts[0], 600), None);
+        g.on_fix(fixat(home(), 1200), None);
+        g.on_fix(fixat(pts[1], 1800), None);
+        let before = g.collected[&2000].clone();
+        let realms = vec![realm("r0", Mode::Walk)];
+        assert_eq!(g.reroll(&[2000], &realms, 9, &Catalog::builtin()).unwrap(), 1);
+        assert_eq!(g.collected[&2000], before, "carried, banked and picked are kept");
+        assert_eq!(g.assignments[0].kind_id, "forager");
+        let Target::Collect { pts: after, need, theme, .. } = g.assignments[0].target.clone() else { panic!("still a forager") };
+        assert_eq!((need, theme.as_str()), (3, "acorns"));
+        assert_eq!((after[0], after[1]), (pts[0], pts[1]), "picked items stay");
+        assert_ne!(after[2..], pts[2..], "unpicked items move");
+        g.on_fix(fixat(after[2], 2400), None);
+        assert_eq!(carried_banked(&g), (2, 1), "a moved item can be picked up");
+    }
+
+    /// Regression guard: it passes before the forager branch exists too (2000 is not in the slot, so nothing is re-placed).
+    #[test]
+    fn a_shuffle_trap_leaves_a_forager_alone_when_its_zone_has_no_room() {
+        let (mut g, pts) = forager_game();
+        g.on_fix(fixat(pts[0], 600), None);
+        let (r, _) = realm("r0", Mode::Walk);
+        let realms = vec![(r, Atlas::default())];
+        assert_eq!(g.reroll(&[2000], &realms, 9, &Catalog::builtin()).unwrap(), 0);
+        assert!(matches!(&g.assignments[0].target, Target::Collect { pts: same, .. } if *same == pts));
+        assert_eq!(carried_banked(&g), (1, 0));
+    }
+
+    #[test]
+    fn a_shuffle_trap_drops_stale_forager_progress_of_a_quest_it_places_fresh() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let id = g.assignments.iter().map(|a| a.location_id).find(|i| !g.done.contains(i)).expect("an unfinished quest");
+        g.collected.insert(id, Collected { carried: 2, banked: 1, ..Collected::default() });
+        let realms = vec![realm("r0", Mode::Walk)];
+        g.reroll(&[id], &realms, 9, &Catalog::builtin()).unwrap();
+        assert!(!g.collected.contains_key(&id), "a different quest must not inherit the old counts");
     }
 
     #[test]

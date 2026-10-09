@@ -304,14 +304,14 @@ fn uses_rough(z: &ZoneCtx<'_>, pref: SurfacePref) -> bool {
 
 /// The street and path points quests in zone `z` may use. A sparse zone keeps the few it has: a quest point is never made up off the
 /// streets (it used to fall back to a grid over the whole realm, which put quests in backyards).
-fn street_pool(z: &ZoneCtx<'_>, pref: SurfacePref) -> Vec<Point> {
+pub(crate) fn street_pool(z: &ZoneCtx<'_>, pref: SurfacePref) -> Vec<Point> {
     let rough: &[Point] = if uses_rough(z, pref) { &z.atlas.streets_rough } else { &[] };
     z.atlas.streets.iter().chain(rough).copied().collect()
 }
 
 /// The segment-aware path index of zone `z` over `pool`: its street points and the streets between them (rough ones when the surface
 /// preference uses them).
-fn zone_index(z: &ZoneCtx<'_>, pool: &[Point], surface: SurfacePref) -> PathIndex {
+pub(crate) fn zone_index(z: &ZoneCtx<'_>, pool: &[Point], surface: SurfacePref) -> PathIndex {
     let mut links = z.atlas.street_links(false);
     if uses_rough(z, surface) {
         links.extend(z.atlas.street_links(true));
