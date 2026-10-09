@@ -667,7 +667,7 @@ impl Engine {
             game.attach_streets(&atlases.iter().collect::<Vec<_>>());
         }
         let shapes = game.zone_realms.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect();
-        *self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = shapes;
+        self.set_zones(shapes);
         self.save_policy.lock().unwrap_or_else(std::sync::PoisonError::into_inner).reset();
         // Only one game is played at a time; remember which, so closing the app without pausing resumes it on the next start.
         if let Err(e) = Game::mark_playing(&self.dir, &game.id) {
@@ -684,6 +684,12 @@ impl Engine {
     }
 
     /// Distance in metres from a point to the nearest zone area of the open game (0 inside), or `None` with no game.
+    // The open game's zone shapes; a new set (another game, or none) forgets where the last fix was relative to the old ones.
+    fn set_zones(&self, shapes: Vec<Shape>) {
+        *self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = shapes;
+        *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
     fn zone_distance_m(&self, p: Point) -> Option<f64> {
         let shapes = self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         shapes.iter().map(|s| s.distance_m(p)).reduce(f64::min)
@@ -1131,7 +1137,7 @@ impl Engine {
         }
         *game = None;
         drop(game);
-        self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+        self.set_zones(Vec::new());
     }
 
     /// Delete a saved game; its file is archived, not erased.
@@ -1153,7 +1159,7 @@ impl Engine {
         };
         if was_open {
             Game::clear_playing(&self.dir);
-            self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+            self.set_zones(Vec::new());
         }
         Ok(())
     }
@@ -1283,7 +1289,9 @@ impl Engine {
         let at = Some((lat, lon));
         // One pass over the zone shapes per fix: the inside flag for the game and the proximity presence reads next.
         let zone_d = self.zone_distance_m(Point::new(lat, lon));
-        *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Proximity::of_distance(zone_d);
+        if self.has_game() {
+            *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Proximity::of_distance(zone_d);
+        }
         let Some((game_id, ev, entries, near)) = self
             .with_game(|g| {
                 let ev = g.on_fix(fix, steps);
