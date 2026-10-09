@@ -58,7 +58,7 @@ private const val REALM_FILL_OPACITY = 0.07f
 private const val AREA_FILL_PROGRESS = 0.22f
 private const val AREA_FILL_DONE = 0.1f
 
-// A park's outline: thin, in its state colour, dashed (in line widths: dash, gap) until it is done.
+// A park's outline: thin, in its state colour, always dashed (in line widths: dash, gap).
 private val PARK_DASH = arrayOf(3f, 2f)
 
 // A route (trail): its state colour on a white casing; done routes fade.
@@ -223,13 +223,10 @@ internal object MapStyle {
                 lineCap(ROUND),
                 lineJoin(ROUND),
             ),
-            // Parks: a thin outline in the state colour, dashed until done. The fill under it shows progress (realmLayers).
-            LineLayer("park-dashed", MapSource.LINES)
-                .withFilter(Expression.all(isPark(), Expression.not(isDone())))
+            // Parks: a thin dashed outline; only its state colour tells the state, as on pins. The fill shows progress (realmLayers).
+            LineLayer("park-line", MapSource.LINES)
+                .withFilter(isPark())
                 .withProperties(lineColor(stateColor()), scaledWidth(LineKind.PARK_OUTLINE), lineDasharray(PARK_DASH)),
-            LineLayer("park-solid", MapSource.LINES)
-                .withFilter(Expression.all(isPark(), isDone()))
-                .withProperties(lineColor(stateColor()), scaledWidth(LineKind.PARK_OUTLINE)),
             // Trails and other routes: a line in the state colour on a white casing, so it never looks like the base map's own
             // dashed paths. Direction does not matter (coverage counts either way). Done routes fade.
             LineLayer("route-casing", MapSource.LINES)

@@ -25,7 +25,10 @@ widgets or write colours themselves.
   both are background. Quests, park outlines, trails and cluster rings use the state colours: blue doable, amber in progress, green done, grey locked (`ApgoPalette.quest`,
   `MapMarkers.questFill`), so a glance shows which parts of the map are finished. A quest pin's white icon says what kind it is; family colours are
   for the realm editor's finds only. Red never means "not done": it is for errors and bans.
-- Parks are a thin outline, dashed until done, with a fill that shows progress (empty, light, faint). Trails are a solid line in the state colour on a
+- Line widths scale with zoom on the GPU side (a MapLibre zoom expression built from the core's `line_width` stops; z16 is the reference look).
+  Tune a line kind in `core/src/line_width.rs`, never with fixed widths in Kotlin.
+- Parks are a thin outline, always dashed (only its state colour tells the state; a solid/dashed split read as a bug), with a fill that shows
+  progress (empty, light, faint). Trails are a solid line in the state colour on a
   white casing, never dashed (the base map draws footpaths dashed) and without direction arrows (coverage counts either way); done trails fade.
 - Pins are never hidden by collision. Zooming out first shrinks them (full size from zoom 16, half by 13: `shrinkWhenZoomedOut`); below
   zoom 16 pins still too close merge into a numbered cluster (MapLibre source clustering, `MapSource.CLUSTERED`). A quest cluster is a ring split by
