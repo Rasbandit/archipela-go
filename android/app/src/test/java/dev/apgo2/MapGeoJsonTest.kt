@@ -190,6 +190,7 @@ class MapFeaturesTest {
                 ),
             )
         assertEquals(listOf("open", "done"), lines.map { it.props().getString(MapProp.STATE) })
+        assertEquals("parks and trails are drawn differently", listOf("line", "area"), lines.map { it.props().getString(MapProp.SHAPE) })
         lines.forEach { assertEquals("LineString", it.geomType()) }
     }
 

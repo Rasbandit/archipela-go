@@ -7,6 +7,7 @@ import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.hex
 import dev.apgo2.ui.renderMarker
 import dev.apgo2.ui.renderPin
+import dev.apgo2.ui.renderRouteArrow
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
@@ -32,7 +33,9 @@ import org.maplibre.android.style.layers.PropertyFactory.lineDasharray
 import org.maplibre.android.style.layers.PropertyFactory.lineJoin
 import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
+import org.maplibre.android.style.layers.PropertyFactory.symbolPlacement
 import org.maplibre.android.style.layers.PropertyFactory.symbolSortKey
+import org.maplibre.android.style.layers.PropertyFactory.symbolSpacing
 import org.maplibre.android.style.layers.PropertyFactory.textAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.textAnchor
 import org.maplibre.android.style.layers.PropertyFactory.textColor
@@ -55,8 +58,17 @@ private const val REALM_LINE_WIDTH = 1.8f
 private const val AREA_FILL_PROGRESS = 0.22f
 private const val AREA_FILL_DONE = 0.1f
 
-// Not-started routes and outlines are dashed (in line widths: dash, gap) so state reads without relying on colour alone.
-private val NOT_STARTED_DASH = arrayOf(2f, 1.5f)
+// A park's outline: thin green, dashed (in line widths: dash, gap) until it is done.
+private const val PARK_LINE_WIDTH = 2f
+private val PARK_DASH = arrayOf(3f, 2f)
+
+// A route (trail): its state colour on a white casing, with arrows every so often from its start; done routes fade.
+private const val ROUTE_CASING_WIDTH = 7f
+private const val ROUTE_ARROW = "route-arrow"
+private const val ROUTE_ARROW_PX = 40
+private const val ROUTE_ARROW_SIZE = 0.6f
+private const val ROUTE_ARROW_SPACING = 80f
+private const val DONE_ROUTE_OPACITY = 0.5f
 private const val TRACE_WIDTH = 3f
 private const val TRACE_OPACITY = 0.7f
 private const val QUEST_LINE_WIDTH = 4f
@@ -171,6 +183,7 @@ internal object MapStyle {
         // You and home are badges: a person on blue, a house on green.
         style.addImage(BADGE_ME, renderPin(ApgoIcons.Me, ME_PIN_PX, fill = ApgoPalette.me))
         style.addImage(BADGE_HOME, renderMarker(ApgoIcons.Home, HOME_PIN_PX, ApgoPalette.home))
+        style.addImage(ROUTE_ARROW, renderRouteArrow(ROUTE_ARROW_PX))
         // You first, then home on top: when they are in the same spot the house is the one you see.
         addLayers(
             style,
@@ -199,7 +212,7 @@ internal object MapStyle {
         listOf(
             FillLayer("realms-fill", MapSource.REALMS).withProperties(fillColor(ApgoPalette.realm.hex()), fillOpacity(REALM_FILL_OPACITY)),
             LineLayer("realms-line", MapSource.REALMS).withProperties(lineColor(ApgoPalette.realm.hex()), lineWidth(REALM_LINE_WIDTH)),
-            FillLayer("areas-fill", MapSource.AREAS).withProperties(fillColor(stateColor()), fillOpacity(areaFillOpacity())),
+            FillLayer("areas-fill", MapSource.AREAS).withProperties(fillColor(parkColor()), fillOpacity(areaFillOpacity())),
         )
 
     private fun areaFillOpacity() =
@@ -208,16 +221,6 @@ internal object MapStyle {
             Expression.literal(0f),
             Expression.stop("progress", Expression.literal(AREA_FILL_PROGRESS)),
             Expression.stop("done", Expression.literal(AREA_FILL_DONE)),
-        )
-
-    // Open and locked quests have not been started. Two layers rather than a data-driven dash, which MapLibre Android does not
-    // reliably support.
-    private fun notStarted() =
-        Expression.match(
-            Expression.get(MapProp.STATE),
-            Expression.literal(false),
-            Expression.stop("open", Expression.literal(true)),
-            Expression.stop("locked", Expression.literal(true)),
         )
 
     private fun traceLayers() =
@@ -229,13 +232,57 @@ internal object MapStyle {
                 lineCap(ROUND),
                 lineJoin(ROUND),
             ),
-            LineLayer("lines-layer", MapSource.LINES)
-                .withFilter(Expression.not(notStarted()))
-                .withProperties(lineColor(stateColor()), lineWidth(QUEST_LINE_WIDTH)),
-            LineLayer("lines-dashed", MapSource.LINES)
-                .withFilter(notStarted())
-                .withProperties(lineColor(stateColor()), lineWidth(QUEST_LINE_WIDTH), lineDasharray(NOT_STARTED_DASH)),
+            // Parks: a thin green outline, dashed until done (grey while locked). The fill under it shows progress (realmLayers).
+            LineLayer("park-dashed", MapSource.LINES)
+                .withFilter(Expression.all(isPark(), Expression.not(isDone())))
+                .withProperties(lineColor(parkColor()), lineWidth(PARK_LINE_WIDTH), lineDasharray(PARK_DASH)),
+            LineLayer("park-solid", MapSource.LINES)
+                .withFilter(Expression.all(isPark(), isDone()))
+                .withProperties(lineColor(parkColor()), lineWidth(PARK_LINE_WIDTH)),
+            // Trails and other routes: a line in the state colour on a white casing, so it never looks like the base map's own
+            // dashed paths, with arrows from its start while it is still to do. Done routes fade.
+            LineLayer("route-casing", MapSource.LINES)
+                .withFilter(Expression.not(isPark()))
+                .withProperties(
+                    lineColor(ApgoPalette.onMap.hex()),
+                    lineWidth(ROUTE_CASING_WIDTH),
+                    lineOpacity(routeOpacity()),
+                    lineCap(ROUND),
+                    lineJoin(ROUND),
+                ),
+            LineLayer("route-line", MapSource.LINES)
+                .withFilter(Expression.not(isPark()))
+                .withProperties(
+                    lineColor(stateColor()),
+                    lineWidth(QUEST_LINE_WIDTH),
+                    lineOpacity(routeOpacity()),
+                    lineCap(ROUND),
+                    lineJoin(ROUND),
+                ),
+            SymbolLayer("route-arrows", MapSource.LINES)
+                .withFilter(Expression.all(Expression.not(isPark()), Expression.not(isDone())))
+                .withProperties(
+                    symbolPlacement(Property.SYMBOL_PLACEMENT_LINE),
+                    symbolSpacing(ROUTE_ARROW_SPACING),
+                    iconImage(ROUTE_ARROW),
+                    iconSize(ROUTE_ARROW_SIZE),
+                    iconAllowOverlap(true),
+                    iconIgnorePlacement(true),
+                ),
         )
+
+    private fun isPark() = Expression.eq(Expression.get(MapProp.SHAPE), Expression.literal("area"))
+
+    private fun isDone() = Expression.eq(Expression.get(MapProp.STATE), Expression.literal("done"))
+
+    private fun parkColor() =
+        Expression.match(
+            Expression.get(MapProp.STATE),
+            Expression.literal(ApgoPalette.family("park").hex()),
+            Expression.stop("locked", Expression.literal(ApgoPalette.questLocked.hex())),
+        )
+
+    private fun routeOpacity() = Expression.switchCase(isDone(), Expression.literal(DONE_ROUTE_OPACITY), Expression.literal(1f))
 
     // Quests are the same pins as finds (family colour, state as a badge). Every pin shows; pins too close to tell apart merge into
     // a numbered cluster. The selected one has its own source (never clustered), a halo, and is drawn larger.

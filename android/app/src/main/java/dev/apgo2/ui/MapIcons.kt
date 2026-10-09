@@ -171,6 +171,23 @@ internal fun renderRing(
         }
     }
 
+/**
+ * A chevron pointing right (east), drawn along a route to show its direction: the map turns it to follow the line. White with a
+ * dark edge so it reads on any route colour.
+ */
+internal fun renderRouteArrow(sizePx: Int): Bitmap =
+    render(sizePx) {
+        val s = sizePx.toFloat()
+        val chevron =
+            Path().apply {
+                moveTo(s * 0.3f, s * 0.2f)
+                lineTo(s * 0.7f, s * 0.5f)
+                lineTo(s * 0.3f, s * 0.8f)
+            }
+        drawPath(chevron, ApgoPalette.navy, style = Stroke(width = s * 0.28f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(chevron, Color.White, style = Stroke(width = s * 0.16f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+
 /** Just the icon, for drawing a glyph on top of another marker. */
 internal fun renderGlyph(
     icon: ImageVector,
