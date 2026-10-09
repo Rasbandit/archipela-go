@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Catalog, Geom, Kind, Mode, Verify};
 use crate::effort::{cadence_steps_per_min, mid, travel_min};
-use crate::geo::{bearing_deg, distance_m, point_inside, polyline_len_m, Point};
+use crate::geo::{bearing_deg, distance_m, point_in_polygon, point_inside, polyline_len_m, Point};
 use crate::near_path::{PathIndex, NEAR_PATH_M};
 use crate::num::round_u32;
 use crate::realm::Realm;
@@ -275,14 +275,23 @@ impl ZonePaths {
         distance_m(self.home, q) >= self.min_dist
     }
 
-    /// `spot` if it is near a path and far enough from home, else a path spot in or beside the area `poly` that `ok` accepts.
+    /// The spot on the path in front of `spot` (the nearest within [`NEAR_PATH_M`]), else a path spot in or beside the area `poly`;
+    /// either must be far enough from home and accepted by `ok`. The place itself is never the marker: it may be in a backyard.
     fn settle(&self, spot: Point, poly: &[Point], ok: &dyn Fn(Point) -> bool) -> Option<Point> {
         let fine = |q: Point| self.far(q) && ok(q);
-        if self.index.near_path(spot) && fine(spot) {
-            Some(spot)
-        } else {
-            self.index.snap_into_area_where(poly, spot, &fine)
-        }
+        self.index.nearest_on_path(spot, NEAR_PATH_M).map(|(q, _)| q).filter(|q| fine(*q)).or_else(|| self.index.snap_into_area_where(poly, spot, &fine))
+    }
+
+    /// Where to mark an area to spend time in (a park is public ground): on a path inside it, else its own middle when a path is
+    /// within reach, else a path spot at its edge.
+    fn settle_area(&self, poly: &[Point]) -> Option<Point> {
+        let mid = point_inside(poly);
+        let far = |q: Point| self.far(q);
+        self.index
+            .snap_into_area_where(poly, mid, &far)
+            .filter(|q| point_in_polygon(*q, poly))
+            .or_else(|| (self.index.near_path(mid) && self.far(mid)).then_some(mid))
+            .or_else(|| self.index.snap_into_area_where(poly, mid, &far))
     }
 
     /// The point to reach for place `f` (index `fi`): the place itself when it is near a path, else a path spot in or beside its area.
@@ -310,12 +319,7 @@ impl ZonePaths {
         let cached = if let Some(c) = self.centers.get(&fi) {
             *c
         } else {
-            let c = if poly.len() >= 3 {
-                // The OSM "center" can fall outside a concave park; start from a point inside the outline.
-                self.settle(point_inside(poly), poly, &|_| true)
-            } else {
-                self.index.nearest_on_path(f.point, r).map(|(q, _)| q).filter(|q| self.far(*q))
-            };
+            let c = if poly.len() >= 3 { self.settle_area(poly) } else { self.index.nearest_on_path(f.point, r).map(|(q, _)| q).filter(|q| self.far(*q)) };
             self.centers.insert(fi, c);
             c
         };
@@ -988,6 +992,54 @@ mod tests {
         pts.chain(links).fold(f64::MAX, f64::min)
     }
 
+    /// How close to a path counts as on it (the snapped spot is computed on the path; this only absorbs rounding).
+    const ON_PATH_M: f64 = 0.5;
+
+    /// A place to reach is marked on the path in front of it, never in a backyard; an area to spend time in is marked inside it
+    /// (public ground) or on a path. Lines start where they first meet a path, as before.
+    fn assert_on_path_or_in_its_area(o: &Assignment, a: &Atlas, ctx: &str) {
+        let inside = |q: Point, poly: &[Point]| poly.len() >= 3 && point_in_polygon(q, poly);
+        let points = match &o.target {
+            Target::Line { .. } => vec![],
+            Target::DwellArea { center, poly, .. } => vec![*center].into_iter().filter(|c| !inside(*c, poly)).collect(),
+            t => must_reach(t),
+        };
+        for q in points {
+            let gap = gap_to_paths(q, a);
+            assert!(gap < ON_PATH_M, "{ctx}: {} ({}) at {}: point {gap:.1} m off the path", o.kind_id, o.place, o.location_id);
+        }
+    }
+
+    #[test]
+    fn a_park_marker_sits_inside_the_park_on_its_own_path() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        let c = at(home(), 1320.0, 1320.0);
+        let (park, keep) = park_hole(c, 250.0, 250.0);
+        let mut a = atlas_of(vec![park.clone()], town_streets(4000.0), &cat);
+        a.retain_streets(&keep);
+        // a footpath across the park 15 m east of the spot the marker starts from: close enough that the spot itself used to be accepted
+        let mid = point_inside(&park.geometry);
+        let mut fp = atlas_of(vec![], vec![(0..9).map(|i| at(mid, f64::from(i) * 50.0 - 200.0, 15.0)).collect()], &cat);
+        a.streets.append(&mut fp.streets);
+        a.street_runs.append(&mut fp.street_runs);
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let slots: Vec<SlotIn> = (1..=6).map(|i| slot(i, "park", 1 + i as u8, Mode::Walk)).collect();
+        let mut seen = 0;
+        for seed in 1..=6 {
+            for o in assign(&slots, &z, &cat, &params(seed)) {
+                if let Target::DwellArea { center, .. } = o.target {
+                    if o.place == "Big Park" {
+                        seen += 1;
+                        assert!(point_in_polygon(center, &park.geometry), "seed {seed}: the marker is inside the park");
+                        assert!(gap_to_paths(center, &a) < ON_PATH_M, "seed {seed}: and on the park's own path");
+                    }
+                }
+            }
+        }
+        assert!(seen > 0, "the park is used");
+    }
+
     /// Checks every point a target needs: the points to reach, and enough samples of a line beside a path for its coverage.
     fn assert_reachable(o: &Assignment, a: &Atlas, ctx: &str) {
         for q in must_reach(&o.target) {
@@ -1071,6 +1123,7 @@ mod tests {
             for o in assign(&slots, &zones, &cat, &params(seed)) {
                 kinds.insert(if matches!(o.target, Target::Courier { .. }) { "courier".to_string() } else { o.kind_id.clone() });
                 assert_reachable(&o, &a, &format!("seed {seed}"));
+                assert_on_path_or_in_its_area(&o, &a, &format!("seed {seed}"));
             }
         }
         // the fixture really exercises feature places of every shape, not only street points
@@ -1135,7 +1188,7 @@ mod tests {
     }
 
     #[test]
-    fn a_place_beside_the_street_between_two_samples_is_used_at_stride_one_and_two() {
+    fn a_place_beside_the_street_between_two_samples_is_used_from_the_street_at_stride_one_and_two() {
         let cat = Catalog::builtin();
         let r = realm(Mode::Walk);
         for (gap, stride) in [(60.0, 1), (120.0, 2)] {
@@ -1147,9 +1200,9 @@ mod tests {
             let used = (1..=10).any(|seed| {
                 assign(&[slot(1, "dwell", 2, Mode::Walk)], &z, &cat, &params(seed))
                     .iter()
-                    .any(|o| matches!(o.target, Target::Dwell { p, .. } if distance_m(p, spot) < 1.0))
+                    .any(|o| matches!(o.target, Target::Dwell { p, .. } if distance_m(p, spot) <= NEAR_PATH_M && gap_to_paths(p, &a) < ON_PATH_M))
             });
-            assert!(used, "a bench 20 m from the street is used (stride {stride})");
+            assert!(used, "a bench 20 m from the street is used, its point on the street in front of it (stride {stride})");
         }
     }
 
