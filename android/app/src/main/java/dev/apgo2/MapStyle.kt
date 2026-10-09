@@ -87,9 +87,15 @@ private const val BADGE_ME = "badge-me"
 private const val BADGE_HOME = "marker-home"
 private const val GEOMETRY_POINT = "Point"
 
-// Pins closer than this (map pixels) merge into a cluster; past this zoom every pin shows on its own, overlapping if it must.
-private const val CLUSTER_RADIUS = 28
-private const val CLUSTER_MAX_ZOOM = 17
+// Pins are full size from street level in and shrink to half by neighbourhood zoom: zooming out shrinks them first.
+private const val FULL_SIZE_ZOOM = 16f
+private const val SHRUNK_ZOOM = 13f
+private const val SHRUNK_FACTOR = 0.5f
+
+// Then, still too close, they collapse: pins nearer than this (map pixels) merge into a cluster. Clusters only form below
+// FULL_SIZE_ZOOM, so at street level every pin shows on its own, big.
+private const val CLUSTER_RADIUS = 24
+private const val CLUSTER_MAX_ZOOM = 15
 private const val CLUSTER_CIRCLE_RADIUS = 20f
 private const val CLUSTER_STROKE = 3f
 private const val CLUSTER_TEXT_SIZE = 15f
@@ -235,7 +241,7 @@ internal object MapStyle {
             listOf(
                 SymbolLayer("quests-pins", MapSource.QUESTS).withFilter(notCluster()).withProperties(
                     iconImage(Expression.get(MapProp.IMAGE)),
-                    iconSize(Expression.get(MapProp.SCALE)),
+                    iconSize(shrinkWhenZoomedOut(Expression.get(MapProp.SCALE))),
                     iconAllowOverlap(true),
                     symbolSortKey(Expression.get(MapProp.SORT)),
                 ),
@@ -269,6 +275,16 @@ internal object MapStyle {
                     )
                 }
             }
+
+    // A pin size that is [full] from FULL_SIZE_ZOOM in, easing down to SHRUNK_FACTOR of it at SHRUNK_ZOOM and below. (A zoom
+    // expression must be the input of a top-level interpolate, so the factor goes inside each stop.)
+    private fun shrinkWhenZoomedOut(full: Expression) =
+        Expression.interpolate(
+            Expression.linear(),
+            Expression.zoom(),
+            Expression.stop(SHRUNK_ZOOM, Expression.product(full, Expression.literal(SHRUNK_FACTOR))),
+            Expression.stop(FULL_SIZE_ZOOM, full),
+        )
 
     private fun countProp(state: String) = "n_$state"
 
@@ -333,7 +349,7 @@ internal object MapStyle {
             listOf(
                 SymbolLayer(FIND_LAYERS[0], MapSource.FINDS).withFilter(notCluster()).withProperties(
                     iconImage(Expression.get(MapProp.IMAGE)),
-                    iconSize(FIND_PIN_SIZE),
+                    iconSize(shrinkWhenZoomedOut(Expression.literal(FIND_PIN_SIZE))),
                     iconAllowOverlap(true),
                     symbolSortKey(Expression.get(MapProp.SORT)),
                     iconOpacity(Expression.get(MapProp.OPACITY)),
