@@ -55,6 +55,23 @@ class GeoTest {
         assertFalse(inPolygon(40.005, -110.995, l)) // the notch
     }
 
+    @Test fun aPolygonAcrossTheAntimeridianContainsPointsOnBothSides() {
+        // A 0.2 x 0.2 degree square straddling lon 180 (Fiji).
+        val fiji = listOf(LatLng(-17.1, 179.9), LatLng(-17.1, -179.9), LatLng(-16.9, -179.9), LatLng(-16.9, 179.9))
+        assertTrue(inPolygon(-17.0, 179.95, fiji))
+        assertTrue(inPolygon(-17.0, -179.95, fiji))
+        assertFalse(inPolygon(-17.0, 179.0, fiji)) // west of it
+        assertFalse(inPolygon(-17.0, -179.0, fiji)) // east of it
+        assertFalse(inPolygon(-17.0, 0.0, fiji)) // the long way round
+    }
+
+    @Test fun aCircleAcrossTheAntimeridianReachesTheOtherSide() {
+        val c = LatLng(0.0, 179.995)
+        // ~1.1 km east, past lon 180.
+        assertTrue(insideShape(0.0, -179.995, polygon = false, center = c, radiusM = 2000.0, corners = emptyList()))
+        assertFalse(insideShape(0.0, -179.9, polygon = false, center = c, radiusM = 2000.0, corners = emptyList()))
+    }
+
     @Test fun aPolygonWithFewerThanThreeCornersHidesNothing() {
         assertTrue(inPolygon(50.0, 0.0, emptyList()))
         assertTrue(inPolygon(50.0, 0.0, square.take(2)))

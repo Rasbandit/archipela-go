@@ -122,7 +122,7 @@ pub fn centroid(pts: &[Point]) -> Point {
 pub fn distance_to_segment_m(p: Point, a: Point, b: Point) -> f64 {
     let k = 111_195.0;
     let cos_lat = p.lat.to_radians().cos();
-    let xy = |q: Point| ((q.lon - p.lon) * k * cos_lat, (q.lat - p.lat) * k);
+    let xy = |q: Point| ((unwrap_lon(q.lon, p.lon) - p.lon) * k * cos_lat, (q.lat - p.lat) * k);
     let ((ax, ay), (bx, by)) = (xy(a), xy(b));
     let (dx, dy) = (bx - ax, by - ay);
     let len2 = dx * dx + dy * dy;
@@ -131,14 +131,23 @@ pub fn distance_to_segment_m(p: Point, a: Point, b: Point) -> f64 {
     (cx * cx + cy * cy).sqrt()
 }
 
-/// Ray-casting point-in-polygon on lat/lon (planar; fine at city scale).
+/// `lon` moved by whole turns to within 180° of `around`, so a shape across the antimeridian is one piece around a point.
+fn unwrap_lon(lon: f64, around: f64) -> f64 {
+    around + (lon - around + 180.0).rem_euclid(360.0) - 180.0
+}
+
+/// Ray-casting point-in-polygon on lat/lon (planar; fine at city scale, and across the antimeridian).
 #[must_use]
 #[allow(clippy::many_single_char_names)] // standard ray-casting notation (p, v, i, j, a, b)
 pub fn point_in_polygon(p: Point, v: &[Point]) -> bool {
+    // Corners and the point all within 180° of the first corner: the polygon is one piece even where it crosses lon ±180.
+    let Some(first) = v.first() else { return false };
+    let near = |q: Point| Point::new(q.lat, unwrap_lon(q.lon, first.lon));
+    let p = near(p);
     let mut inside = false;
     let mut j = v.len().wrapping_sub(1);
     for i in 0..v.len() {
-        let (a, b) = (v[i], v[j]);
+        let (a, b) = (near(v[i]), near(v[j]));
         if (a.lat > p.lat) != (b.lat > p.lat) && p.lon < (b.lon - a.lon) * (p.lat - a.lat) / (b.lat - a.lat) + a.lon {
             inside = !inside;
         }
@@ -256,6 +265,24 @@ mod tests {
         let line = [Point::new(40.0, -111.0), destination(Point::new(40.0, -111.0), 0.0, 1000.0)];
         let d = densify(&line, 20.0);
         assert!(d.len() >= 50 && (polyline_len_m(&line) - 1000.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn a_polygon_across_the_antimeridian_contains_points_on_both_sides() {
+        // A 0.2 x 0.2 degree square straddling lon 180 (Fiji).
+        let sq = [Point::new(-17.1, 179.9), Point::new(-17.1, -179.9), Point::new(-16.9, -179.9), Point::new(-16.9, 179.9)];
+        assert!(point_in_polygon(Point::new(-17.0, 179.95), &sq));
+        assert!(point_in_polygon(Point::new(-17.0, -179.95), &sq));
+        assert!(!point_in_polygon(Point::new(-17.0, 179.0), &sq)); // west of it
+        assert!(!point_in_polygon(Point::new(-17.0, -179.0), &sq)); // east of it
+        assert!(!point_in_polygon(Point::new(-17.0, 0.0), &sq)); // the long way round
+    }
+
+    #[test]
+    fn distance_to_a_segment_across_the_antimeridian_is_short() {
+        let (a, b) = (Point::new(0.0, 179.99), Point::new(0.0, -179.99));
+        let p = Point::new(0.01, 180.0); // ~1.1 km north of the segment's middle
+        assert!((distance_to_segment_m(p, a, b) - 1112.0).abs() < 5.0, "{}", distance_to_segment_m(p, a, b));
     }
 
     #[test]

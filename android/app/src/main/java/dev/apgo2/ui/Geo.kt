@@ -46,19 +46,32 @@ internal fun insideShape(
         else -> insideCircle(lat, lon, center, radiusM)
     }
 
-// Ray casting.
+private const val HALF_TURN = 180.0
+private const val FULL_TURN = 360.0
+
+/** [lon] moved by whole turns to within 180° of [around], so a shape across the antimeridian is one piece. */
+private fun unwrapLon(
+    lon: Double,
+    around: Double,
+): Double = around + (lon - around + HALF_TURN).mod(FULL_TURN) - HALF_TURN
+
+// Ray casting, with corners and the point unwrapped around the first corner (see core geo::point_in_polygon).
 private fun insidePolygon(
     lat: Double,
-    lon: Double,
+    lon0: Double,
     corners: List<LatLng>,
 ): Boolean {
+    val ref = corners.first().longitude
+    val lon = unwrapLon(lon0, ref)
     var inside = false
     var j = corners.lastIndex
     for (i in corners.indices) {
         val a = corners[i]
         val b = corners[j]
+        val aLon = unwrapLon(a.longitude, ref)
+        val bLon = unwrapLon(b.longitude, ref)
         val crosses = a.latitude > lat != b.latitude > lat
-        if (crosses && lon < (b.longitude - a.longitude) * (lat - a.latitude) / (b.latitude - a.latitude) + a.longitude) inside = !inside
+        if (crosses && lon < (bLon - aLon) * (lat - a.latitude) / (b.latitude - a.latitude) + aLon) inside = !inside
         j = i
     }
     return inside
@@ -71,7 +84,7 @@ private fun insideCircle(
     radiusM: Double,
 ): Boolean {
     val dy = (lat - c.latitude) * METERS_PER_DEGREE
-    val dx = (lon - c.longitude) * METERS_PER_DEGREE * cos(Math.toRadians(c.latitude))
+    val dx = (unwrapLon(lon, c.longitude) - c.longitude) * METERS_PER_DEGREE * cos(Math.toRadians(c.latitude))
     return dx * dx + dy * dy <= radiusM * radiusM
 }
 
