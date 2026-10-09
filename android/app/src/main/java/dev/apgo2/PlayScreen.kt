@@ -6,9 +6,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -38,6 +36,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -199,13 +198,18 @@ private fun PaneGrip(
 ) {
     val snapPx = with(LocalDensity.current) { SNAP_DP.dp.toPx() }
     var dragged by remember { mutableFloatStateOf(0f) }
+    val latestShown by rememberUpdatedState(shown)
+    // A drag in any direction is claimed (so a sideways swipe is never taken for a tap); only its vertical part counts.
     val drag =
-        Modifier.draggable(
-            rememberDraggableState { dragged += it },
-            Orientation.Vertical,
-            onDragStarted = { dragged = 0f },
-            onDragStopped = { onShowChange(PaneMode.afterDrag(shown, dragged, snapPx)) },
-        )
+        Modifier.pointerInput(Unit) {
+            detectDragGestures(
+                onDragStart = { dragged = 0f },
+                onDragEnd = { onShowChange(PaneMode.afterDrag(latestShown, dragged, snapPx)) },
+            ) { change, amount ->
+                change.consume()
+                dragged += amount.y
+            }
+        }
     Box(
         Modifier
             .fillMaxWidth()
