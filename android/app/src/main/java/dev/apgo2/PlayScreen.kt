@@ -1,5 +1,7 @@
 package dev.apgo2
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -16,10 +18,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -38,10 +39,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -70,8 +74,15 @@ private const val LIVE_REDRAW_MS = 60_000L
 private const val HIDDEN = "hidden"
 private const val LOG_LINES = 3
 
-// What stays of the panel when it is slid down: the handle and the goal's first line.
-private const val PEEK_DP = 72
+// The shown panel's scrolling part takes this share of the space under the header; the map takes the rest.
+private const val BODY_SHARE = 0.4f
+
+// The grip is drawn this thin but can be grabbed over this height (overlapping the map and the panel), and a drag past
+// SNAP_DP flips the panel.
+private const val GRIP_DP = 12
+private const val GRIP_TOUCH_DP = 48
+private const val SNAP_DP = 24
+private const val GRIP_ALPHA = 0.4f
 private const val QUEST_BUBBLE_DP = 200
 
 /**
@@ -127,50 +138,79 @@ private fun GameView(
 ) {
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         GameHeader(m, hud)
-        // The map is the top of the screen; goals and progress-bar quests sit under it in a scrolling panel.
-        // The panel slides over the map's height: drag its handle, or tap it to slide the panel down to a peek and back.
+        // The map is the top of the screen. Under it the panel is shown (goal, summary, then progress in a scrolling part) or
+        // hidden (only the goal and summary stay); its grip snaps between the two.
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-            val totalPx = constraints.maxHeight.toFloat()
-            val max = PaneSplit.maxMap(totalPx, PEEK_DP * LocalDensity.current.density)
-            var mapShare by rememberSaveable { mutableFloatStateOf(PaneSplit.DEFAULT_MAP) }
-            val share = mapShare.coerceIn(PaneSplit.MIN_MAP, max)
-            val mapHeight = maxHeight * share
+            val bodyHeight = maxHeight * BODY_SHARE
+            var shown by rememberSaveable { mutableStateOf(true) }
             Column(Modifier.fillMaxSize()) {
-                PlayMap(m, hud, onShow, Modifier.fillMaxWidth().height(mapHeight))
-                PaneHandle(
-                    collapsed = share >= max,
-                    onDrag = { mapShare = PaneSplit.dragged(share, it, totalPx, max) },
-                    onTap = { mapShare = PaneSplit.toggled(share, max) },
-                )
-                GamePanel(
-                    m,
-                    hud,
-                    Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp),
-                )
+                PlayMap(m, hud, onShow, Modifier.fillMaxWidth().weight(1f))
+                PaneGrip(shown) { shown = it }
+                PanelTop(hud, shown)
+                AnimatedVisibility(shown) {
+                    GamePanel(
+                        m,
+                        hud,
+                        Modifier
+                            .fillMaxWidth()
+                            .height(bodyHeight)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp),
+                    )
+                }
             }
         }
     }
 }
 
-// The grip between the map and the panel: drag it to resize them, tap it to slide the panel down or back up.
-@OptIn(ExperimentalMaterial3Api::class) // the stock bottom-sheet grip
+// The grip between the map and the panel: thin to look at, easy to grab. A tap or a long enough drag shows or hides the panel.
 @Composable
-private fun PaneHandle(
-    collapsed: Boolean,
-    onDrag: (Float) -> Unit,
-    onTap: () -> Unit,
+private fun PaneGrip(
+    shown: Boolean,
+    onShowChange: (Boolean) -> Unit,
 ) {
+    val snapPx = with(LocalDensity.current) { SNAP_DP.dp.toPx() }
+    var dragged by remember { mutableFloatStateOf(0f) }
+    val drag =
+        Modifier.draggable(
+            rememberDraggableState { dragged += it },
+            Orientation.Vertical,
+            onDragStarted = { dragged = 0f },
+            onDragStopped = { onShowChange(PaneMode.afterDrag(shown, dragged, snapPx)) },
+        )
     Box(
         Modifier
             .fillMaxWidth()
-            .draggable(rememberDraggableState(onDrag), Orientation.Vertical)
-            .clickable(onClickLabel = if (collapsed) "Show the panel" else "Show more map", onClick = onTap),
+            .zIndex(1f) // above the map and the panel, which its touch area overlaps
+            .overhang(GRIP_DP.dp, GRIP_TOUCH_DP.dp)
+            .then(drag)
+            .clickable(onClickLabel = if (shown) "Hide the panel" else "Show the panel") { onShowChange(!shown) },
         contentAlignment = Alignment.Center,
-    ) { BottomSheetDefaults.DragHandle() }
+    ) {
+        Box(Modifier.size(32.dp, 4.dp).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = GRIP_ALPHA), CircleShape))
+    }
+}
+
+// Takes [thin] of the layout but [touch] of height for what follows (drawing and touches), centred on it.
+private fun Modifier.overhang(
+    thin: Dp,
+    touch: Dp,
+) = layout { measurable, constraints ->
+    val t = thin.roundToPx()
+    val p = measurable.measure(constraints.copy(minHeight = touch.roundToPx(), maxHeight = touch.roundToPx()))
+    layout(p.width, t) { p.place(0, (t - p.height) / 2) }
+}
+
+// The part of the panel that never hides: the goal (its lines too when the panel is shown) and the summary line.
+@Composable
+private fun PanelTop(
+    hud: HudOut,
+    shown: Boolean,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        GoalsBlock(hud, withLines = shown)
+        Text(summaryLine(hud), fontSize = 11.sp)
+    }
 }
 
 @Composable
@@ -294,12 +334,9 @@ private fun GamePanel(
     var showPlaces by remember { mutableStateOf(false) }
     var allProgress by remember { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        // The game's goal first: it is what the whole game is for.
-        GoalsBlock(hud)
         if (m.chains.isNotEmpty() || layout.progress.isNotEmpty()) {
             ProgressSection(m, layout, allProgress) { allProgress = !allProgress }
         }
-        Text(summaryLine(hud), fontSize = 11.sp)
         ZonesRow(m.zones)
         (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let {
             FeedbackText(it.joinToString("  ·  "), Tone.Danger)
@@ -343,12 +380,15 @@ private fun ProgressSection(
 
 // The goal, or several goals: the rule and overall progress, then each goal with its own bar.
 @Composable
-private fun GoalsBlock(hud: HudOut) {
+private fun GoalsBlock(
+    hud: HudOut,
+    withLines: Boolean,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (hud.goals.size > 1) {
             Text(hud.goalLabel.substringBefore(":"), style = MaterialTheme.typography.titleSmall)
             LinearProgressIndicator(progress = { hud.goalProgress }, Modifier.fillMaxWidth())
-            hud.goals.forEach { GoalLine(it) }
+            if (withLines) hud.goals.forEach { GoalLine(it) }
         } else {
             Text(hud.goalLabel, style = MaterialTheme.typography.titleSmall)
             LinearProgressIndicator(progress = { hud.goalProgress }, Modifier.fillMaxWidth())
