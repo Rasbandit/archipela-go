@@ -252,10 +252,11 @@ private fun GamePanel(
     var showPlaces by remember { mutableStateOf(false) }
     var allProgress by remember { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // The game's goal first: it is what the whole game is for.
+        GoalsBlock(hud)
         if (m.chains.isNotEmpty() || layout.progress.isNotEmpty()) {
             ProgressSection(m, layout, allProgress) { allProgress = !allProgress }
         }
-        GoalsBlock(hud)
         Text(summaryLine(hud), fontSize = 11.sp)
         ZonesRow(m.zones)
         (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let {
