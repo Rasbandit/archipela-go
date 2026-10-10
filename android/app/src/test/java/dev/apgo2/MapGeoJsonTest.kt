@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.MarkerSpec
 import dev.apgo2.ui.Units
 import dev.apgo2.ui.hex
 import org.json.JSONArray
@@ -13,6 +14,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.CircleOut
+import uniffi.apgo_ffi.CollectItemOut
+import uniffi.apgo_ffi.CollectOut
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
@@ -110,7 +113,27 @@ class MapFeaturesTest {
         blurb = "",
         reward = null,
         chainId = null,
+        collect = null,
     )
+
+    @Test fun aForagerShowsOnePinPerItemStillOutThere() {
+        val items = listOf(CollectItemOut(geo(1.0, 1.0), false), CollectItemOut(geo(2.0, 2.0), true), CollectItemOut(geo(3.0, 3.0), false))
+        val q = quest(7, shape = "collect").copy(family = "courier", kindId = "forager", collect = CollectOut("acorns", 3u, 1u, 0u, items))
+        val pins = MapFeatures.quests(listOf(q), selected = 7)
+        assertEquals("picked items disappear", 2, pins.size)
+        val item = MarkerSpec.Item("acorns", "open").key
+        assertTrue(pins.all { it.getJSONObject("properties").getString(MapProp.IMAGE) == item })
+        assertEquals(1.0, pins[0].getJSONObject("geometry").getJSONArray("coordinates").getDouble(1), 0.0)
+        assertEquals(setOf(q.mapImageKey, item), listOf(q).pinImages)
+    }
+
+    @Test fun aDoneForagerShowsNoItemPinsLikeAnyDoneQuest() {
+        val items = listOf(CollectItemOut(geo(3.0, 3.0), false), CollectItemOut(geo(4.0, 4.0), true))
+        val q = quest(8, shape = "collect", state = "done").copy(collect = CollectOut("acorns", 1u, 0u, 1u, items))
+        val pins = MapFeatures.quests(listOf(q), selected = null)
+        assertEquals("only its own done pin", listOf(q.mapImageKey), pins.map { it.getJSONObject("properties").getString(MapProp.IMAGE) })
+        assertEquals(setOf(q.mapImageKey), listOf(q).pinImages)
+    }
 
     private fun realm(
         name: String,

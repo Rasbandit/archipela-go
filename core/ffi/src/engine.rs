@@ -20,7 +20,7 @@ use apgo_core::settings::{resolve_units, Settings};
 use apgo_core::slot::SlotData;
 use apgo_core::solo::{generate, SoloOptions};
 use apgo_core::units::{distance, distance_rounded, Round, UnitSystem};
-use apgo_core::verify::{Fix, MAX_ACCURACY_M};
+use apgo_core::verify::{Collected, Fix, MAX_ACCURACY_M};
 use apgo_core::yaml::build_yaml;
 
 use crate::{CoreError, GeoPoint};
@@ -361,7 +361,7 @@ pub struct QuestOut {
     pub state: String,
     /// Progress from 0 to 1.
     pub progress: f32,
-    /// point | dwell | area | line | courier | roundtrip | cells | steps | away
+    /// point | dwell | area | line | courier | roundtrip | collect | cells | steps | away
     pub shape: String,
     /// Where the quest is on the map, if it has a place.
     pub anchor: Option<GeoPoint>,
@@ -383,6 +383,52 @@ pub struct QuestOut {
     pub reward: Option<String>,
     /// Id of the progressive chain this quest is a milestone of, if any.
     pub chain_id: Option<String>,
+    /// A forager quest's items and counts; `None` for other quests.
+    pub collect: Option<CollectOut>,
+}
+
+/// One item of a forager quest.
+#[derive(Debug, uniffi::Record)]
+pub struct CollectItemOut {
+    /// Where the item lies.
+    pub at: GeoPoint,
+    /// Whether the player has picked it up.
+    pub picked: bool,
+}
+
+/// A forager quest's items and how far it has got.
+#[derive(Debug, uniffi::Record)]
+pub struct CollectOut {
+    /// What the items are ("pinecones").
+    pub theme: String,
+    /// How many must be brought home.
+    pub need: u32,
+    /// Picked up and not yet brought home.
+    pub carried: u32,
+    /// Brought home so far.
+    pub banked: u32,
+    /// Every item, in the quest's order.
+    pub items: Vec<CollectItemOut>,
+}
+
+fn collect_out(t: &Target, c: Option<&Collected>) -> Option<CollectOut> {
+    let Target::Collect { pts, need, theme, .. } = t else { return None };
+    let c = c.cloned().unwrap_or_default();
+    let items = pts.iter().enumerate().map(|(i, p)| CollectItemOut { at: gp(*p), picked: u16::try_from(i).is_ok_and(|i| c.picked.contains(&i)) }).collect();
+    Some(CollectOut { theme: theme.clone(), need: *need, carried: c.carried, banked: c.banked, items })
+}
+
+/// The first item still out there, where the quest's pin and popup sit.
+fn first_open(c: &CollectOut) -> Option<Point> {
+    c.items.iter().find(|i| !i.picked).map(|i| pt(&i.at))
+}
+
+/// Where a quest's pin and popup sit: an unfinished forager's first item still out there, otherwise its own anchor.
+fn pin_at(collect: Option<&CollectOut>, state: QuestState, anchor: Option<Point>) -> Option<Point> {
+    match collect {
+        Some(c) if state != QuestState::Done => first_open(c).or(anchor),
+        _ => anchor,
+    }
 }
 
 /// A zone of the open game.
@@ -526,6 +572,7 @@ fn describe(t: &Target, units: UnitSystem) -> (&'static str, Option<Point>, Opti
         Target::Cells { cell_m, .. } => ("cells", None, None, *cell_m, vec![], text),
         Target::Steps { .. } => ("steps", None, None, 0.0, vec![], text),
         Target::Away { .. } => ("away", None, None, 0.0, vec![], text),
+        Target::Collect { pts, r, .. } => ("collect", pts.first().copied(), None, *r, vec![], text),
     }
 }
 
@@ -1256,6 +1303,8 @@ impl Engine {
                 .into_iter()
                 .map(|q| {
                     let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target, units);
+                    let collect = collect_out(&q.target, q.collected.as_ref());
+                    let anchor = pin_at(collect.as_ref(), q.state, anchor);
                     QuestOut {
                         location_id: q.location_id,
                         zone: q.zone,
@@ -1287,6 +1336,7 @@ impl Engine {
                         blurb: q.blurb,
                         reward: q.reward,
                         chain_id: q.chain_id,
+                        collect,
                     }
                 })
                 .collect()
@@ -1451,6 +1501,20 @@ impl Engine {
         let Some((game_id, ev, entries)) = self.with_game(|g| {
             let ev = g.on_steps(total, t_ms);
             self.save_if_due(g, t_ms, !ev.is_empty());
+            let entries = g.journal_events(&ev, t_ms, None);
+            (g.id.clone(), ev, entries)
+        }) else {
+            return Vec::new();
+        };
+        self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&game_id, e)));
+        ev.into_iter().map(ev_out).collect()
+    }
+
+    /// The phone joined home Wi-Fi: every forager quest banks what it carries (see `Game::bank_at_home`). Safe to call again.
+    pub fn bank_at_home(&self, t_ms: i64) -> Vec<EventOut> {
+        let Some((game_id, ev, entries)) = self.with_game(|g| {
+            let ev = g.bank_at_home(t_ms);
+            self.save_if_due(g, t_ms, true);
             let entries = g.journal_events(&ev, t_ms, None);
             (g.id.clone(), ev, entries)
         }) else {
@@ -1771,5 +1835,30 @@ mod tests {
         let p = home();
         e.on_fix(p.lat, p.lon, 1_000, 5.0, None, false);
         assert_eq!(e.last_zone_proximity(), "inside");
+    }
+
+    #[test]
+    fn a_forager_reports_its_items_and_counts_and_other_quests_report_none() {
+        let (a, b) = (Point::new(40.0, -111.0), Point::new(40.01, -111.0));
+        let t = Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() };
+        let c = Collected { picked: BTreeSet::from([0]), carried: 1, banked: 0 };
+        let out = collect_out(&t, Some(&c)).expect("a forager has items");
+        assert_eq!((out.theme.as_str(), out.need, out.carried, out.banked), ("shells", 1, 1, 0));
+        assert_eq!(out.items.iter().map(|i| i.picked).collect::<Vec<_>>(), [true, false]);
+        assert!((out.items[1].at.lat - 40.01).abs() < 1e-12);
+        assert_eq!(collect_out(&t, None).unwrap().items.iter().filter(|i| i.picked).count(), 0, "nothing picked yet");
+        assert!(collect_out(&Target::Point { p: a, r: 40.0 }, None).is_none());
+        assert_eq!(first_open(&out).map(|p| p.lat), Some(40.01), "the pin to open is the first item still out there");
+    }
+
+    #[test]
+    fn a_done_forager_keeps_its_anchor_and_an_unfinished_one_sits_on_its_first_open_item() {
+        let (a, b) = (Point::new(40.0, -111.0), Point::new(40.01, -111.0));
+        let t = Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() };
+        let c = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }));
+        let lat = |s| pin_at(c.as_ref(), s, Some(a)).map(|p| p.lat);
+        assert_eq!(lat(QuestState::Done), Some(40.0), "a done forager stays in the places list like any done quest");
+        assert_eq!(lat(QuestState::InProgress), Some(40.01));
+        assert_eq!(pin_at(None, QuestState::Done, Some(b)).map(|p| p.lat), Some(40.01), "other quests keep their anchor");
     }
 }

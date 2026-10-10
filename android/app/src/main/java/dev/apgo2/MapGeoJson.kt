@@ -7,6 +7,7 @@ import dev.apgo2.ui.MarkerSpec
 import dev.apgo2.ui.Units
 import dev.apgo2.ui.circleRing
 import dev.apgo2.ui.hex
+import dev.apgo2.ui.openItems
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.geometry.LatLng
@@ -17,6 +18,7 @@ import kotlin.math.cos
 private const val MIN_POLYGON_POINTS = 3
 private const val BANNED_OPACITY = 0.55
 private const val HIDDEN = "hidden"
+private const val DONE = "done"
 
 /** The names of the properties that map features carry and the style reads. */
 internal object MapProp {
@@ -91,6 +93,15 @@ internal object GeoJson {
 /** The name of this quest's pin image in the map style. */
 internal val QuestOut.mapImageKey: String get() = MarkerSpec.Quest(kindId, family, state, MapMarkers.pips(difficulty, boss)).key
 
+// A forager still under way shows its items on the map instead of one pin; a done one is drawn like any done quest.
+private val QuestOut.showsItems: Boolean get() = collect != null && state != DONE
+
+/** The name of the pin image of this forager quest's items (null for other quests and done foragers). */
+internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems }?.let { MarkerSpec.Item(it.theme, state).key }
+
+/** Every pin image the quest layer needs for these quests: each quest's, and each forager's item pin. */
+internal val List<QuestOut>.pinImages: Set<String> get() = flatMap { listOfNotNull(it.mapImageKey, it.itemImageKey) }.toSet()
+
 /** The name of this find's pin image in the map style. */
 internal val MapFind.mapImageKey: String get() = MarkerSpec.Find(kindId, family, mark).key
 
@@ -103,15 +114,20 @@ internal data class RadiusFeatures(
 
 /** The features each map source shows, made from the game state. */
 internal object MapFeatures {
-    /** Quest pins: anchored quests that are not lines, and the second stop of couriers. */
+    /** Quest pins: anchored quests that are not lines, the second stop of couriers, and each item a forager still needs found. */
     fun quests(
         quests: List<QuestOut>,
         selected: Long?,
     ): List<JSONObject> {
         val visible = quests.filter { it.state != HIDDEN }
-        val anchored = visible.filter { it.shape != "line" }.mapNotNull { q -> q.anchor?.let { q to it } }
+        val anchored = visible.filter { it.shape != "line" && !it.showsItems }.mapNotNull { q -> q.anchor?.let { q to it } }
         val dropOffs = visible.filter { it.shape == "courier" }.mapNotNull { q -> q.anchorB?.let { q to it } }
-        return (anchored + dropOffs).map { (q, p) -> GeoJson.pointFeature(p.lat, p.lon, questProps(q, q.locationId == selected)) }
+        val pins = (anchored + dropOffs).map { (q, p) -> GeoJson.pointFeature(p.lat, p.lon, questProps(q, q.locationId == selected)) }
+        val items =
+            visible.mapNotNull { q -> q.itemImageKey?.let { q to it } }.flatMap { (q, image) ->
+                q.openItems.map { GeoJson.pointFeature(it.at.lat, it.at.lon, questProps(q, q.locationId == selected, image)) }
+            }
+        return pins + items
     }
 
     /** [pins] split into the rest (a clustered source) and the selected ones (their own source, so they never vanish into a cluster). */
@@ -223,10 +239,11 @@ internal object MapFeatures {
     private fun questProps(
         q: QuestOut,
         selected: Boolean,
+        image: String = q.mapImageKey,
     ) = JSONObject()
         .put(MapProp.STATE, q.state)
         .put(MapProp.SELECTED, selected)
-        .put(MapProp.IMAGE, q.mapImageKey)
+        .put(MapProp.IMAGE, image)
         .put(MapProp.SORT, MapMarkers.drawOrder(q.state))
         .put(MapProp.ID, q.locationId.toString())
 }

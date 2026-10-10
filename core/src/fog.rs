@@ -36,7 +36,7 @@ pub fn anchor(t: &Target) -> Option<Point> {
     match t {
         Target::Point { p, .. } | Target::Dwell { p, .. } => Some(*p),
         Target::DwellArea { center, .. } => Some(*center),
-        Target::Line { pts, .. } => pts.first().copied(),
+        Target::Line { pts, .. } | Target::Collect { pts, .. } => pts.first().copied(),
         Target::Courier { a, .. } => Some(*a),
         Target::RoundTrip { far, .. } => Some(*far),
         _ => None,
@@ -84,6 +84,12 @@ mod tests {
     use super::*;
     use crate::catalog::Mode;
     use crate::geo::destination;
+
+    #[test]
+    fn a_forager_quest_hides_behind_its_first_item() {
+        let (a, b) = (destination(Point::new(40.0, -111.0), 0.0, 300.0), destination(Point::new(40.0, -111.0), 0.0, 600.0));
+        assert_eq!(anchor(&Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() }), Some(a));
+    }
 
     fn quest(id: i64, target: Target) -> Assignment {
         Assignment {

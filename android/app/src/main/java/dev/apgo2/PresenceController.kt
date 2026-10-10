@@ -126,13 +126,22 @@ internal class PresenceController(
             return
         }
         val changedState = d.state != decision.state
+        val arrived = PresencePolicy.arrivedHome(decision.state, d.state)
         decision = d
         if (changedState) {
             Diag.info(TAG, d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
             if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
             model.noteJournal()
         }
+        if (arrived && model.hud != null) bankAtHome()
         applyLocation()
+    }
+
+    // Presence arrived home (home Wi-Fi): forager quests bank what they carry, even with no GPS fix.
+    private fun bankAtHome() {
+        if (!model.engine.hasGame()) return
+        model.handle(model.engine.bankAtHome(model.now()))
+        model.refreshPlay(withTrace = false)
     }
 
     /** Start, change or stop location to match the presence decision. */

@@ -40,7 +40,12 @@ internal object Help {
                 HelpTopic("Trail", "Walk (or ride) part of a named trail or path. Long trails ask for the share that fits the effort."),
             "park" to HelpTopic("Park", "Spend time in a park, or walk around its edge."),
             "water" to HelpTopic("Water", "Follow a river, creek or canal for a stretch."),
-            "courier" to HelpTopic("Courier", "Pick something up at one spot and deliver it to another, or go out and come back in time."),
+            "courier" to
+                HelpTopic(
+                    "Courier",
+                    "Pick something up at one spot and deliver it to another, go out and come back, " +
+                        "or gather things scattered around your area and bring enough of them home.",
+                ),
             "explore" to HelpTopic("Explore", "Visit new map cells you have never been to."),
             "steps" to HelpTopic("Steps", "Take a number of steps. Counted by your phone's step sensor."),
             "away" to HelpTopic("Away", "Go well away from home and stay there for a while."),

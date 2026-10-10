@@ -637,7 +637,7 @@ private fun SyncContent(
         holder.show(MapSource.FIND_SEL, picked)
     }
     LaunchedEffect(style, quests, selected) {
-        style?.let { st -> quests.forEach { holder.ensureImage(st, it.mapImageKey) } }
+        style?.let { st -> quests.pinImages.forEach { holder.ensureImage(st, it) } }
         val (rest, picked) = MapFeatures.splitSelected(MapFeatures.quests(quests, selected))
         holder.show(MapSource.QUESTS, rest)
         holder.show(MapSource.QUEST_SEL, picked)

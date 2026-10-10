@@ -144,9 +144,22 @@ pub enum Verify {
         /// How long to be away from home, in minutes.
         minutes: f64,
     },
+    /// Pick up items around the area and bring enough of them home.
+    Collect {
+        /// Items to bring home, by effort tier (tier 1 first; higher tiers use the last value).
+        need_by_tier: Vec<u32>,
+        /// How many items the map shows per item needed.
+        spare_factor: u32,
+        /// How close counts as picked up, in metres.
+        pick_r_m: f64,
+    },
     /// The biggest quest of the realm.
     Boss,
 }
+
+/// What a forager quest's items can be: flavour only. The app has an icon for each (`ApgoIcons.collectible`); an unknown one falls back
+/// to the courier icon.
+pub const FORAGE_THEMES: [&str; 7] = ["pinecones", "shells", "acorns", "leaves", "feathers", "clovers", "gems"];
 
 impl Verify {
     /// What the player has to do, in one plain sentence, in the player's units.
@@ -162,6 +175,7 @@ impl Verify {
             Self::CoverCells { cells, .. } => format!("Visit {cells} new map cells."),
             Self::Steps { steps } => format!("Take {steps} steps."),
             Self::Away { minutes } => format!("Be away from home for {} min.", minutes.round()),
+            Self::Collect { .. } => "Pick things up around the area and bring enough of them home.".to_string(),
             Self::Boss => "The biggest quest of the realm.".to_string(),
         }
     }
@@ -287,6 +301,32 @@ mod tests {
 
     fn tags(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn forager_is_a_courier_kind_for_walk_run_and_bike_with_a_collect_rule() {
+        let c = Catalog::builtin();
+        let k = c.kind("forager").expect("forager is in the catalog");
+        assert_eq!((k.family.as_str(), k.name.as_str(), k.geom), ("courier", "Forager", Geom::None));
+        assert_eq!(k.modes, [Mode::Walk, Mode::Run, Mode::Bike]);
+        assert_eq!(k.verify, Verify::Collect { need_by_tier: vec![3, 5, 7, 10], spare_factor: 2, pick_r_m: 25.0 });
+        assert!(!k.is_progressive());
+    }
+
+    #[test]
+    fn a_collect_rule_reads_from_json_and_explains_itself() {
+        let v: Verify = serde_json::from_str(r#"{"type":"collect","need_by_tier":[3,5,7,10],"spare_factor":2,"pick_r_m":25}"#).unwrap();
+        assert_eq!(v, Verify::Collect { need_by_tier: vec![3, 5, 7, 10], spare_factor: 2, pick_r_m: 25.0 });
+        assert_eq!(v.how(UnitSystem::Metric), "Pick things up around the area and bring enough of them home.");
+    }
+
+    #[test]
+    fn forage_themes_are_distinct_lowercase_plurals() {
+        let mut seen = std::collections::BTreeSet::new();
+        for t in FORAGE_THEMES {
+            assert!(t.ends_with('s') && t.chars().all(|c| c.is_ascii_lowercase()), "{t}");
+            assert!(seen.insert(t), "{t} twice");
+        }
     }
 
     #[test]
