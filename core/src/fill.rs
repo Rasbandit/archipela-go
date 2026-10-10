@@ -9,10 +9,13 @@ use crate::zone::Zone;
 
 const WALKABLE: &str = "^(residential|living_street|pedestrian|footway|path|cycleway|track|service|unclassified|tertiary|secondary|steps|bridleway)$";
 
-/// Overpass query for walkable streets matching an area `filter`.
+/// Overpass query for walkable streets matching an area `filter`. Driveways and drive-throughs are left out: they are `highway=service` but
+/// lead onto private property or through a business, and are rarely tagged `access=private`.
 #[must_use]
 pub fn streets_query_in(filter: &str) -> String {
-    format!("[out:json][timeout:40];\nway({filter})[\"highway\"~\"{WALKABLE}\"][\"access\"!~\"^(private|no)$\"];\nout geom qt;")
+    format!(
+        "[out:json][timeout:40];\nway({filter})[\"highway\"~\"{WALKABLE}\"][\"access\"!~\"^(private|no)$\"][\"service\"!~\"^(driveway|drive-through)$\"];\nout geom qt;"
+    )
 }
 
 /// Overpass query for walkable streets in `zone`.
@@ -209,6 +212,13 @@ pub fn raw_ways(body: &str) -> Result<Vec<RawWay>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_street_query_leaves_out_driveways_and_drive_throughs() {
+        let q = streets_query_in("around:1000,40,-111");
+        assert!(q.contains(r#"["service"!~"^(driveway|drive-through)$"]"#), "{q}");
+        assert!(q.contains(r#"["access"!~"^(private|no)$"]"#), "{q}");
+    }
 
     #[test]
     fn a_lattice_across_lon_180_covers_both_sides_with_real_longitudes() {
