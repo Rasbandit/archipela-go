@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarise a pulled outing (scripts/pull_diag.sh): timeline, tracking gaps, errors, track length.
+"""Summarise a pulled outing (scripts/pull_diag.sh): timeline, tracking gaps, errors, track length, raw track, GNSS.
 
 usage: diag_report.py <pulled-dir>
 """
@@ -13,8 +13,14 @@ from datetime import datetime
 from itertools import pairwise
 from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
+from typing import Any
 
 LOCAL_TZ = datetime.now().astimezone().tzinfo
+
+
+def is_number(v: object) -> bool:
+    """A JSON number (not a bool, which Python counts as an int)."""
+    return isinstance(v, int | float) and not isinstance(v, bool)
 
 
 def ts(ms: int) -> str:
@@ -27,8 +33,53 @@ def haversine_m(a: Sequence[float], b: Sequence[float]) -> float:
     return 12_742_000 * asin(sqrt(h))
 
 
+def report_raw_track(root: Path) -> None:
+    """Debug builds only: the raw fixes, steps and compass lines the replay bench reads."""
+    raw: list[dict[str, Any]] = []
+    for f in sorted((root / "diag" / "raw").glob("raw-*.jsonl")):
+        for line in f.read_text(errors="replace").splitlines():
+            with contextlib.suppress(json.JSONDecodeError):
+                e = json.loads(line)
+                if isinstance(e, dict):
+                    raw.append(e)
+    fixes = [e for e in raw if e.get("tag") == "rawfix"]
+    print(f"\n== raw track: {len(raw)} lines, {len(fixes)} fixes ==")
+    if fixes:
+        accs = sorted(e["acc"] for e in fixes if is_number(e.get("acc")))
+        provs: dict[str, int] = {}
+        for e in fixes:
+            provs[e.get("prov", "?")] = provs.get(e.get("prov", "?"), 0) + 1
+        print(
+            f"providers {provs}, mock {sum(1 for e in fixes if e.get('mock'))},"
+            f" with speed {sum(1 for e in fixes if e.get('spd') is not None)}"
+        )
+        if accs:
+            print(
+                f"accuracy m: median {accs[len(accs) // 2]:.1f}, p90 {accs[int(len(accs) * 0.9)]:.1f}"
+            )
+        print(
+            f"steps lines {sum(1 for e in raw if e.get('tag') == 'rawsteps')},"
+            f" heading lines {sum(1 for e in raw if e.get('tag') == 'rawhead')}"
+        )
+
+
+def report_gnss(entries: list[dict[str, Any]]) -> None:
+    """The GNSS chip and the satellites it used (status lines are throttled by the app)."""
+    gnss = [e for e in entries if e.get("tag") == "gnss"]
+    status = [e for e in gnss if e.get("msg") == "status"]
+    used = [e["used"] for e in status if is_number(e.get("used"))]
+    print(f"\n== gnss: {len(status)} status lines ==")
+    for e in gnss:
+        if e.get("msg") == "hardware":
+            print(f"hardware: {e.get('model')} {e.get('capabilities')}")
+    if used:
+        print(f"used satellites: mean {sum(used) / len(used):.1f} over {len(used)} lines")
+    if status:
+        print(f"dual frequency in {sum(1 for e in status if e.get('dual_freq'))} of {len(status)}")
+
+
 def main(root: Path) -> None:  # noqa: C901, PLR0912  # linear one-shot report, splitting hurts readability
-    entries = []
+    entries: list[dict[str, Any]] = []
     for f in sorted((root / "diag").glob("diag-*.jsonl")):
         for line in f.read_text(errors="replace").splitlines():
             with contextlib.suppress(json.JSONDecodeError):
@@ -98,6 +149,9 @@ def main(root: Path) -> None:  # noqa: C901, PLR0912  # linear one-shot report, 
             "events:",
             dict(c.execute("select kind, count(*) from events group by kind").fetchall()),
         )
+
+    report_raw_track(root)
+    report_gnss(entries)
 
 
 if __name__ == "__main__":

@@ -122,9 +122,11 @@ internal class ApController(
                             model.surfacePref,
                             model.avoidStairs,
                         )
+                        model.stepCal.loadInto(model.engine) // as a solo start does: the saved calibration, not a fresh one
                     }
                 }
             r.onSuccess {
+                model.library.refreshStreets(null)
                 model.sim.resetClock()
                 syncedChecked = false
                 model.refreshAll()
@@ -186,7 +188,7 @@ internal class ApController(
             model.engine.markChecked(s.checkedLocationIds(), model.now())
             syncedChecked = true
         }
-        val pos = model.me?.let { GeoPoint(it.latitude, it.longitude) }
+        val pos = model.acceptedHere?.let { GeoPoint(it.latitude, it.longitude) }
         model.handle(model.engine.syncItems(items, model.now(), pos))
         model.refreshPlay(withTrace = false) // items never change where you walked
     }

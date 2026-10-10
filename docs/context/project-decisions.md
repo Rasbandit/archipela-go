@@ -91,3 +91,22 @@ Details: `economy-eggs-buddies.md`. Direction only; core gameplay comes first.
 | -- | -- |
 | `android/` under PolyForm Noncommercial 1.0.0; `apworld/`, `core/` and the rest stay MIT | Owner monetizes the app; the apworld and core stay easy for the Archipelago community to use |
 | Outside contributions to `android/` need a CLA or rights assignment | Otherwise the owner cannot sell contributed code |
+
+## 2026-10-08 and 2026-10-09 Location quality (decisions)
+
+Spec: `docs/superpowers/specs/2026-10-08-location-quality-design.md`. How it works: `location-estimation.md`. Research:
+`location-libraries-research.md`.
+
+| Decision | Why |
+| -- | -- |
+| IMM Kalman (truth) -> HMM matcher (display) -> particle filter (gaps only); quests see only the estimate | Standard tracker design; a bad fix never completes or blocks a quest |
+| Filter state never saved; raw tracks only in debug builds; real walks never committed | Saves load unchanged; privacy (walks show the owner's home) |
+| Bridged positions feed only the map, fog and Cartographer squares | Shaking a phone must not complete quests |
+| Step calibration saved on the phone per step source (not in the game save) | It belongs to the device and carry, not the game |
+| A same-direction 3-fix burst counts as a relocation (ruling G1) | Matches a real fast relocation; a bad burst self-corrects in seconds |
+| Platform services first, ours on top (2026-10-09): `play-services-location` added, supersedes the spec's "no Play services library" | Google's fusion and urban-canyon corrections for free; Fused Orientation Provider gives a real heading error |
+| Play services detected by `GoogleApiAvailability` `SUCCESS` plus the package; fused fixes on every Android version | The old check (package plus LocationManager `fused`) missed Android 8-11 phones with Play services |
+| Proprietary Android SDK licence accepted for Play services | Owner decision; `cargo deny` does not see Gradle deps; an F-Droid build would need a flavour without it |
+| iOS: `CLLocationUpdate` with `.fitness` / `.otherNavigation`, never `.automotiveNavigation`; `CLHeading`; `CMMotionActivityManager` only as a soft hint | Automotive mode road-snaps before our filter |
+| Libraries over custom code where they fit: `geo` for Douglas-Peucker; our polyline codec kept | The `polyline` crate accepts cut-short input |
+| Game open never waits for the street graph (built in the background, swapped in) | Owner: optimistic open, no busy UI |

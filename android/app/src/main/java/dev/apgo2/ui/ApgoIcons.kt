@@ -67,6 +67,7 @@ import com.composables.icons.lucide.MapPin
 import com.composables.icons.lucide.MapPinned
 import com.composables.icons.lucide.Mountain
 import com.composables.icons.lucide.Music
+import com.composables.icons.lucide.Navigation2
 import com.composables.icons.lucide.Nut
 import com.composables.icons.lucide.Package
 import com.composables.icons.lucide.Palette
@@ -120,6 +121,7 @@ internal object ApgoIcons {
     val Activity = Lucide.ScrollText
     val Settings = Lucide.Settings
     val Pause = Lucide.Pause
+    val Heading = Lucide.Navigation2 // the map pin's arrow: points up (north) before it is rotated
 
     // Marks on places
     val Favorite = Lucide.Star

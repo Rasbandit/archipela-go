@@ -66,7 +66,10 @@ internal class RealmManager(
                     polygonActive,
                 )
             }
-        saved.onSuccess { model.realms = model.engine.realms() }
+        saved.onSuccess {
+            model.realms = model.engine.realms()
+            model.library.refreshStreets(rid) // an open game playing in this realm rebuilds its streets for the new outline
+        }
         saved.onFailure { model.fail("save", "Could not save", it) }
         return rid.takeIf { saved.isSuccess }
     }
@@ -108,7 +111,7 @@ internal class RealmManager(
 
     /** Make the current position home. */
     fun setHomeHere() {
-        val c = model.me
+        val c = model.here
         if (c == null) {
             model.status = "No location yet"
             return

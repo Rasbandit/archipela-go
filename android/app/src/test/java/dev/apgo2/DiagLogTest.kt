@@ -64,11 +64,11 @@ class DiagLogTest {
 
     @Test fun reopeningContinuesTheNewestFileAndNeverThrows() {
         val dir = tmp.newFolder()
-        DiagLog(dir, 1_000_000, 5) { 1L }.write("I", "a", "one")
-        DiagLog(dir, 1_000_000, 5) { 2L }.write("I", "a", "two")
-        assertEquals(2, DiagLog(dir, 1_000_000, 5) { 3L }.files().sumOf { it.readLines().size })
+        DiagLog(dir, 1_000_000, 5, clock = { 1L }).write("I", "a", "one")
+        DiagLog(dir, 1_000_000, 5, clock = { 2L }).write("I", "a", "two")
+        assertEquals(2, DiagLog(dir, 1_000_000, 5, clock = { 3L }).files().sumOf { it.readLines().size })
         // an unwritable location must not crash the app
-        DiagLog(File(dir, "file-not-dir").apply { writeText("x") }, 1000, 3) { 4L }.write("I", "a", "ignored")
+        DiagLog(File(dir, "file-not-dir").apply { writeText("x") }, 1000, 3, clock = { 4L }).write("I", "a", "ignored")
     }
 
     private fun DiagLog.onlyLine() = files().single().readLines().single()
@@ -116,5 +116,16 @@ class DiagLogTest {
         Diag.warn("t", "m")
         Diag.error("t", "m", IllegalStateException("x"))
         Diag.failure("save", IllegalStateException("x"))
+    }
+
+    @Test fun aSecondLogWithItsOwnPrefixRotatesOnItsOwnFiles() {
+        val dir = tmp.newFolder()
+        val main = DiagLog(dir, 1_000_000, 5, { 1L })
+        val raw = DiagLog(java.io.File(dir, "raw"), maxFileBytes = 120, keep = 2, clock = { 1L }, prefix = "raw")
+        main.write("I", "a", "b")
+        repeat(10) { raw.write("I", "rawfix", "", mapOf("tf" to it)) }
+        assertEquals(listOf("diag-0001.jsonl"), main.files().map { it.name })
+        assertEquals(2, raw.files().size)
+        assertTrue(raw.files().all { it.name.matches(Regex("raw-\\d{4}\\.jsonl")) })
     }
 }

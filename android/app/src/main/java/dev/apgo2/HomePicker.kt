@@ -45,7 +45,7 @@ private class HomePickerState(
     private val m: AppModel,
 ) {
     private val start: LatLng? =
-        m.home?.let { LatLng(it.lat, it.lon) } ?: m.me
+        m.home?.let { LatLng(it.lat, it.lon) } ?: m.here
             ?: m.realmOps.shown.firstOrNull()?.let { r ->
                 r.circle?.let { LatLng(it.center.lat, it.center.lon) } ?: r.polygon.firstOrNull()?.let { LatLng(it.lat, it.lon) }
             }
@@ -67,7 +67,7 @@ private class HomePickerState(
     }
 
     fun useMyLocation() {
-        m.me?.let {
+        m.here?.let {
             place(it)
             focus = MapFocus(it, ++nonce)
         }
@@ -101,7 +101,7 @@ internal fun HomePicker(
             emptyList(),
             m.realmOps.shown,
             emptyList(),
-            m.me,
+            m.mePin,
             null,
             null,
             null,
@@ -138,8 +138,8 @@ internal fun HomePicker(
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Button(onClick = s::useMyLocation, enabled = m.me != null, modifier = Modifier.fillMaxWidth()) {
-                IconLabel(if (m.me == null) "Waiting for your location…" else "Use my location", ApgoIcons.Me, textSize = 14.sp)
+            Button(onClick = s::useMyLocation, enabled = m.here != null, modifier = Modifier.fillMaxWidth()) {
+                IconLabel(if (m.here == null) "Waiting for your location…" else "Use my location", ApgoIcons.Me, textSize = 14.sp)
             }
         }
     }

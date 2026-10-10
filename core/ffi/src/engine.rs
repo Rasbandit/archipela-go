@@ -2,15 +2,18 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use apgo_core::assign::SurfacePref;
 use apgo_core::assign::Target;
 use apgo_core::catalog::{Catalog, Kind, Mode};
 use apgo_core::chain::ChainUnit;
-use apgo_core::game::{Backend, Event, Game, NearMiss, NewGame, QuestState};
-use apgo_core::geo::{distance_m, simplify, Point};
+use apgo_core::game::{Backend, Event, Game, NearMiss, NewGame, QuestState, Streets};
+use apgo_core::geo::{distance_m, simplify_spaced, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
+use apgo_core::loc::calib::StepCal;
+use apgo_core::loc::{mode_at, DisplayPosition, DisplaySource, Estimate, HeadingSource, Provider, RawFix, Verdict};
 use apgo_core::marks::Mark;
 use apgo_core::num::count_u32;
 use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
@@ -20,7 +23,7 @@ use apgo_core::settings::{resolve_units, Settings};
 use apgo_core::slot::SlotData;
 use apgo_core::solo::{generate, SoloOptions};
 use apgo_core::units::{distance, distance_rounded, Round, UnitSystem};
-use apgo_core::verify::{Collected, Fix, MAX_ACCURACY_M};
+use apgo_core::verify::Collected;
 use apgo_core::yaml::build_yaml;
 
 use crate::{CoreError, GeoPoint};
@@ -30,12 +33,27 @@ fn err<E: ToString>(e: E) -> CoreError {
     CoreError::Failed { detail: e.to_string() }
 }
 
+fn line(pts: Vec<Point>) -> TrackSegmentOut {
+    TrackSegmentOut { points: pts.into_iter().map(gp).collect() }
+}
+
 fn gp(p: Point) -> GeoPoint {
     GeoPoint { lat: p.lat, lon: p.lon }
 }
 
 fn pt(p: &GeoPoint) -> Point {
     Point::new(p.lat, p.lon)
+}
+
+/// What [`Engine::refresh_streets`] built and swapped into the open game.
+#[derive(Debug, uniffi::Record)]
+pub struct StreetsBuiltOut {
+    /// Time to read the scans and build the street index and graph, ms.
+    pub build_ms: u32,
+    /// Segments in the street graph (0 without streets).
+    pub segments: u32,
+    /// Whether part of the graph comes from a scan made before way geometry was recorded.
+    pub degraded: bool,
 }
 
 /// A circle: a middle and a radius.
@@ -583,6 +601,32 @@ pub struct TrackSegmentOut {
     pub points: Vec<GeoPoint>,
 }
 
+/// The current session's display line.
+#[derive(Debug, uniffi::Record)]
+pub struct TraceOut {
+    /// When it starts, Unix ms (the journal's points before this are the older trace).
+    pub from_ms: Option<i64>,
+    /// Its lines, oldest first: it breaks where the location filter restarted far away.
+    pub runs: Vec<TrackSegmentOut>,
+}
+
+/// What changed in the current session's display line since a cursor (see `Engine::trace_matched_since`).
+#[derive(Debug, uniffi::Record)]
+pub struct TraceDelta {
+    /// Replace everything held with `append` (the cursor was 0, stale or from another game, or the line was thinned at its memory cap).
+    pub reset: bool,
+    /// Pass this next time; it only grows.
+    pub cursor: u64,
+    /// When the line starts, Unix ms (the journal's points before this are the older trace).
+    pub from_ms: Option<i64>,
+    /// The first of `append` carries on the last line held; every other one starts a new line.
+    pub joins: bool,
+    /// Settled points added since the cursor, as lines, oldest first.
+    pub append: Vec<TrackSegmentOut>,
+    /// The provisional end of the line, whole: replace the previous one (it starts at the newest settled point when it joins it).
+    pub tail: TrackSegmentOut,
+}
+
 /// One line of the activity log.
 #[derive(Debug, uniffi::Record)]
 pub struct AuditEventOut {
@@ -633,6 +677,230 @@ const TRACE_MIN_STEP_M: f64 = 8.0;
 /// The drawn trace smooths out wobble smaller than this, in metres.
 const TRACE_TOLERANCE_M: f64 = 4.0;
 
+/// A position fix from the phone, every field the filter can use (`None` = not reported; iOS sends `None` for its negative "unknown").
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FixIn {
+    /// When the fix was taken, Unix ms (the fix's own clock).
+    pub t_ms: i64,
+    /// Latitude, degrees.
+    pub lat: f64,
+    /// Longitude, degrees.
+    pub lon: f64,
+    /// 68 % horizontal radius, metres.
+    pub accuracy_m: f64,
+    /// Ground speed, m/s.
+    pub speed_mps: Option<f64>,
+    /// 68 % speed accuracy, m/s.
+    pub speed_acc_mps: Option<f64>,
+    /// Course, degrees from north.
+    pub bearing_deg: Option<f64>,
+    /// 68 % course accuracy, degrees.
+    pub bearing_acc_deg: Option<f64>,
+    /// Altitude, metres.
+    pub altitude_m: Option<f64>,
+    /// 68 % vertical accuracy, metres.
+    pub vertical_acc_m: Option<f64>,
+    /// `fused`, `gps`, `network`, `ios`; anything else is "other".
+    pub provider: String,
+    /// Made by a mock-location app (and not allowed by the debug bench setting).
+    pub mock: bool,
+}
+
+/// A step calibration the app saved (preferences `stepcal`, one entry per source).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StepCalIn {
+    /// Step source id, e.g. `phone.step_counter`.
+    pub source: String,
+    /// Scale on the cadence model.
+    pub k: f64,
+    /// Variance of the scale.
+    pub var_k: f64,
+    /// Windows learned from.
+    pub samples: u32,
+    /// Last update, Unix ms.
+    pub updated_ms: i64,
+}
+
+/// The step calibration to save (same fields as [`StepCalIn`]).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StepCalOut {
+    /// Step source id.
+    pub source: String,
+    /// Scale on the cadence model.
+    pub k: f64,
+    /// Variance of the scale.
+    pub var_k: f64,
+    /// Windows learned from.
+    pub samples: u32,
+    /// Last update, Unix ms.
+    pub updated_ms: i64,
+}
+
+fn step_cal_in(c: StepCalIn) -> StepCal {
+    StepCal { source: c.source, k: c.k, var_k: c.var_k, samples: c.samples, updated_ms: c.updated_ms }
+}
+
+/// The calibration to save, `None` while nothing was learned: a fresh default must never overwrite a stored value (review M5; also
+/// covers a save that runs before the stored value was loaded).
+fn step_cal_to_save(c: StepCal) -> Option<StepCalOut> {
+    (c.samples > 0).then_some(StepCalOut { source: c.source, k: c.k, var_k: c.var_k, samples: c.samples, updated_ms: c.updated_ms })
+}
+
+/// One compass reading (azimuth already corrected to true north by the phone).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct HeadingIn {
+    /// Degrees from true north.
+    pub azimuth_deg: f64,
+    /// `high`, `medium`, `low` or `unreliable`.
+    pub accuracy: String,
+    /// Pitch, degrees.
+    pub pitch_deg: f64,
+    /// Roll, degrees.
+    pub roll_deg: f64,
+    /// When it was read: the sensor event time on the fix clock, Unix ms.
+    pub t_ms: i64,
+    /// The phone's own heading error (Google's fused orientation `headingErrorDegrees`, a 95 % half cone), degrees; `None` from the
+    /// plain rotation vector, which only has `accuracy`.
+    pub error_deg: Option<f64>,
+}
+
+/// What the map shows for the player (see `apgo_core::loc::DisplayPosition`).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PositionOut {
+    /// Shown latitude.
+    pub lat: f64,
+    /// Shown longitude.
+    pub lon: f64,
+    /// Estimate latitude.
+    pub est_lat: f64,
+    /// Estimate longitude.
+    pub est_lon: f64,
+    /// 68 % radius, metres.
+    pub uncertainty_m: f64,
+    /// Speed, m/s.
+    pub speed_mps: f64,
+    /// Course, degrees.
+    pub course_deg: Option<f64>,
+    /// Arrow direction, degrees.
+    pub heading_deg: Option<f64>,
+    /// `course`, `compass` or `none`.
+    pub heading_source: String,
+    /// Pin on a matched street.
+    pub matched: bool,
+    /// Matching confidence, 0..1.
+    pub match_confidence: f64,
+    /// `gps`, `bridged`, `predicted` or `stale`.
+    pub source: String,
+    /// Age of the estimate, ms.
+    pub age_ms: i64,
+    /// Jump instead of gliding: the newest fix restarted the filter (reset, relocation, simulated fix). A level, not an event: it stays
+    /// true for every `position()` call until the next fix, so the app snaps once per new fix (compare the estimate's position or age).
+    pub snap: bool,
+    /// The shown position comes from the gap bridge, also once it ages to `predicted` or `stale`: never judge a zone by it.
+    pub bridged_origin: bool,
+}
+
+fn heading_in(h: &HeadingIn) -> apgo_core::loc::HeadingIn {
+    apgo_core::loc::HeadingIn {
+        t_ms: h.t_ms,
+        azimuth_deg: h.azimuth_deg,
+        accuracy: apgo_core::loc::CompassAccuracy::parse(&h.accuracy),
+        pitch_deg: h.pitch_deg,
+        roll_deg: h.roll_deg,
+        error_deg: h.error_deg,
+    }
+}
+
+fn position_out(d: &DisplayPosition) -> PositionOut {
+    PositionOut {
+        lat: d.lat,
+        lon: d.lon,
+        est_lat: d.est_lat,
+        est_lon: d.est_lon,
+        uncertainty_m: d.uncertainty_m,
+        speed_mps: d.speed_mps,
+        course_deg: d.course_deg,
+        heading_deg: d.heading_deg,
+        heading_source: match d.heading_source {
+            HeadingSource::Course => "course",
+            HeadingSource::Compass => "compass",
+            HeadingSource::None => "none",
+        }
+        .into(),
+        matched: d.matched,
+        match_confidence: d.match_confidence,
+        source: match d.source {
+            DisplaySource::Gps => "gps",
+            DisplaySource::Bridged => "bridged",
+            DisplaySource::Predicted => "predicted",
+            DisplaySource::Stale => "stale",
+        }
+        .into(),
+        age_ms: d.age_ms,
+        snap: d.snap,
+        bridged_origin: d.bridged_origin,
+    }
+}
+
+/// Whether the host's `simulated` flag is honoured: only in a debug build of the core (adversarial review I3). Compile time, so a
+/// release library can never be told to believe a fix, whatever the host (Android, the planned iOS client) passes.
+const SIM_ALLOWED: bool = cfg!(debug_assertions);
+
+/// The core's fix for `f`. Only `simulated` (where `sim_allowed`) makes a [`Provider::Sim`] fix: a provider named "sim" is
+/// [`Provider::Other`], since a sim fix skips the mock, accuracy and time checks (adversarial review I3).
+fn raw_fix(f: &FixIn, simulated: bool, sim_allowed: bool) -> RawFix {
+    let provider = match Provider::parse(&f.provider) {
+        _ if simulated && sim_allowed => Provider::Sim,
+        Provider::Sim => Provider::Other,
+        p => p,
+    };
+    RawFix {
+        t_ms: f.t_ms,
+        lat: f.lat,
+        lon: f.lon,
+        accuracy_m: f.accuracy_m,
+        speed_mps: f.speed_mps,
+        speed_acc_mps: f.speed_acc_mps,
+        bearing_deg: f.bearing_deg,
+        bearing_acc_deg: f.bearing_acc_deg,
+        altitude_m: f.altitude_m,
+        vertical_acc_m: f.vertical_acc_m,
+        provider,
+        mock: f.mock,
+    }
+}
+
+/// The travel mode for the filter on the next fix (ruling E2): the zone mode at the last estimate, at the raw fix only before the first one.
+fn fix_mode(zones: &[(Shape, Mode)], last_est: Option<Point>, raw: Point) -> Option<Mode> {
+    mode_at(zones, last_est.unwrap_or(raw))
+}
+
+/// Whether an accepted estimate goes into the journal: 5 s or 5 m after the last point written, or at once when the clock jumped (a switch
+/// between simulated and real fixes, or a time before the last point: the simulator's clock runs ahead).
+fn journal_due(last: Option<&TrackPoint>, p: &TrackPoint) -> bool {
+    last.is_none_or(|l| {
+        l.simulated != p.simulated || p.t_ms < l.t_ms || p.t_ms - l.t_ms >= 5_000 || distance_m(Point::new(l.lat, l.lon), Point::new(p.lat, p.lon)) >= 5.0
+    })
+}
+
+/// Each of `game`'s zones as its realm's shape (from `shapes`, one per zone realm) and its travel mode; zones whose realm is gone are left
+/// out.
+fn zone_modes_of(game: &Game, shapes: Vec<Option<Shape>>) -> Vec<(Shape, Mode)> {
+    game.slot.zones.iter().zip(shapes).filter_map(|(z, s)| s.map(|s| (s, z.mode))).collect()
+}
+
+/// The `fix_rejected` line for an estimate that may not count, if it is one of those.
+fn rejected_detail(e: &Estimate, units: UnitSystem) -> Option<String> {
+    if e.uncertain() {
+        return Some(format!("uncertain {}", distance_rounded(e.uncertainty_m, units, Round::Up)));
+    }
+    match e.verdict {
+        Verdict::Gated => Some("ignored as a GPS jump".into()),
+        Verdict::Unusable => Some("unusable fix".into()),
+        _ => None,
+    }
+}
+
 /// The game engine: realms, scanning, game setup and play. One per app, shared by all screens.
 #[derive(uniffi::Object)]
 pub struct Engine {
@@ -651,14 +919,18 @@ pub struct Engine {
     game: Mutex<Option<Game>>,
     /// When the open game is next written to disk between events (so counters survive a kill).
     save_policy: Mutex<SavePolicy>,
-    /// Shapes of the open game's zone realms, for the "inside a zone" check on each fix.
-    zone_shapes: Mutex<Vec<Shape>>,
-    // Where the last fix was relative to the zones, worked out once in `on_fix` for presence to read.
+    /// Shape and travel mode of each zone of the open game: the "inside a zone" check and the filter's mode at the player's position.
+    zone_modes: Mutex<Vec<(Shape, Mode)>>,
+    // Where the last fix's estimate was relative to the zones, worked out once in `on_fix` for presence to read.
     last_proximity: Mutex<Option<Proximity>>,
     /// The phone's region (ISO country code) that `Auto` units follow; empty until the app sets it.
     region: Mutex<String>,
     /// The units text is written in, worked out from the unit setting and `region` whenever either changes.
     units: Mutex<UnitSystem>,
+    /// The last journal point written, for the 5 s / 5 m throttle.
+    last_journal: Mutex<Option<TrackPoint>>,
+    /// The last street-build generation handed out (see [`Game::set_streets`]).
+    streets_gen: AtomicU64,
 }
 
 impl Engine {
@@ -737,21 +1009,54 @@ impl Engine {
         }
     }
 
-    /// Make `game` the open game and remember the shapes of its zones' realms (for "inside a zone" checks).
-    fn install(&self, mut game: Game) {
+    /// The current scans of `zone_realms` (each realm once), restricted to their shapes.
+    fn zone_atlases(&self, zone_realms: &[String]) -> Vec<Atlas> {
         let store = self.store();
-        if !game.streets_attached() {
-            // A saved game keeps only a thin sample of streets: index every street of its zones so trap targets land on one.
-            let atlases: Vec<Atlas> =
-                game.zone_realms.iter().collect::<BTreeSet<_>>().into_iter().filter_map(|id| store.get(id)).filter_map(|r| self.zoned_atlas(&r)).collect();
-            game.attach_streets(&atlases.iter().collect::<Vec<_>>());
+        zone_realms.iter().collect::<BTreeSet<_>>().into_iter().filter_map(|id| store.get(id)).filter_map(|r| self.zoned_atlas(&r)).collect()
+    }
+
+    /// The open game's id and zone realms, if it plays in `realm_id` (any open game when `None`).
+    fn streets_target(&self, realm_id: Option<&str>) -> Option<(String, Vec<String>)> {
+        let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        slot.as_ref().filter(|g| realm_id.is_none_or(|id| g.zone_realms.iter().any(|z| z == id))).map(|g| (g.id.clone(), g.zone_realms.clone()))
+    }
+
+    /// A new street-build generation; take it before reading the scans, so a later build always has a higher one.
+    fn next_streets_gen(&self) -> u64 {
+        self.streets_gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+    }
+
+    /// Swap built streets into the open game if it is still `game_id` over `zone_realms` and nothing newer went in; true when they did.
+    /// The zone shapes are read again then too, so an outline edit moves in-zone, proximity and the filter's mode (final review M2).
+    fn swap_streets(&self, game_id: &str, zone_realms: &[String], streets: Streets, generation: u64) -> bool {
+        let shapes = self.realm_shapes(zone_realms); // read before the lock: no file reads while fixes wait
+        let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(g) = slot.as_mut().filter(|g| g.id == game_id && g.zone_realms == zone_realms) else { return false };
+        if !g.set_streets(streets, generation) {
+            return false;
         }
+        // Set while the game lock is held, so a game installed meanwhile cannot get these shapes (lock order: game, then zones).
+        let modes = zone_modes_of(g, shapes);
+        self.set_zones(slot, modes);
+        true
+    }
+
+    /// The saved shape of each realm in `ids` (`None` for one that is gone).
+    fn realm_shapes(&self, ids: &[String]) -> Vec<Option<Shape>> {
+        let store = self.store();
+        ids.iter().map(|id| store.get(id).map(|r| r.shape)).collect()
+    }
+
+    /// Make `game` the open game and remember the shapes of its zones' realms (for "inside a zone" checks). Its streets come later,
+    /// from [`Self::refresh_streets`].
+    fn install(&self, mut game: Game) {
+        *self.last_journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         self.save_policy.lock().unwrap_or_else(std::sync::PoisonError::into_inner).reset();
         // Only one game is played at a time; remember which, so closing the app without pausing resumes it on the next start.
         if let Err(e) = Game::mark_playing(&self.dir, &game.id) {
             self.note(format!("could not remember game {} as being played: {e}", game.id));
         }
-        let shapes = self.shapes_of(&game.zone_realms);
+        let shapes = self.realm_shapes(&game.zone_realms);
         let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Read the units under the game lock: `refresh_units` stores new units before it takes this lock, so a change racing
         // this install is either seen here or applied to this game right after.
@@ -762,37 +1067,60 @@ impl Engine {
                 self.note(format!("could not save game {} before replacing it: {e}", old.id));
             }
         }
+        let modes = zone_modes_of(&game, shapes);
         *slot = Some(game);
-        self.set_zones(slot, shapes);
+        self.set_zones(slot, modes);
     }
 
     /// Realm `id` was redrawn or deleted: when it is a zone of the open game, in-zone checks use what is saved now, not what was
     /// saved when the game was opened.
     fn refresh_zones_of(&self, id: &str) {
         let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(shapes) = slot.as_ref().map(|g| &g.zone_realms).filter(|z| z.iter().any(|r| r == id)).map(|z| self.shapes_of(z)) else { return };
-        self.set_zones(slot, shapes);
-    }
-
-    /// The current shapes of the realms `ids` (the zones of a game), as saved now.
-    fn shapes_of(&self, ids: &[String]) -> Vec<Shape> {
-        let store = self.store();
-        ids.iter().filter_map(|id| store.get(id)).map(|r| r.shape).collect()
+        let Some(modes) = slot.as_ref().filter(|g| g.zone_realms.iter().any(|r| r == id)).map(|g| zone_modes_of(g, self.realm_shapes(&g.zone_realms))) else {
+            return;
+        };
+        self.set_zones(slot, modes);
     }
 
     // The open game's zone shapes; a new set (another game, or none) forgets where the last fix was relative to the old ones.
     // Takes the game guard and releases it after, so the shapes only ever change together with the game, never between another
     // thread's read and write (lock order: game, then zones).
-    fn set_zones(&self, game: MutexGuard<'_, Option<Game>>, shapes: Vec<Shape>) {
-        *self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = shapes;
+    fn set_zones(&self, game: MutexGuard<'_, Option<Game>>, modes: Vec<(Shape, Mode)>) {
+        *self.zone_modes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = modes;
         *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         drop(game);
     }
 
     /// Distance in metres from a point to the nearest zone area of the open game (0 inside), or `None` with no game.
     fn zone_distance_m(&self, p: Point) -> Option<f64> {
-        let shapes = self.zone_shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        shapes.iter().map(|s| s.distance_m(p)).reduce(f64::min)
+        let zones = self.zone_modes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        zones.iter().map(|(s, _)| s.distance_m(p)).reduce(f64::min)
+    }
+
+    /// Remember where the last fix's estimate was relative to the open game's zones (`None`: no zones), for presence.
+    fn set_proximity(&self, zone_d: Option<f64>) {
+        *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Proximity::of_distance(zone_d);
+    }
+
+    /// Whether `p` is the next journal point (5 s or 5 m after the last one); if so it becomes the last one.
+    fn journal_point_due(&self, p: &TrackPoint) -> bool {
+        let mut last = self.last_journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let due = journal_due(last.as_ref(), p);
+        if due {
+            *last = Some(p.clone());
+        }
+        due
+    }
+
+    /// Whether a rejected fix at `t_ms` gets a log line (one a minute, or at once when `t_ms` is before the last line: the simulator's clock
+    /// runs ahead); if so the minute starts again.
+    fn reject_log_due(&self, t_ms: i64) -> bool {
+        let last_ms = self.last_reject_log_ms.load(std::sync::atomic::Ordering::Relaxed);
+        let due = t_ms < last_ms || t_ms.saturating_sub(last_ms) >= 60_000;
+        if due {
+            self.last_reject_log_ms.store(t_ms, std::sync::atomic::Ordering::Relaxed);
+        }
+        due
     }
 
     fn game_id(&self) -> Option<String> {
@@ -870,10 +1198,12 @@ impl Engine {
             catalog: Catalog::builtin(),
             game: Mutex::new(None),
             save_policy: Mutex::new(SavePolicy::new(SAVE_INTERVAL_MS)),
-            zone_shapes: Mutex::new(Vec::new()),
+            zone_modes: Mutex::new(Vec::new()),
             last_proximity: Mutex::new(None),
             units: Mutex::new(resolve_units(Settings::load(&dir).units, "")),
             region: Mutex::new(String::new()),
+            last_journal: Mutex::new(None),
+            streets_gen: AtomicU64::default(),
             dir,
         })
     }
@@ -928,6 +1258,21 @@ impl Engine {
         self.store().save(&Realm { id: id.clone(), name, icon, shape, spare, scanned_at_ms: prev.and_then(|p| p.scanned_at_ms) }).map_err(err)?;
         self.refresh_zones_of(&id);
         Ok(())
+    }
+
+    /// Build the open game's street index (trap targets) and street graph (location filter) from the current scans and swap them in:
+    /// after a game is opened or started (which never wait for them: the game plays without a graph until this lands), and after a
+    /// realm it plays in (`realm_id`) was edited or scanned again. The build runs outside the game lock, so fixes never wait for it;
+    /// slow on a big realm, so call it off the main thread. `None` when there is nothing to do (no open game, it does not play in
+    /// `realm_id`, or a newer build already landed).
+    pub fn refresh_streets(&self, realm_id: Option<String>) -> Option<StreetsBuiltOut> {
+        let (game_id, zone_realms) = self.streets_target(realm_id.as_deref())?;
+        let generation = self.next_streets_gen();
+        let started = std::time::Instant::now();
+        let streets = Game::build_streets(&self.zone_atlases(&zone_realms).iter().collect::<Vec<_>>());
+        let build_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
+        let (segments, degraded) = streets.1.as_ref().map_or((0, false), |g| (count_u32(g.segment_count()), g.is_degraded()));
+        self.swap_streets(&game_id, &zone_realms, streets, generation).then_some(StreetsBuiltOut { build_ms, segments, degraded })
     }
 
     /// Delete a realm with its scan and marks.
@@ -1417,41 +1762,43 @@ impl Engine {
     }
 
     /// Feed a position fix (and the step counter, if any) to the open game; returns what happened.
-    pub fn on_fix(&self, lat: f64, lon: f64, t_ms: i64, accuracy_m: f64, steps: Option<i64>, simulated: bool) -> Vec<EventOut> {
-        let fix = Fix { lat, lon, t_ms, accuracy_m };
-        let at = Some((lat, lon));
-        // One pass over the zone shapes per fix: the inside flag for the game and the proximity presence reads next.
-        let zone_d = self.zone_distance_m(Point::new(lat, lon));
-        if self.has_game() {
-            *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Proximity::of_distance(zone_d);
-        }
-        let Some((game_id, ev, entries, near)) = self
-            .with_game(|g| {
-                let ev = g.on_fix(fix, steps);
-                self.save_if_due(g, t_ms, !ev.is_empty());
-                (g.id.clone(), g.journal_events(&ev, t_ms, at), g.explain_near(&fix, NEAR_MISS_RADIUS_M), ev)
-            })
-            .map(|(id, entries, near, ev)| (id, ev, entries, near))
-        else {
+    pub fn on_fix(&self, fix: FixIn, steps: Option<i64>, simulated: bool) -> Vec<EventOut> {
+        let simulated = simulated && SIM_ALLOWED;
+        let raw = raw_fix(&fix, simulated, SIM_ALLOWED);
+        let t_ms = raw.t_ms;
+        let Some((game_id, ev, entries, near, est)) = self.with_game(|g| {
+            // Ruling E2: the mode (set before the filter runs) and the zone come from estimates, the raw fix only before the first one.
+            let mode = fix_mode(&self.zone_modes.lock().unwrap_or_else(std::sync::PoisonError::into_inner), g.last_estimate().map(|e| e.point()), raw.point());
+            if let Some(m) = mode {
+                g.set_travel_mode(m);
+            }
+            // One pass over the zone shapes per fix, at this fix's own estimate: the proximity presence reads next.
+            let ev = g.on_fix_with_zone(&raw, steps, |p| self.set_proximity(self.zone_distance_m(p)));
+            // No estimate yet: the fix was unusable and places nobody (presence still learns roughly where it was).
+            let est = g.last_estimate();
+            if est.is_none() {
+                self.set_proximity(self.zone_distance_m(raw.point()));
+            }
+            self.save_if_due(g, t_ms, !ev.is_empty());
+            let at = est.map(|e| (e.lat, e.lon));
+            let entries = g.journal_events(&ev, t_ms, at);
+            let near = est.map(|e| g.explain_near(&e, NEAR_MISS_RADIUS_M)).unwrap_or_default();
+            (g.id.clone(), ev, entries, near, est)
+        }) else {
             return Vec::new();
         };
+        let at = est.map(|e| (e.lat, e.lon));
+        let point = est
+            .filter(|e| e.accepted)
+            .map(|e| TrackPoint { t_ms, lat: e.lat, lon: e.lon, accuracy_m: e.uncertainty_m, simulated })
+            .filter(|p| self.journal_point_due(p));
+        let rejected = est.map_or_else(|| Some("unusable fix".into()), |e| rejected_detail(&e, self.unit_system())).filter(|_| self.reject_log_due(t_ms));
         self.journal_do(|j| {
-            if accuracy_m > MAX_ACCURACY_M {
-                let last_ms = self.last_reject_log_ms.load(std::sync::atomic::Ordering::Relaxed);
-                if t_ms.saturating_sub(last_ms) >= 60_000 {
-                    self.last_reject_log_ms.store(t_ms, std::sync::atomic::Ordering::Relaxed);
-                    j.log(
-                        &game_id,
-                        &JournalEvent {
-                            t_ms,
-                            kind: kind::FIX_REJECTED.into(),
-                            detail: format!("accuracy {}", distance_rounded(accuracy_m, self.unit_system(), Round::Up)),
-                            at,
-                        },
-                    )?;
-                }
-            } else {
-                j.add_point(&game_id, &TrackPoint { t_ms, lat, lon, accuracy_m, simulated })?;
+            if let Some(p) = &point {
+                j.add_point(&game_id, p)?;
+            }
+            if let Some(detail) = rejected {
+                j.log(&game_id, &JournalEvent { t_ms, kind: kind::FIX_REJECTED.into(), detail, at })?;
             }
             for n in self.new_near_misses(near, t_ms) {
                 j.log(
@@ -1467,6 +1814,23 @@ impl Engine {
             entries.iter().try_for_each(|e| j.log(&game_id, e))
         });
         ev.into_iter().map(ev_out).collect()
+    }
+
+    /// A compass reading from the phone (at most 2 Hz).
+    pub fn on_heading(&self, h: HeadingIn) {
+        let core = heading_in(&h);
+        self.with_game(|g| g.on_heading(&core));
+    }
+
+    /// The open game's last accepted position, kept across counting pauses (traps are placed there, re-review N5); `None` with no game
+    /// or before the first one. For logic, where [`Self::position`] is for drawing (adversarial review M3).
+    pub fn last_accepted_pos(&self) -> Option<GeoPoint> {
+        self.with_game(|g| g.last_accepted_pos()).flatten().map(gp)
+    }
+
+    /// What the map shows for the player at `now_ms`; `None` with no game or before the first fix.
+    pub fn position(&self, now_ms: i64) -> Option<PositionOut> {
+        self.with_game(|g| g.position(now_ms)).flatten().map(|d| position_out(&d))
     }
 
     /// The progressive quests of the open game, one entry per bar.
@@ -1496,10 +1860,21 @@ impl Engine {
         .unwrap_or_default()
     }
 
-    /// A step-counter reading from the phone (cumulative since boot). Only counts while a game is open.
-    pub fn on_steps(&self, total: i64, t_ms: i64) -> Vec<EventOut> {
+    /// Load the saved step calibration into the open game's filter.
+    pub fn set_step_calibration(&self, c: StepCalIn) {
+        self.with_game(|g| g.set_step_calibration(step_cal_in(c)));
+    }
+
+    /// The open game's step calibration, to save; `None` with no game or before anything was learned.
+    pub fn step_calibration(&self) -> Option<StepCalOut> {
+        self.with_game(|g| g.step_calibration()).and_then(step_cal_to_save)
+    }
+
+    /// A step-counter reading from the phone (cumulative since boot) at the sensor event's time, with the cadence if the phone knows it.
+    /// Only counts while a game is open.
+    pub fn on_steps(&self, total: i64, t_ms: i64, cadence: Option<f64>) -> Vec<EventOut> {
         let Some((game_id, ev, entries)) = self.with_game(|g| {
-            let ev = g.on_steps(total, t_ms);
+            let ev = g.on_steps(total, t_ms, cadence);
             self.save_if_due(g, t_ms, !ev.is_empty());
             let entries = g.journal_events(&ev, t_ms, None);
             (g.id.clone(), ev, entries)
@@ -1642,10 +2017,33 @@ impl Engine {
             .map(|s| {
                 let pts: Vec<Point> = s.iter().map(|p| Point::new(p.lat, p.lon)).collect();
                 TrackSegmentOut {
-                    points: simplify(&pts, TRACE_MIN_STEP_M, TRACE_TOLERANCE_M).into_iter().map(|p| GeoPoint { lat: p.lat, lon: p.lon }).collect(),
+                    points: simplify_spaced(&pts, TRACE_MIN_STEP_M, TRACE_TOLERANCE_M).into_iter().map(|p| GeoPoint { lat: p.lat, lon: p.lon }).collect(),
                 }
             })
             .collect()
+    }
+
+    /// The current session's trace, matched to streets where confident: a full load. The app draws from
+    /// [`Self::trace_matched_since`] deltas; this stays for tools and tests that want the whole line at once.
+    pub fn trace_matched(&self) -> TraceOut {
+        let (from_ms, runs) = self.with_game(|g| g.trace_matched()).unwrap_or((None, vec![]));
+        TraceOut { from_ms, runs: runs.into_iter().map(line).collect() }
+    }
+
+    /// What changed in [`Self::trace_matched`] since `cursor` (0 for a full load): new settled points to append and the whole
+    /// provisional tail; with `reset`, everything, to replace what the map holds (another game, a line thinned at its memory cap, an unknown cursor).
+    pub fn trace_matched_since(&self, cursor: u64) -> TraceDelta {
+        match self.with_game(|g| g.trace_matched_since(cursor)) {
+            Some(d) => TraceDelta {
+                reset: d.reset,
+                cursor: d.cursor,
+                from_ms: d.from_ms,
+                joins: d.joins,
+                append: d.append.into_iter().map(line).collect(),
+                tail: line(d.tail),
+            },
+            None => TraceDelta { reset: true, cursor: 0, from_ms: None, joins: false, append: vec![], tail: line(vec![]) },
+        }
     }
 
     /// Everything that happened in the open game between two moments.
@@ -1778,22 +2176,35 @@ mod tests {
     fn editing_a_zone_realm_of_the_open_game_moves_its_zone() {
         let e = engine_with_game("realm-edit");
         let p = home();
-        e.on_fix(p.lat, p.lon, 1_000, 5.0, None, false);
+        e.on_fix(fix_at(p, FIX_T_MS + 1_000), None, false);
         assert_eq!(e.last_zone_proximity(), "inside");
         let far = destination(home(), 0.0, 50_000.0);
         e.save_realm("r0".into(), "R0".into(), None, Some(circle(far, 2000.0)), vec![], false).unwrap();
-        e.on_fix(p.lat, p.lon, 2_000, 5.0, None, false);
+        e.on_fix(fix_at(p, FIX_T_MS + 2_000), None, false);
         assert_eq!(e.last_zone_proximity(), "far");
+    }
+
+    #[test]
+    fn presence_proximity_comes_from_the_fixs_estimate_and_from_the_raw_fix_only_before_the_first() {
+        // Ruling E2 (was the app's ZoneFix, review S3): judged in the same pass as the fix, from what the filter made of it.
+        let e = engine_with_game("proximity-estimate");
+        let far = destination(home(), 0.0, 50_000.0);
+        e.on_fix(FixIn { accuracy_m: 1000.0, ..fix_at(far, FIX_T_MS) }, None, false);
+        assert_eq!(e.last_zone_proximity(), "far", "an unusable first fix places nobody, but presence still learns roughly where it was");
+        e.on_fix(fix_at(home(), FIX_T_MS + 1_000), None, false);
+        assert_eq!(e.last_zone_proximity(), "inside");
+        e.on_fix(fix_at(far, FIX_T_MS + 2_000), None, false); // 50 km in a second: gated, the estimate stays home
+        assert_eq!(e.last_zone_proximity(), "inside", "a jump the filter rejects never moves presence");
     }
 
     #[test]
     fn deleting_a_zone_realm_of_the_open_game_drops_its_zone() {
         let e = engine_with_game("realm-delete");
         let p = home();
-        e.on_fix(p.lat, p.lon, 1_000, 5.0, None, false);
+        e.on_fix(fix_at(p, FIX_T_MS + 1_000), None, false);
         assert_eq!(e.last_zone_proximity(), "inside");
         e.delete_realm("r0".into()).unwrap();
-        e.on_fix(p.lat, p.lon, 2_000, 5.0, None, false);
+        e.on_fix(fix_at(p, FIX_T_MS + 2_000), None, false);
         assert_eq!(e.last_zone_proximity(), "unknown", "the deleted outline no longer counts");
     }
 
@@ -1833,8 +2244,262 @@ mod tests {
         let e = engine_with_game("other-edit");
         e.save_realm("r1".into(), "R1".into(), None, Some(circle(destination(home(), 0.0, 50_000.0), 2000.0)), vec![], false).unwrap();
         let p = home();
-        e.on_fix(p.lat, p.lon, 1_000, 5.0, None, false);
+        e.on_fix(fix_at(p, FIX_T_MS + 1_000), None, false);
         assert_eq!(e.last_zone_proximity(), "inside");
+    }
+
+    /// A fix time in the core's sane range (after 2000-01-01, adversarial review M1).
+    const FIX_T_MS: i64 = 1_800_000_005_000;
+
+    fn fix_at(p: Point, t_ms: i64) -> FixIn {
+        FixIn { t_ms, lat: p.lat, lon: p.lon, accuracy_m: 5.0, ..fix_in("gps") }
+    }
+
+    fn fix_in(provider: &str) -> FixIn {
+        FixIn {
+            t_ms: FIX_T_MS,
+            lat: 40.0,
+            lon: -111.0,
+            accuracy_m: 6.0,
+            speed_mps: None,
+            speed_acc_mps: None,
+            bearing_deg: None,
+            bearing_acc_deg: None,
+            altitude_m: None,
+            vertical_acc_m: None,
+            provider: provider.into(),
+            mock: false,
+        }
+    }
+
+    #[test]
+    fn the_matched_trace_of_no_game_is_empty() {
+        let dir = std::env::temp_dir().join(format!("apgo-ffi-trace-{}", std::process::id()));
+        let e = Engine::new(dir.to_string_lossy().into_owned());
+        let t = e.trace_matched();
+        assert!(t.from_ms.is_none() && t.runs.is_empty());
+        let d = e.trace_matched_since(7);
+        assert!(d.reset && d.cursor == 0 && !d.joins && d.append.is_empty() && d.tail.points.is_empty() && d.from_ms.is_none(), "{d:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_game_opens_without_waiting_for_its_streets_and_refreshes_swap_them_in() {
+        // Owner ruling (round 3): installing never builds the street graph; `refresh_streets` (run off the main thread) builds it outside
+        // the game lock and swaps it in, and a slower, older build never replaces a newer one.
+        let dir = std::env::temp_dir().join(format!("apgo-ffi-graph-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let e = Engine::new(dir.to_string_lossy().into_owned());
+        let center = Point::new(40.0, -111.0);
+        let circle = || Some(CircleOut { center: GeoPoint { lat: center.lat, lon: center.lon }, radius_m: 3000.0 });
+        e.save_realm("r0".into(), "R".into(), None, circle(), vec![], false).unwrap();
+        let streets: Vec<Point> =
+            (-20..=20).flat_map(|n| (-20..=20).map(move |k| destination(destination(center, 0.0, f64::from(n) * 130.0), 90.0, f64::from(k) * 130.0))).collect();
+        let mut atlas = build_atlas("r0", 0, vec![], streets, &e.catalog);
+        let corner = destination(center, 225.0, 1000.0);
+        atlas.ways = apgo_core::loc::bench::grid_ways(corner, 11, 100.0);
+        e.store().save_atlas(&atlas).unwrap();
+        let o = SoloOptions {
+            zone_modes: vec![Mode::Walk],
+            number_of_trips: 6,
+            goal: "all_trips".into(),
+            quest_types: vec!["reach".into()],
+            ..SoloOptions::default()
+        };
+        let generated = generate(&o, 4).unwrap();
+        let realms = e.realm_atlases(&["r0".into()]).unwrap();
+        let new = NewGame {
+            id: "g".into(),
+            name: "G".into(),
+            backend: Backend::Solo,
+            seed_name: "s".into(),
+            slot: generated.slot,
+            zone_realms: vec!["r0".into()],
+            realms: &realms,
+            home: center,
+            seed: 4,
+            solo_rewards: generated.rewards,
+            surface: SurfacePref::Any,
+            avoid_stairs: false,
+        };
+        e.install(Game::create(new, &e.catalog).unwrap());
+        let graph = |e: &Engine| e.game.lock().unwrap().as_ref().and_then(|g| g.street_graph().map(|g| g.segment_count()));
+        assert_eq!(graph(&e), None, "the game is open at once, without its graph");
+        assert!(e.last_accepted_pos().is_none(), "no fix yet");
+        e.on_fix(fix_in("gps"), None, false);
+        assert!(e.position(5_000).is_some(), "a fix is processed normally without the graph");
+        // Adversarial review M3: logic (traps placed by Archipelago items) takes the last accepted position, not the pin.
+        assert!(e.last_accepted_pos().is_some_and(|p| (p.lat - 40.0).abs() < 1e-9 && (p.lon + 111.0).abs() < 1e-9));
+        e.set_counting(false, 0);
+        assert!(e.last_accepted_pos().is_some_and(|p| (p.lat - 40.0).abs() < 1e-9), "kept across a pause (re-review N5)");
+        e.set_counting(true, 0);
+        let built = e.refresh_streets(None).unwrap();
+        assert_eq!((built.segments, built.degraded, graph(&e)), (220, false, Some(220)), "the refresh swapped the graph in");
+        assert!(e.refresh_streets(Some("other".into())).is_none(), "another realm's edit leaves the game alone");
+        // Two rebuilds finishing out of order: the older generation is dropped.
+        let (older_gen, newer_gen) = (e.next_streets_gen(), e.next_streets_gen());
+        let (id, zones) = e.streets_target(Some("r0")).unwrap();
+        let older = Game::build_streets(&e.zone_atlases(&zones).iter().collect::<Vec<_>>());
+        atlas.ways = apgo_core::loc::bench::grid_ways(corner, 6, 100.0);
+        e.store().save_atlas(&atlas).unwrap(); // a rescan in between
+        let newer = Game::build_streets(&e.zone_atlases(&zones).iter().collect::<Vec<_>>());
+        assert!(e.swap_streets(&id, &zones, newer, newer_gen));
+        assert!(!e.swap_streets(&id, &zones, older, older_gen), "the older build finished last but is not swapped in");
+        assert_eq!(graph(&e), Some(2 * 6 * 5));
+        // Final review M2: an outline edit refreshes the zone shapes (in-zone, proximity, the filter's mode) with the streets.
+        assert_eq!(e.zone_distance_m(center), Some(0.0));
+        let moved = destination(center, 90.0, 20_000.0);
+        let moved_circle = Some(CircleOut { center: GeoPoint { lat: moved.lat, lon: moved.lon }, radius_m: 3000.0 });
+        e.save_realm("r0".into(), "R".into(), None, moved_circle, vec![], false).unwrap();
+        assert!(e.refresh_streets(Some("r0".into())).is_some());
+        assert!(e.zone_distance_m(center).is_some_and(|d| d > 10_000.0), "{:?}", e.zone_distance_m(center));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_fix_with_every_option_missing_is_a_plain_fix_and_simulated_ones_are_sim() {
+        let r = raw_fix(&fix_in("gps"), false, true);
+        assert_eq!((r.t_ms, r.provider, r.speed_mps, r.bearing_acc_deg), (FIX_T_MS, Provider::Gps, None, None));
+        assert_eq!(raw_fix(&fix_in("fused"), true, true).provider, Provider::Sim);
+        assert_eq!(raw_fix(&fix_in("weird"), false, true).provider, Provider::Other);
+    }
+
+    #[test]
+    fn only_the_simulated_argument_of_a_debug_build_makes_a_sim_fix() {
+        // Adversarial review I3: a Location named "sim" skipped the mock, accuracy, NaN and time checks. The name is no sim fix, and
+        // the argument counts only where simulation is allowed (debug builds of the core).
+        assert_eq!(raw_fix(&fix_in("sim"), false, true).provider, Provider::Other);
+        assert_eq!(raw_fix(&fix_in("sim"), true, false).provider, Provider::Other, "a release build has no simulator");
+        assert_eq!(raw_fix(&fix_in("gps"), true, false).provider, Provider::Gps);
+        assert_eq!(SIM_ALLOWED, cfg!(debug_assertions));
+    }
+
+    #[test]
+    fn journal_points_are_throttled_to_five_seconds_or_five_metres() {
+        let p = |t_ms: i64, east_m: f64| {
+            let q = destination(Point::new(40.0, -111.0), 90.0, east_m);
+            TrackPoint { t_ms, lat: q.lat, lon: q.lon, accuracy_m: 4.0, simulated: false }
+        };
+        assert!(journal_due(None, &p(0, 0.0)));
+        assert!(!journal_due(Some(&p(0, 0.0)), &p(4_000, 3.0)));
+        assert!(journal_due(Some(&p(0, 0.0)), &p(5_000, 0.0)));
+        assert!(journal_due(Some(&p(0, 0.0)), &p(1_000, 6.0)));
+    }
+
+    #[test]
+    fn the_log_throttles_restart_when_the_simulator_clock_falls_back_to_real_time() {
+        // Controller note 1: the simulator's clock runs ahead, so the first real fix after it looks 10 minutes older than the last point.
+        let dir = std::env::temp_dir().join(format!("apgo-ffi-throttle-{}", std::process::id()));
+        let e = Engine::new(dir.to_string_lossy().into_owned());
+        let p = |t_ms: i64, simulated: bool| TrackPoint { t_ms, lat: 40.0, lon: -111.0, accuracy_m: 3.0, simulated };
+        let t = 1_000_000;
+        assert!(e.journal_point_due(&p(t + 600_000, true)) && e.reject_log_due(t + 600_000));
+        assert!(e.journal_point_due(&p(t, false)), "the first real point after the simulator is written");
+        assert!(e.reject_log_due(t), "a rejected real fix is not muted by the simulator's clock");
+        assert!(!e.journal_point_due(&p(t + 1_000, false)) && !e.reject_log_due(t + 1_000), "then the throttles hold again");
+        assert!(journal_due(Some(&p(t, false)), &p(t + 1_000, true)), "switching to the simulator writes a point at once");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rejected_fixes_are_described_by_verdict() {
+        use apgo_core::loc::{Estimate, Verdict};
+        let e = |verdict| Estimate { verdict, accepted: false, uncertainty_m: 41.0, ..Estimate::exact(40.0, -111.0, 0) };
+        assert_eq!(rejected_detail(&e(Verdict::Blurry), UnitSystem::Metric).as_deref(), Some("uncertain 45 m"));
+        assert_eq!(rejected_detail(&e(Verdict::Gated), UnitSystem::Metric).as_deref(), Some("ignored as a GPS jump"));
+        assert_eq!(rejected_detail(&e(Verdict::Unusable), UnitSystem::Metric).as_deref(), Some("unusable fix"));
+        assert_eq!(rejected_detail(&e(Verdict::Reset), UnitSystem::Metric).as_deref(), Some("uncertain 45 m"), "a coarse restart (ruling FR-I1)");
+        assert_eq!(rejected_detail(&e(Verdict::Relocated), UnitSystem::Metric).as_deref(), Some("uncertain 45 m"));
+        assert_eq!(rejected_detail(&Estimate { verdict: Verdict::Reset, ..Estimate::exact(40.0, -111.0, 0) }, UnitSystem::Metric), None);
+        assert_eq!(rejected_detail(&Estimate::exact(40.0, -111.0, 0), UnitSystem::Metric), None);
+        // In the player's units, rounded the safe way (up) as every distance the core writes.
+        assert_eq!(rejected_detail(&e(Verdict::Blurry), UnitSystem::Imperial).as_deref(), Some("uncertain 140 ft"));
+    }
+
+    #[test]
+    fn position_before_any_fix_is_none_and_headings_without_a_game_are_ignored() {
+        let dir = std::env::temp_dir().join(format!("apgo-ffi-pos-{}", std::process::id()));
+        let e = Engine::new(dir.to_string_lossy().into_owned());
+        assert!(e.position(0).is_none());
+        e.on_heading(HeadingIn { azimuth_deg: 10.0, accuracy: "high".into(), pitch_deg: 0.0, roll_deg: 0.0, t_ms: 1, error_deg: None });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_heading_maps_to_the_core_with_its_error() {
+        let h = HeadingIn { azimuth_deg: 10.0, accuracy: "low".into(), pitch_deg: 1.0, roll_deg: 2.0, t_ms: 3, error_deg: Some(12.0) };
+        let c = heading_in(&h);
+        assert_eq!((c.t_ms, c.azimuth_deg, c.accuracy, c.pitch_deg, c.roll_deg), (3, 10.0, apgo_core::loc::CompassAccuracy::Low, 1.0, 2.0));
+        assert_eq!((c.error_deg, heading_in(&HeadingIn { error_deg: None, ..h }).error_deg), (Some(12.0), None));
+    }
+
+    #[test]
+    fn a_display_position_maps_to_its_ffi_record() {
+        use apgo_core::loc::{DisplayPosition, DisplaySource, HeadingSource};
+        let d = DisplayPosition {
+            lat: 1.0,
+            lon: 2.0,
+            heading_source: HeadingSource::Compass,
+            source: DisplaySource::Bridged,
+            heading_deg: Some(45.0),
+            ..DisplayPosition::default()
+        };
+        let out = position_out(&d);
+        assert_eq!((out.heading_source.as_str(), out.source.as_str(), out.heading_deg), ("compass", "bridged", Some(45.0)));
+        let aged = DisplayPosition { source: DisplaySource::Stale, bridged_origin: true, ..d };
+        assert!(position_out(&aged).bridged_origin && !position_out(&DisplayPosition { bridged_origin: false, ..d }).bridged_origin);
+        let names = |hs, s| {
+            let o = position_out(&DisplayPosition { heading_source: hs, source: s, ..d });
+            (o.heading_source, o.source)
+        };
+        assert_eq!(names(HeadingSource::Course, DisplaySource::Gps), ("course".into(), "gps".into()));
+        assert_eq!(names(HeadingSource::None, DisplaySource::Predicted), ("none".into(), "predicted".into()));
+        assert_eq!(names(HeadingSource::None, DisplaySource::Stale).1, "stale");
+    }
+
+    #[test]
+    fn without_a_game_proximity_is_unknown_and_no_zone_is_near() {
+        let dir = std::env::temp_dir().join(format!("apgo-ffi-zone-{}", std::process::id()));
+        let e = Engine::new(dir.to_string_lossy().into_owned());
+        assert_eq!(e.last_zone_proximity(), "unknown");
+        assert_eq!(e.zone_distance_m(Point::new(40.0, -111.0)), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_step_calibration_maps_both_ways_and_needs_a_game() {
+        let c = StepCalIn { source: "phone.step_counter".into(), k: 0.92, var_k: 0.0004, samples: 17, updated_ms: 1_800_000_000_000 };
+        let core = step_cal_in(c.clone());
+        assert_eq!((core.source.as_str(), core.k, core.var_k, core.samples, core.updated_ms), ("phone.step_counter", 0.92, 0.0004, 17, 1_800_000_000_000));
+        assert!(step_cal_to_save(StepCal { samples: 0, ..core.clone() }).is_none(), "never learned: nothing to save (review M5)");
+        let out = step_cal_to_save(core).unwrap();
+        assert_eq!((out.source, out.k, out.var_k, out.samples, out.updated_ms), (c.source.clone(), c.k, c.var_k, c.samples, c.updated_ms));
+        let dir = std::env::temp_dir().join(format!("apgo-ffi-stepcal-{}", std::process::id()));
+        let e = Engine::new(dir.to_string_lossy().into_owned());
+        e.set_step_calibration(c);
+        assert!(e.step_calibration().is_none(), "no game, nothing to save");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_fix_without_a_game_does_nothing() {
+        let dir = std::env::temp_dir().join(format!("apgo-ffi-fix-{}", std::process::id()));
+        let e = Engine::new(dir.to_string_lossy().into_owned());
+        assert!(e.on_fix(fix_in("gps"), None, false).is_empty());
+        assert!(e.on_steps(10, 1, Some(1.8)).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_travel_mode_comes_from_the_last_estimate_and_from_the_raw_fix_only_before_the_first() {
+        // Ruling E2: a Walk zone here, a Bike zone 10 km north.
+        let walk = Point::new(40.0, -111.0);
+        let bike = destination(walk, 0.0, 10_000.0);
+        let zones = [(Shape::Circle { center: walk, radius_m: 500.0 }, Mode::Walk), (Shape::Circle { center: bike, radius_m: 500.0 }, Mode::Bike)];
+        assert_eq!(fix_mode(&zones, None, walk), Some(Mode::Walk), "the first fix: its raw position");
+        assert_eq!(fix_mode(&zones, Some(bike), walk), Some(Mode::Bike), "later: the last estimate, never the raw fix");
+        assert_eq!(fix_mode(&zones, Some(destination(walk, 0.0, 5_000.0)), walk), Some(Mode::Bike), "between zones: fastest");
+        assert_eq!(fix_mode(&[], None, walk), None);
     }
 
     #[test]

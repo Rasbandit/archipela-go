@@ -41,7 +41,7 @@ ap-present:
 # Fails while a mutation from an interrupted `just mutate-rust` is left in the core (cargo-mutants marks the line).
 [private]
 core-unmutated:
-    @! grep -rn "changed by cargo-mutants" core/src core/ffi/src || { echo "a mutation from an interrupted 'just mutate-rust' is left in: git restore core/src"; exit 1; }
+    @bash scripts/core_unmutated.sh
 
 # apworld: lint, types, tests
 check-py: ap-present lint typecheck test
@@ -54,6 +54,9 @@ check-hygiene: spell secrets
     bash scripts/tests/prepush_test.sh
     bash scripts/tests/git_env_test.sh
     bash scripts/tests/java_home_test.sh
+    bash scripts/tests/core_unmutated_test.sh
+    bash scripts/tests/android_core_test.sh
+    bash scripts/tests/pull_diag_test.sh
 
 check: check-hygiene check-py check-rust check-android
 
@@ -66,7 +69,7 @@ check-rust: core-unmutated
     cd core && cargo clippy -p apgo-core -p apgo-ffi --all-targets -- -D warnings
     cd core && RUSTDOCFLAGS="-D warnings" cargo doc -p apgo-core -p apgo-ffi --no-deps -q
     cd core && cargo deny check
-    cd core && cargo llvm-cov -p apgo-core -p apgo-ffi --fail-under-lines 84
+    cd core && cargo llvm-cov -p apgo-core -p apgo-ffi --fail-under-lines 91
 
 # --- Mutation testing (slow, not in `check`): a surviving mutant is logic no test pins down ---
 # Python: `just mutate-py` (all), `just mutate-py run "worlds.ap_go2.zones*"`, `just mutate-py results`
@@ -104,6 +107,7 @@ check-android: core-unmutated
     bash scripts/check_color_tokens.sh
     bash scripts/android_bindings.sh
     cd android && ./gradlew :app:spotlessCheck :app:detekt :app:lintDebug :app:testDebugUnitTest :app:koverVerifyDebug --console=plain -q
+    bash scripts/tests/android_release_core_test.sh
 
 android-build:
     cd android && ./gradlew assembleDebug --console=plain -q
@@ -115,6 +119,10 @@ android-install:
 android-start:
     adb shell am force-stop {{app}}
     adb shell am start -n {{app}}/dev.apgo2.MainActivity
+
+# Release APK: Gradle's release variant builds the core in the release profile first (`android_core.sh release`, re-review N4)
+android-release:
+    cd android && ./gradlew assembleRelease --console=plain -q
 
 # One command: rebuild Rust + app, install on the phone, launch.
 android-run: android-core android-build android-install android-start

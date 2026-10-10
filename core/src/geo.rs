@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::num::{ceil_usize, count_f64};
 
 const EARTH_RADIUS_M: f64 = 6_371_000.0;
+/// Metres per degree of latitude (and of longitude at the equator) on the [`EARTH_RADIUS_M`] sphere, rounded.
+const M_PER_DEG: f64 = 111_195.0;
 
 /// A WGS84 coordinate in degrees.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -79,10 +81,10 @@ pub fn densify(pts: &[Point], step_m: f64) -> Vec<Point> {
 }
 
 /// `pts` thinned for drawing, ends kept: first points closer than `min_step_m` to the last kept one are dropped (standing still or
-/// GPS scatter becomes one spot), then points within `tolerance_m` of the straight line between their neighbours (Douglas-Peucker;
+/// GPS scatter becomes one spot), then points within `tolerance_m` of the line through their neighbours ([`simplify`], Douglas-Peucker;
 /// wobble goes, real corners stay).
 #[must_use]
-pub fn simplify(pts: &[Point], min_step_m: f64, tolerance_m: f64) -> Vec<Point> {
+pub fn simplify_spaced(pts: &[Point], min_step_m: f64, tolerance_m: f64) -> Vec<Point> {
     let (Some(&first), Some(&last)) = (pts.first(), pts.last()) else { return Vec::new() };
     if pts.len() < 3 {
         return pts.to_vec();
@@ -94,20 +96,7 @@ pub fn simplify(pts: &[Point], min_step_m: f64, tolerance_m: f64) -> Vec<Point> 
         }
     }
     spaced.push(last);
-    // Douglas-Peucker without recursion: a stack of (from, to) index ranges whose inner points are still undecided.
-    let mut keep = vec![false; spaced.len()];
-    keep[0] = true;
-    keep[spaced.len() - 1] = true;
-    let mut ranges = vec![(0, spaced.len() - 1)];
-    while let Some((a, b)) = ranges.pop() {
-        let far = (a + 1..b).map(|i| (i, distance_to_segment_m(spaced[i], spaced[a], spaced[b]))).max_by(|x, y| x.1.total_cmp(&y.1));
-        if let Some((i, _)) = far.filter(|(_, d)| *d > tolerance_m) {
-            keep[i] = true;
-            ranges.push((a, i));
-            ranges.push((i, b));
-        }
-    }
-    spaced.into_iter().zip(keep).filter_map(|(p, k)| k.then_some(p)).collect()
+    simplify(&spaced, tolerance_m)
 }
 
 /// Average of the points (good enough as a polygon "center" at city scale), the short way across the antimeridian.
@@ -132,7 +121,7 @@ pub(crate) fn normal_lon(lon: f64) -> f64 {
 #[must_use]
 #[allow(clippy::many_single_char_names)] // standard planar-geometry notation (p, a, b, k, t)
 pub fn distance_to_segment_m(p: Point, a: Point, b: Point) -> f64 {
-    let k = 111_195.0;
+    let k = M_PER_DEG;
     let cos_lat = p.lat.to_radians().cos();
     let xy = |q: Point| ((unwrap_lon(q.lon, p.lon) - p.lon) * k * cos_lat, (q.lat - p.lat) * k);
     let ((ax, ay), (bx, by)) = (xy(a), xy(b));
@@ -217,6 +206,96 @@ pub fn destination(from: Point, bearing_deg: f64, dist_m: f64) -> Point {
     Point::new(lat2.to_degrees(), lon2.to_degrees())
 }
 
+/// Douglas-Peucker (the `geo` crate's): the points of `pts` needed to keep the line within `tol_m` metres (both ends always kept). The
+/// points are laid flat in metres around the first point's latitude (fine at city scale) so the tolerance means the same at any
+/// latitude; a line spanning many kilometres north-south measures its far end slightly off. A tolerance of 0 or less keeps every point.
+#[must_use]
+pub fn simplify(pts: &[Point], tol_m: f64) -> Vec<Point> {
+    use geo::SimplifyIdx;
+    let Some(o) = pts.first() else { return Vec::new() };
+    let cos_lat = o.lat.to_radians().cos();
+    let flat: geo::LineString<f64> = pts.iter().map(|p| geo::Coord { x: (p.lon - o.lon) * M_PER_DEG * cos_lat, y: (p.lat - o.lat) * M_PER_DEG }).collect();
+    flat.simplify_idx(tol_m).into_iter().map(|i| pts[i]).collect()
+}
+
+/// [`simplify`] that never drops a point marked in `pinned` (a junction shared with another way).
+#[must_use]
+pub fn simplify_pinned(pts: &[Point], pinned: &[bool], tol_m: f64) -> Vec<Point> {
+    let mut out: Vec<Point> = Vec::new();
+    let mut start = 0;
+    for i in 1..pts.len() {
+        if i == pts.len() - 1 || pinned.get(i).copied().unwrap_or(false) {
+            let piece = simplify(&pts[start..=i], tol_m);
+            out.extend(piece.into_iter().skip(usize::from(!out.is_empty())));
+            start = i;
+        }
+    }
+    if out.is_empty() {
+        out.extend(pts.iter().copied());
+    }
+    out
+}
+
+/// `pts` as an encoded polyline (Google's algorithm: zigzag deltas in 5-bit chunks, offset into printable ASCII), at `factor` units per
+/// degree (1e5 is Google's default; 1e7 keeps 1e-7 degree rounding exact).
+#[must_use]
+pub fn encode_polyline(pts: &[Point], factor: f64) -> String {
+    let mut out = Vec::new();
+    let mut prev = (0_i64, 0_i64);
+    for p in pts {
+        let v = (crate::num::round_i64(p.lat * factor), crate::num::round_i64(p.lon * factor));
+        for d in [v.0 - prev.0, v.1 - prev.1] {
+            let mut u = ((d << 1) ^ (d >> 63)).cast_unsigned();
+            while u >= 0x20 {
+                out.push(polyline_char(0x20 | (u & 0x1f)));
+                u >>= 5;
+            }
+            out.push(polyline_char(u));
+        }
+        prev = v;
+    }
+    out.into_iter().map(char::from).collect()
+}
+
+fn polyline_char(chunk: u64) -> u8 {
+    // a chunk is at most 0x3f, so the character is at most 126
+    u8::try_from(chunk + 63).unwrap_or(b'?')
+}
+
+/// The points of an encoded polyline made by [`encode_polyline`] with the same `factor`; `None` if it is not one (bad characters, a value
+/// cut short, a sum that overflows, or a point off the globe).
+#[must_use]
+pub fn decode_polyline(s: &str, factor: f64) -> Option<Vec<Point>> {
+    let mut values = Vec::new();
+    let (mut acc, mut shift) = (0_u64, 0_u32);
+    for b in s.bytes() {
+        if !(63..=126).contains(&b) || shift > 60 {
+            return None;
+        }
+        let chunk = u64::from(b - 63);
+        acc |= (chunk & 0x1f) << shift;
+        shift += 5;
+        if chunk < 0x20 {
+            values.push((acc >> 1).cast_signed() ^ -((acc & 1).cast_signed()));
+            (acc, shift) = (0, 0);
+        }
+    }
+    if shift != 0 || values.len() % 2 != 0 {
+        return None;
+    }
+    let mut at = (0_i64, 0_i64);
+    let mut out = Vec::with_capacity(values.len() / 2);
+    for d in values.chunks(2) {
+        at = (at.0.checked_add(d[0])?, at.1.checked_add(d[1])?);
+        let p = Point::new(crate::num::i64_to_f64(at.0) / factor, crate::num::i64_to_f64(at.1) / factor);
+        if p.lat.abs() > 90.0 || p.lon.abs() > 180.0 {
+            return None;
+        }
+        out.push(p);
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,7 +339,7 @@ mod tests {
         let a = Point::new(45.5, -122.6);
         // 20 fixes along 400 m east, each up to 2 m off the line: GPS wobble, not a turn
         let pts: Vec<Point> = (0..20).map(|i| destination(east(a, f64::from(i) * 20.0), 0.0, if i % 2 == 0 { 2.0 } else { -2.0 })).collect();
-        let s = simplify(&pts, 8.0, 4.0);
+        let s = simplify_spaced(&pts, 8.0, 4.0);
         assert_eq!(s.len(), 2, "{s:?}");
         assert_eq!((s[0], s[1]), (pts[0], pts[19]), "the ends are kept as they are");
     }
@@ -270,7 +349,7 @@ mod tests {
         let a = Point::new(45.5, -122.6);
         let corner = east(a, 200.0);
         let pts: Vec<Point> = (0..=10).map(|i| east(a, f64::from(i) * 20.0)).chain((1..=10).map(|i| destination(corner, 0.0, f64::from(i) * 20.0))).collect();
-        let s = simplify(&pts, 8.0, 4.0);
+        let s = simplify_spaced(&pts, 8.0, 4.0);
         assert_eq!(s.len(), 3);
         assert!(distance_m(s[1], corner) < 1.0);
     }
@@ -281,16 +360,67 @@ mod tests {
         // 50 fixes scattered within 5 m of one spot (standing still, or at home), then a walk away
         let mut pts: Vec<Point> = (0..50).map(|i| destination(a, f64::from(i * 37 % 360), f64::from(i % 5))).collect();
         pts.extend((1..=5).map(|i| east(a, f64::from(i) * 30.0)));
-        let s = simplify(&pts, 8.0, 4.0);
+        let s = simplify_spaced(&pts, 8.0, 4.0);
         assert!(s.len() <= 3, "the scribble is gone: {} points", s.len());
     }
 
     #[test]
     fn short_lines_are_left_alone() {
         let a = Point::new(45.5, -122.6);
-        assert_eq!(simplify(&[], 8.0, 4.0), Vec::<Point>::new());
-        assert_eq!(simplify(&[a], 8.0, 4.0), vec![a]);
-        assert_eq!(simplify(&[a, east(a, 1.0)], 8.0, 4.0), vec![a, east(a, 1.0)], "two points stay two, however close");
+        assert_eq!(simplify_spaced(&[], 8.0, 4.0), Vec::<Point>::new());
+        assert_eq!(simplify_spaced(&[a], 8.0, 4.0), vec![a]);
+        assert_eq!(simplify_spaced(&[a, east(a, 1.0)], 8.0, 4.0), vec![a, east(a, 1.0)], "two points stay two, however close");
+    }
+
+    #[test]
+    fn polylines_match_the_published_example() {
+        let pts = [Point::new(38.5, -120.2), Point::new(40.7, -120.95), Point::new(43.252, -126.453)];
+        assert_eq!(encode_polyline(&pts, 1e5), "_p~iF~ps|U_ulLnnqC_mqNvxq`@");
+        assert_eq!(decode_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@", 1e5), Some(pts.to_vec()));
+    }
+
+    #[test]
+    fn polylines_round_trip_exactly_at_seven_decimals() {
+        let r7 = |x: f64| crate::num::i64_to_f64(crate::num::round_i64(x * 1e7)) / 1e7;
+        let pts: Vec<Point> =
+            [(40.123_456_7, -111.765_432_1), (-33.868_819_9, 151.209_295_5), (0.0, 0.0), (-89.999_999_9, 179.999_999_9), (-89.999_999_9, -180.0)]
+                .iter()
+                .map(|&(lat, lon)| Point::new(r7(lat), r7(lon)))
+                .collect();
+        assert_eq!(decode_polyline(&encode_polyline(&pts, 1e7), 1e7), Some(pts));
+        assert_eq!(encode_polyline(&[], 1e7), "");
+        assert_eq!(decode_polyline("", 1e7), Some(vec![]));
+    }
+
+    /// Raw polyline values (deltas, in units) as the encoded string, to craft hostile input.
+    fn raw_polyline(values: &[i64]) -> String {
+        let mut out = String::new();
+        for &d in values {
+            let mut u = ((d << 1) ^ (d >> 63)).cast_unsigned();
+            while u >= 0x20 {
+                out.push(char::from(u8::try_from((0x20 | (u & 0x1f)) + 63).unwrap()));
+                u >>= 5;
+            }
+            out.push(char::from(u8::try_from(u + 63).unwrap()));
+        }
+        out
+    }
+
+    #[test]
+    fn a_crafted_polyline_that_overflows_or_leaves_the_globe_does_not_decode() {
+        let big = i64::MAX - 1;
+        assert_eq!(decode_polyline(&raw_polyline(&[big, 0, big, 0]), 1e7), None, "the latitude sum overflows");
+        assert_eq!(decode_polyline(&raw_polyline(&[0, -big, 0, -big]), 1e7), None, "the longitude sum overflows");
+        assert_eq!(decode_polyline(&raw_polyline(&[910_000_000, 0]), 1e7), None, "latitude 91");
+        assert_eq!(decode_polyline(&raw_polyline(&[0, -1_800_000_001]), 1e7), None, "longitude below -180");
+        assert_eq!(decode_polyline(&raw_polyline(&[900_000_000, 1_800_000_000]), 1e7), Some(vec![Point::new(90.0, 180.0)]), "the edges are fine");
+    }
+
+    #[test]
+    fn a_broken_polyline_does_not_decode() {
+        assert_eq!(decode_polyline("_p~iF~ps|U_", 1e5), None, "a dangling latitude");
+        assert_eq!(decode_polyline("_p~iF~ps|", 1e5), None, "a value cut short");
+        assert_eq!(decode_polyline("_p~iF ps|U", 1e5), None, "a character outside the alphabet");
     }
 
     #[test]
@@ -384,5 +514,73 @@ mod tests {
         let a = Point::new(45.5152, -122.6784);
         let b = Point::new(45.5231, -122.6765);
         assert!((distance_m(a, b) - distance_m(b, a)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn simplify_drops_points_on_a_straight_line_and_keeps_corners() {
+        let o = Point::new(40.0, -111.0);
+        let line: Vec<Point> = (0..=10).map(|i| destination(o, 90.0, 10.0 * f64::from(i))).collect();
+        assert_eq!(simplify(&line, 2.0), vec![line[0], line[10]]);
+        let corner = vec![o, destination(o, 90.0, 50.0), destination(destination(o, 90.0, 50.0), 0.0, 50.0)];
+        assert_eq!(simplify(&corner, 2.0).len(), 3);
+    }
+
+    #[test]
+    fn no_tolerance_keeps_every_point() {
+        let o = Point::new(40.0, -111.0);
+        let line: Vec<Point> = (0..=10).map(|i| destination(o, 90.0, 10.0 * f64::from(i))).collect();
+        assert_eq!(simplify(&line, 0.0), line);
+        assert_eq!(simplify(&line, -1.0), line);
+    }
+
+    #[test]
+    fn a_pinned_point_survives_simplification() {
+        let o = Point::new(40.0, -111.0);
+        let line: Vec<Point> = (0..=10).map(|i| destination(o, 90.0, 10.0 * f64::from(i))).collect();
+        let mut pinned = vec![false; 11];
+        pinned[4] = true;
+        assert_eq!(simplify_pinned(&line, &pinned, 2.0), vec![line[0], line[4], line[10]]);
+    }
+
+    #[test]
+    fn simplify_keeps_short_lines_as_they_are() {
+        let (a, b) = (Point::new(40.0, -111.0), Point::new(40.001, -111.0));
+        for pts in [vec![], vec![a], vec![a, b]] {
+            assert_eq!(simplify(&pts, 2.0), pts);
+            assert_eq!(simplify_pinned(&pts, &vec![true; pts.len()], 2.0), pts);
+            assert_eq!(simplify_pinned(&pts, &[], 2.0), pts, "no pins given");
+        }
+    }
+
+    #[test]
+    fn a_closed_loop_keeps_its_corners() {
+        let o = Point::new(40.0, -111.0);
+        let (e, n) = (destination(o, 90.0, 100.0), destination(o, 0.0, 100.0));
+        let ne = destination(e, 0.0, 100.0);
+        let loop_ = vec![o, destination(o, 90.0, 50.0), e, ne, n, o];
+        assert_eq!(simplify(&loop_, 2.0), vec![o, e, ne, n, o], "the mid-edge point goes, the corners and the closing point stay");
+        assert_eq!(simplify_pinned(&loop_, &[true, false, false, false, false, true], 2.0), vec![o, e, ne, n, o]);
+    }
+
+    #[test]
+    fn the_tolerance_is_metres_at_any_latitude() {
+        for lat in [0.0, 60.0, -75.0] {
+            let o = Point::new(lat, 10.0);
+            let (mid, end) = (destination(o, 90.0, 50.0), destination(o, 90.0, 100.0));
+            let (bump, dent) = (destination(mid, 0.0, 3.0), destination(mid, 180.0, 1.0));
+            assert_eq!(simplify(&[o, bump, end], 2.0), vec![o, bump, end], "a 3 m bump stays at {lat}");
+            assert_eq!(simplify(&[o, dent, end], 2.0), vec![o, end], "a 1 m dent goes at {lat}");
+            let (side, nudge) = (destination(o, 0.0, 100.0), destination(destination(o, 0.0, 50.0), 90.0, 1.5));
+            assert_eq!(simplify(&[o, nudge, side], 2.0), vec![o, side], "1.5 m off a north-south line goes at {lat}");
+        }
+    }
+
+    #[test]
+    fn pins_on_the_ends_change_nothing() {
+        let o = Point::new(40.0, -111.0);
+        let line: Vec<Point> = (0..=10).map(|i| destination(o, 90.0, 10.0 * f64::from(i))).collect();
+        let mut pinned = vec![false; 11];
+        (pinned[0], pinned[10]) = (true, true);
+        assert_eq!(simplify_pinned(&line, &pinned, 2.0), vec![line[0], line[10]]);
     }
 }

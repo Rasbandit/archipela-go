@@ -17,6 +17,8 @@ class MapMarkersTest {
                 MarkerSpec.Ring(listOf(1, 2, 0, 3)),
                 MarkerSpec.Item("pinecones", "open"),
                 MarkerSpec.Item("shells", "locked"),
+                MarkerSpec.Me(heading = true, state = "bridged"),
+                MarkerSpec.Me(heading = false, state = "gps"),
             )
         specs.forEach { assertEquals(it, MapMarkers.parse(it.key)) }
         assertEquals("keys are distinct", specs.size, specs.map { it.key }.toSet().size)

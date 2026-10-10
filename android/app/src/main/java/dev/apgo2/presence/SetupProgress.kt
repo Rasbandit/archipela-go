@@ -1,6 +1,6 @@
 package dev.apgo2.presence
 
-internal enum class SetupStep { Home, Wifi, Car }
+internal enum class SetupStep { Home, Wifi, Car, Battery }
 
 /** What the player has set up so far. Pure: the Home card and the wizard both read it. */
 internal data class SetupProgress(

@@ -5,12 +5,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import dev.apgo2.presence.SetupStep
 import dev.apgo2.ui.SetupText
 
 /** First-run and edit wizard for Home Base: where home is, which Wi-Fi networks are home, which Bluetooth device is the car. */
 @Composable
 internal fun SetupFlow(m: AppModel) {
+    val ctx = LocalContext.current
     var step by rememberSaveable { mutableStateOf(m.setup.startStep) }
     when (step) {
         SetupStep.Home -> {
@@ -25,7 +27,13 @@ internal fun SetupFlow(m: AppModel) {
         }
 
         SetupStep.Car -> {
-            CarStep(m, onBack = { step = SetupStep.Wifi }, onDone = { m.setup.finish() })
+            CarStep(m, onBack = { step = SetupStep.Wifi }, onDone = {
+                if (BatteryGuide.needed(ctx.ignoringBatteryOptimizations())) step = SetupStep.Battery else m.setup.finish()
+            })
+        }
+
+        SetupStep.Battery -> {
+            BatteryStep(onBack = { step = SetupStep.Car }, onDone = { m.setup.finish() })
         }
     }
 }

@@ -9,17 +9,35 @@ export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)}"
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# Gradle's releaseCore runs this script without `just`, so the guard lives here too (re-review N4).
+bash "$root/scripts/core_unmutated.sh"
+
 flag=()
 [ "$profile" = release ] && flag=(--release)
 
 cd "$root/core"
 targets=()
 for abi in ${APGO_ABIS:-arm64-v8a}; do targets+=(-t "$abi"); done
-cargo ndk "${targets[@]}" -o "$root/android/app/src/main/jniLibs" build -p apgo-ffi "${flag[@]}"
+# Only the ABIs built now are packaged: a stale library of another ABI or profile (a debug x86_64 core from the emulator loop) would
+# ship in the APK. Build aside and swap in on success, so a failed build leaves the previous libraries instead of an empty directory.
+jni="$root/android/app/src/main/jniLibs"
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+cargo ndk "${targets[@]}" -o "$stage" build -p apgo-ffi "${flag[@]}"
+rm -rf "$jni"
+mkdir -p "$(dirname "$jni")"
+mv "$stage" "$jni"
+chmod 755 "$jni"
 
+lib="target/aarch64-linux-android/$profile/libapgo_ffi.so"
+if [ "$profile" = release ]; then
+  # The release profile strips the library, UniFFI metadata included; the bindings come from the same source, so a host build has them.
+  cargo build -q -p apgo-ffi
+  lib="target/debug/libapgo_ffi.so"
+fi
 out="$root/android/app/src/main/kotlin"
 rm -rf "$out/uniffi"
 cargo run -q -p apgo-ffi --bin uniffi-bindgen -- generate \
-  --library "target/aarch64-linux-android/$profile/libapgo_ffi.so" \
+  --library "$lib" \
   --language kotlin --no-format --out-dir "$out"
 echo "core ($profile) built; bindings in android/app/src/main/kotlin/uniffi"

@@ -66,6 +66,8 @@ import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.BubblePlacement
 import dev.apgo2.ui.FeedbackText
+import dev.apgo2.ui.Help
+import dev.apgo2.ui.LabelWithHelp
 import dev.apgo2.ui.METERS_PER_KM
 import dev.apgo2.ui.MapBubble
 import dev.apgo2.ui.MapMarkers
@@ -386,7 +388,7 @@ private fun PlayMap(
 ) {
     val quests = held(onShow) { m.quests }
     val realms = held(onShow) { m.realms.filter { r -> m.zones.any { it.realmId == r.id } } }
-    val me = held(onShow) { m.me }
+    val me = held(onShow) { m.mePin }
     val trace = held(onShow) { m.trace }
     val chain = held(onShow) { m.chains.firstOrNull { it.id == m.selectedChain } }
     val selected = quests.firstOrNull { it.locationId == m.selected }
@@ -481,6 +483,13 @@ private fun GamePanel(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (m.chains.isNotEmpty() || layout.progress.isNotEmpty()) {
             ProgressSection(m, layout, allProgress) { allProgress = !allProgress }
+        }
+        if (m.networkOnly) {
+            LabelWithHelp(
+                "Wi-Fi location only: quests do not count",
+                Help.networkOnly,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
         ZonesRow(m.zones)
         (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let {

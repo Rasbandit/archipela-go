@@ -12,6 +12,12 @@ private const val PROGRESS_BUCKETS = 10
 private const val REJECT_ACCURACY_M = 35f
 private const val MS_PER_SECOND = 1000
 private const val BEAT_EVERY_MS = 60_000L
+private const val MAX_PERF_SAMPLES = 1000
+private const val P50 = 0.5
+private const val P99 = 0.99
+private const val NANOS_PER_US = 1_000L
+
+private const val BEATS_PER_STEP_CAL_SAVE = 5
 
 /** What the phone delivered since the last heartbeat line, and the other facts that explain a gap in the diagnostics log. */
 internal class FieldDiagnostics(
@@ -26,6 +32,13 @@ internal class FieldDiagnostics(
     private val progressBuckets = HashMap<Long, Int>()
     private val providerCounts = HashMap<String, Int>()
     private val beat = Throttle(BEAT_EVERY_MS)
+    private val onFixMicros = RecentSamples(MAX_PERF_SAMPLES)
+    private var beats = 0
+
+    /** Time of one `engine.onFix` (debug builds pass it; the heartbeat reports p50/p99 per minute). */
+    fun recordOnFix(nanos: Long) {
+        onFixMicros.add(nanos / NANOS_PER_US)
+    }
 
     /** Count a location fix for the next heartbeat. */
     fun recordFix(loc: Location) {
@@ -59,6 +72,8 @@ internal class FieldDiagnostics(
         fixesSinceBeat = 0
         rejectedSinceBeat = 0
         providerCounts.clear()
+        onFixMicros.clear()
+        if (++beats % BEATS_PER_STEP_CAL_SAVE == 0) model.stepCal.saveFrom(model.engine) // about every 5 minutes of fixes
         drainCore()
     }
 
@@ -74,6 +89,9 @@ internal class FieldDiagnostics(
             "last_provider" to lastFixProvider,
             "by_provider" to providerCounts.entries.joinToString(",") { "${it.key}=${it.value}" },
             "steps" to model.stepsTotal,
+            "perf_n" to onFixMicros.values.size,
+            "perf_p50_us" to Percentiles.of(onFixMicros.values, P50),
+            "perf_p99_us" to Percentiles.of(onFixMicros.values, P99),
         )
 
     private fun deviceFields(): Array<Pair<String, Any?>> {

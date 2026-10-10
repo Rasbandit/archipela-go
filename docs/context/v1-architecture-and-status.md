@@ -33,14 +33,18 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - `core/src/journal.rs`: one SQLite file `journal.db` (WAL) in the app files dir. `points` (+ `points_rt` R*Tree) = every accepted GPS fix, flagged
   simulated or real; `events` = audit log (quests, checks, rewards, traps, rejected fixes throttled to 1/min, app foreground/background).
 - Trace = `Journal::segments`, split where two points are >2 min apart (phone off). Play map draws it (`trace` layer in `QuestMap.kt`).
-- GPS rate: `GpsPolicy.kt`/`PresencePolicy.kt`, playing = every 5 s once moved 10 m (zone) or 90 s once moved 50 m (far); standing still gives no fixes, since dwell and time away finish on one scheduled wake-up (`DueTimer`, core `next_due_ms`/`tick`). Idle = 15 s / 20 m.
+- GPS rate: `GpsPolicy.kt`/`PresencePolicy.kt`, in a zone = every 1 s with the screen on, 5 s (batched up to 10 s) with it off, high
+  accuracy, NO distance filter (the filter needs a steady stream: stationary hold, gap and reset detection); far = 90 s once moved 50 m.
+  Dwell and time away still finish on one scheduled wake-up (`DueTimer`, core `next_due_ms`/`tick`). Idle = 15 s / 20 m. The journal
+  stores accepted estimates (5 s or 5 m throttle), not raw fixes.
 - Gaps: the simulator advances a virtual clock 10 min per jump, so sim points never form a line. Real GPS untested outdoors. The trace is reloaded in full on every
   fix (fine for a few thousand points; page or simplify later). Events are only logged while a game is open. No export/clear UI yet.
 
-- Fix quality (core `Game::on_fix`): accuracy limit 35 m, a fix implying >100 km/h (error radii discounted) is dropped (3 in a row are believed), distance counts only after
-  movement beyond GPS wobble and never across >5 min gaps. `Game::explain_near` says why a quest within 100 m does or does not count; logged as `near_miss` events.
+- Fix quality: quests, fog, chains, the odometer and the journal use estimates from the IMM filter (`loc::Locator`), never raw fixes;
+  the map pin is matched to streets and bridged through GPS gaps. See `location-estimation.md`. `Game::explain_near` says why a quest
+  within 100 m does or does not count (from the estimate's verdict); logged as `near_miss` events.
 - Activity tab + `Engine.activity`: journal entries with attribution (`Game::journal_events`, `items::blurb`). Pause tracking = `AppModel.pause()` (closes the game, stops the service).
-  `delete_game` archives the save to `games-archive/` and keeps journal rows. Street snapping is NOT done yet (idea: display/trace only, sticky segment, after the retest).
+  `delete_game` archives the save to `games-archive/` and keeps journal rows. Street snapping of the pin and trace is done (display only, `location-estimation.md`).
 
 ## Progressive chains
 
@@ -67,7 +71,7 @@ Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone 
 ## Presence (home Wi-Fi, car Bluetooth, zone duty cycle)
 
 `android/.../presence/`: `PresencePolicy.decide(Signals)` is a pure function, first match wins: not playing = Stopped; car Bluetooth = InCar; home Wi-Fi = AtHome (all three:
-GPS off, `counting=false`); zone Far = OutsideZones (GPS 90 s / 50 m, counting); otherwise InZone (GPS 5 s / 10 m, counting). `PresenceMonitor` gathers the signals
+GPS off, `counting=false`); zone Far = OutsideZones (GPS 90 s / 50 m, counting); otherwise InZone (GPS every 1 s screen on / 5 s off, counting). `PresenceMonitor` gathers the signals
 (Wi-Fi SSID, Bluetooth ACL, nearest zone), applies the decision to the location source and to the counting flag (the engine ignores fixes and steps while it is false), shows
 the chip on Play and writes a "Presence" activity line and a `presence` diag line on each change; heartbeat (at most once a minute, on fixes) adds `presence`/`counting`;
 a pending debounce schedules one re-evaluation for when it settles. Settings (home SSIDs with optional BSSID, car device name+address) live in SharedPreferences `presence` via `PresenceSettings`, not in the core.
@@ -94,6 +98,11 @@ first diag line prints `GpsMode$Off@hash` (cosmetic, no toString).
 - Emulator: realm create/edit/undo/redo/autosave, scan with progress and cooldown, cache hit (11 of 12 requests from cache after a nudge), stats, home picker,
   New Game with zones + two goals starting a game, per-goal progress in Play, swipe delete + Undo, Back/Done/tab navigation.
 - Earlier (before the UI rework): solo autoplay to a win; full Archipelago session against a local server incl. a Bike item unlocking zone 2 and the goal being reported.
+- Location stack (branch `feat/location-quality`, 2026-10-09): core unit tests and `core/tests/loc_scenarios.rs` (20 seeds per
+  scenario, in `check-rust`); Android unit tests for `GpsPolicy`, `MePins`, `StepCalCodec`, compass and battery helpers; host replays
+  of the 2026-10-07 and 2026-10-08 journal walks against the legacy rules (false jumps 1 vs 26 on 10-07; standing drift and odometer
+  wobble lower on both; no parameter change justified). Nothing of it ran on the emulator or the phone (Tasks 13 and 15 device checks were
+  not done).
 
 ## Not done / not verified (be honest in summaries)
 
@@ -109,3 +118,5 @@ first diag line prints `GpsMode$Off@hash` (cosmetic, no toString).
 - The apworld has no tutorial/game-info pages (WebWorld only carries option groups).
 - Launcher icon is the default; our own icon is not designed. The Archipelago logo (CC BY-NC) must not be bundled (`ui-design-system.md`).
 - Licensing: `android/` is PolyForm Noncommercial 1.0.0, everything else MIT; no contributor agreement yet (#82, see `working-in-this-repo.md`).
+- Location stack (#117): no outdoor walk with the new build; map matching is unscored on real walks until a pull includes atlases;
+  pin glide, arrow, images, landscape compass, battery step and the Play services path are unchecked on a device; iOS not started.

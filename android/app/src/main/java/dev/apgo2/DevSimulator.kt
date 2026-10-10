@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.EventOut
+import uniffi.apgo_ffi.FixIn
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.QuestOut
 import kotlin.math.ceil
@@ -105,7 +106,22 @@ internal class DevSimulator(
     ): List<EventOut> {
         model.simPos = LatLng(p.lat, p.lon)
         if (withSteps) steps += STEPS_PER_FIX
-        return model.engine.onFix(p.lat, p.lon, tick(advanceMs), SIM_ACCURACY_M, if (withSteps) steps else null, true)
+        val f =
+            FixIn(
+                tMs = tick(advanceMs),
+                lat = p.lat,
+                lon = p.lon,
+                accuracyM = SIM_ACCURACY_M,
+                speedMps = null,
+                speedAccMps = null,
+                bearingDeg = null,
+                bearingAccDeg = null,
+                altitudeM = null,
+                verticalAccM = null,
+                provider = "sim",
+                mock = false,
+            )
+        return model.engine.onFix(f, if (withSteps) steps else null, true)
     }
 
     private fun offset(

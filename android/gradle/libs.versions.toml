@@ -16,6 +16,7 @@ detekt = "2.0.0-alpha.6"
 composeRulesDetekt = "0.6.7"
 kover = "0.9.11"
 orgJson = "20260814"
+playServicesLocation = "21.4.0"
 
 [libraries]
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
@@ -32,6 +33,7 @@ core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 junit = { module = "junit:junit", version.ref = "junit" }
 lucide = { module = "com.composables:icons-lucide-cmp", version.ref = "lucide" }
 org-json = { module = "org.json:json", version.ref = "orgJson" }
+play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -18,7 +18,8 @@ widgets or write colours themselves.
   and the map pin's state badge both use it, so they cannot drift apart. What a quest *is* is shown by family colour and icon (`ApgoPalette.kind`), on the map and in the realm editor alike.
 - A map pin is only ever built by `MapMarkers.render(MarkerSpec)`: `Find` (realm editor: family colour, ring for favorite, grey for banned) and `Quest` (Play map: family colour,
   corner badge for state: none = open, amber dot = in progress, green check = done, lock = locked; locked pins are grey) and `Item` (Play map: a forager item, its theme icon from
-  `ApgoIcons.collectible` on its quest's state colour, no badge or pips; one pin per item still out there). Size by difficulty (`iconScale`), draw order by state (`drawOrder`).
+  `ApgoIcons.collectible` on its quest's state colour, no badge or pips; one pin per item still out there) and `Me` (the player: person or arrow, hollow while bridged, grey when stale;
+  drawn by the MapLibre LocationComponent from these images, every variant added to the style first, see `location-estimation.md`). Size by difficulty (`iconScale`), draw order by state (`drawOrder`).
 - Pins are never hidden by collision. Zooming out first shrinks them (full size from zoom 16, half by 13: `shrinkWhenZoomedOut`); below
   zoom 16 pins still too close merge into a numbered cluster (MapLibre source clustering, `MapSource.CLUSTERED`). A quest cluster is a ring split by
   how many quests inside are in each state (`MarkerSpec.Ring`, drawn on demand via the style's missing-image listener); a find cluster is a plain teal

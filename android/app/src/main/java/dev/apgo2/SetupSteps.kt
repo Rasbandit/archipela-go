@@ -3,7 +3,12 @@ package dev.apgo2
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.apgo2.presence.CarChoices
 import dev.apgo2.presence.CarDevice
 import dev.apgo2.presence.HomeNetwork
@@ -309,6 +315,50 @@ internal fun CarStep(
                 Text(d.name)
             }
         }
+    }
+}
+
+/** Step 4 (optional, only while the app is battery-optimised): the phone maker's guidance and a button to the battery settings list. */
+@Composable
+internal fun BatteryStep(
+    onBack: () -> Unit,
+    onDone: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    val guide = remember { BatteryGuide.forMaker(Build.MANUFACTURER) }
+    // Re-checked on every return from the settings screen.
+    var confirmation by remember { mutableStateOf(BatteryGuide.confirmation(ctx.ignoringBatteryOptimizations())) }
+    LifecycleResumeEffect(Unit) {
+        confirmation = BatteryGuide.confirmation(ctx.ignoringBatteryOptimizations())
+        onPauseOrDispose {}
+    }
+    StepPage(
+        title = SetupText.BATTERY_TITLE,
+        why = SetupText.BATTERY_WHY,
+        next = "Finish",
+        skip = if (confirmation == null) "Skip" else null,
+        onBack = onBack,
+        onNext = onDone,
+    ) {
+        Text(guide.title, style = MaterialTheme.typography.titleSmall)
+        Text(guide.body, style = MaterialTheme.typography.bodyMedium)
+        confirmation?.let { FeedbackText(it, Tone.Success) }
+        OutlinedButton(onClick = { ctx.openBatterySettings() }) { Text(SetupText.BATTERY_BUTTON) }
+    }
+}
+
+// The settings list, not the direct "ignore optimisation?" dialog (Play policy reserves that for a few app kinds).
+// Some OEM builds lack that screen; fall back to this app's details page.
+private fun Context.openBatterySettings() {
+    try {
+        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: ActivityNotFoundException) {
+        runCatching {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }.onFailure { Diag.error("BatteryStep", "no settings screen to open", it) }
     }
 }
 

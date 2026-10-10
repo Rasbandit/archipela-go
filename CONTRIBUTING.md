@@ -36,9 +36,9 @@ npm install -g --prefix ~/.local markdownlint-cli2@0.23.3
 
 - `just check-hygiene`: typos, gitleaks, actionlint, shellcheck (`scripts/`), markdownlint-cli2, pre-push dispatcher tests.
 - `just check-py` (needs `.ap/`): ruff (ALL, also over `scripts/*.py` via `scripts/ruff.toml`), pyright strict, pytest with a coverage floor of 99.
-- `just check-rust`: rustfmt, clippy (pedantic, deny), rustdoc `-D warnings`, cargo deny, cargo llvm-cov floor of 80.
+- `just check-rust`: rustfmt, clippy (pedantic, deny), rustdoc `-D warnings`, cargo deny, cargo llvm-cov floor of 91.
 - `just check-android`: host-built bindings, Spotless/ktlint, detekt, Android Lint (warnings are errors), unit tests,
-  Kover floor of 17.
+  Kover floor of 21.
 - Coverage floors only go up (see `docs/context/working-in-this-repo.md`).
 - Mutation testing (slow, not part of `check`): `just mutate-py` (mutmut over `apworld/ap_go2`, staged in `.mutate-py/`)
   and `just mutate-rust` (cargo-mutants over `apgo-core`, in place; `-f src/goal.rs` for one file, all of it takes hours).

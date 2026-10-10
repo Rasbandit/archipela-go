@@ -60,6 +60,13 @@ class HelpTextTest {
                 terrain,
                 stairs,
                 archipelago,
+                batterySamsung,
+                batteryXiaomi,
+                batteryHuawei,
+                batteryOppo,
+                batteryOther,
+                hollowDot,
+                networkOnly,
             ) + families.values + goalDescriptions.values
         }
 
@@ -85,6 +92,8 @@ class HelpTextTest {
             SetupText.HOME_BASE_UNSET,
             SetupText.WIFI_WHY,
             SetupText.CAR_WHY,
+            SetupText.BATTERY_WHY,
+            SetupText.BATTERY_DONE,
             SetupText.WIFI_NONE_FOUND,
             SetupText.WIFI_NEEDS_LOCATION,
             SetupText.CAR_NEEDS_BLUETOOTH,
