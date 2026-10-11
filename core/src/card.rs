@@ -108,6 +108,89 @@ fn thousands(n: u64) -> String {
     out
 }
 
+/// What the card's progress block shows: a labelled amount with a bar, or a two-step tracker (`steps` non-empty).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Progress {
+    /// What is measured ("Time here", "Traveled").
+    pub label: String,
+    /// How far along, in words ("1:12 of 3:00", "Done").
+    pub value: String,
+    /// The bar, 0 to 1.
+    pub frac: f32,
+    /// One extra line when it says something the card does not already.
+    pub hint: Option<String>,
+    /// A two-step quest's steps; empty for a bar.
+    pub steps: Vec<String>,
+    /// Steps done (0, 1 or 2).
+    pub step_at: u8,
+}
+
+/// The progress block of quest `q`; `None` for quests with nothing to measure (reach a spot).
+#[must_use]
+pub fn card_progress(q: &crate::game::QuestView, now_ms: i64, units: UnitSystem) -> Option<Progress> {
+    let done = q.state == crate::game::QuestState::Done;
+    let f = if done { 1.0 } else { f64::from(q.progress).clamp(0.0, 1.0) };
+    let bar = |label: &str, value: String, hint: Option<String>| Progress {
+        label: label.into(),
+        value: if done { "Done".into() } else { value },
+        frac: crate::num::to_f32(f),
+        hint: if done { None } else { hint },
+        steps: vec![],
+        step_at: 0,
+    };
+    let steps = |names: [&str; 2], hint: Option<String>| Progress {
+        label: String::new(),
+        value: String::new(),
+        frac: crate::num::to_f32(f),
+        hint: if done { None } else { hint },
+        steps: names.iter().map(|s| (*s).to_string()).collect(),
+        step_at: if done { 2 } else { u8::from(f >= 0.5) },
+    };
+    Some(match &q.target {
+        Target::Point { .. } => return None,
+        Target::Dwell { minutes, .. } => bar("Time here", format!("{} of {}", clock(minutes * f), clock(*minutes)), None),
+        Target::DwellArea { minutes, .. } => bar("Time inside", format!("{} of {}", clock(minutes * f), clock(*minutes)), None),
+        Target::Line { pts, coverage, .. } => {
+            let want = polyline_len_m(pts) * coverage;
+            let target = distance(want, units);
+            let (num, unit) = target.rsplit_once(' ').unwrap_or((target.as_str(), ""));
+            bar("Traveled", format!("{} of {num} {unit}", amount_like(want * f, unit, units)), None)
+        }
+        Target::Steps { n } => bar("Steps", format!("{} of {}", thousands(crate::num::round_u64(f64::from(*n) * f)), thousands(u64::from(*n))), None),
+        Target::Away { minutes } => bar("Time away", format!("{} of {minutes:.0} min", crate::num::round_u64(minutes * f)), None),
+        Target::Cells { .. } => bar("New ground", format!("{}%", crate::num::round_u64(f * 100.0)), None),
+        Target::Collect { need, theme, .. } => {
+            let (banked, carried) = q.collected.as_ref().map_or((0, 0), |c| (c.banked, c.carried));
+            let mut p = bar("Banked", format!("{banked} of {need} {theme}"), (carried > 0).then(|| format!("Carrying {carried}")));
+            p.frac = if *need == 0 { 1.0 } else { crate::num::to_f32((f64::from(banked) / f64::from(*need)).min(1.0)) };
+            p
+        }
+        Target::Courier { time_limit_min, .. } => {
+            let left = q.picked_at_ms.filter(|_| f >= 0.5).map(|t0| (time_limit_min * 60_000.0 - crate::num::i64_to_f64(now_ms - t0)).max(0.0) / 60_000.0);
+            let hint = left.map_or_else(|| format!("{time_limit_min:.0} min to deliver once picked up"), |m| format!("{} left to deliver", clock(m)));
+            steps(["Pick up", "Deliver"], Some(hint))
+        }
+        Target::RoundTrip { .. } => steps(["Reach the far point", "Back home"], None),
+    })
+}
+
+/// "1:12" from 1.2 minutes.
+fn clock(minutes: f64) -> String {
+    let s = crate::num::round_u64(minutes.max(0.0) * 60.0);
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// `m` metres as a bare number in `unit` ("mi", "ft", "km", "m"), rounded the way the shared formatter rounds that unit.
+fn amount_like(m: f64, unit: &str, units: UnitSystem) -> String {
+    match unit {
+        "mi" => format!("{:.1}", m / 1609.344),
+        "km" => format!("{:.1}", m / 1000.0),
+        "ft" => (crate::num::round_u64(m / 0.3048 / 10.0) * 10).to_string(),
+        "m" => (crate::num::round_u64(m / 10.0) * 10).to_string(),
+        _ => distance(m, units),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,5 +287,97 @@ mod tests {
         );
         let collect = Target::Collect { pts: vec![ne], need: 5, r: 25.0, theme: "acorns".into() };
         assert_eq!(text(&quest("forager", collect)), ("Collect 5 acorns".into(), "Bring them home to bank".into()));
+    }
+
+    fn view(target: Target, state: crate::game::QuestState, progress: f32) -> crate::game::QuestView {
+        crate::game::QuestView {
+            location_id: 1,
+            zone: 1,
+            name: "Q".into(),
+            place: "P".into(),
+            feature_id: None,
+            family: "x".into(),
+            kind_id: "k".into(),
+            difficulty: "easy".into(),
+            tier: 1,
+            effort_min: 10.0,
+            mode: Mode::Walk,
+            state,
+            progress,
+            anchor: None,
+            target,
+            fallback: false,
+            boss: false,
+            blurb: String::new(),
+            reward: None,
+            chain_id: None,
+            collected: None,
+            picked_at_ms: None,
+        }
+    }
+    fn prog(q: &crate::game::QuestView) -> Progress {
+        card_progress(q, 1_000_000, Imperial).expect("a progress block")
+    }
+    use crate::game::QuestState::{Done, InProgress, Open};
+
+    #[test]
+    fn timed_quests_count_minutes_and_seconds() {
+        let dwell = Target::Dwell { p: home(), r: 40.0, minutes: 3.0 };
+        let p = prog(&view(dwell.clone(), InProgress, 0.4));
+        assert_eq!((p.label.as_str(), p.value.as_str(), p.hint), ("Time here", "1:12 of 3:00", None));
+        assert_eq!(prog(&view(dwell.clone(), Open, 0.0)).value, "0:00 of 3:00");
+        let done = prog(&view(dwell, Done, 1.0));
+        assert_eq!((done.value.as_str(), done.frac), ("Done", 1.0));
+        let area = Target::DwellArea { poly: vec![], center: home(), r: 60.0, minutes: 1.0 };
+        assert_eq!(prog(&view(area, InProgress, 0.4)).label, "Time inside");
+    }
+
+    #[test]
+    fn lines_count_distance_in_one_unit() {
+        let p = prog(&view(line(4506.0, 0.5), InProgress, 0.4));
+        assert_eq!((p.label.as_str(), p.value.as_str()), ("Traveled", "0.6 of 1.4 mi"));
+        assert_eq!(prog(&view(line(200.0, 0.5), InProgress, 0.5)).value, "160 of 330 ft");
+    }
+
+    #[test]
+    fn counts_steps_time_away_and_new_ground() {
+        assert_eq!(prog(&view(Target::Steps { n: 2000 }, InProgress, 0.4)).value, "800 of 2,000");
+        assert_eq!(prog(&view(Target::Away { minutes: 60.0 }, InProgress, 0.4)).value, "24 of 60 min");
+        let cells = prog(&view(Target::Cells { n: 8, cell_m: 150.0 }, InProgress, 0.375));
+        assert_eq!((cells.label.as_str(), cells.value.as_str()), ("New ground", "38%"));
+    }
+
+    #[test]
+    fn forager_counts_what_is_banked_and_mentions_what_is_carried() {
+        let mut q = view(Target::Collect { pts: vec![home()], need: 5, r: 25.0, theme: "acorns".into() }, InProgress, 0.2);
+        q.collected = Some(crate::verify::Collected { picked: std::collections::BTreeSet::default(), carried: 2, banked: 1 });
+        let p = prog(&q);
+        assert_eq!((p.label.as_str(), p.value.as_str(), p.hint.as_deref()), ("Banked", "1 of 5 acorns", Some("Carrying 2")));
+    }
+
+    #[test]
+    fn two_step_quests_track_their_step_and_the_delivery_clock() {
+        let courier = Target::Courier { a: home(), b: home(), r: 40.0, time_limit_min: 10.0 };
+        let open = prog(&view(courier.clone(), Open, 0.0));
+        assert_eq!(
+            (open.steps.clone(), open.step_at, open.hint.as_deref()),
+            (vec!["Pick up".to_string(), "Deliver".to_string()], 0, Some("10 min to deliver once picked up"))
+        );
+        let mut carrying = view(courier.clone(), InProgress, 0.5);
+        carrying.picked_at_ms = Some(1_000_000 - 200_000);
+        let c = prog(&carrying);
+        assert_eq!((c.step_at, c.hint.as_deref()), (1, Some("6:40 left to deliver")));
+        // Time ran out: the tracker forgot the pick-up, so the card is back at step one with no stale clock.
+        let timed_out = prog(&view(courier, InProgress, 0.0));
+        assert_eq!((timed_out.step_at, timed_out.hint.as_deref()), (0, Some("10 min to deliver once picked up")));
+        let rt = Target::RoundTrip { far: home(), r: 50.0 };
+        let steps: Vec<u8> = [(Open, 0.0), (InProgress, 0.5), (Done, 1.0)].iter().map(|(s, p)| prog(&view(rt.clone(), *s, *p)).step_at).collect();
+        assert_eq!(steps, [0, 1, 2]);
+        assert_eq!(prog(&view(rt, Open, 0.0)).steps, ["Reach the far point", "Back home"]);
+    }
+
+    #[test]
+    fn reaching_a_spot_has_no_progress_block() {
+        assert!(card_progress(&view(Target::Point { p: home(), r: 40.0 }, Open, 0.0), 0, Imperial).is_none());
     }
 }

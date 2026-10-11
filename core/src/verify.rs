@@ -139,6 +139,15 @@ fn cell_id(p: Point, cell_m: f64) -> (i64, i64) {
 }
 
 impl Tracker {
+    /// A courier quest's pick-up time while the package is carried; `None` otherwise.
+    #[must_use]
+    pub fn picked_at(&self) -> Option<i64> {
+        match self.state {
+            State::Courier { picked_at } => picked_at,
+            _ => None,
+        }
+    }
+
     /// A tracker for `target`, with distances measured from `home`.
     #[must_use]
     pub fn new(target: Target, home: Point) -> Self {

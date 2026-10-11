@@ -101,6 +101,8 @@ pub struct QuestView {
     pub chain_id: Option<String>,
     /// A forager quest's items picked, carried and banked so far (`None` for other quests, or before anything was picked).
     pub collected: Option<Collected>,
+    /// A courier quest's pick-up time while the package is carried (for the time left to deliver).
+    pub picked_at_ms: Option<i64>,
 }
 
 /// One milestone of a chain, as the UI shows it.
@@ -618,6 +620,7 @@ impl Game {
                     reward: if done { self.solo_rewards.get(&a.location_id).cloned() } else { None },
                     chain_id: member.map(|(id, _)| id),
                     collected: self.collected.get(&a.location_id).cloned(),
+                    picked_at_ms: self.trackers.get(&a.location_id).and_then(Tracker::picked_at),
                 }
             })
             .collect()
