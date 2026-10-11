@@ -13,17 +13,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,11 +27,9 @@ import dev.apgo2.ui.ChainBar
 import dev.apgo2.ui.ChainFormat
 import dev.apgo2.ui.CollectFormat
 import dev.apgo2.ui.FeedbackText
-import dev.apgo2.ui.PoiFormat
 import dev.apgo2.ui.Tone
 import uniffi.apgo_ffi.ChainOut
 import uniffi.apgo_ffi.CollectOut
-import uniffi.apgo_ffi.PoiDetailsOut
 import uniffi.apgo_ffi.QuestOut
 
 private const val PERCENT = 100
@@ -72,13 +64,10 @@ internal fun ProgressRow(
     }
 }
 
-private const val CLOSE = "Close"
-
 // What a quest asks of you and what it pays: the content of the Play popup (a callout on the pin, or a card for quests with no pin).
 @Composable
 internal fun ColumnScope.QuestDetails(
     q: QuestOut,
-    onInfo: (() -> Unit)? = null,
     onClose: () -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -101,56 +90,13 @@ internal fun ColumnScope.QuestDetails(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        onInfo?.let { IconButton(onClick = it) { Icon(ApgoIcons.Info, contentDescription = "About this place") } }
-        IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = CLOSE) }
+        IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = "Close") }
     }
     Text(q.detail, fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp))
     q.collect?.let { CollectItems(it) }
     if (q.state == "progress") LinearProgressIndicator(progress = { q.progress }, Modifier.fillMaxWidth().padding(end = 8.dp))
     Text(q.blurb, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
     q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
-}
-
-// What the map knows about a quest's place: a title, then one row per known field; links open in the browser or dialer.
-// `d == null` means the place is gone from the realm's scan (rescanned since the game was made).
-@Composable
-internal fun ColumnScope.PoiDetailsCard(
-    d: PoiDetailsOut?,
-    onClose: () -> Unit,
-) {
-    val uri = LocalUriHandler.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            d?.let { PoiFormat.title(it) } ?: "Place",
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.weight(1f),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = CLOSE) }
-    }
-    if (d == null) {
-        FeedbackText("This place is no longer in the realm's map data.", Tone.Warning)
-        return
-    }
-    var failed by remember { mutableStateOf(false) }
-    val rows = PoiFormat.rows(d)
-    if (rows.isEmpty()) Text("The map has no more about this place.", fontSize = 12.sp)
-    rows.forEach { r ->
-        Column(
-            if (r.link !=
-                null
-            ) {
-                Modifier.fillMaxWidth().clickable { failed = !PoiFormat.open(uri, r.link) }
-            } else {
-                Modifier.fillMaxWidth()
-            },
-        ) {
-            Text(r.label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(r.value, fontSize = 13.sp, color = if (r.link != null) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-        }
-    }
-    if (failed) FeedbackText("No app on this phone can open that link.", Tone.Warning)
 }
 
 // One progressive quest: name and rule, a bar with a mark per check, and what is next. Tap for the list of marks.
@@ -206,7 +152,7 @@ internal fun ColumnScope.ChainDetails(
             Text(c.name, style = MaterialTheme.typography.titleSmall)
             Text(c.rule, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = CLOSE) }
+        IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = "Close") }
     }
     c.marks.forEachIndexed { i, mk ->
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

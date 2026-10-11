@@ -29,14 +29,13 @@ request that missed the budget showed a scary warning.
   touches the trail at a junction vertex owns neither and is not counted.
 - Synthetic `L:` trail features carry the merged way tags but deliberately no `highway` tag, because `highway` feeds `is_rough`.
 
-## Place details (PR #136)
+## Place details (PR #136; UI in the quest card spec)
 
 - `Assignment.feature_id` links a quest to its atlas feature. `QuestOut.has_details` is only `feature_id.is_some()`, so building the
   quest list never reads the atlas.
 - `Engine::poi_details` reads the atlas JSON lazily with the game lock released: call it off the main thread.
 - Games saved before `feature_id` get it back in `Engine::refresh_streets`: `Game::relink_places` uses `assign::place_of`, which
-  picks the same kind and name nearest the quest spot, within 100 m. It reuses the atlases loaded for the street build, saves once, and
-  the app reloads quests after the build.
+  picks the same kind and name nearest the quest spot, within 100 m. It reuses the atlases loaded for the street build and saves once.
 
 ## App rules (AppModel.scan)
 
