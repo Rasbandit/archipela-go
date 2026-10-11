@@ -658,6 +658,7 @@ private fun SyncContent(
         val (rest, picked) = MapFeatures.splitSelected(MapFeatures.quests(quests, selected))
         holder.show(MapSource.QUESTS, rest)
         holder.show(MapSource.QUEST_SEL, picked)
+        holder.show(MapSource.ITEMS, quests.itemFeatures(selected))
         holder.show(MapSource.LINES, MapFeatures.lines(quests))
         holder.show(MapSource.AREAS, MapFeatures.areas(quests))
     }

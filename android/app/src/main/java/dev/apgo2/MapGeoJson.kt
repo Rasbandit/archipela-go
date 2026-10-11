@@ -102,6 +102,13 @@ internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems
 /** Every pin image the quest layer needs for these quests: each quest's, and each forager's item pin. */
 internal val List<QuestOut>.pinImages: Set<String> get() = flatMap { listOfNotNull(it.mapImageKey, it.itemImageKey) }.toSet()
 
+/** Pickups: each item a forager still needs found, carrying its quest's id (a tap selects the quest), faded while locked. */
+internal fun List<QuestOut>.itemFeatures(selected: Long?): List<JSONObject> =
+    filter { it.state != HIDDEN }.mapNotNull { q -> q.itemImageKey?.let { q to it } }.flatMap { (q, image) ->
+        val props = { questProps(q, q.locationId == selected, image).put(MapProp.OPACITY, MapMarkers.itemOpacity(q.state)) }
+        q.openItems.map { GeoJson.pointFeature(it.at.lat, it.at.lon, props()) }
+    }
+
 /** The name of this find's pin image in the map style. */
 internal val MapFind.mapImageKey: String get() = MarkerSpec.Find(kindId, family, mark).key
 
@@ -114,7 +121,7 @@ internal data class RadiusFeatures(
 
 /** The features each map source shows, made from the game state. */
 internal object MapFeatures {
-    /** Quest pins: anchored quests that are not lines, the second stop of couriers, and each item a forager still needs found. */
+    /** Quest pins: anchored quests that are not lines, and couriers' second stops. A forager under way shows [itemFeatures]. */
     fun quests(
         quests: List<QuestOut>,
         selected: Long?,
@@ -122,12 +129,7 @@ internal object MapFeatures {
         val visible = quests.filter { it.state != HIDDEN }
         val anchored = visible.filter { it.shape != "line" && !it.showsItems }.mapNotNull { q -> q.anchor?.let { q to it } }
         val dropOffs = visible.filter { it.shape == "courier" }.mapNotNull { q -> q.anchorB?.let { q to it } }
-        val pins = (anchored + dropOffs).map { (q, p) -> GeoJson.pointFeature(p.lat, p.lon, questProps(q, q.locationId == selected)) }
-        val items =
-            visible.mapNotNull { q -> q.itemImageKey?.let { q to it } }.flatMap { (q, image) ->
-                q.openItems.map { GeoJson.pointFeature(it.at.lat, it.at.lon, questProps(q, q.locationId == selected, image)) }
-            }
-        return pins + items
+        return (anchored + dropOffs).map { (q, p) -> GeoJson.pointFeature(p.lat, p.lon, questProps(q, q.locationId == selected)) }
     }
 
     /** [pins] split into the rest (a clustered source) and the selected ones (their own source, so they never vanish into a cluster). */
@@ -234,16 +236,16 @@ internal object MapFeatures {
                 label = listOf(GeoJson.pointFeature(c.latitude, c.longitude + dLon / 2, JSONObject().put(MapProp.LABEL, text))),
             )
         }
-
-    // What a quest pin needs on the map: its image, draw order, id and whether it is the selected one.
-    private fun questProps(
-        q: QuestOut,
-        selected: Boolean,
-        image: String = q.mapImageKey,
-    ) = JSONObject()
-        .put(MapProp.STATE, q.state)
-        .put(MapProp.SELECTED, selected)
-        .put(MapProp.IMAGE, image)
-        .put(MapProp.SORT, MapMarkers.drawOrder(q.state))
-        .put(MapProp.ID, q.locationId.toString())
 }
+
+// What a quest pin needs on the map: its image, draw order, id and whether it is the selected one.
+private fun questProps(
+    q: QuestOut,
+    selected: Boolean,
+    image: String = q.mapImageKey,
+) = JSONObject()
+    .put(MapProp.STATE, q.state)
+    .put(MapProp.SELECTED, selected)
+    .put(MapProp.IMAGE, image)
+    .put(MapProp.SORT, MapMarkers.drawOrder(q.state))
+    .put(MapProp.ID, q.locationId.toString())

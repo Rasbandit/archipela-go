@@ -14,8 +14,10 @@ import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
+import org.maplibre.android.style.layers.PropertyFactory.circleOpacity
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeOpacity
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.layers.PropertyFactory.fillColor
 import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
@@ -98,6 +100,14 @@ private const val CLUSTER_CIRCLE_RADIUS = 20f
 private const val CLUSTER_STROKE = 3f
 private const val CLUSTER_TEXT_SIZE = 15f
 private const val RING_STEPS = 12
+
+// Pickups: hidden below ITEM_DOTS_FROM_ZOOM, small dots up to ITEM_TOKENS_FROM_ZOOM, tokens from there in, each handover a fade
+// over ITEM_FADE_ZOOMS.
+private const val ITEM_DOTS_FROM_ZOOM = 14f
+private const val ITEM_TOKENS_FROM_ZOOM = 16f
+private const val ITEM_FADE_ZOOMS = 0.5f
+private const val ITEM_DOT_RADIUS = 4f
+private const val ITEM_DOT_STROKE = 1.5f
 private const val BOLD_FONT = "Noto Sans Bold"
 
 // The quest states drawn on the map, each in its ApgoPalette.quest colour.
@@ -111,6 +121,7 @@ internal object MapSource {
     const val TRACE = "trace"
     const val QUESTS = "quests"
     const val QUEST_SEL = "quest-sel"
+    const val ITEMS = "items"
     const val FINDS = "finds"
     const val FIND_SEL = "find-sel"
     const val DRAFT = "draft"
@@ -126,6 +137,7 @@ internal object MapSource {
             AREAS,
             LINES,
             TRACE,
+            ITEMS,
             QUESTS,
             QUEST_SEL,
             FINDS,
@@ -160,7 +172,7 @@ internal object MapStyle {
     val FIND_LAYERS = arrayOf("finds-layer", "finds-sel")
 
     /** The layers a tap on a quest pin is looked up in. */
-    val QUEST_LAYERS = arrayOf("quests-pins", "quests-pins-sel")
+    val QUEST_LAYERS = arrayOf("quests-pins", "quests-pins-sel", "items-tokens", "items-dots")
 
     /** Then the quests' trails and park outlines (both carry their quest's id). */
     val QUEST_LINE_LAYERS = arrayOf("route-line", "route-casing", "park-line")
@@ -175,7 +187,7 @@ internal object MapStyle {
         MapSource.ALL.forEach { id ->
             style.addSource(if (id in MapSource.CLUSTERED) GeoJsonSource(id, empty, clusterOptions()) else GeoJsonSource(id, empty))
         }
-        addLayers(style, realmLayers() + traceLayers() + questLayers() + findLayers() + draftLayers() + markLayers())
+        addLayers(style, realmLayers() + traceLayers() + itemLayers() + questLayers() + findLayers() + draftLayers() + markLayers())
         addLayers(style, radiusLayers())
         // Home is a house on green. You are MapLibre's location component (see MapHolder.showMe), drawn just below home: when you
         // are both in the same spot the house is the one you see.
@@ -283,6 +295,54 @@ internal object MapStyle {
                     iconIgnorePlacement(true),
                 ),
             )
+
+    // Pickups are background, so they draw under quest pins and never cluster. Zoomed out they are hidden, then small dots, and
+    // only at street level the tokens (the selected quest's tokens show at any zoom). All by zoom expressions, on the GPU.
+    private fun itemLayers() =
+        listOf(
+            CircleLayer("items-dots", MapSource.ITEMS)
+                .apply { minZoom = ITEM_DOTS_FROM_ZOOM }
+                .withProperties(
+                    circleRadius(ITEM_DOT_RADIUS),
+                    circleColor(ApgoPalette.pickup.hex()),
+                    circleStrokeColor(ApgoPalette.navy.hex()),
+                    circleStrokeWidth(ITEM_DOT_STROKE),
+                    circleOpacity(itemDotOpacity()),
+                    circleStrokeOpacity(itemDotOpacity()),
+                ),
+            SymbolLayer("items-tokens", MapSource.ITEMS).withProperties(
+                iconImage(Expression.get(MapProp.IMAGE)),
+                iconSize(Expression.switchCase(selectedOnly(), Expression.literal(MapMarkers.SELECTED_GROWTH), Expression.literal(1f))),
+                iconAllowOverlap(true),
+                iconIgnorePlacement(true),
+                iconOpacity(itemTokenOpacity()),
+            ),
+        )
+
+    // Dots fade in at ITEM_DOTS_FROM_ZOOM and hand over to the tokens by ITEM_TOKENS_FROM_ZOOM; the selected quest's never show
+    // as dots (its tokens are already up).
+    private fun itemDotOpacity() =
+        Expression.interpolate(
+            Expression.linear(),
+            Expression.zoom(),
+            Expression.stop(ITEM_DOTS_FROM_ZOOM, 0f),
+            Expression.stop(ITEM_DOTS_FROM_ZOOM + ITEM_FADE_ZOOMS, dotUnlessSelected()),
+            Expression.stop(ITEM_TOKENS_FROM_ZOOM - ITEM_FADE_ZOOMS, dotUnlessSelected()),
+            Expression.stop(ITEM_TOKENS_FROM_ZOOM, 0f),
+        )
+
+    private fun dotUnlessSelected() =
+        Expression.switchCase(selectedOnly(), Expression.literal(0f), Expression.toNumber(Expression.get(MapProp.OPACITY)))
+
+    private fun itemTokenOpacity(): Expression {
+        val faded = Expression.toNumber(Expression.get(MapProp.OPACITY))
+        return Expression.interpolate(
+            Expression.linear(),
+            Expression.zoom(),
+            Expression.stop(ITEM_TOKENS_FROM_ZOOM - ITEM_FADE_ZOOMS, Expression.switchCase(selectedOnly(), faded, Expression.literal(0f))),
+            Expression.stop(ITEM_TOKENS_FROM_ZOOM, faded),
+        )
+    }
 
     private fun clusterOptions() =
         GeoJsonOptions()

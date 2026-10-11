@@ -77,6 +77,9 @@ internal object MapMarkers {
     private const val QUEST_PARTS = 4
     private const val MAX_PIPS = 3
 
+    // A locked quest's pickups: still seen, plainly not yet for collecting.
+    private const val LOCKED_ITEM_OPACITY = 0.5
+
     enum class Badge { None, Progress, Locked }
 
     /** Pixel size of a quest pin's bitmap; [QUEST_SCALE] is the factor the map draws it at. */
@@ -106,12 +109,6 @@ internal object MapMarkers {
 
     /** Pixel size of a pickup token's bitmap, drawn at size 1: about 40% as wide as a quest pin. */
     const val ITEM_TOKEN_PX = 64
-
-    /** Opacity of a locked quest's pickups: still seen, plainly not yet for collecting. */
-    private const val LOCKED_ITEM_OPACITY = 0.5
-
-    /** A pickup's opacity: faded while its quest is locked, full otherwise. */
-    fun itemOpacity(state: String): Double = if (state == STATE_LOCKED) LOCKED_ITEM_OPACITY else 1.0
 
     /** Pixel size of the player's pin bitmap. */
     const val ME_PIN_PX = 120
@@ -154,6 +151,9 @@ internal object MapMarkers {
             difficulty.equals("easy", ignoreCase = true) -> 1
             else -> 2
         }
+
+    /** A pickup's opacity: faded while its quest is locked, full otherwise. */
+    fun itemOpacity(state: String): Double = if (state == STATE_LOCKED) LOCKED_ITEM_OPACITY else 1.0
 
     private fun parseRing(parts: List<String>): MarkerSpec.Ring? {
         val shares = parts.map { it.toIntOrNull() ?: -1 }
