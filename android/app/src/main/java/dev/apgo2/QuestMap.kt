@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -34,14 +35,18 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MarkerSpec
+import dev.apgo2.ui.ToolButton
+import dev.apgo2.ui.ToolPill
 import dev.apgo2.ui.circleRing
 import kotlinx.coroutines.delay
 import org.json.JSONObject
@@ -585,6 +590,21 @@ internal fun QuestMap(
     Box(modifier) {
         AndroidView(factory = { holder.view }, modifier = Modifier.matchParentSize())
         MapCredit(holder::showSources, Modifier.align(Alignment.TopEnd).padding(top = overlayTopDp.dp))
+        if (meKnown) {
+            LocateButton(
+                { meAt?.let { at -> holder.map?.let { flyToMe(it, at) } } },
+                // Read in layout, not composition: a sliding panel moves the button without recomposing the map.
+                Modifier.align(Alignment.BottomEnd).offset {
+                    IntOffset(
+                        0,
+                        -inputs.overlayBottomDp
+                            .value()
+                            .dp
+                            .roundToPx(),
+                    )
+                },
+            )
+        }
         if (cover > 0f) Box(Modifier.matchParentSize().alpha(cover).background(MaterialTheme.colorScheme.surface))
     }
 }
@@ -606,6 +626,24 @@ private fun MapCredit(
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurface,
     )
+}
+
+// Fly to you, in to street level if further out; the map's padding keeps you clear of the overlays.
+private fun flyToMe(
+    m: MapLibreMap,
+    me: LatLng,
+) {
+    m.cancelTransitions()
+    m.animateCamera(CameraUpdateFactory.newLatLngZoom(me, MapLocate.zoom(m.cameraPosition.zoom)), FIT_ANIM_MS)
+}
+
+// Bottom right, just above whatever covers the map's bottom: a tap flies to you.
+@Composable
+private fun LocateButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ToolPill(modifier.padding(12.dp)) { ToolButton(ApgoIcons.Locate, "Go to my location", onClick) }
 }
 
 // Hands the map view the activity's lifecycle events while it is on show; a hidden map is stopped and made invisible (so it stops

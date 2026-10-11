@@ -60,6 +60,7 @@ import com.composables.icons.lucide.Landmark
 import com.composables.icons.lucide.Leaf
 import com.composables.icons.lucide.List
 import com.composables.icons.lucide.ListChecks
+import com.composables.icons.lucide.LocateFixed
 import com.composables.icons.lucide.Lock
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Mail
@@ -147,6 +148,7 @@ internal object ApgoIcons {
     val Done = Lucide.Check
     val Saved = Lucide.CircleCheck
     val Me = Lucide.User
+    val Locate = Lucide.LocateFixed
     val Home = Lucide.House
     val Circle = Lucide.Circle
     val Polygon = Lucide.Pentagon
