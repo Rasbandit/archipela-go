@@ -47,6 +47,28 @@ internal class ScanCoordinator(
     private val lastDownload = mutableMapOf<String, Long>()
     private val quietRetries = mutableMapOf<String, Int>()
 
+    // Realms deleted (hidden, undo still possible): their scans stop and nothing more is fetched or reported for them.
+    private val dropped = mutableSetOf<String>()
+
+    // Dropped realms whose scan was cut short, and those of them brought back (Undo) while the stopped scan was still winding down.
+    private val interrupted = mutableSetOf<String>()
+    private val rescanAfter = mutableSetOf<String>()
+
+    /** Realm [id] was deleted: stop its scan now and forget any scan waiting for it (deferred, retry or a pending question). */
+    fun forget(id: String) {
+        dropped.add(id)
+        if (id in scanning || waitingToScan.remove(id) || quietRetries.remove(id) != null) interrupted.add(id)
+        if (ask?.id == id) ask = null
+        model.engine.cancelScan(id)
+    }
+
+    /** Realm [id] came back (Undo): scan it again if its scan was cut short; cached pieces make that quick. */
+    fun restore(id: String) {
+        dropped.remove(id)
+        if (!interrupted.remove(id)) return
+        if (id in scanning) rescanAfter.add(id) else scan(id, confirmed = true)
+    }
+
     /** Scan realm [id] in the background; [confirmed] skips the "this is a big download" question. */
     fun scan(
         id: String,
@@ -59,7 +81,7 @@ internal class ScanCoordinator(
         id: String,
         confirmed: Boolean,
     ) {
-        if (id in scanning) return
+        if (id in scanning || id in dropped) return
         val plan = withContext(Dispatchers.IO) { model.engine.scanPlan(id) }
         if (plan.missing > 0u && holdBack(id, plan, confirmed)) return
         scanning.add(id)
@@ -67,6 +89,22 @@ internal class ScanCoordinator(
         scanning.remove(id)
         model.busy = null
         busyFraction = null
+        when {
+            id in dropped -> Unit
+
+            // a deleted realm's scan was stopped: no message and no retry
+            rescanAfter.remove(id) -> scan(id, confirmed = true)
+
+            // brought back while its stopped scan wound down
+            else -> report(id, plan, result)
+        }
+    }
+
+    private fun report(
+        id: String,
+        plan: ScanPlanOut,
+        result: Result<List<OfferOut>>,
+    ) {
         if (plan.missing > 0u) lastDownload[id] = model.now()
         model.realms = model.engine.realms()
         showOutcome(id, result)

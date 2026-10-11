@@ -18,7 +18,7 @@ use apgo_core::marks::Mark;
 use apgo_core::num::count_u32;
 use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
 use apgo_core::save_policy::SavePolicy;
-use apgo_core::scan::{scan_realm, Atlas};
+use apgo_core::scan::{scan_with_stop, Atlas, Fetch, Pacing, SCAN_BUDGET};
 use apgo_core::settings::{resolve_units, Settings};
 use apgo_core::slot::SlotData;
 use apgo_core::solo::{generate, SoloOptions};
@@ -933,9 +933,40 @@ pub struct Engine {
     last_journal: Mutex<Option<TrackPoint>>,
     /// The last street-build generation handed out (see [`Game::set_streets`]).
     streets_gen: AtomicU64,
+    /// Stop flags of the scans running now, by realm id (see [`Engine::cancel_scan`]).
+    scans: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
 }
 
 impl Engine {
+    /// [`Engine::scan_realm`] with the fetcher and pacing injected. The scan stops early when [`Engine::cancel_scan`] is called for
+    /// `id`; a stopped scan, or one whose realm was deleted meanwhile, saves nothing.
+    fn scan_realm_with(
+        &self,
+        id: &str,
+        now_ms: u64,
+        progress: &(dyn Fn(usize, usize) + Sync),
+        fetch: Fetch<'_>,
+        pacing: &Pacing,
+    ) -> Result<Vec<OfferOut>, CoreError> {
+        let store = self.store();
+        let realm = store.get(id).ok_or_else(|| err("realm not found"))?;
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.scans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id.to_owned(), Arc::clone(&stop));
+        let scanned = scan_with_stop(&realm, &self.catalog, now_ms, fetch, pacing, std::time::Instant::now() + SCAN_BUDGET, progress, &stop);
+        self.scans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(id);
+        let atlas = scanned.map_err(err)?;
+        // The realm may have been deleted or edited while the scan ran: save nothing for a deleted realm, and stamp the scan time
+        // on its current state, not on the copy read before.
+        let mut current = store.get(id).ok_or_else(|| err("realm was deleted during the scan"))?;
+        store.save_atlas(&atlas).map_err(err)?;
+        current.scanned_at_ms = Some(now_ms);
+        store.save(&current).map_err(err)?;
+        let mut zoned = atlas;
+        zoned.restrict_to(&current.shape.to_zone());
+        zoned.apply_marks(&store.marks(id));
+        Ok(self.offers_of(&zoned))
+    }
+
     /// The directory the engine keeps its files in.
     pub(crate) fn dir(&self) -> &std::path::Path {
         &self.dir
@@ -1208,6 +1239,7 @@ impl Engine {
             region: Mutex::new(String::new()),
             last_journal: Mutex::new(None),
             streets_gen: AtomicU64::default(),
+            scans: Mutex::default(),
             dir,
         })
     }
@@ -1284,6 +1316,7 @@ impl Engine {
     /// # Errors
     /// Returns an error if a file cannot be removed.
     pub fn delete_realm(&self, id: String) -> Result<(), CoreError> {
+        self.cancel_scan(id.clone());
         self.store().delete(&id).map_err(err)?;
         self.refresh_zones_of(&id);
         Ok(())
@@ -1348,19 +1381,17 @@ impl Engine {
     /// # Errors
     /// Returns an error if the realm does not exist, every map request failed, or the atlas cannot be saved.
     pub fn scan_realm(&self, id: String, now_ms: u64, listener: Arc<dyn ScanListener>) -> Result<Vec<OfferOut>, CoreError> {
-        let store = self.store();
-        let realm = store.get(&id).ok_or_else(|| err("realm not found"))?;
-        let atlas =
-            scan_realm(&realm, &self.catalog, Some(&self.cache()), now_ms, &|done, total| listener.progress(count_u32(done), count_u32(total))).map_err(err)?;
-        store.save_atlas(&atlas).map_err(err)?;
-        // The realm may have been edited while the scan ran: stamp the scan time on its current state, not on the copy read before.
-        let mut current = store.get(&id).ok_or_else(|| err("realm was deleted during the scan"))?;
-        current.scanned_at_ms = Some(now_ms);
-        store.save(&current).map_err(err)?;
-        let mut zoned = atlas;
-        zoned.restrict_to(&current.shape.to_zone());
-        zoned.apply_marks(&store.marks(&id));
-        Ok(self.offers_of(&zoned))
+        let cache = self.cache();
+        let fetch = |q: &str, start: usize, deadline: Option<std::time::Instant>| apgo_core::overpass::fetch_cached_from(q, Some(&cache), start, deadline);
+        self.scan_realm_with(&id, now_ms, &|done, total| listener.progress(count_u32(done), count_u32(total)), &fetch, &Pacing::default())
+    }
+
+    /// Stop the scan of realm `id` if one is running: it makes no more requests and saves nothing (its `scan_realm` returns an
+    /// error). Nothing happens when the realm is not being scanned. Deleting a realm does this too.
+    pub fn cancel_scan(&self, id: String) {
+        if let Some(stop) = self.scans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&id) {
+            stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
     /// Whether realm `id` was scanned before street runs were recorded, so its quests are placed by street points only until it is
@@ -2186,6 +2217,26 @@ mod tests {
         .unwrap();
         e.install(game);
         e
+    }
+
+    #[test]
+    fn deleting_a_realm_stops_its_scan_and_saves_nothing_for_it() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let e = engine_with_game("scan-stop");
+        e.save_realm("r9".into(), "R9".into(), None, Some(circle(home(), 2000.0)), vec![], false).unwrap();
+        let calls = AtomicUsize::new(0);
+        let fetch = |_: &str, _: usize, _: Option<std::time::Instant>| -> Result<String, apgo_core::overpass::Error> {
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                e.delete_realm("r9".into()).unwrap(); // deleted while its first request runs
+            }
+            Ok(r#"{"elements":[]}"#.to_string())
+        };
+        let one_at_a_time = Pacing { workers: 1, gap: std::time::Duration::ZERO, rounds: 1, backoff: std::time::Duration::ZERO };
+        let r = e.scan_realm_with("r9", 0, &|_, _| {}, &fetch, &one_at_a_time);
+        assert!(r.is_err(), "a stopped scan has no result");
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "no request after the delete");
+        assert!(e.store().load_atlas("r9").is_none(), "no scan saved for a deleted realm");
+        assert!(e.store().get("r9").is_none());
     }
 
     #[test]

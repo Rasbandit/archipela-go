@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -728,6 +729,7 @@ fn run_jobs(
     pacing: &Pacing,
     deadline: Instant,
     progress: &(dyn Fn(usize, usize) + Sync),
+    stop: &AtomicBool,
 ) -> Vec<Option<Result<String, Error>>> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
@@ -736,7 +738,7 @@ fn run_jobs(
     let done = AtomicUsize::new(0);
     let mut todo: Vec<usize> = (0..jobs.len()).collect();
     for round in 0..pacing.rounds.max(1) {
-        if todo.is_empty() || (round > 0 && Instant::now() >= deadline) {
+        if todo.is_empty() || stop.load(Ordering::SeqCst) || (round > 0 && Instant::now() >= deadline) {
             break;
         }
         if round > 0 {
@@ -746,6 +748,9 @@ fn run_jobs(
         std::thread::scope(|s| {
             for _ in 0..pacing.workers.max(1) {
                 s.spawn(|| loop {
+                    if stop.load(Ordering::SeqCst) {
+                        break;
+                    }
                     let at = next.fetch_add(1, Ordering::SeqCst);
                     let Some(&i) = todo.get(at) else { break };
                     let r = fetch(&jobs[i].1, i, Some(deadline));
@@ -780,9 +785,30 @@ pub fn scan_with(
     deadline: Instant,
     progress: &(dyn Fn(usize, usize) + Sync),
 ) -> Result<Atlas, Error> {
+    scan_with_stop(realm, catalog, now_ms, fetch, pacing, deadline, progress, &AtomicBool::new(false))
+}
+
+/// [`scan_with`] that stops early, making no more requests, once `stop` is set (its realm was deleted).
+///
+/// # Errors
+/// [`Error::Stopped`] when stopped; otherwise as [`scan_with`].
+#[allow(clippy::too_many_arguments)] // scan_with's arguments plus the stop flag
+pub fn scan_with_stop(
+    realm: &Realm,
+    catalog: &Catalog,
+    now_ms: u64,
+    fetch: Fetch<'_>,
+    pacing: &Pacing,
+    deadline: Instant,
+    progress: &(dyn Fn(usize, usize) + Sync),
+    stop: &AtomicBool,
+) -> Result<Atlas, Error> {
     let zone = realm.shape.to_zone();
     let jobs = jobs_for(&zone, catalog);
-    let results = run_jobs(&jobs, fetch, pacing, deadline, progress);
+    let results = run_jobs(&jobs, fetch, pacing, deadline, progress, stop);
+    if stop.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(Error::Stopped);
+    }
 
     let (mut a, mut b, mut streets, mut rough) = (Vec::new(), Vec::new(), RunBuilder::default(), RunBuilder::default());
     // A street that crosses a tile edge comes back from every tile it touches: each street point is kept once.
@@ -867,9 +893,16 @@ pub fn scan_with(
 ///
 /// # Errors
 /// Returns the last error if every request failed.
-pub fn scan_realm(realm: &Realm, catalog: &Catalog, cache_dir: Option<&Path>, now_ms: u64, progress: &(dyn Fn(usize, usize) + Sync)) -> Result<Atlas, Error> {
+pub fn scan_realm(
+    realm: &Realm,
+    catalog: &Catalog,
+    cache_dir: Option<&Path>,
+    now_ms: u64,
+    progress: &(dyn Fn(usize, usize) + Sync),
+    stop: &AtomicBool,
+) -> Result<Atlas, Error> {
     let fetch = |q: &str, start: usize, deadline: Option<Instant>| fetch_cached_from(q, cache_dir, start, deadline);
-    scan_with(realm, catalog, now_ms, &fetch, &Pacing::default(), Instant::now() + SCAN_BUDGET, progress)
+    scan_with_stop(realm, catalog, now_ms, &fetch, &Pacing::default(), Instant::now() + SCAN_BUDGET, progress, stop)
 }
 
 #[cfg(test)]
@@ -886,7 +919,7 @@ mod tests {
     ]}"#;
 
     // ---- scanning: plan, retries, pacing, sharing between realms
-    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::Mutex as StdMutex;
 
     const BENCH_BODY: &str = r#"{"elements":[{"type":"node","id":1,"lat":40.0005,"lon":-111.0005,"tags":{"amenity":"bench"}}]}"#;
@@ -1069,6 +1102,26 @@ mod tests {
             &|_, _| {},
         );
         assert!(calls.load(AtomicOrdering::SeqCst) <= jobs, "no retry rounds once the budget is gone");
+    }
+
+    #[test]
+    fn a_stopped_scan_makes_no_more_requests_and_fails_as_stopped() {
+        let cat = Catalog::builtin();
+        let realm = small_realm(Point::new(40.0, -111.0), 2000.0);
+        let jobs = jobs_for(&realm.shape.to_zone(), &cat).len();
+        assert!(jobs > 4, "the test needs a scan of several requests");
+        let stop = AtomicBool::new(false);
+        let calls = AtomicUsize::new(0);
+        let fetch = |_: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
+            if calls.fetch_add(1, AtomicOrdering::SeqCst) == 1 {
+                stop.store(true, AtomicOrdering::SeqCst); // the realm is deleted while the second request runs
+            }
+            Ok(BENCH_BODY.to_string())
+        };
+        let r = scan_with_stop(&realm, &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {}, &stop);
+        assert!(matches!(r, Err(Error::Stopped)), "{:?}", r.map(|a| a.features.len()));
+        let n = calls.load(AtomicOrdering::SeqCst);
+        assert!(n < jobs, "{n} of {jobs} requests ran after the stop");
     }
 
     #[test]
