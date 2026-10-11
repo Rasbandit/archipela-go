@@ -590,9 +590,10 @@ internal fun QuestMap(
     Box(modifier) {
         AndroidView(factory = { holder.view }, modifier = Modifier.matchParentSize())
         MapCredit(holder::showSources, Modifier.align(Alignment.TopEnd).padding(top = overlayTopDp.dp))
-        if (meKnown) {
+        val last by rememberUpdatedState(lastPlace)
+        if (MapLocate.target(meAt, lastPlace) != null) {
             LocateButton(
-                { meAt?.let { at -> holder.map?.let { flyToMe(it, at) } } },
+                { MapLocate.target(meAt, last)?.let { at -> holder.map?.let { flyToMe(it, at) } } },
                 // Read in layout, not composition: a sliding panel moves the button without recomposing the map.
                 Modifier.align(Alignment.BottomEnd).offset {
                     IntOffset(
@@ -628,7 +629,7 @@ private fun MapCredit(
     )
 }
 
-// Fly to you, in to street level if further out; the map's padding keeps you clear of the overlays.
+// Fly to you (or where you last were), in to street level if further out; the map's padding keeps you clear of the overlays.
 private fun flyToMe(
     m: MapLibreMap,
     me: LatLng,
