@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -25,6 +27,7 @@ import androidx.compose.ui.unit.sp
 private const val PILL_ALPHA = 0.95f
 private const val PILL_CORNER_DP = 24
 private const val BADGE_ALPHA = 0.9f
+private const val ROUND_BUTTON_DP = 44
 
 /** A round icon button for a tool strip floating over the map; the selected tool is filled. */
 @Composable
@@ -42,6 +45,26 @@ internal fun ToolButton(
         onCheckedChange = { onClick() },
         enabled = enabled,
         colors = toolToggleColors(),
+    ) { Icon(icon, contentDescription = description, modifier = Modifier.size(22.dp)) }
+}
+
+/** A single round button floating over the map (go to my location): the tool pill's backdrop, as a small circle. */
+@Composable
+internal fun MapRoundButton(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FilledIconButton(
+        onClick = onClick,
+        modifier = modifier.size(ROUND_BUTTON_DP.dp),
+        shape = CircleShape,
+        colors =
+            IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = PILL_ALPHA),
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
     ) { Icon(icon, contentDescription = description, modifier = Modifier.size(22.dp)) }
 }
 
