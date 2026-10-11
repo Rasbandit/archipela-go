@@ -58,7 +58,7 @@ internal class PresenceController(
     var screenOn = true
         private set
     private val homeDebounce = Debouncer()
-    private val carDebounce = Debouncer()
+    private val carDebounce = PresencePolicy.carDebouncer()
     private var zone = Zone.Unknown
     private val main = Handler(Looper.getMainLooper())
     private val reevaluate = Runnable { evaluate() }

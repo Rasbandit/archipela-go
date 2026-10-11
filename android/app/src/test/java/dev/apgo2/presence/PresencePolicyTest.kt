@@ -121,6 +121,43 @@ class DebouncerTest {
         assertEquals("held 45 s since 30 s", true, d.feed(true, 75_000))
     }
 
+    @Test fun leavingTrueCanSettleFasterThanArriving() {
+        // The car: getting out (Bluetooth gone) counts after 5 s, getting in still after 45 s.
+        val d = Debouncer(45_000, leaveTrueMs = 5_000)
+        d.feed(true, 0)
+        assertEquals("just disconnected", true, d.feed(false, 1_000))
+        assertEquals("one ms short of 5 s", true, d.feed(false, 5_999))
+        assertEquals("held 5 s", false, d.feed(false, 6_000))
+        assertEquals("reconnected", false, d.feed(true, 7_000))
+        assertEquals("arriving still waits 45 s", false, d.feed(true, 51_999))
+        assertEquals("held 45 s", true, d.feed(true, 52_000))
+    }
+
+    @Test fun theCarLetsYouOutAfterFiveSecondsAndInAfterFortyFive() {
+        val d = PresencePolicy.carDebouncer()
+        d.feed(true, 0)
+        d.feed(false, 1_000)
+        assertEquals("out after 5 s", false, d.feed(false, 6_000))
+        d.feed(true, 7_000)
+        assertEquals(45_000L, d.settlesInMs(7_000))
+    }
+
+    @Test fun aDropShorterThanTheLeaveHoldNeverSettles() {
+        val d = Debouncer(45_000, leaveTrueMs = 5_000)
+        d.feed(true, 0)
+        d.feed(false, 1_000)
+        assertEquals("back within 5 s", true, d.feed(true, 4_000))
+        assertNull("nothing pending", d.settlesInMs(4_000))
+    }
+
+    @Test fun leavingTrueForUnknownUsesTheLeaveHold() {
+        val d = Debouncer(45_000, leaveTrueMs = 5_000)
+        d.feed(true, 0)
+        d.feed(null, 1_000)
+        assertEquals("settles in the leave hold", 5_000L, d.settlesInMs(1_000))
+        assertNull(d.feed(null, 6_000))
+    }
+
     @Test fun unknownIsHeldLikeAnyOtherChange() {
         val d = Debouncer(45_000)
         d.feed(true, 0)
