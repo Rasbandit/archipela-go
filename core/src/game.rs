@@ -625,12 +625,12 @@ impl Game {
 
     /// Link quests saved before quests kept their place (`feature_id`) to the place in `atlases` (the game's zones as scanned) they
     /// were made from (see [`place_of`]); returns how many it linked, so the caller saves the game. Quests already linked are left alone.
-    pub fn relink_places(&mut self, atlases: &[&Atlas]) -> usize {
+    pub fn relink_places(&mut self, atlases: &[&Atlas], catalog: &Catalog) -> usize {
         let mut linked = 0;
         for a in self.assignments.iter_mut().filter(|a| a.feature_id.is_none()) {
             let Some(i) = self.slot.zones.iter().position(|z| z.id == a.zone) else { continue };
             let Some(atlas) = self.zone_realms.get(i).and_then(|r| atlases.iter().find(|x| &x.realm_id == r)) else { continue };
-            if let Some(id) = place_of(a, atlas) {
+            if let Some(id) = place_of(a, atlas, catalog) {
                 a.feature_id = Some(id);
                 linked += 1;
             }

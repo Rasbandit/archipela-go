@@ -807,6 +807,8 @@ git commit -m "feat: poi_details engine call"
 
 ### Task 5: Android ⓘ button and details card
 
+> **Superseded:** built, then removed from PR #136; the quest card (`specs/2026-10-11-quest-card-design.md`) replaces it.
+
 **Files:**
 
 - Create: `android/app/src/main/java/dev/apgo2/ui/PoiFormat.kt`

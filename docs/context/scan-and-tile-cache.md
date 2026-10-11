@@ -35,7 +35,11 @@ request that missed the budget showed a scary warning.
   quest list never reads the atlas.
 - `Engine::poi_details` reads the atlas JSON lazily with the game lock released: call it off the main thread.
 - Games saved before `feature_id` get it back in `Engine::refresh_streets`: `Game::relink_places` uses `assign::place_of`, which
-  picks the same kind and name nearest the quest spot, within 100 m. It reuses the atlases loaded for the street build and saves once.
+  picks a find of the same kind (any find for the boss) with the same name, nearest the quest (every point of a line quest),
+  within 100 m; an unnamed find only stands in when the quest's place is the kind's own name. It reuses the atlases loaded for
+  the street build and saves once.
+- Atlases scanned before the trail tag merge have trails with no merged tags (surface, lit, difficulty) until the realm is
+  scanned again.
 
 ## App rules (AppModel.scan)
 

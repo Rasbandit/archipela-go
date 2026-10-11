@@ -403,7 +403,7 @@ pub struct QuestOut {
     pub chain_id: Option<String>,
     /// A forager quest's items and counts; `None` for other quests.
     pub collect: Option<CollectOut>,
-    /// Whether the quest is on a real place whose details `Engine::poi_details` can show (the ⓘ button).
+    /// Whether the quest is on a real place whose details `Engine::poi_details` can show (the quest card's "About this place").
     pub has_details: bool,
 }
 
@@ -1071,7 +1071,7 @@ impl Engine {
             return false;
         }
         // A game saved before quests kept their place gets its places back from the same scans, once (then it is saved linked).
-        if g.relink_places(atlases) > 0 {
+        if g.relink_places(atlases, &self.catalog) > 0 {
             if let Err(e) = g.save(&self.dir) {
                 self.note(format!("could not save game {}: {e}", g.id));
             }
