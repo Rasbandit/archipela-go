@@ -38,6 +38,7 @@ pub fn parse_streets(body: &str, zone: &Zone, spacing_m: f64) -> Result<Vec<Cand
         let tag_map: std::collections::BTreeMap<String, String> =
             tags.and_then(Value::as_object).map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect()).unwrap_or_default();
         let rough = crate::scan::is_rough(&tag_map);
+        let parking = tag_map.get("service").is_some_and(|s| s == "parking_aisle");
         let label = tags.and_then(|t| t.get("name").or_else(|| t.get("highway"))).and_then(Value::as_str).unwrap_or("street").to_string();
         let named = tags.is_some_and(|t| t.get("name").is_some());
         let pts: Vec<Point> = geom.iter().filter_map(|g| Some(Point::new(g.get("lat")?.as_f64()?, g.get("lon")?.as_f64()?))).collect();
@@ -50,7 +51,7 @@ pub fn parse_streets(body: &str, zone: &Zone, spacing_m: f64) -> Result<Vec<Cand
                 let t = if seg > 0.0 { at / seg } else { 0.0 };
                 let p = Point::new(w[0].lat + (w[1].lat - w[0].lat) * t, w[0].lon + (w[1].lon - w[0].lon) * t);
                 if zone.contains(p) {
-                    out.push(Candidate { id: format!("w{id}.{k}"), point: p, name: label.clone(), score: u32::from(named), rough });
+                    out.push(Candidate { id: format!("w{id}.{k}"), point: p, name: label.clone(), score: u32::from(named), rough, parking });
                 }
                 k += 1;
                 at += spacing_m;
@@ -84,7 +85,7 @@ pub fn lattice(zone: &Zone, spacing_m: f64) -> Vec<Candidate> {
         while lon <= ne.lon {
             let p = Point::new(lat, normal_lon(lon)); // the bbox may run past ±180 across the antimeridian
             if zone.contains(p) {
-                out.push(Candidate { id: format!("c{r}_{c}"), point: p, name: format!("Cell {r},{c}"), score: 0, rough: false });
+                out.push(Candidate { id: format!("c{r}_{c}"), point: p, name: format!("Cell {r},{c}"), score: 0, rough: false, parking: false });
             }
             lon += dlon;
             c += 1;
@@ -218,6 +219,25 @@ mod tests {
         let q = streets_query_in("around:1000,40,-111");
         assert!(q.contains(r#"["service"!~"^(driveway|drive-through)$"]"#), "{q}");
         assert!(q.contains(r#"["access"!~"^(private|no)$"]"#), "{q}");
+    }
+
+    #[test]
+    fn points_on_a_parking_aisle_are_marked_as_parking() {
+        let zone = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 2000.0 };
+        let way = |id: i64, tags: &str| {
+            format!(r#"{{"type":"way","id":{id},"tags":{{{tags}}},"geometry":[{{"lat":40.0,"lon":-111.0}},{{"lat":40.001,"lon":-111.0}}]}}"#)
+        };
+        let body = format!(
+            r#"{{"elements":[{},{},{}]}}"#,
+            way(1, r#""highway":"service","service":"parking_aisle""#),
+            way(2, r#""highway":"service""#),
+            way(3, r#""highway":"residential""#)
+        );
+        let pts = parse_streets(&body, &zone, 25.0).unwrap();
+        let parking = |prefix: &str| pts.iter().filter(|c| c.id.starts_with(prefix)).map(|c| c.parking).collect::<Vec<_>>();
+        assert!(!parking("w1.").is_empty() && parking("w1.").iter().all(|&p| p));
+        assert!(!parking("w2.").is_empty() && parking("w2.").iter().all(|&p| !p), "a plain service road is not a parking lot");
+        assert!(parking("w3.").iter().all(|&p| !p));
     }
 
     #[test]

@@ -137,6 +137,10 @@ pub struct Atlas {
     /// Street/path points that are rough going (unpaved, unknown-surface trails, stairs).
     #[serde(default)]
     pub streets_rough: Vec<Point>,
+    /// The points of `streets` and `streets_rough` that lie on parking-lot aisles. They stay street points (routes still cross the lot);
+    /// this only marks them, so a game can keep quests out of parking lots.
+    #[serde(default)]
+    pub streets_parking: Vec<Point>,
     /// quest kind id -> indexes into `features`.
     pub matches: BTreeMap<String, Vec<usize>>,
     /// Notes about pieces of the scan that did not arrive.
@@ -187,6 +191,7 @@ impl Atlas {
     pub fn retain_streets(&mut self, keep: &dyn Fn(Point) -> bool) {
         retain_runs(&mut self.streets, &mut self.street_runs, keep);
         retain_runs(&mut self.streets_rough, &mut self.rough_runs, keep);
+        self.streets_parking.retain(|p| keep(*p));
     }
 
     /// The pieces of street between consecutive samples of one way, for the paved (`rough` false) or rough points. Only a straight
@@ -553,6 +558,7 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
         features,
         streets,
         streets_rough: vec![],
+        streets_parking: vec![],
         matches,
         warnings: vec![],
         street_stride: 1,
@@ -598,6 +604,11 @@ fn retain_runs(pts: &mut Vec<Point>, runs: &mut Vec<u32>, keep: &dyn Fn(Point) -
 }
 
 /// Every `stride`-th point of each run (its first point always kept), with the new run lengths.
+/// An exact, hashable key for a point (the same sample always has the same bits).
+fn point_key(p: Point) -> (u64, u64) {
+    (p.lat.to_bits(), p.lon.to_bits())
+}
+
 fn thin_runs(pts: &[Point], runs: &[u32], stride: usize) -> (Vec<Point>, Vec<u32>) {
     let (mut out, mut lens, mut at) = (Vec::new(), Vec::new(), 0);
     for n in runs {
@@ -779,6 +790,7 @@ pub fn scan_with(
     let mut named_streets: BTreeMap<(String, i64, i64), Point> = BTreeMap::new();
     let mut seen_segments = std::collections::HashSet::new();
     let mut raw_ways = Vec::new();
+    let mut parking = std::collections::HashSet::new();
     let (mut walkable_len, mut rough_len) = (0.0_f64, 0.0_f64);
     let (mut failed, total) = (0usize, jobs.len());
     let mut last_err = None;
@@ -811,6 +823,9 @@ pub fn scan_with(
                             let cell = (floor_i64(c.point.lat / 0.005), floor_i64(c.point.lon / 0.005));
                             named_streets.entry((c.name.clone(), cell.0, cell.1)).or_insert(c.point);
                         }
+                        if c.parking {
+                            parking.insert(point_key(c.point));
+                        }
                         if c.rough {
                             rough.push(&c.id, c.point);
                         } else {
@@ -833,8 +848,10 @@ pub fn scan_with(
     let stride = ((streets.pts.len() + rough.pts.len()) / 16_000).max(1);
     let (streets, street_runs) = thin_runs(&streets.pts, &streets.runs, stride);
     let (rough, rough_runs) = thin_runs(&rough.pts, &rough.runs, stride);
+    let streets_parking = streets.iter().chain(&rough).filter(|p| parking.contains(&point_key(**p))).copied().collect();
     let mut atlas = build_atlas(&realm.id, now_ms, retain_in_zone(merge(a, b), &zone), streets, catalog);
     atlas.streets_rough = rough;
+    atlas.streets_parking = streets_parking;
     (atlas.street_runs, atlas.rough_runs) = (street_runs, rough_runs);
     atlas.street_stride = count_u32(stride);
     atlas.walkable_len_m = walkable_len;
@@ -943,6 +960,31 @@ mod tests {
             .unwrap();
         let metres = a.walkable_m();
         assert!((1100.0..1300.0).contains(&metres), "one 1.2 km street, not two copies of it: {metres}");
+    }
+
+    #[test]
+    fn parking_aisle_points_stay_street_points_and_are_listed_as_parking() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let line = |id: i64, tags: &str, a: Point, b: Point| {
+            format!(r#"{{"type":"way","id":{id},"tags":{{{tags}}},"geometry":[{{"lat":{},"lon":{}}},{{"lat":{},"lon":{}}}]}}"#, a.lat, a.lon, b.lat, b.lon)
+        };
+        let aisle = (destination(o, 0.0, 100.0), destination(destination(o, 0.0, 100.0), 90.0, 200.0));
+        let body = format!(
+            r#"{{"elements":[{},{}]}}"#,
+            line(1, r#""highway":"residential""#, o, destination(o, 90.0, 300.0)),
+            line(2, r#""highway":"service","service":"parking_aisle""#, aisle.0, aisle.1)
+        );
+        let fetch = |q: &str, _: usize, _: Option<Instant>| -> Result<String, Error> {
+            Ok(if q.contains("\"highway\"~") && q.contains("out geom qt") { body.clone() } else { r#"{"elements":[]}"#.to_string() })
+        };
+        let mut a = scan_with(&small_realm(o, 1500.0), &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {}).unwrap();
+        assert!(!a.streets_parking.is_empty());
+        assert!(a.streets_parking.iter().all(|p| a.streets.contains(p)), "parking points are still street points");
+        assert!(a.streets_parking.iter().all(|p| p.lat > aisle.0.lat - 1e-5), "only the aisle's points");
+        assert!(a.streets.iter().any(|p| !a.streets_parking.contains(p)), "the residential street is not parking");
+        a.retain_streets(&|p| p.lat < aisle.0.lat - 1e-5);
+        assert!(a.streets_parking.is_empty(), "parking marks follow the street points they mark");
     }
 
     #[test]

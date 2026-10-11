@@ -82,7 +82,14 @@ mod tests {
 
     fn cand(i: usize, north_m: f64, score: u32) -> Candidate {
         // 1 degree of latitude is ~111_195 m
-        Candidate { id: format!("n{i}"), point: Point::new(40.0 + north_m / 111_195.0, -111.0), name: format!("Place {i}"), score, rough: false }
+        Candidate {
+            id: format!("n{i}"),
+            point: Point::new(40.0 + north_m / 111_195.0, -111.0),
+            name: format!("Place {i}"),
+            score,
+            rough: false,
+            parking: false,
+        }
     }
 
     fn ring(n: usize) -> Vec<Candidate> {
