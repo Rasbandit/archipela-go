@@ -1,6 +1,6 @@
 //! Scan a realm once: one bulk query per kind of data, then match features to quest kinds (the atlas).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -408,6 +408,48 @@ pub fn is_rough(tags: &BTreeMap<String, String>) -> bool {
     }
 }
 
+/// A point as an exact map key (stitching keeps the ways' own vertices, so equal bits mean the same vertex).
+fn key(p: Point) -> (u64, u64) {
+    (p.lat.to_bits(), p.lon.to_bits())
+}
+
+/// The useful tags of a stitched trail from the ways it is made of: the surface covering the most length, lit yes/no/partial,
+/// the hardest `sac_scale`, and the first operator, description, website and wikipedia found.
+fn merge_trail_tags<'a>(ways: impl Iterator<Item = &'a Feature>) -> BTreeMap<String, String> {
+    let ways: Vec<&Feature> = ways.collect();
+    let mut out = BTreeMap::new();
+    let mut by_surface: BTreeMap<&str, f64> = BTreeMap::new();
+    for w in &ways {
+        if let Some(s) = w.tags.get("surface") {
+            *by_surface.entry(s.as_str()).or_default() += crate::geo::polyline_len_m(&w.geometry);
+        }
+    }
+    if let Some((s, _)) = by_surface.into_iter().max_by(|a, b| a.1.total_cmp(&b.1)) {
+        out.insert("surface".to_string(), s.to_string());
+    }
+    let lit: Vec<&str> = ways.iter().filter_map(|w| w.tags.get("lit")).map(String::as_str).collect();
+    if !lit.is_empty() {
+        let v = if lit.iter().all(|l| *l == "yes") {
+            "yes"
+        } else if lit.iter().all(|l| *l == "no") {
+            "no"
+        } else {
+            "partial"
+        };
+        out.insert("lit".to_string(), v.to_string());
+    }
+    let rank = |s: &str| crate::poi_details::SAC_SCALE.iter().position(|(k, _)| *k == s);
+    if let Some(s) = ways.iter().filter_map(|w| w.tags.get("sac_scale")).filter(|s| rank(s).is_some()).max_by_key(|s| rank(s)) {
+        out.insert("sac_scale".to_string(), s.clone());
+    }
+    for k in ["operator", "description", "website", "wikipedia"] {
+        if let Some(v) = ways.iter().find_map(|w| w.tags.get(k)) {
+            out.insert(k.to_string(), v.clone());
+        }
+    }
+    out
+}
+
 /// First and last point of a path, if it has any.
 fn ends(pts: &[Point]) -> Option<(Point, Point)> {
     Some((*pts.first()?, *pts.last()?))
@@ -506,12 +548,10 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
             }
             Geom::Line => {
                 // Ways of a named trail go together; unnamed ways (stair flights, path scraps) are grouped by proximity alone.
-                let mut by_name: BTreeMap<String, (Vec<Vec<Point>>, bool)> = BTreeMap::new();
-                for f in &features[..base] {
+                let mut by_name: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+                for (i, f) in features[..base].iter().enumerate() {
                     if f.geometry.len() >= 2 && k.matches(&f.tags) {
-                        let e = by_name.entry(f.name.clone().unwrap_or_default()).or_default();
-                        e.0.push(f.geometry.clone());
-                        e.1 |= is_rough(&f.tags);
+                        by_name.entry(f.name.clone().unwrap_or_default()).or_default().push(i);
                     }
                 }
                 let (min_len, max_len) = match k.verify {
@@ -519,14 +559,26 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
                     _ => (0.0, f64::MAX),
                 };
                 let mut idxs = Vec::new();
-                for (name, (ways, rough_any)) in by_name {
+                for (name, way_idx) in by_name {
+                    let rough_any = way_idx.iter().any(|&i| is_rough(&features[i].tags));
+                    let ways: Vec<Vec<Point>> = way_idx.iter().map(|&i| features[i].geometry.clone()).collect();
+                    // Which ways a vertex belongs to, so each chain finds its own ways in one pass over its points.
+                    let mut owners: HashMap<(u64, u64), Vec<usize>> = HashMap::new();
+                    for &i in &way_idx {
+                        for p in &features[i].geometry {
+                            owners.entry(key(*p)).or_default().push(i);
+                        }
+                    }
                     for chain in link(stitch(ways)) {
                         // A piece too short (or too long) for the kind could never become a quest, so it is not a find either.
                         let len = crate::geo::polyline_len_m(&chain);
                         if len < min_len || len > max_len || (k.closed && !is_closed(&chain)) {
                             continue;
                         }
-                        let mut tags = BTreeMap::new();
+                        let mut mine: Vec<usize> = chain.iter().filter_map(|p| owners.get(&key(*p))).flatten().copied().collect();
+                        mine.sort_unstable();
+                        mine.dedup();
+                        let mut tags = merge_trail_tags(mine.iter().map(|&i| &features[i]));
                         if !name.is_empty() {
                             tags.insert("name".to_string(), name.clone());
                         }
@@ -1239,6 +1291,85 @@ mod tests {
         let hits = &a.matches["trail_boss"];
         assert_eq!(hits.len(), 1, "one trail, not two pieces");
         assert!(crate::geo::polyline_len_m(&a.features[hits[0]].geometry) > 1200.0);
+    }
+
+    #[test]
+    fn a_stitched_trail_carries_its_ways_merged_tags() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let mid = destination(o, 0.0, 600.0);
+        let end = destination(o, 0.0, 1300.0);
+        let a = build_atlas(
+            "r",
+            0,
+            vec![
+                way(
+                    "w1",
+                    Some("Ridge Trail"),
+                    &[("highway", "path"), ("surface", "gravel"), ("lit", "yes"), ("sac_scale", "hiking"), ("operator", "City")],
+                    vec![o, mid],
+                ),
+                way(
+                    "w2",
+                    Some("Ridge Trail"),
+                    &[("highway", "path"), ("surface", "dirt"), ("lit", "no"), ("sac_scale", "mountain_hiking"), ("operator", "County")],
+                    vec![mid, end],
+                ),
+            ],
+            vec![],
+            &cat,
+        );
+        let t = &a.features[a.matches["trail_boss"][0]].tags;
+        assert_eq!(t.get("surface").map(String::as_str), Some("dirt"), "the surface covering the most length (700 m of 1300)");
+        assert_eq!(t.get("lit").map(String::as_str), Some("partial"));
+        assert_eq!(t.get("sac_scale").map(String::as_str), Some("mountain_hiking"), "the hardest");
+        assert_eq!(t.get("operator").map(String::as_str), Some("City"), "the first found");
+        assert_eq!(t.get("name").map(String::as_str), Some("Ridge Trail"));
+        assert_eq!(t.get("rough").map(String::as_str), Some("yes"));
+        assert!(!t.contains_key("highway"), "synthetic trails get no highway tag (it feeds is_rough)");
+    }
+
+    #[test]
+    fn untagged_ways_add_nothing_and_all_lit_ways_read_yes() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let mid = destination(o, 0.0, 600.0);
+        let end = destination(o, 0.0, 1300.0);
+        let a = build_atlas(
+            "r",
+            0,
+            vec![
+                way("w1", Some("Lamp Way"), &[("highway", "footway"), ("lit", "yes")], vec![o, mid]),
+                way("w2", Some("Lamp Way"), &[("highway", "footway")], vec![mid, end]),
+            ],
+            vec![],
+            &cat,
+        );
+        let t = &a.features[a.matches["trail_boss"][0]].tags;
+        assert_eq!(t.get("lit").map(String::as_str), Some("yes"), "ways with no lit tag do not count");
+        for k in ["surface", "sac_scale", "operator", "description", "website", "wikipedia"] {
+            assert!(!t.contains_key(k), "{k}");
+        }
+    }
+
+    #[test]
+    fn two_far_apart_trails_of_one_name_keep_their_own_tags() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let far = destination(o, 90.0, 5000.0);
+        let a = build_atlas(
+            "r",
+            0,
+            vec![
+                way("w1", Some("Creek Trail"), &[("highway", "path"), ("surface", "asphalt")], vec![o, destination(o, 0.0, 900.0)]),
+                way("w2", Some("Creek Trail"), &[("highway", "path"), ("surface", "dirt")], vec![far, destination(far, 0.0, 900.0)]),
+            ],
+            vec![],
+            &cat,
+        );
+        let mut surfaces: Vec<&str> = a.matches["trail_boss"].iter().map(|&i| a.features[i].tags["surface"].as_str()).collect();
+        surfaces.sort_unstable();
+        assert_eq!(surfaces, ["asphalt", "dirt"]);
     }
 
     #[test]
