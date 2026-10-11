@@ -15,8 +15,8 @@ class MapMarkersTest {
                 MarkerSpec.Quest("street_smarts", "reach", "progress", pips = 1),
                 MarkerSpec.Quest("touch_grass", "park", "done", pips = 3),
                 MarkerSpec.Ring(listOf(1, 2, 0, 3)),
-                MarkerSpec.Item("pinecones", "open"),
-                MarkerSpec.Item("shells", "locked"),
+                MarkerSpec.Item("pinecones"),
+                MarkerSpec.Item("shells"),
                 MarkerSpec.Me(heading = true, state = "bridged"),
                 MarkerSpec.Me(heading = false, state = "gps"),
             )
@@ -28,6 +28,14 @@ class MapMarkersTest {
         assertNull(MapMarkers.parse("glyph|a|b"))
         assertNull(MapMarkers.parse("quest|only|two"))
         assertNull(MapMarkers.parse(""))
+        assertNull("an item key is its theme alone", MapMarkers.parse("item|shells|open"))
+    }
+
+    @Test fun aPickupFadesWhileLockedInsteadOfTakingAQuestColour() {
+        assertEquals(1.0, MapMarkers.itemOpacity("open"), 0.0)
+        assertEquals(1.0, MapMarkers.itemOpacity("progress"), 0.0)
+        assertTrue(MapMarkers.itemOpacity("locked") < 1.0)
+        assertTrue("still visible", MapMarkers.itemOpacity("locked") > 0.0)
     }
 
     @Test fun aRingKeyNeedsOneNonNegativeSharePerStateAndSomethingToShow() {

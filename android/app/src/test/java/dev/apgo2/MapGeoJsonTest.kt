@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MarkerSpec
 import dev.apgo2.ui.Units
 import dev.apgo2.ui.hex
@@ -116,22 +117,40 @@ class MapFeaturesTest {
         collect = null,
     )
 
-    @Test fun aForagerShowsOnePinPerItemStillOutThere() {
+    @Test fun aForagerShowsOnePickupPerItemStillOutThereAndNoQuestPin() {
         val items = listOf(CollectItemOut(geo(1.0, 1.0), false), CollectItemOut(geo(2.0, 2.0), true), CollectItemOut(geo(3.0, 3.0), false))
         val q = quest(7, shape = "collect").copy(family = "courier", kindId = "forager", collect = CollectOut("acorns", 3u, 1u, 0u, items))
-        val pins = MapFeatures.quests(listOf(q), selected = 7)
-        assertEquals("picked items disappear", 2, pins.size)
-        val item = MarkerSpec.Item("acorns", "open").key
-        assertTrue(pins.all { it.getJSONObject("properties").getString(MapProp.IMAGE) == item })
-        assertEquals(1.0, pins[0].getJSONObject("geometry").getJSONArray("coordinates").getDouble(1), 0.0)
+        assertTrue("pickups are not quest pins", MapFeatures.quests(listOf(q), selected = 7).isEmpty())
+        val pickups = listOf(q).itemFeatures(selected = 7)
+        assertEquals("picked items disappear", 2, pickups.size)
+        val item = MarkerSpec.Item("acorns").key
+        val props = pickups.map { it.getJSONObject("properties") }
+        assertTrue(props.all { it.getString(MapProp.IMAGE) == item })
+        assertTrue("a tap selects its quest", props.all { it.getString(MapProp.ID) == "7" })
+        assertTrue(props.all { it.getBoolean(MapProp.SELECTED) })
+        assertTrue(props.all { it.getDouble(MapProp.OPACITY) == 1.0 })
+        assertEquals(1.0, pickups[0].getJSONObject("geometry").getJSONArray("coordinates").getDouble(1), 0.0)
         assertEquals(setOf(q.mapImageKey, item), listOf(q).pinImages)
     }
 
-    @Test fun aDoneForagerShowsNoItemPinsLikeAnyDoneQuest() {
+    @Test fun aLockedForagersPickupsFadeAndAnotherQuestsAreNotSelected() {
+        val q =
+            quest(
+                9,
+                shape = "collect",
+                state = "locked",
+            ).copy(collect = CollectOut("shells", 1u, 0u, 0u, listOf(CollectItemOut(geo(1.0, 1.0), false))))
+        val props = listOf(q).itemFeatures(selected = 7).single().getJSONObject("properties")
+        assertEquals(MapMarkers.itemOpacity("locked"), props.getDouble(MapProp.OPACITY), 0.0)
+        assertFalse(props.getBoolean(MapProp.SELECTED))
+    }
+
+    @Test fun aDoneForagerShowsNoPickupsLikeAnyDoneQuest() {
         val items = listOf(CollectItemOut(geo(3.0, 3.0), false), CollectItemOut(geo(4.0, 4.0), true))
         val q = quest(8, shape = "collect", state = "done").copy(collect = CollectOut("acorns", 1u, 0u, 1u, items))
         val pins = MapFeatures.quests(listOf(q), selected = null)
         assertEquals("only its own done pin", listOf(q.mapImageKey), pins.map { it.getJSONObject("properties").getString(MapProp.IMAGE) })
+        assertTrue(listOf(q).itemFeatures(selected = null).isEmpty())
         assertEquals(setOf(q.mapImageKey), listOf(q).pinImages)
     }
 

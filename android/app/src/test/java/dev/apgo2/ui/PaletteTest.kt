@@ -29,6 +29,11 @@ class PaletteTest {
         assertEquals(states.size, states.map { ApgoPalette.quest(it) }.toSet().size)
     }
 
+    @Test fun pickupsShareNoColourWithQuestStates() {
+        val states = listOf("done", "progress", "locked", "hidden", "open")
+        assertTrue(states.none { ApgoPalette.quest(it) == ApgoPalette.pickup })
+    }
+
     @Test fun notDoneDoesNotLookLikeAnError() {
         val todo = ApgoPalette.quest("open")
         assertNotEquals(ApgoPalette.danger, todo)

@@ -104,6 +104,9 @@ internal object ApgoPalette {
     val questLocked = Color(0xFF9E9E9E)
     val questHidden = Color(0xFFBDBDBD)
 
+    // Pickups (forager items): one cream for all, outlined in navy, so they never share a colour with a quest state
+    val pickup = Color(0xFFFFF1CC)
+
     // Map and realm editor
     val me = Color(0xFF1565C0)
     val trace = Color(0xFFB39DDB) // where you walked: pale lavender, solid (transparency would darken overlaps); no quest state uses it
