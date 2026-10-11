@@ -186,6 +186,8 @@ pub struct ScanPlanOut {
 pub trait ScanListener: Send + Sync {
     /// Requests finished so far out of all of them.
     fn progress(&self, done: u32, total: u32);
+    /// Asked before each map request: false stops the scan (e.g. the realm was hidden to be deleted). Nothing is saved then.
+    fn keep_going(&self) -> bool;
 }
 
 /// A quest kind a realm can offer, with how many places serve it.
@@ -933,34 +935,89 @@ pub struct Engine {
     last_journal: Mutex<Option<TrackPoint>>,
     /// The last street-build generation handed out (see [`Game::set_streets`]).
     streets_gen: AtomicU64,
-    /// Stop flags of the scans running now, by realm id (see [`Engine::cancel_scan`]).
-    scans: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
+    /// Stop flags of the scans running now (see [`Engine::cancel_scan`]).
+    scans: ScanRegistry,
+    /// Held while a finished scan saves and while a realm is deleted, so a delete can never land between a scan's last check
+    /// that its realm exists and its save (which would bring the realm back).
+    store_write: Mutex<()>,
+}
+
+/// The stop flags of running scans, by realm id. Each scan has its own flag, so two scans of one realm never clear each other's.
+#[derive(Default)]
+struct ScanRegistry(Mutex<HashMap<String, Vec<Arc<std::sync::atomic::AtomicBool>>>>);
+
+impl ScanRegistry {
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, Vec<Arc<std::sync::atomic::AtomicBool>>>> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A new scan of `id`: its stop flag.
+    fn begin(&self, id: &str) -> Arc<std::sync::atomic::AtomicBool> {
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.lock().entry(id.to_owned()).or_default().push(Arc::clone(&flag));
+        flag
+    }
+
+    /// The scan with `flag` is over: forget its flag only.
+    fn end(&self, id: &str, flag: &Arc<std::sync::atomic::AtomicBool>) {
+        let mut map = self.lock();
+        if let Some(flags) = map.get_mut(id) {
+            flags.retain(|f| !Arc::ptr_eq(f, flag));
+            if flags.is_empty() {
+                map.remove(id);
+            }
+        }
+    }
+
+    /// Stop every running scan of `id`.
+    fn cancel(&self, id: &str) {
+        for f in self.lock().get(id).into_iter().flatten() {
+            f.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
 }
 
 impl Engine {
-    /// [`Engine::scan_realm`] with the fetcher and pacing injected. The scan stops early when [`Engine::cancel_scan`] is called for
-    /// `id`; a stopped scan, or one whose realm was deleted meanwhile, saves nothing.
+    /// [`Engine::scan_realm`] with the fetcher and pacing injected. The scan stops early, making no more requests and saving
+    /// nothing, when [`Engine::cancel_scan`] or a delete stops it, or when `keep_going` says the app no longer wants it.
     fn scan_realm_with(
         &self,
         id: &str,
         now_ms: u64,
         progress: &(dyn Fn(usize, usize) + Sync),
+        keep_going: &(dyn Fn() -> bool + Sync),
         fetch: Fetch<'_>,
         pacing: &Pacing,
     ) -> Result<Vec<OfferOut>, CoreError> {
+        use std::sync::atomic::Ordering;
         let store = self.store();
         let realm = store.get(id).ok_or_else(|| err("realm not found"))?;
-        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        self.scans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id.to_owned(), Arc::clone(&stop));
-        let scanned = scan_with_stop(&realm, &self.catalog, now_ms, fetch, pacing, std::time::Instant::now() + SCAN_BUDGET, progress, &stop);
-        self.scans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(id);
-        let atlas = scanned.map_err(err)?;
-        // The realm may have been deleted or edited while the scan ran: save nothing for a deleted realm, and stamp the scan time
-        // on its current state, not on the copy read before.
-        let mut current = store.get(id).ok_or_else(|| err("realm was deleted during the scan"))?;
-        store.save_atlas(&atlas).map_err(err)?;
-        current.scanned_at_ms = Some(now_ms);
-        store.save(&current).map_err(err)?;
+        let flag = self.scans.begin(id);
+        let stopped = || flag.load(Ordering::SeqCst) || !keep_going();
+        // A delete between reading the realm and registering the flag had no flag to stop: look again now that it is in.
+        let scanned = if store.get(id).is_none() {
+            Err(apgo_core::overpass::Error::Stopped)
+        } else {
+            scan_with_stop(&realm, &self.catalog, now_ms, fetch, pacing, std::time::Instant::now() + SCAN_BUDGET, progress, &stopped)
+        };
+        let atlas = scanned.map_err(|e| {
+            self.scans.end(id, &flag);
+            err(e)
+        })?;
+        // Save under the write lock, so a delete either comes first (the realm is gone and nothing is saved) or waits until after.
+        let saved = {
+            let _write = self.store_write.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let current = if stopped() { None } else { store.get(id) };
+            current.map(|mut current| -> Result<_, CoreError> {
+                store.save_atlas(&atlas).map_err(err)?;
+                // The realm may have been edited while the scan ran: stamp the scan time on its current state.
+                current.scanned_at_ms = Some(now_ms);
+                store.save(&current).map_err(err)?;
+                Ok(current)
+            })
+        };
+        self.scans.end(id, &flag);
+        let current = saved.ok_or_else(|| err("scan stopped: the realm was deleted or is no longer wanted"))??;
         let mut zoned = atlas;
         zoned.restrict_to(&current.shape.to_zone());
         zoned.apply_marks(&store.marks(id));
@@ -1239,7 +1296,8 @@ impl Engine {
             region: Mutex::new(String::new()),
             last_journal: Mutex::new(None),
             streets_gen: AtomicU64::default(),
-            scans: Mutex::default(),
+            scans: ScanRegistry::default(),
+            store_write: Mutex::new(()),
             dir,
         })
     }
@@ -1316,8 +1374,11 @@ impl Engine {
     /// # Errors
     /// Returns an error if a file cannot be removed.
     pub fn delete_realm(&self, id: String) -> Result<(), CoreError> {
-        self.cancel_scan(id.clone());
-        self.store().delete(&id).map_err(err)?;
+        {
+            let _write = self.store_write.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.scans.cancel(&id);
+            self.store().delete(&id).map_err(err)?;
+        }
         self.refresh_zones_of(&id);
         Ok(())
     }
@@ -1383,15 +1444,14 @@ impl Engine {
     pub fn scan_realm(&self, id: String, now_ms: u64, listener: Arc<dyn ScanListener>) -> Result<Vec<OfferOut>, CoreError> {
         let cache = self.cache();
         let fetch = |q: &str, start: usize, deadline: Option<std::time::Instant>| apgo_core::overpass::fetch_cached_from(q, Some(&cache), start, deadline);
-        self.scan_realm_with(&id, now_ms, &|done, total| listener.progress(count_u32(done), count_u32(total)), &fetch, &Pacing::default())
+        let progress = |done, total| listener.progress(count_u32(done), count_u32(total));
+        self.scan_realm_with(&id, now_ms, &progress, &|| listener.keep_going(), &fetch, &Pacing::default())
     }
 
     /// Stop the scan of realm `id` if one is running: it makes no more requests and saves nothing (its `scan_realm` returns an
     /// error). Nothing happens when the realm is not being scanned. Deleting a realm does this too.
     pub fn cancel_scan(&self, id: String) {
-        if let Some(stop) = self.scans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&id) {
-            stop.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
+        self.scans.cancel(&id);
     }
 
     /// Whether realm `id` was scanned before street runs were recorded, so its quests are placed by street points only until it is
@@ -2232,11 +2292,43 @@ mod tests {
             Ok(r#"{"elements":[]}"#.to_string())
         };
         let one_at_a_time = Pacing { workers: 1, gap: std::time::Duration::ZERO, rounds: 1, backoff: std::time::Duration::ZERO };
-        let r = e.scan_realm_with("r9", 0, &|_, _| {}, &fetch, &one_at_a_time);
+        let r = e.scan_realm_with("r9", 0, &|_, _| {}, &|| true, &fetch, &one_at_a_time);
         assert!(r.is_err(), "a stopped scan has no result");
         assert_eq!(calls.load(Ordering::SeqCst), 1, "no request after the delete");
         assert!(e.store().load_atlas("r9").is_none(), "no scan saved for a deleted realm");
         assert!(e.store().get("r9").is_none());
+    }
+
+    #[test]
+    fn a_scan_the_app_no_longer_wants_makes_no_request_and_saves_nothing() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let e = engine_with_game("scan-unwanted");
+        e.save_realm("r9".into(), "R9".into(), None, Some(circle(home(), 2000.0)), vec![], false).unwrap();
+        let calls = AtomicUsize::new(0);
+        let fetch = |_: &str, _: usize, _: Option<std::time::Instant>| -> Result<String, apgo_core::overpass::Error> {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(r#"{"elements":[]}"#.to_string())
+        };
+        let one_at_a_time = Pacing { workers: 1, gap: std::time::Duration::ZERO, rounds: 1, backoff: std::time::Duration::ZERO };
+        // The realm was hidden for undo before the scan got going: the app's listener says stop from the start.
+        let r = e.scan_realm_with("r9", 0, &|_, _| {}, &|| false, &fetch, &one_at_a_time);
+        assert!(r.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "no request at all");
+        assert!(e.store().load_atlas("r9").is_none());
+        assert!(e.store().get("r9").is_some(), "the realm itself is untouched (undo can bring it back)");
+    }
+
+    #[test]
+    fn each_scan_of_a_realm_has_its_own_stop_flag() {
+        use std::sync::atomic::Ordering;
+        let reg = ScanRegistry::default();
+        let (a, b) = (reg.begin("r1"), reg.begin("r1"));
+        reg.end("r1", &a); // the first scan finishes while the second still runs
+        reg.cancel("r1");
+        assert!(b.load(Ordering::SeqCst), "the running scan is still stopped by a cancel");
+        assert!(!a.load(Ordering::SeqCst), "a finished scan is left alone");
+        reg.end("r1", &b);
+        reg.cancel("r1"); // nothing running: nothing to do
     }
 
     #[test]

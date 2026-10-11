@@ -2,7 +2,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::sync::atomic::AtomicBool;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -719,6 +718,9 @@ impl Default for Pacing {
     }
 }
 
+/// Asked before each map request (from the scanning threads): true stops the scan.
+pub type Stop<'a> = &'a (dyn Fn() -> bool + Sync);
+
 /// Fetches one query: takes the query text, the round it is in and a deadline, and returns the body.
 pub type Fetch<'a> = &'a (dyn Fn(&str, usize, Option<Instant>) -> Result<String, Error> + Sync);
 
@@ -729,7 +731,7 @@ fn run_jobs(
     pacing: &Pacing,
     deadline: Instant,
     progress: &(dyn Fn(usize, usize) + Sync),
-    stop: &AtomicBool,
+    stop: Stop<'_>,
 ) -> Vec<Option<Result<String, Error>>> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
@@ -738,7 +740,7 @@ fn run_jobs(
     let done = AtomicUsize::new(0);
     let mut todo: Vec<usize> = (0..jobs.len()).collect();
     for round in 0..pacing.rounds.max(1) {
-        if todo.is_empty() || stop.load(Ordering::SeqCst) || (round > 0 && Instant::now() >= deadline) {
+        if todo.is_empty() || stop() || (round > 0 && Instant::now() >= deadline) {
             break;
         }
         if round > 0 {
@@ -748,7 +750,7 @@ fn run_jobs(
         std::thread::scope(|s| {
             for _ in 0..pacing.workers.max(1) {
                 s.spawn(|| loop {
-                    if stop.load(Ordering::SeqCst) {
+                    if stop() {
                         break;
                     }
                     let at = next.fetch_add(1, Ordering::SeqCst);
@@ -785,14 +787,14 @@ pub fn scan_with(
     deadline: Instant,
     progress: &(dyn Fn(usize, usize) + Sync),
 ) -> Result<Atlas, Error> {
-    scan_with_stop(realm, catalog, now_ms, fetch, pacing, deadline, progress, &AtomicBool::new(false))
+    scan_with_stop(realm, catalog, now_ms, fetch, pacing, deadline, progress, &|| false)
 }
 
-/// [`scan_with`] that stops early, making no more requests, once `stop` is set (its realm was deleted).
+/// [`scan_with`] that stops early, making no more requests, once `stop` says so (its realm was deleted or is no longer wanted).
 ///
 /// # Errors
 /// [`Error::Stopped`] when stopped; otherwise as [`scan_with`].
-#[allow(clippy::too_many_arguments)] // scan_with's arguments plus the stop flag
+#[allow(clippy::too_many_arguments)] // scan_with's arguments plus the stop check
 pub fn scan_with_stop(
     realm: &Realm,
     catalog: &Catalog,
@@ -801,12 +803,12 @@ pub fn scan_with_stop(
     pacing: &Pacing,
     deadline: Instant,
     progress: &(dyn Fn(usize, usize) + Sync),
-    stop: &AtomicBool,
+    stop: Stop<'_>,
 ) -> Result<Atlas, Error> {
     let zone = realm.shape.to_zone();
     let jobs = jobs_for(&zone, catalog);
     let results = run_jobs(&jobs, fetch, pacing, deadline, progress, stop);
-    if stop.load(std::sync::atomic::Ordering::SeqCst) {
+    if stop() {
         return Err(Error::Stopped);
     }
 
@@ -899,7 +901,7 @@ pub fn scan_realm(
     cache_dir: Option<&Path>,
     now_ms: u64,
     progress: &(dyn Fn(usize, usize) + Sync),
-    stop: &AtomicBool,
+    stop: Stop<'_>,
 ) -> Result<Atlas, Error> {
     let fetch = |q: &str, start: usize, deadline: Option<Instant>| fetch_cached_from(q, cache_dir, start, deadline);
     scan_with_stop(realm, catalog, now_ms, &fetch, &Pacing::default(), Instant::now() + SCAN_BUDGET, progress, stop)
@@ -1118,7 +1120,7 @@ mod tests {
             }
             Ok(BENCH_BODY.to_string())
         };
-        let r = scan_with_stop(&realm, &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {}, &stop);
+        let r = scan_with_stop(&realm, &cat, 0, &fetch, &quick(), Instant::now() + Duration::from_secs(30), &|_, _| {}, &|| stop.load(AtomicOrdering::SeqCst));
         assert!(matches!(r, Err(Error::Stopped)), "{:?}", r.map(|a| a.features.len()));
         let n = calls.load(AtomicOrdering::SeqCst);
         assert!(n < jobs, "{n} of {jobs} requests ran after the stop");

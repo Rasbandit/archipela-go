@@ -5,12 +5,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.apgo_ffi.OfferOut
 import uniffi.apgo_ffi.ScanListener
 import uniffi.apgo_ffi.ScanPlanOut
+import java.util.concurrent.ConcurrentHashMap
 
 // At most one download per realm in this time.
 private const val SCAN_COOLDOWN_MS = 20_000L
@@ -47,8 +49,12 @@ internal class ScanCoordinator(
     private val lastDownload = mutableMapOf<String, Long>()
     private val quietRetries = mutableMapOf<String, Int>()
 
-    // Realms deleted (hidden, undo still possible): their scans stop and nothing more is fetched or reported for them.
-    private val dropped = mutableSetOf<String>()
+    // Realms deleted (hidden, undo still possible): their scans stop and nothing more is fetched or reported for them. Read by the
+    // core on the scanning thread (the listener's keepGoing), so a thread-safe set.
+    private val dropped: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    // The pending deferred scan or quiet retry of each realm, cancelled when the realm is deleted.
+    private val timers = mutableMapOf<String, Job>()
 
     // Dropped realms whose scan was cut short, and those of them brought back (Undo) while the stopped scan was still winding down.
     private val interrupted = mutableSetOf<String>()
@@ -58,6 +64,8 @@ internal class ScanCoordinator(
     fun forget(id: String) {
         dropped.add(id)
         if (id in scanning || waitingToScan.remove(id) || quietRetries.remove(id) != null) interrupted.add(id)
+        timers.remove(id)?.cancel()
+        rescanAfter.remove(id)
         if (ask?.id == id) ask = null
         model.engine.cancelScan(id)
     }
@@ -83,19 +91,16 @@ internal class ScanCoordinator(
     ) {
         if (id in scanning || id in dropped) return
         val plan = withContext(Dispatchers.IO) { model.engine.scanPlan(id) }
-        if (plan.missing > 0u && holdBack(id, plan, confirmed)) return
+        if (id in dropped || (plan.missing > 0u && holdBack(id, plan, confirmed))) return // deleted while the plan was read
         scanning.add(id)
         val result = runWithProgress(id)
         scanning.remove(id)
         model.busy = null
         busyFraction = null
+        // A deleted realm's scan was stopped: no message and no retry. One brought back meanwhile is scanned again.
         when {
             id in dropped -> Unit
-
-            // a deleted realm's scan was stopped: no message and no retry
             rescanAfter.remove(id) -> scan(id, confirmed = true)
-
-            // brought back while its stopped scan wound down
             else -> report(id, plan, result)
         }
     }
@@ -148,11 +153,13 @@ internal class ScanCoordinator(
         confirmed: Boolean,
     ) {
         if (!waitingToScan.add(id)) return
-        scope.launch {
-            delay(wait)
-            waitingToScan.remove(id)
-            scan(id, confirmed)
-        }
+        timers[id] =
+            scope.launch {
+                delay(wait)
+                waitingToScan.remove(id)
+                timers.remove(id)
+                scan(id, confirmed)
+            }
     }
 
     private suspend fun runWithProgress(id: String): Result<List<OfferOut>> {
@@ -171,6 +178,9 @@ internal class ScanCoordinator(
                         model.busy = "$SCANNING_TEXT $done of $total"
                     }
                 }
+
+                // Asked by the core before each map request: a realm hidden for deletion stops at once.
+                override fun keepGoing(): Boolean = id !in dropped
             }
         return withContext(Dispatchers.IO) { runCatching { model.engine.scanRealm(id, model.now().toULong(), listener) } }
     }
@@ -197,10 +207,12 @@ internal class ScanCoordinator(
         val tries = quietRetries[id] ?: 0
         if (partial && tries < MAX_QUIET_RETRIES) {
             quietRetries[id] = tries + 1
-            scope.launch {
-                delay(QUIET_RETRY_MS)
-                scan(id, confirmed = true)
-            }
+            timers[id] =
+                scope.launch {
+                    delay(QUIET_RETRY_MS)
+                    timers.remove(id)
+                    scan(id, confirmed = true)
+                }
         } else if (!partial) {
             quietRetries.remove(id)
         }
