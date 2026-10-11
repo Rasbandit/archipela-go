@@ -47,10 +47,12 @@ atlas when ⓘ is tapped. Stitched trail features get their ways' useful tags me
 ### Task 1: Core `poi_details` module (tags → fields)
 
 **Files:**
+
 - Create: `core/src/poi_details.rs`
 - Modify: `core/src/lib.rs` (add `pub mod poi_details;` in alphabetical order, after `pub mod overpass;`)
 
 **Interfaces:**
+
 - Consumes: `crate::scan::Feature { id, point, name, tags: BTreeMap<String,String>, geometry: Vec<Point> }`,
   `crate::geo::polyline_len_m(&[Point]) -> f64`.
 - Produces: `pub struct PoiDetails` (fields below) and `pub fn details(f: &Feature) -> PoiDetails`.
@@ -346,10 +348,12 @@ git commit -m "feat: map tags to POI details in core"
 ### Task 2: Merge way tags onto stitched trail features
 
 **Files:**
+
 - Modify: `core/src/scan.rs` (`build_atlas`, the `Geom::Line` arm around lines 507-545; new private fn `merge_trail_tags`)
 - Test: `core/src/scan.rs` (`mod tests`, next to `fragments_of_one_trail_with_small_gaps_join_into_a_single_find`)
 
 **Interfaces:**
+
 - Consumes: `crate::poi_details::SAC_SCALE` (order = easiest first), `crate::geo::polyline_len_m`.
 - Produces: synthetic `L:` features whose `tags` may also hold `surface`, `lit` (`yes`/`no`/`partial`), `sac_scale`,
   `operator`, `description`, `website`, `wikipedia`. `name` and `rough` unchanged. No `highway` tag.
@@ -539,12 +543,14 @@ git commit -m "feat: merge way tags onto stitched trails"
 ### Task 3: Quests remember their feature
 
 **Files:**
+
 - Modify: `core/src/assign.rs` (`Assignment` struct ~145-171, `one()` ~711)
 - Modify: `core/src/game.rs` (`QuestView` ~61, its builder ~597, new `Game::quest_feature`)
 - Modify test helpers that build `Assignment`: `core/src/chain.rs:173`, `core/src/fog.rs:95`, `core/src/goal.rs:279`
   (add `feature_id: None`)
 
 **Interfaces:**
+
 - Produces: `Assignment.feature_id: Option<String>`; `QuestView.feature_id: Option<String>`;
   `Game::quest_feature(&self, location_id: i64) -> Option<(&str /*realm id*/, &str /*feature id*/)>`.
 
@@ -657,11 +663,13 @@ git commit -m "feat: keep a quest's atlas feature id"
 ### Task 4: Engine `poi_details` and `QuestOut.has_details`
 
 **Files:**
+
 - Modify: `core/ffi/src/engine.rs` (`QuestOut` ~356, `quests()` ~1652, new `PoiDetailsOut` record + `Engine::poi_details`,
   tests module ~2118)
 - Modify: `docs/superpowers/specs/2026-10-11-poi-details-design.md` (record the `has_details` amendment)
 
 **Interfaces:**
+
 - Consumes: `apgo_core::poi_details::{details, PoiDetails}`, `Game::quest_feature`, `QuestView.feature_id`,
   `apgo_core::units::distance(m, UnitSystem) -> String`.
 - Produces (Kotlin sees, UniFFI camelCase): `QuestOut.hasDetails: Boolean`; `engine.poiDetails(locationId: Long): PoiDetailsOut?`;
@@ -800,6 +808,7 @@ git commit -m "feat: poi_details engine call"
 ### Task 5: Android ⓘ button and details card
 
 **Files:**
+
 - Create: `android/app/src/main/java/dev/apgo2/ui/PoiFormat.kt`
 - Create: `android/app/src/test/java/dev/apgo2/ui/PoiFormatTest.kt`
 - Modify: `android/app/src/main/java/dev/apgo2/ui/ApgoIcons.kt` (add `val Info = Lucide.Info` under Actions)
@@ -812,6 +821,7 @@ git commit -m "feat: poi_details engine call"
   atlas via `poi_details`)
 
 **Interfaces:**
+
 - Consumes: `PoiDetailsOut` and `engine.poiDetails(locationId: Long): PoiDetailsOut?` from Task 4; `QuestOut.hasDetails`.
 - Produces: `internal data class PoiRow(val label: String, val value: String, val link: String? = null)`,
   `internal object PoiFormat { fun rows(d: PoiDetailsOut): List<PoiRow>; fun title(d: PoiDetailsOut): String }`.
@@ -1016,6 +1026,7 @@ Expected: PASS (colour tokens, bindings, spotless, detekt, lint, unit tests, kov
 - [ ] **Step 7: Verify on a device**
 
 Run: `just emu-start && just emu-run` (or `just android-run` on the phone). Start a game in a scanned realm with POIs:
+
 1. Tap a bench/cafe/park quest pin → popup shows ⓘ → tap → card with title and the known rows; website and OSM links open the
    browser; phone opens the dialer.
 2. Tap a trail line → popup ⓘ → card shows Trail, Surface, Length (in the chosen units), Lit/Difficulty when tagged; no
