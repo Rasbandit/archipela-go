@@ -179,6 +179,7 @@ mod tests {
             quest_name: kind.replace('_', " "),
             blurb: String::new(),
             place: "Anywhere".into(),
+            feature_id: None,
             tier: 1,
             effort_min: 10.0,
             target,

@@ -24,8 +24,10 @@ owner: never switch branches or edit files there. A `git switch` by one session 
 - New work: Claude Code's `EnterWorktree` (creates `.claude/worktrees/<name>` on a new branch from `origin/main`), then
   `git branch -m feat/<name>`. Existing branch: `git worktree add .claude/worktrees/<name> <branch>`, then `EnterWorktree` with
   that `path`. `.claude/worktrees/` is gitignored.
-- A fresh worktree has none of the gitignored state: run `just setup-ap` before `just check-py`; `just check-android` builds the
-  uniffi bindings itself; Gradle finds the SDK through `ANDROID_HOME` (the justfile exports it).
+- A fresh worktree has none of the gitignored state: run `just setup-ap` before `just check-py` (a bare `just check` fails at
+  `ap-present` until then; with no Python changes run `just check-rust check-android check-hygiene` instead). `just check-android`
+  builds the uniffi bindings itself. Gradle may still fail with "SDK location not found": copy the gitignored
+  `android/local.properties` from the main checkout (`cp ../../../android/local.properties android/`).
 - Shared across worktrees: branches, hooks and the stash stack. Never use a bare `git stash`/`git stash pop` (you can pop another
   session's entry); use a WIP commit. A branch can be checked out in only one worktree at a time.
 - Git hooks export `GIT_DIR` (pointing at the real repo, in any checkout). Any script or test that builds a scratch repo must
@@ -70,6 +72,7 @@ owner: never switch branches or edit files there. A `git switch` by one session 
 - Read editor state inside click handlers (not from vals captured at composition) or undo/redo saves stale values.
 - UniFFI: a record field named `message` clashes with Kotlin's Throwable.message; rustls needs the ring provider installed explicitly; generated Kotlin lives in `src/main/kotlin`.
 - Compose icons: Lucide names differ from memory (e.g. no `CloudCheck`; lucide 2 renamed `CircleHelp` to `CircleQuestionMark`). A wrong name is a compile error: fix by trying the compiler.
+  `ApgoIcons.kt` imports each icon by name (`import com.composables.icons.lucide.Info`): a new `Lucide.X` needs its own import or it is "Unresolved reference".
 - The commit hook wants imperative subjects (`feat: show finds`, not `feat: finds ...`) and lines under 72 chars in the body.
 - Generated `android/app/src/main/kotlin/uniffi/` is excluded from every Kotlin gate (Spotless, detekt, Lint, Kover); never edit or lint it. `core/vendor/` is likewise untouched.
 - `bash scripts/android_bindings.sh` builds the bindings on the host (no NDK) for `just check-android` and CI; `android_core.sh` is for device builds.

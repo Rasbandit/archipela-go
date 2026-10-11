@@ -21,6 +21,26 @@ request that missed the budget showed a scary warning.
   restrict it to the realm's current shape (`Atlas::restrict_to`).
 - `Engine::scan_realm` re-reads the realm before stamping the scan time: a realm edited during a scan (autosave) is not overwritten.
 
+## Trail stitching (scan.rs)
+
+- `stitch` joins ways whose ends are within `JOIN_M` (8 m) and drops the joined way's first point; `link` joins chains whose ends are
+  within `LINK_M` (30 m) and keeps every point. So a way glued in by `stitch` may keep only its far vertices in the chain.
+- `chain_ways` therefore counts a way as part of a chain when it owns a chain edge OR a vertex no other way has. A branch that only
+  touches the trail at a junction vertex owns neither and is not counted.
+- Synthetic `L:` trail features carry the merged way tags but deliberately no `highway` tag, because `highway` feeds `is_rough`.
+
+## Place details (PR #136; UI in the quest card spec)
+
+- `Assignment.feature_id` links a quest to its atlas feature. `QuestOut.has_details` is only `feature_id.is_some()`, so building the
+  quest list never reads the atlas.
+- `Engine::poi_details` reads the atlas JSON lazily with the game lock released: call it off the main thread.
+- Games saved before `feature_id` get it back in `Engine::refresh_streets`: `Game::relink_places` uses `assign::place_of`, which
+  picks a find of the same kind (any find for the boss) with the same name, nearest the quest (every point of a line quest),
+  within 100 m; an unnamed find only stands in when the quest's place is the kind's own name. It reuses the atlases loaded for
+  the street build and saves once.
+- Atlases scanned before the trail tag merge have trails with no merged tags (surface, lit, difficulty) until the realm is
+  scanned again.
+
 ## App rules (AppModel.scan)
 
 - At most one network scan per realm every 20 s; a request inside the window is deferred to the end of it, not dropped.

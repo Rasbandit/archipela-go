@@ -10,7 +10,7 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
-use crate::assign::{assign, replace_unpicked, zone_paths, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx};
+use crate::assign::{assign, place_of, replace_unpicked, zone_paths, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx};
 use crate::catalog::{Catalog, Mode};
 use crate::chain::{self, is_chain_target, Chain, ChainUnit};
 use crate::fog::{anchor, reveal_radius, Fog};
@@ -67,6 +67,8 @@ pub struct QuestView {
     pub name: String,
     /// Name of the place the quest uses.
     pub place: String,
+    /// Atlas id of the quest's place, if it has a real one (see `Game::quest_feature`).
+    pub feature_id: Option<String>,
     /// Quest family.
     pub family: String,
     /// The quest kind's id ("`bench_warmer`"), for choosing an icon.
@@ -599,6 +601,7 @@ impl Game {
                     zone: a.zone,
                     name: a.quest_name.clone(),
                     place: a.place.clone(),
+                    feature_id: a.feature_id.clone(),
                     family: a.family.clone(),
                     kind_id: a.kind_id.clone(),
                     difficulty,
@@ -618,6 +621,30 @@ impl Game {
                 }
             })
             .collect()
+    }
+
+    /// Link quests saved before quests kept their place (`feature_id`) to the place in `atlases` (the game's zones as scanned) they
+    /// were made from (see [`place_of`]); returns how many it linked, so the caller saves the game. Quests already linked are left alone.
+    pub fn relink_places(&mut self, atlases: &[&Atlas], catalog: &Catalog) -> usize {
+        let mut linked = 0;
+        for a in self.assignments.iter_mut().filter(|a| a.feature_id.is_none()) {
+            let Some(i) = self.slot.zones.iter().position(|z| z.id == a.zone) else { continue };
+            let Some(atlas) = self.zone_realms.get(i).and_then(|r| atlases.iter().find(|x| &x.realm_id == r)) else { continue };
+            if let Some(id) = place_of(a, atlas, catalog) {
+                a.feature_id = Some(id);
+                linked += 1;
+            }
+        }
+        linked
+    }
+
+    /// The realm and atlas feature id behind quest `location_id`, for its place details; `None` for a quest with no real place.
+    #[must_use]
+    pub fn quest_feature(&self, location_id: i64) -> Option<(&str, &str)> {
+        let a = self.assignments.iter().find(|a| a.location_id == location_id)?;
+        let feature = a.feature_id.as_deref()?;
+        let i = self.slot.zones.iter().position(|z| z.id == a.zone)?;
+        Some((self.zone_realms.get(i)?.as_str(), feature))
     }
 
     /// Every progressive chain as the UI shows it.
@@ -1652,6 +1679,19 @@ mod tests {
 
     fn raw(p: Point, t_s: i64, acc: f64) -> RawFix {
         RawFix::at(p.lat, p.lon, t_s * 1000, acc)
+    }
+
+    #[test]
+    fn quest_feature_names_the_zone_realm_and_place() {
+        let mut g = game(&reach_only(&[Mode::Walk, Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let (first, other) = (g.assignments[0].location_id, g.assignments[1].location_id);
+        g.assignments[0].feature_id = Some("n7".into());
+        let zone = g.assignments[0].zone;
+        let realm = format!("r{}", g.slot.zones.iter().position(|z| z.id == zone).unwrap());
+        assert_eq!(g.quest_feature(first), Some((realm.as_str(), "n7")));
+        assert_eq!(g.quest_feature(other), None, "a quest with no place");
+        assert_eq!(g.quest_feature(-1), None, "no such quest");
+        assert!(g.quest_views(0).iter().any(|q| q.location_id == first && q.feature_id.as_deref() == Some("n7")));
     }
 
     #[test]
