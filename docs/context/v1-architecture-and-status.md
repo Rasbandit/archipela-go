@@ -27,6 +27,8 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - **Home picker**: full-screen map, draggable house pin, tap to place, "Use my location".
 - **New Game** (no tab: opened from the "New game" button on the empty Play screen, over Play; any tab or Back closes it; `AppNav`): zones added once (card = travel mode + quest types with live counts), several goals + rule, tooltips everywhere (`ui/Help*.kt`), Archipelago join.
 - **Play**: map with kind icons, per-goal progress, quest list, dev simulator buttons.
+  Quest popup ⓘ (quests on a real place) opens a place details card: `Engine::poi_details` looks up the quest's `feature_id`
+  in the realm atlas (`core/src/poi_details.rs` maps tags to fields); stitched trails carry their ways' merged tags.
 
 ## Track and audit journal (new, branch `feat/adaptive-gps-interval`)
 

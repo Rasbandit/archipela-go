@@ -142,6 +142,9 @@ internal class AppModel(
     var selected by mutableStateOf<Long?>(null)
     var chains by mutableStateOf<List<ChainOut>>(emptyList())
     var selectedChain by mutableStateOf<String?>(null)
+
+    // The quest whose place details card is open (ⓘ in the quest popup), if any.
+    var placeFor by mutableStateOf<Long?>(null)
     var yamlText by mutableStateOf<String?>(null)
 
     /** The newest fix was a Wi-Fi or cell position (provider `network`): it never counts for quests (adversarial review I2). */
@@ -229,6 +232,7 @@ internal class AppModel(
             zones = emptyList()
             chains = emptyList()
             selectedChain = null
+            placeFor = null
             hud = null
             sessionTrace.clear()
             olderTrace = emptyList()

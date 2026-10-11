@@ -56,6 +56,7 @@ import com.composables.icons.lucide.History
 import com.composables.icons.lucide.Hourglass
 import com.composables.icons.lucide.House
 import com.composables.icons.lucide.IceCreamCone
+import com.composables.icons.lucide.Info
 import com.composables.icons.lucide.Landmark
 import com.composables.icons.lucide.Leaf
 import com.composables.icons.lucide.List
@@ -142,6 +143,7 @@ internal object ApgoIcons {
     val Redo = Lucide.Redo2
     val Finds = Lucide.ListChecks
     val Close = Lucide.X
+    val Info = Lucide.Info
     val Help = Lucide.CircleQuestionMark
     val Remove = Lucide.Trash2
     val Check = Lucide.Check

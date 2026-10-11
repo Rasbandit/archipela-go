@@ -74,12 +74,15 @@ import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.Tone
 import dev.apgo2.ui.Units
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.GameInfo
 import uniffi.apgo_ffi.GoalLineOut
 import uniffi.apgo_ffi.HudOut
+import uniffi.apgo_ffi.PoiDetailsOut
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.ZoneOut
 import kotlin.math.roundToInt
@@ -437,10 +440,34 @@ private fun PlayMap(
             anchor = at,
             onAnchor = { anchorPx = it },
         )
-        selected?.let { q -> QuestPopup(m, q, anchorPx, pinPx, coverDp) { bubblePx = it } }
+        QuestOrPlacePopup(m, selected, anchorPx, pinPx, coverDp) { bubblePx = it }
         chain?.let { c ->
             MapOverlayCard(Modifier.align(Alignment.BottomCenter).above(coverDp)) { ChainDetails(c) { m.selectedChain = null } }
         }
+    }
+}
+
+// The selected quest's popup, or, after its ⓘ was tapped, the card about its place. The place comes from the realm's saved scan,
+// so it is read off the main thread.
+@Composable
+private fun BoxScope.QuestOrPlacePopup(
+    m: AppModel,
+    selected: QuestOut?,
+    anchorPx: Offset?,
+    pinPx: Float,
+    coverDp: () -> Int,
+    onBubbleSize: (Int) -> Unit,
+) {
+    var place by remember { mutableStateOf<Pair<Long, PoiDetailsOut?>?>(null) }
+    LaunchedEffect(m.selected) { if (m.placeFor != m.selected) m.placeFor = null }
+    LaunchedEffect(m.placeFor) {
+        place = m.placeFor?.let { id -> id to withContext(Dispatchers.IO) { m.engine.poiDetails(id) } }
+    }
+    val open = place?.takeIf { it.first == m.placeFor }
+    if (open != null) {
+        MapOverlayCard(Modifier.align(Alignment.BottomCenter).above(coverDp)) { PoiDetailsCard(open.second) { m.placeFor = null } }
+    } else {
+        selected?.let { q -> QuestPopup(m, q, anchorPx, pinPx, coverDp, onBubbleSize) }
     }
 }
 
@@ -456,7 +483,7 @@ private fun BoxScope.QuestPopup(
     onBubbleSize: (Int) -> Unit,
 ) {
     val details: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
-        QuestDetails(q) { m.selected = null }
+        QuestDetails(q, onInfo = { m.placeFor = q.locationId }.takeIf { q.hasDetails }) { m.selected = null }
     }
     if (q.anchor == null) {
         MapOverlayCard(Modifier.align(Alignment.BottomCenter).above(coverDp), content = details)
