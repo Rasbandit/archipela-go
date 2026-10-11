@@ -25,6 +25,8 @@ pub enum Error {
     AllEndpointsFailed(Vec<String>),
     /// Reading or writing the on-disk cache failed.
     Io(std::io::Error),
+    /// The scan was stopped (its realm was deleted) before it finished.
+    Stopped,
 }
 
 impl std::fmt::Display for Error {
@@ -33,6 +35,7 @@ impl std::fmt::Display for Error {
             Self::Parse(m) => write!(f, "bad overpass response: {m}"),
             Self::AllEndpointsFailed(v) => write!(f, "all endpoints failed: {}", v.join("; ")),
             Self::Io(e) => write!(f, "io: {e}"),
+            Self::Stopped => write!(f, "scan stopped"),
         }
     }
 }

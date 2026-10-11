@@ -91,12 +91,14 @@ internal class RealmManager(
         val r = model.realms.firstOrNull { it.id == id } ?: return
         undo?.let { commitDelete(it.id) } // a new delete settles the previous one
         hidden.add(id)
+        model.scans.forget(id) // a hidden realm stops scanning at once, not when the delete is committed
         undo = UndoDelete(id, r.name)
     }
 
     /** Bring a hidden realm back. */
     fun undoDelete(id: String) {
         hidden.remove(id)
+        model.scans.restore(id)
         if (undo?.id == id) undo = null
     }
 
