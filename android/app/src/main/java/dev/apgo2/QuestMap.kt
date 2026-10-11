@@ -44,9 +44,8 @@ import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
+import dev.apgo2.ui.MapRoundButton
 import dev.apgo2.ui.MarkerSpec
-import dev.apgo2.ui.ToolButton
-import dev.apgo2.ui.ToolPill
 import dev.apgo2.ui.circleRing
 import kotlinx.coroutines.delay
 import org.json.JSONObject
@@ -644,7 +643,7 @@ private fun LocateButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ToolPill(modifier.padding(12.dp)) { ToolButton(ApgoIcons.Locate, "Go to my location", onClick) }
+    MapRoundButton(ApgoIcons.Locate, "Go to my location", onClick, modifier.padding(12.dp))
 }
 
 // Hands the map view the activity's lifecycle events while it is on show; a hidden map is stopped and made invisible (so it stops
