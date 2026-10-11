@@ -159,6 +159,10 @@ pub struct Assignment {
     pub blurb: String,
     /// Name of the place the quest uses.
     pub place: String,
+    /// Atlas id of the place the quest uses (`n123`, `w45`, `L:…`), for its details card; `None` for quests with no real place
+    /// and for games saved before it was kept.
+    #[serde(default)]
+    pub feature_id: Option<String>,
     /// Effort tier, starting at 1.
     pub tier: u8,
     /// Expected effort in minutes.
@@ -717,6 +721,7 @@ fn one(
         quest_name,
         blurb: c.kind.blurb.clone(),
         place: c.place,
+        feature_id: c.feature_id,
         tier: s.tier,
         effort_min: c.effort,
         target: c.target,
@@ -880,6 +885,32 @@ mod tests {
                 assert!(distance_m(home(), *p) >= 150.0);
             }
         }
+    }
+
+    #[test]
+    fn quests_on_real_places_remember_the_feature_and_free_ones_do_not() {
+        let cat = Catalog::builtin();
+        let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let mut slots: Vec<SlotIn> = (1..=6).map(|i| slot(i, "dwell", 2 + (i % 4) as u8, Mode::Walk)).collect();
+        slots.push(slot(7, "steps", 1, Mode::Walk));
+        let out = assign(&slots, &z, &cat, &params(3));
+        let bench = out.iter().find(|o| o.kind_id == "bench_warmer").expect("a bench quest");
+        assert!(bench.feature_id.as_deref().is_some_and(|id| id.starts_with('n')), "{:?}", bench.feature_id);
+        let steps = out.iter().find(|o| o.location_id == 7).unwrap();
+        assert_eq!(steps.feature_id, None);
+    }
+
+    #[test]
+    fn an_assignment_saved_before_feature_ids_loads_without_one() {
+        let cat = Catalog::builtin();
+        let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let out = assign(&[slot(1, "dwell", 3, Mode::Walk)], &z, &cat, &params(3));
+        let mut v = serde_json::to_value(&out[0]).unwrap();
+        v.as_object_mut().unwrap().remove("feature_id");
+        let back: Assignment = serde_json::from_value(v).unwrap();
+        assert_eq!(back.feature_id, None);
     }
 
     #[test]

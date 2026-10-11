@@ -285,6 +285,7 @@ mod tests {
                 quest_name: "x".into(),
                 blurb: String::new(),
                 place: String::new(),
+                feature_id: None,
                 tier: 2,
                 effort_min: 10.0,
                 target: Target::Steps { n: 1 },

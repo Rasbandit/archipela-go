@@ -101,6 +101,7 @@ mod tests {
             quest_name: "q".into(),
             blurb: String::new(),
             place: String::new(),
+            feature_id: None,
             tier: 1,
             effort_min: 5.0,
             target,
