@@ -97,7 +97,7 @@ internal val QuestOut.mapImageKey: String get() = MarkerSpec.Quest(kindId, famil
 private val QuestOut.showsItems: Boolean get() = collect != null && state != DONE
 
 /** The name of the pin image of this forager quest's items (null for other quests and done foragers). */
-internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems }?.let { MarkerSpec.Item(it.theme, state).key }
+internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems }?.let { MarkerSpec.Item(it.theme).key }
 
 /** Every pin image the quest layer needs for these quests: each quest's, and each forager's item pin. */
 internal val List<QuestOut>.pinImages: Set<String> get() = flatMap { listOfNotNull(it.mapImageKey, it.itemImageKey) }.toSet()

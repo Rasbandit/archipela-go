@@ -121,7 +121,7 @@ class MapFeaturesTest {
         val q = quest(7, shape = "collect").copy(family = "courier", kindId = "forager", collect = CollectOut("acorns", 3u, 1u, 0u, items))
         val pins = MapFeatures.quests(listOf(q), selected = 7)
         assertEquals("picked items disappear", 2, pins.size)
-        val item = MarkerSpec.Item("acorns", "open").key
+        val item = MarkerSpec.Item("acorns").key
         assertTrue(pins.all { it.getJSONObject("properties").getString(MapProp.IMAGE) == item })
         assertEquals(1.0, pins[0].getJSONObject("geometry").getJSONArray("coordinates").getDouble(1), 0.0)
         assertEquals(setOf(q.mapImageKey, item), listOf(q).pinImages)
