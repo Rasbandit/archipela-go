@@ -605,7 +605,7 @@ fn retain_runs(pts: &mut Vec<Point>, runs: &mut Vec<u32>, keep: &dyn Fn(Point) -
 
 /// Every `stride`-th point of each run (its first point always kept), with the new run lengths.
 /// An exact, hashable key for a point (the same sample always has the same bits).
-fn point_key(p: Point) -> (u64, u64) {
+pub(crate) fn point_key(p: Point) -> (u64, u64) {
     (p.lat.to_bits(), p.lon.to_bits())
 }
 

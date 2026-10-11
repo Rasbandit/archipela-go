@@ -10,7 +10,7 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
-use crate::assign::{assign, replace_unpicked, street_pool, zone_index, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx};
+use crate::assign::{assign, replace_unpicked, zone_paths, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx};
 use crate::catalog::{Catalog, Mode};
 use crate::chain::{self, is_chain_target, Chain, ChainUnit};
 use crate::fog::{anchor, reveal_radius, Fog};
@@ -296,6 +296,9 @@ pub struct Game {
     /// Whether quests with stairs were dropped.
     #[serde(default)]
     pub avoid_stairs: bool,
+    /// Whether quests may be placed in parking lots. Saves from before the switch load as allowed: they could already use them.
+    #[serde(default = "yes")]
+    pub allow_parking: bool,
     /// Saved progress of progressive quests.
     #[serde(default)]
     pub counters: Counters,
@@ -362,6 +365,8 @@ pub struct NewGame<'a> {
     pub surface: SurfacePref,
     /// Whether to drop quests with stairs.
     pub avoid_stairs: bool,
+    /// Whether quests may be placed in parking lots.
+    pub allow_parking: bool,
 }
 
 /// How close the player must get for the quest's checkpoint (None for quests without one).
@@ -465,6 +470,7 @@ impl Game {
             seed: n.seed,
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
+            allow_parking: n.allow_parking,
             allow_progressive: true,
         };
         let assignments = assign(&slots_in(&n.slot, None), &zones, catalog, &params);
@@ -491,6 +497,7 @@ impl Game {
             seed: n.seed,
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
+            allow_parking: n.allow_parking,
             counters: Counters { cells_counted: true, ..Counters::default() },
             collected: BTreeMap::new(),
             trackers: BTreeMap::new(),
@@ -1267,6 +1274,7 @@ impl Game {
             seed,
             surface: self.surface,
             avoid_stairs: self.avoid_stairs,
+            allow_parking: self.allow_parking,
             allow_progressive: false,
         };
         // A forager keeps its kind, counts and picked items: only what is still out there moves (and stays put if the zone has no room).
@@ -1278,7 +1286,7 @@ impl Game {
             let picked = self.collected.get(&id).map(|c| c.picked.clone()).unwrap_or_default();
             let Some(a) = self.assignments.iter_mut().find(|a| a.location_id == id) else { continue };
             let Some(z) = zones.iter().find(|z| z.zone == a.zone) else { continue };
-            let index = zone_index(z, &street_pool(z, params.surface), params.surface);
+            let (_, index) = zone_paths(z, &params);
             if let Some(t) = replace_unpicked(&a.target, &picked, z, &index, &params, a.tier, &mut rng) {
                 a.target = t;
                 self.trackers.remove(&id); // rebuilt from `collected` on the next fix
@@ -1626,6 +1634,7 @@ mod tests {
                 solo_rewards: g.rewards,
                 surface: SurfacePref::Any,
                 avoid_stairs: false,
+                allow_parking: true,
             },
             &Catalog::builtin(),
         )
@@ -2223,6 +2232,7 @@ mod tests {
                 solo_rewards: g1.rewards,
                 surface: SurfacePref::Any,
                 avoid_stairs: false,
+                allow_parking: true,
             },
             &Catalog::builtin(),
         );
@@ -2866,6 +2876,17 @@ mod tests {
         v.as_object_mut().unwrap().insert("away".into(), serde_json::json!({"zone_only": true, "distance_m": {"1": 900.0}}));
         let back: Game = serde_json::from_value(v).unwrap();
         assert!(back.counters.progress.is_empty() && back.counters.away_mark.is_none(), "an old save's away settings are ignored");
+    }
+
+    #[test]
+    fn a_saved_game_from_before_the_parking_switch_allows_parking_lots() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        assert!(g.allow_parking, "a new game allows parking lots by default");
+        g.allow_parking = false;
+        let mut v = serde_json::to_value(&g).unwrap();
+        assert!(!serde_json::from_value::<Game>(v.clone()).unwrap().allow_parking, "the choice is saved");
+        v.as_object_mut().unwrap().remove("allow_parking");
+        assert!(serde_json::from_value::<Game>(v).unwrap().allow_parking, "an old save keeps its quests where they were allowed");
     }
 
     /// A solo game whose only quest (2000) is a forager: 6 acorns 100 m apart going north from 500 m, need 3.

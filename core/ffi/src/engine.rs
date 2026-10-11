@@ -1510,6 +1510,7 @@ impl Engine {
                 solo_rewards: generated.rewards,
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
+                allow_parking: true, // the New Game switch is wired in the next step
             },
             &self.catalog,
         )
@@ -1552,6 +1553,7 @@ impl Engine {
                 solo_rewards: BTreeMap::default(),
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
+                allow_parking: true, // the New Game switch is wired in the next step
             },
             &self.catalog,
         )
@@ -2164,6 +2166,7 @@ mod tests {
                 solo_rewards: generated.rewards,
                 surface: SurfacePref::Any,
                 avoid_stairs: false,
+                allow_parking: true,
             },
             &e.catalog,
         )
@@ -2321,6 +2324,7 @@ mod tests {
             solo_rewards: generated.rewards,
             surface: SurfacePref::Any,
             avoid_stairs: false,
+            allow_parking: true,
         };
         e.install(Game::create(new, &e.catalog).unwrap());
         let graph = |e: &Engine| e.game.lock().unwrap().as_ref().and_then(|g| g.street_graph().map(|g| g.segment_count()));

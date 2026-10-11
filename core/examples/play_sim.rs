@@ -76,6 +76,7 @@ fn main() {
             solo_rewards: sg.rewards,
             surface: apgo_core::assign::SurfacePref::Any,
             avoid_stairs: false,
+            allow_parking: true,
         },
         &catalog,
     )
