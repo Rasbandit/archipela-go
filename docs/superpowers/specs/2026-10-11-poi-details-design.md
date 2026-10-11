@@ -1,5 +1,8 @@
 # POI details — design
 
+> **Display superseded** by `2026-10-11-quest-card-design.md` (no ⓘ button or separate card; details fold out inside the
+> quest card). The core parts here (feature link, relink, trail tag merge, tag mapping) still apply.
+
 ## Intent
 
 Tapping a quest pin, trail or park already opens the quest popup with the place name. The owner wants to see more about
