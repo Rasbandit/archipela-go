@@ -413,6 +413,25 @@ fn key(p: Point) -> (u64, u64) {
     (p.lat.to_bits(), p.lon.to_bits())
 }
 
+/// The ways `chain` is made of: those owning one of its edges, or a vertex no other way has (a way joined across a small gap
+/// keeps only its far points). A branch that only touches the chain at a junction owns neither.
+fn chain_ways(chain: &[Point], owners: &HashMap<(u64, u64), Vec<usize>>) -> Vec<usize> {
+    let mut mine = Vec::new();
+    for p in chain {
+        if let Some([only]) = owners.get(&key(*p)).map(Vec::as_slice) {
+            mine.push(*only);
+        }
+    }
+    for e in chain.windows(2) {
+        if let (Some(a), Some(b)) = (owners.get(&key(e[0])), owners.get(&key(e[1]))) {
+            mine.extend(a.iter().filter(|i| b.contains(i)));
+        }
+    }
+    mine.sort_unstable();
+    mine.dedup();
+    mine
+}
+
 /// The useful tags of a stitched trail from the ways it is made of: the surface covering the most length, lit yes/no/partial,
 /// the hardest `sac_scale`, and the first operator, description, website and wikipedia found.
 fn merge_trail_tags<'a>(ways: impl Iterator<Item = &'a Feature>) -> BTreeMap<String, String> {
@@ -575,10 +594,7 @@ pub fn build_atlas(realm_id: &str, now_ms: u64, mut features: Vec<Feature>, stre
                         if len < min_len || len > max_len || (k.closed && !is_closed(&chain)) {
                             continue;
                         }
-                        let mut mine: Vec<usize> = chain.iter().filter_map(|p| owners.get(&key(*p))).flatten().copied().collect();
-                        mine.sort_unstable();
-                        mine.dedup();
-                        let mut tags = merge_trail_tags(mine.iter().map(|&i| &features[i]));
+                        let mut tags = merge_trail_tags(chain_ways(&chain, &owners).into_iter().map(|i| &features[i]));
                         if !name.is_empty() {
                             tags.insert("name".to_string(), name.clone());
                         }
@@ -1327,6 +1343,50 @@ mod tests {
         assert_eq!(t.get("name").map(String::as_str), Some("Ridge Trail"));
         assert_eq!(t.get("rough").map(String::as_str), Some("yes"));
         assert!(!t.contains_key("highway"), "synthetic trails get no highway tag (it feeds is_rough)");
+    }
+
+    #[test]
+    fn a_branch_touching_a_trail_at_a_junction_does_not_lend_it_its_tags() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let mid = destination(o, 0.0, 600.0);
+        let end = destination(o, 0.0, 1300.0);
+        let side = destination(mid, 90.0, 2000.0);
+        let path = |surface| [("highway", "path"), ("surface", surface)];
+        let a = build_atlas(
+            "r",
+            0,
+            vec![
+                way("w1", Some("Fork Trail"), &path("dirt"), vec![o, mid]),
+                way("w2", Some("Fork Trail"), &path("dirt"), vec![mid, end]),
+                way("w3", Some("Fork Trail"), &path("asphalt"), vec![mid, side]), // a 2 km branch from the junction
+            ],
+            vec![],
+            &cat,
+        );
+        let main = a.matches["trail_boss"].iter().map(|&i| &a.features[i]).find(|f| f.geometry.contains(&o)).expect("the main trail");
+        assert_eq!(main.tags.get("surface").map(String::as_str), Some("dirt"), "the branch only shares the junction vertex");
+    }
+
+    #[test]
+    fn a_way_joined_across_a_small_gap_still_lends_its_tags() {
+        let cat = Catalog::builtin();
+        let o = Point::new(40.0, -111.0);
+        let end1 = destination(o, 0.0, 400.0);
+        let start2 = destination(o, 0.0, 403.0); // a 3 m gap: stitching joins it and skips this point
+        let end2 = destination(o, 0.0, 1300.0);
+        let a = build_atlas(
+            "r",
+            0,
+            vec![
+                way("w1", Some("Gap Trail"), &[("highway", "path"), ("surface", "dirt")], vec![o, end1]),
+                way("w2", Some("Gap Trail"), &[("highway", "path"), ("surface", "gravel")], vec![start2, end2]),
+            ],
+            vec![],
+            &cat,
+        );
+        let t = &a.features[a.matches["trail_boss"][0]].tags;
+        assert_eq!(t.get("surface").map(String::as_str), Some("gravel"), "897 m of gravel outweighs 400 m of dirt");
     }
 
     #[test]
