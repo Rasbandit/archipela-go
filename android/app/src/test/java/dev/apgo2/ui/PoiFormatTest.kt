@@ -1,6 +1,9 @@
 package dev.apgo2.ui
 
+import androidx.compose.ui.platform.UriHandler
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.apgo_ffi.PoiDetailsOut
 
@@ -73,5 +76,22 @@ class PoiFormatTest {
         assertEquals("Bean There · Cafe", PoiFormat.title(details(name = "Bean There", typeLabel = "Cafe")))
         assertEquals("Cafe", PoiFormat.title(details(typeLabel = "Cafe")))
         assertEquals("Place", PoiFormat.title(details()))
+    }
+
+    @Test fun openingALinkNoAppHandlesReportsFailureInsteadOfThrowing() {
+        val none =
+            object : UriHandler {
+                override fun openUri(uri: String) = throw IllegalArgumentException("no activity for $uri")
+            }
+        var opened: String? = null
+        val browser =
+            object : UriHandler {
+                override fun openUri(uri: String) {
+                    opened = uri
+                }
+            }
+        assertFalse(PoiFormat.open(none, "tel:+15550100"))
+        assertTrue(PoiFormat.open(browser, "https://a.example"))
+        assertEquals("https://a.example", opened)
     }
 }

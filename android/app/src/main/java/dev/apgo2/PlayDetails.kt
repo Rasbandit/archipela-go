@@ -17,6 +17,10 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
@@ -129,14 +133,24 @@ internal fun ColumnScope.PoiDetailsCard(
         FeedbackText("This place is no longer in the realm's map data.", Tone.Warning)
         return
     }
+    var failed by remember { mutableStateOf(false) }
     val rows = PoiFormat.rows(d)
     if (rows.isEmpty()) Text("The map has no more about this place.", fontSize = 12.sp)
     rows.forEach { r ->
-        Column(if (r.link != null) Modifier.fillMaxWidth().clickable { uri.openUri(r.link) } else Modifier.fillMaxWidth()) {
+        Column(
+            if (r.link !=
+                null
+            ) {
+                Modifier.fillMaxWidth().clickable { failed = !PoiFormat.open(uri, r.link) }
+            } else {
+                Modifier.fillMaxWidth()
+            },
+        ) {
             Text(r.label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(r.value, fontSize = 13.sp, color = if (r.link != null) MaterialTheme.colorScheme.primary else LocalContentColor.current)
         }
     }
+    if (failed) FeedbackText("No app on this phone can open that link.", Tone.Warning)
 }
 
 // One progressive quest: name and rule, a bar with a mark per check, and what is next. Tap for the list of marks.

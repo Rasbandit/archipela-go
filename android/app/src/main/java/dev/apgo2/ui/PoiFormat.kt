@@ -1,5 +1,7 @@
 package dev.apgo2.ui
 
+import androidx.compose.ui.platform.UriHandler
+import dev.apgo2.Diag
 import uniffi.apgo_ffi.PoiDetailsOut
 
 /** One line of a place's details card; [link] opens when tapped. */
@@ -11,6 +13,12 @@ internal data class PoiRow(
 
 /** A place's details as card rows: only what the map knows, in a fixed order. The core already filtered links to http(s). */
 internal object PoiFormat {
+    /** Open [link] with [handler]; false when no app on the device can (no dialer on a tablet, no browser), instead of throwing. */
+    fun open(
+        handler: UriHandler,
+        link: String,
+    ): Boolean = runCatching { handler.openUri(link) }.onFailure { Diag.error("PoiFormat", "no app opens $link", it) }.isSuccess
+
     fun title(d: PoiDetailsOut): String = listOfNotNull(d.name, d.typeLabel).joinToString(" · ").ifEmpty { "Place" }
 
     fun rows(d: PoiDetailsOut): List<PoiRow> =

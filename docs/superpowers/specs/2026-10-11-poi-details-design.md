@@ -81,7 +81,7 @@ pub fn details(feature: &Feature) -> PoiDetails;
 
 - `QuestDetails` (`PlayDetails.kt`) gets an ⓘ icon button when `quest.hasDetails`.
 - Tapping it calls `engine.poiDetails(locationId)` and shows a new `PoiDetails` composable in `MapOverlayCard` (replacing
-  the quest popup while open; close returns to the map).
+  the quest popup while open; close returns to the quest popup, and tapping the empty map closes everything).
 - Rows render only for non-null fields; labels live in `ui/HelpText.kt`, colours from palette tokens.
 - Website, Wikipedia and OSM open with `Intent.ACTION_VIEW`; phone with `tel:`. Kotlin builds no URLs itself beyond
   `tel:`.
