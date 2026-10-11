@@ -191,6 +191,31 @@ fn amount_like(m: f64, unit: &str, units: UnitSystem) -> String {
     }
 }
 
+/// The card's place row: the place's name (quoted for titled works) and what it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaceRow {
+    /// The place's own name; `None` for an unnamed place.
+    pub name: Option<String>,
+    /// What it is ("Bench", "Trail"); `None` before the place type is known (an old game before its relink).
+    pub kind: Option<String>,
+    /// Whether the name is a title of a work, shown in quotes.
+    pub quoted: bool,
+}
+
+/// The place row of a quest of kind `kind_id` on `place` (its `place_type` if known); `None` for quests with no place.
+#[must_use]
+pub fn place_row(kind_id: &str, place: &str, place_type: Option<&str>, linked: bool, catalog: &crate::catalog::Catalog) -> Option<PlaceRow> {
+    let kind = catalog.kind(kind_id);
+    let on_a_place = kind.is_some_and(|k| k.geom != crate::catalog::Geom::None && !k.any_of.is_empty()) || (kind_id == "the_big_one" && linked);
+    if !on_a_place {
+        return None;
+    }
+    // An unnamed place's quest is named after its kind (see `assign`), so that name is no place name.
+    let name = (kind.is_none_or(|k| k.name != place) && !place.is_empty()).then(|| place.to_string());
+    let quoted = name.is_some() && TITLED_KINDS.contains(&kind_id);
+    Some(PlaceRow { name, kind: place_type.map(str::to_string), quoted })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,5 +404,28 @@ mod tests {
     #[test]
     fn reaching_a_spot_has_no_progress_block() {
         assert!(card_progress(&view(Target::Point { p: home(), r: 40.0 }, Open, 0.0), 0, Imperial).is_none());
+    }
+
+    #[test]
+    fn the_place_row_names_the_place_and_what_it_is() {
+        let cat = crate::catalog::Catalog::builtin();
+        let row = |k: &str, p: &str, t: Option<&str>, linked: bool| place_row(k, p, t, linked, &cat);
+        assert_eq!(
+            row("gallery_walls", "Allow Me", Some("Artwork"), true),
+            Some(PlaceRow { name: Some("Allow Me".into()), kind: Some("Artwork".into()), quoted: true })
+        );
+        assert_eq!(
+            row("bench_warmer", "Bench Warmer", Some("Bench"), true),
+            Some(PlaceRow { name: None, kind: Some("Bench".into()), quoted: false }),
+            "unnamed: the type alone"
+        );
+        assert_eq!(
+            row("trail_boss", "Sensei Trail", None, false),
+            Some(PlaceRow { name: Some("Sensei Trail".into()), kind: None, quoted: false }),
+            "old game before relink: the name alone"
+        );
+        assert_eq!(row("step_up", "Anywhere", None, false), None, "no place");
+        assert_eq!(row("the_big_one", "Liberty Park", Some("Park"), true).and_then(|r| r.name).as_deref(), Some("Liberty Park"), "a linked boss has a place");
+        assert_eq!(row("the_big_one", "Around home", None, false), None);
     }
 }

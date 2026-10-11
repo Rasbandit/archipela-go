@@ -626,17 +626,20 @@ impl Game {
             .collect()
     }
 
-    /// Link quests saved before quests kept their place (`feature_id`) to the place in `atlases` (the game's zones as scanned) they
+    /// Link quests saved before quests kept their place (`feature_id`, `place_type`, `has_about`) to the place in `atlases` (the
+    /// game's zones as scanned) they
     /// were made from (see [`place_of`]); returns how many it linked, so the caller saves the game. Quests already linked are left alone.
     pub fn relink_places(&mut self, atlases: &[&Atlas], catalog: &Catalog) -> usize {
         let mut linked = 0;
-        for a in self.assignments.iter_mut().filter(|a| a.feature_id.is_none()) {
+        // Quests saved before they kept their place, and quests linked by an earlier build that did not keep the place type.
+        for a in self.assignments.iter_mut().filter(|a| a.feature_id.is_none() || a.place_type.is_none()) {
             let Some(i) = self.slot.zones.iter().position(|z| z.id == a.zone) else { continue };
             let Some(atlas) = self.zone_realms.get(i).and_then(|r| atlases.iter().find(|x| &x.realm_id == r)) else { continue };
-            if let Some(id) = place_of(a, atlas, catalog) {
-                a.feature_id = Some(id);
-                linked += 1;
-            }
+            let Some(id) = a.feature_id.clone().or_else(|| place_of(a, atlas, catalog)) else { continue };
+            let Some(f) = atlas.features.iter().find(|f| f.id == id) else { continue };
+            (a.place_type, a.has_about) = crate::poi_details::place_facts(f);
+            a.feature_id = Some(id);
+            linked += 1;
         }
         linked
     }
@@ -1682,6 +1685,36 @@ mod tests {
 
     fn raw(p: Point, t_s: i64, acc: f64) -> RawFix {
         RawFix::at(p.lat, p.lon, t_s * 1000, acc)
+    }
+
+    #[test]
+    fn relink_fills_the_place_type_for_old_and_already_linked_quests() {
+        let cat = Catalog::builtin();
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let spot = destination(home(), 0.0, 300.0);
+        let art = crate::scan::Feature {
+            id: "n5".into(),
+            point: spot,
+            name: Some("Allow Me".into()),
+            geometry: vec![],
+            tags: [("tourism", "artwork"), ("name", "Allow Me"), ("wikipedia", "en:Allow Me")]
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect(),
+        };
+        let atlas = build_atlas("r0", 0, vec![art], vec![], &cat);
+        // One quest saved before feature ids, one linked by an earlier build that did not keep the place type.
+        for (i, linked) in [(0, None), (1, Some("n5".to_string()))] {
+            let a = &mut g.assignments[i];
+            (a.kind_id, a.place, a.feature_id, a.place_type, a.has_about) = ("gallery_walls".into(), "Allow Me".into(), linked, None, false);
+            a.target = Target::Point { p: spot, r: 40.0 };
+        }
+        assert_eq!(g.relink_places(&[&atlas], &cat), 2);
+        for i in 0..2 {
+            let a = &g.assignments[i];
+            assert_eq!((a.feature_id.as_deref(), a.place_type.as_deref(), a.has_about), (Some("n5"), Some("Artwork"), true), "quest {i}");
+        }
+        assert_eq!(g.relink_places(&[&atlas], &cat), 0, "nothing left to fill");
     }
 
     #[test]
