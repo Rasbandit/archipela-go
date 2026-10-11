@@ -316,6 +316,8 @@ mod tests {
 
     fn view(target: Target, state: crate::game::QuestState, progress: f32) -> crate::game::QuestView {
         crate::game::QuestView {
+            place_type: None,
+            has_about: false,
             location_id: 1,
             zone: 1,
             name: "Q".into(),

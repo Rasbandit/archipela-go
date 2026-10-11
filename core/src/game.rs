@@ -69,6 +69,10 @@ pub struct QuestView {
     pub place: String,
     /// Atlas id of the quest's place, if it has a real one (see `Game::quest_feature`).
     pub feature_id: Option<String>,
+    /// What the quest's place is ("Bench"), if it is on a real place.
+    pub place_type: Option<String>,
+    /// Whether the map knows more about the place (see `poi_details::about`).
+    pub has_about: bool,
     /// Quest family.
     pub family: String,
     /// The quest kind's id ("`bench_warmer`"), for choosing an icon.
@@ -604,6 +608,8 @@ impl Game {
                     name: a.quest_name.clone(),
                     place: a.place.clone(),
                     feature_id: a.feature_id.clone(),
+                    place_type: a.place_type.clone(),
+                    has_about: a.has_about,
                     family: a.family.clone(),
                     kind_id: a.kind_id.clone(),
                     difficulty,

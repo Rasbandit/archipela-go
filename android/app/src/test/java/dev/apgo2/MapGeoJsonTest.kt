@@ -115,7 +115,11 @@ class MapFeaturesTest {
         reward = null,
         chainId = null,
         collect = null,
-        hasDetails = false,
+        headline = "",
+        cardDetail = "",
+        placeRow = null,
+        progressBlock = null,
+        hasAbout = false,
     )
 
     @Test fun aForagerShowsOnePickupPerItemStillOutThereAndNoQuestPin() {
