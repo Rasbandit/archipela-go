@@ -92,6 +92,8 @@ internal class GameLibrary(
             r.onFailure { Diag.error("streets", "street graph build failed", it, "realm" to realmId) }
             r.getOrNull()?.let {
                 Diag.info("streets", "street graph built", "ms" to it.buildMs, "segments" to it.segments, "degraded" to it.degraded)
+                // The same build links an older game's quests to their places, so their ⓘ shows now, not at the next event.
+                withContext(Dispatchers.Main) { model.refreshPlay(withTrace = false) }
             }
         }
     }

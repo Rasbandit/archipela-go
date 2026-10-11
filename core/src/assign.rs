@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Catalog, Geom, Kind, Mode, Verify, FORAGE_THEMES};
 use crate::effort::{cadence_steps_per_min, dist_for, mid, tier_for, travel_min};
-use crate::geo::{bearing_deg, distance_m, point_in_polygon, point_inside, polyline_len_m, Point};
+use crate::geo::{bearing_deg, distance_m, distance_to_segment_m, point_in_polygon, point_inside, polyline_len_m, Point};
 use crate::near_path::{PathIndex, NEAR_PATH_M};
 use crate::num::{count_f64, round_u32};
 use crate::realm::Realm;
@@ -173,6 +173,50 @@ pub struct Assignment {
     pub fallback: bool,
     /// Whether this is the realm's boss quest.
     pub boss: bool,
+}
+
+/// How far a saved quest's spot may lie from a place for [`place_of`] to take it as that place, in metres. A quest's spot is the
+/// place's own point or line, or a spot settled onto the streets beside it.
+const RELINK_M: f64 = 100.0;
+
+/// The atlas id of the place quest `a` was made from, for a quest saved before quests kept it (`feature_id`): a place of the same
+/// kind (any kind for the boss) and name, nearest to the quest's spot and within `RELINK_M` (100 m). `None` for quests with no place.
+#[must_use]
+pub fn place_of(a: &Assignment, atlas: &Atlas) -> Option<String> {
+    let same_name = |f: &Feature| f.name.as_deref().is_none_or(|n| n == a.place);
+    let candidates: Vec<&Feature> = if a.kind_id == "the_big_one" {
+        atlas.features.iter().filter(|f| f.name.as_deref() == Some(a.place.as_str())).collect()
+    } else {
+        atlas.matches.get(&a.kind_id)?.iter().map(|&i| &atlas.features[i]).filter(|f| same_name(f)).collect()
+    };
+    candidates
+        .into_iter()
+        .filter_map(|f| spot_distance_m(&a.target, f).map(|d| (d, f)))
+        .filter(|(d, _)| *d <= RELINK_M)
+        .min_by(|x, y| x.0.total_cmp(&y.0))
+        .map(|(_, f)| f.id.clone())
+}
+
+/// How far the spot of `t` lies from place `f`, in metres; `None` for targets that are not made from a place.
+fn spot_distance_m(t: &Target, f: &Feature) -> Option<f64> {
+    match t {
+        Target::Point { p, .. } | Target::Dwell { p, .. } => Some(distance_m(*p, f.point).min(to_line_m(*p, &f.geometry))),
+        // A park quest keeps the park's own outline; one with no outline has a spot by the park's point.
+        Target::DwellArea { poly, center, .. } => {
+            if poly.is_empty() {
+                Some(distance_m(*center, f.point))
+            } else {
+                (*poly == f.geometry).then_some(0.0)
+            }
+        }
+        Target::Line { pts, .. } => Some(to_line_m(*pts.first()?, &f.geometry)),
+        _ => None,
+    }
+}
+
+/// Distance from `p` to the line through `pts`, in metres; infinite for fewer than two points.
+fn to_line_m(p: Point, pts: &[Point]) -> f64 {
+    pts.windows(2).map(|w| distance_to_segment_m(p, w[0], w[1])).fold(f64::INFINITY, f64::min)
 }
 
 /// A zone prepared for quest assignment: its travel mode, realm and scanned map data.
@@ -902,6 +946,41 @@ mod tests {
     }
 
     #[test]
+    fn an_old_quest_finds_its_place_again_for_points_parks_and_trails() {
+        let cat = Catalog::builtin();
+        let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let mut slots: Vec<SlotIn> = (1..=4).map(|i| slot(i, "dwell", 2 + (i % 3) as u8, Mode::Walk)).collect();
+        slots.push(slot(5, "park", 3, Mode::Walk));
+        slots.push(slot(6, "trail", 4, Mode::Walk));
+        let out = assign(&slots, &z, &cat, &params(3));
+        let mut kinds = BTreeSet::new();
+        for linked in out.iter().filter(|o| o.feature_id.is_some()) {
+            let old = Assignment { feature_id: None, ..linked.clone() };
+            assert_eq!(place_of(&old, &a), linked.feature_id, "{} ({})", linked.kind_id, linked.place);
+            kinds.insert(linked.kind_id.as_str());
+        }
+        for k in ["bench_warmer", "touch_grass", "trail_boss"] {
+            assert!(kinds.contains(k), "the test placed no {k} quest: {kinds:?}");
+        }
+    }
+
+    #[test]
+    fn a_street_quest_or_a_moved_spot_finds_no_place() {
+        let cat = Catalog::builtin();
+        let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let out = assign(&[slot(1, "dwell", 3, Mode::Walk), slot(2, "reach", 2, Mode::Walk)], &z, &cat, &params(3));
+        let bench = out.iter().find(|o| o.kind_id == "bench_warmer").expect("a bench quest");
+        let Target::Dwell { p, r, minutes } = bench.target.clone() else { panic!("a bench is a dwell") };
+        let moved = Assignment { feature_id: None, target: Target::Dwell { p: destination(p, 45.0, 600.0), r, minutes }, ..bench.clone() };
+        assert_eq!(place_of(&moved, &a), None, "the same kind 600 m away is not the quest's place");
+        let street = out.iter().find(|o| o.location_id == 2).unwrap();
+        assert_eq!(street.feature_id, None);
+        assert_eq!(place_of(street, &a), None, "a street spot is no place");
+    }
+
+    #[test]
     fn an_assignment_saved_before_feature_ids_loads_without_one() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
@@ -1192,7 +1271,7 @@ mod tests {
     /// How far `p` is from the atlas's paths: its street points and the pieces of street between consecutive points of a way.
     fn gap_to_paths(p: Point, a: &Atlas) -> f64 {
         let pts = a.streets.iter().chain(&a.streets_rough).map(|s| distance_m(p, *s));
-        let links = a.street_links(false).into_iter().chain(a.street_links(true)).map(|(x, y)| crate::geo::distance_to_segment_m(p, x, y));
+        let links = a.street_links(false).into_iter().chain(a.street_links(true)).map(|(x, y)| distance_to_segment_m(p, x, y));
         pts.chain(links).fold(f64::MAX, f64::min)
     }
 

@@ -35,6 +35,14 @@ Rejected:
 - `QuestOut` gets `has_details: bool`: true when `feature_id` is set (no atlas read per refresh); a place gone after a
   rescan is reported when ⓘ is tapped.
 
+### Games saved before the link
+
+Owner ruling: existing games must get ⓘ too, without starting a new game. When a game is opened, the background street build
+(which already loads the zones' atlases) also calls `Game::relink_places`. For each quest with no `feature_id`, `place_of`
+picks the atlas place of the same kind (any kind for the boss) and name nearest the quest's spot, within 100 m. For a park
+it must be the same outline, and for a trail the distance is to its line. A linked game is saved once. The app reloads
+quests when the build lands. Quests with no real place stay unlinked.
+
 ### Trail tag merge (`scan.rs`, synthetic `L:` features)
 
 When ways are grouped and stitched into a trail chain, their tags are merged onto the synthetic feature (the existing

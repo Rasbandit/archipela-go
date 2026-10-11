@@ -10,7 +10,7 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
-use crate::assign::{assign, replace_unpicked, zone_paths, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx};
+use crate::assign::{assign, place_of, replace_unpicked, zone_paths, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx};
 use crate::catalog::{Catalog, Mode};
 use crate::chain::{self, is_chain_target, Chain, ChainUnit};
 use crate::fog::{anchor, reveal_radius, Fog};
@@ -621,6 +621,21 @@ impl Game {
                 }
             })
             .collect()
+    }
+
+    /// Link quests saved before quests kept their place (`feature_id`) to the place in `atlases` (the game's zones as scanned) they
+    /// were made from (see [`place_of`]); returns how many it linked, so the caller saves the game. Quests already linked are left alone.
+    pub fn relink_places(&mut self, atlases: &[&Atlas]) -> usize {
+        let mut linked = 0;
+        for a in self.assignments.iter_mut().filter(|a| a.feature_id.is_none()) {
+            let Some(i) = self.slot.zones.iter().position(|z| z.id == a.zone) else { continue };
+            let Some(atlas) = self.zone_realms.get(i).and_then(|r| atlases.iter().find(|x| &x.realm_id == r)) else { continue };
+            if let Some(id) = place_of(a, atlas) {
+                a.feature_id = Some(id);
+                linked += 1;
+            }
+        }
+        linked
     }
 
     /// The realm and atlas feature id behind quest `location_id`, for its place details; `None` for a quest with no real place.
