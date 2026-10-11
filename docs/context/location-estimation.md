@@ -294,6 +294,28 @@ Core work iOS needs first: `Calibrator::load` accepts only `phone.step_counter` 
   rotation vector. Its heading is true north only when Play services knows the declination (no per-sample flag).
 - Play services `LocationRequest` defaults to `waitForAccurateLocation = true`: the idle request sets it false explicitly.
 
+## Screen-off trace gap: gap bridge re-anchor loop
+
+Found 2026-10-10, walk test on the Pixel 8 Pro (`diag/20261010-210133`).
+
+- Symptom: with the phone locked the map trace stops, and on unlock it draws one straight line; quests stop counting while locked.
+- GPS was fine: fixes kept arriving in the background (screen-off rate 5 s, batched up to 10 s; real spacing about 11 to 13 s,
+  delivered up to 8 s late). The heartbeat counted them.
+- Cause (`core/src/loc/locator`): fix spacing over `bridge_after_ms` (10 s) with step events in between starts the gap bridge
+  (`gap.rs`). Each fix after new steps calls `reanchor_bridge`, which resets `reanchor_warmup` to `REANCHOR_WARMUP_FIXES` (3).
+  Estimates are `Used` and sure but `accepted = false` while the warmup is over 0, so `last_accepted_ms` never advances and the
+  next steps bridge again: a loop. Unaccepted estimates are not journaled (`ffi/src/engine.rs` `on_fix`), not traced, and do not
+  count for quests.
+- Why replay missed it: `examples/replay.rs` / `bench::run_locator` sorts events by fix time, but the phone processes them in
+  arrival order, so late batched fixes come after newer step events. An arrival-order replay (feed the `raw-NNNN.jsonl` lines to
+  `Locator` in file order) reproduces it exactly.
+- Fix: the bridge waits `bridge_after_spacing_pct` (250%) of the widest of the last 4 fix spacings or of the phone's hint
+  (`Engine::set_fix_spacing_hint`, sent by `LocationSource.startLocation` as interval + batching delay), clamped to
+  `bridge_after_ms`..`bridge_after_max_ms` (10..45 s). At 1 Hz nothing changes. A flat 30 s wait was tried and rejected: it broke the
+  `a_carry_change_in_the_gap` scenario (p90 79 m), since the bridge then starts too late to see the carry change.
+- Debug recipe: `scripts/pull_diag.sh`; compare the timestamps in journal.db `points` against the `rawfix` lines in `diag/raw`;
+  replay in arrival order.
+
 ## Not done / follow-ups
 
 - No outdoor walk with this build; map matching is unscored on real walks until a pull includes atlases; iOS not started. All

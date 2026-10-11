@@ -29,6 +29,11 @@ class GpsPolicyTest {
         }
     }
 
+    @Test fun theSpacingToldToTheCoreIsTheIntervalPlusTheBatchingDelay() {
+        assertEquals(15_000L, GpsPolicy.Rate(5_000L, 0f, highAccuracy = true, maxDelayMs = 10_000L).fixSpacingMs)
+        assertEquals(1_000L, GpsPolicy.Rate(1_000L, 0f, highAccuracy = true).fixSpacingMs)
+    }
+
     @Test fun insideAZoneTheChipNeverDropsToBalanced() {
         for (visible in listOf(true, false)) {
             for (screen in listOf(true, false)) {

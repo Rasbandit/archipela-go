@@ -73,6 +73,8 @@ internal class LocationSource(
         if (!registered) return
         if (!coldStartDone) plan.coldStart?.let(::coldStartOnce)
         this.rate = rate
+        // Screen-off fixes come far apart: the core must not take the space between them for lost GPS.
+        model.engine.setFixSpacingHint(rate.fixSpacingMs)
         Diag.info(
             TAG,
             "location started",
