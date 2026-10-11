@@ -815,6 +815,11 @@ impl Game {
         }
     }
 
+    /// The fix spacing the phone asks for (see [`crate::loc::Locator::set_fix_spacing_hint`]).
+    pub fn set_fix_spacing_hint(&mut self, ms: Option<i64>) {
+        self.locator.set_fix_spacing_hint(ms);
+    }
+
     /// The travel mode at the player's position (the engine knows the zone shapes), for the filter's motion models and the odometer's
     /// speed cap.
     pub fn set_travel_mode(&mut self, mode: Mode) {

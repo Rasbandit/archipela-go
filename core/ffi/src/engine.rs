@@ -921,6 +921,8 @@ pub struct Engine {
     save_policy: Mutex<SavePolicy>,
     /// Shape and travel mode of each zone of the open game: the "inside a zone" check and the filter's mode at the player's position.
     zone_modes: Mutex<Vec<(Shape, Mode)>>,
+    /// The fix spacing the phone last said it asks for ([`Self::set_fix_spacing_hint`]), handed to every game opened.
+    fix_spacing_hint: Mutex<Option<i64>>,
     // Where the last fix's estimate was relative to the zones, worked out once in `on_fix` for presence to read.
     last_proximity: Mutex<Option<Proximity>>,
     /// The phone's region (ISO country code) that `Auto` units follow; empty until the app sets it.
@@ -1061,6 +1063,7 @@ impl Engine {
         // Read the units under the game lock: `refresh_units` stores new units before it takes this lock, so a change racing
         // this install is either seen here or applied to this game right after.
         game.set_units(self.unit_system());
+        game.set_fix_spacing_hint(*self.fix_spacing_hint.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         // Keep the outgoing game's progress (unless the new one replaces that very save).
         if let Some(old) = slot.as_ref().filter(|old| old.id != game.id) {
             if let Err(e) = old.save(&self.dir) {
@@ -1199,6 +1202,7 @@ impl Engine {
             game: Mutex::new(None),
             save_policy: Mutex::new(SavePolicy::new(SAVE_INTERVAL_MS)),
             zone_modes: Mutex::new(Vec::new()),
+            fix_spacing_hint: Mutex::new(None),
             last_proximity: Mutex::new(None),
             units: Mutex::new(resolve_units(Settings::load(&dir).units, "")),
             region: Mutex::new(String::new()),
@@ -1816,6 +1820,13 @@ impl Engine {
         ev.into_iter().map(ev_out).collect()
     }
 
+    /// The fix spacing the phone now asks for: interval plus batching delay, ms (`None`: unknown). Call it on every location
+    /// (re)start; the gap bridge waits it out, so sparse screen-off fixes keep counting.
+    pub fn set_fix_spacing_hint(&self, ms: Option<i64>) {
+        *self.fix_spacing_hint.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = ms;
+        self.with_game(|g| g.set_fix_spacing_hint(ms)); // now: steps may bridge before the next fix
+    }
+
     /// A compass reading from the phone (at most 2 Hz).
     pub fn on_heading(&self, h: HeadingIn) {
         let core = heading_in(&h);
@@ -2372,6 +2383,32 @@ mod tests {
         assert_eq!(raw_fix(&fix_in("sim"), true, false).provider, Provider::Other, "a release build has no simulator");
         assert_eq!(raw_fix(&fix_in("gps"), true, false).provider, Provider::Gps);
         assert_eq!(SIM_ALLOWED, cfg!(debug_assertions));
+    }
+
+    #[test]
+    fn screen_off_fixes_batched_late_behind_steps_are_journaled() {
+        // Walk test 2026-10-10: locked, a fix came every ~13 s, handed over after 8 s of newer steps; none was journaled or drawn.
+        let e = engine_with_game("screen-off");
+        let at = |t_s: i64| fix_at(destination(home(), 90.0, 1.4 * f64::from(i32::try_from(t_s).unwrap())), FIX_T_MS + t_s * 1000);
+        let steps_until = |from_s: i64, to_s: i64| {
+            for t in (from_s..to_s).filter(|t| t % 2 == 0) {
+                e.on_steps(10_000 + t * 193 / 100, FIX_T_MS + t * 1000, None);
+            }
+        };
+        steps_until(0, 1);
+        for t in 0..20 {
+            e.on_fix(at(t), None, false);
+        }
+        e.set_fix_spacing_hint(Some(15_000));
+        let sparse: Vec<i64> = (32..=200).step_by(13).collect();
+        for &tf in &sparse {
+            steps_until(tf - 12, tf + 9);
+            e.on_fix(at(tf), None, false);
+        }
+        let journaled: Vec<i64> =
+            e.journal.as_ref().unwrap().lock().unwrap().track("g1", FIX_T_MS + 30_000, FIX_T_MS + 201_000).unwrap().iter().map(|p| p.t_ms).collect();
+        let missing: Vec<i64> = sparse.iter().filter(|tf| !journaled.contains(&(FIX_T_MS + *tf * 1000))).copied().collect();
+        assert!(missing.is_empty(), "not journaled: {missing:?}");
     }
 
     #[test]

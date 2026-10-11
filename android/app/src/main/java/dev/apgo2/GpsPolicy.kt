@@ -16,7 +16,10 @@ internal object GpsPolicy {
         val minDistanceM: Float,
         val highAccuracy: Boolean = false,
         val maxDelayMs: Long = 0L,
-    )
+    ) {
+        /** How far apart fixes may come (interval plus batching): the core's gap bridge waits this out. */
+        val fixSpacingMs: Long get() = intervalMs + maxDelayMs
+    }
 
     /** What a request is built from. [quality] is a `LocationRequest.QUALITY_*` value. */
     data class RequestSpec(

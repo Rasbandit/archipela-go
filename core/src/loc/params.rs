@@ -276,6 +276,12 @@ pub struct LocParams {
     /// Drive never bridge: their pin coasts on the filter's prediction, `predicted_after_ms` then `stale_after_ms`; the brief's
     /// `coast_max_ms` is not added, ruling T22-R2.)
     pub bridge_after_ms: i64,
+    /// ... or longer when fixes come far apart: this share (percent) of the widest of the last few fix spacings, so screen-off fixes
+    /// (5 s batched up to 10 s, seen 13 s apart and handed over 8 s late) are never a gap (walk test 2026-10-10: each one bridged and
+    /// re-anchored, and the warm-up kept every fix from counting) ...
+    pub bridge_after_spacing_pct: i64,
+    /// ... but never longer than this, ms ...
+    pub bridge_after_max_ms: i64,
     /// ... for at most this long (then the next fix starts the filter afresh), ms ...
     pub bridge_max_ms: i64,
     /// ... and ends after this long without new steps (the pin then ages into "predicted" and "stale"), ms.
@@ -444,6 +450,8 @@ impl Default for LocParams {
             calib_cusum_drift: 0.25,
             calib_cusum_h: 3.0,
             bridge_after_ms: 10_000,
+            bridge_after_spacing_pct: 250,
+            bridge_after_max_ms: 45_000,
             bridge_max_ms: 300_000,
             bridge_no_steps_ms: 30_000,
             bridge_particles: 300,
