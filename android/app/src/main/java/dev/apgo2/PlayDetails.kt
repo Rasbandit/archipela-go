@@ -4,8 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,10 +24,7 @@ import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.ChainBar
 import dev.apgo2.ui.ChainFormat
 import dev.apgo2.ui.CollectFormat
-import dev.apgo2.ui.FeedbackText
-import dev.apgo2.ui.Tone
 import uniffi.apgo_ffi.ChainOut
-import uniffi.apgo_ffi.CollectOut
 import uniffi.apgo_ffi.QuestOut
 
 private const val PERCENT = 100
@@ -62,41 +57,6 @@ internal fun ProgressRow(
         }
         LinearProgressIndicator(progress = { q.progress }, Modifier.fillMaxWidth())
     }
-}
-
-// What a quest asks of you and what it pays: the content of the Play popup (a callout on the pin, or a card for quests with no pin).
-@Composable
-internal fun ColumnScope.QuestDetails(
-    q: QuestOut,
-    onClose: () -> Unit,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            ApgoIcons.forKind(q.kindId, q.family),
-            contentDescription = null,
-            tint = ApgoPalette.kind(q.kindId, q.family),
-            modifier = Modifier.size(24.dp),
-        )
-        Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-            Text(
-                "${q.name}${if (q.boss) "  (BOSS)" else ""}",
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                "${q.place} · ${q.difficulty} · ~${q.effortMin.toInt()} min · ${q.mode}${if (q.fallback) " · fallback" else ""}",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = onClose) { Icon(ApgoIcons.Close, contentDescription = "Close") }
-    }
-    Text(q.detail, fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp))
-    q.collect?.let { CollectItems(it) }
-    if (q.state == "progress") LinearProgressIndicator(progress = { q.progress }, Modifier.fillMaxWidth().padding(end = 8.dp))
-    Text(q.blurb, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
-    q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
 }
 
 // One progressive quest: name and rule, a bar with a mark per check, and what is next. Tap for the list of marks.
@@ -167,23 +127,4 @@ internal fun ColumnScope.ChainDetails(
         }
     }
     Text(ChainFormat.next(c), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-}
-
-// A forager quest's items: a check for each one picked up, its theme icon for each one still out there, and the banked total.
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CollectItems(c: CollectOut) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(CollectFormat.banked(c), fontSize = 12.sp)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            c.items.forEachIndexed { i, item ->
-                Icon(
-                    if (item.picked) ApgoIcons.Check else ApgoIcons.collectible(c.theme),
-                    contentDescription = CollectFormat.item(c, i),
-                    tint = if (item.picked) ApgoPalette.questDone else ApgoPalette.family("courier"),
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-    }
 }

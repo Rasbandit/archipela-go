@@ -22,6 +22,7 @@ import com.composables.icons.lucide.Camera
 import com.composables.icons.lucide.Car
 import com.composables.icons.lucide.Castle
 import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronsUp
 import com.composables.icons.lucide.Church
 import com.composables.icons.lucide.Circle
@@ -39,6 +40,7 @@ import com.composables.icons.lucide.Droplets
 import com.composables.icons.lucide.Dumbbell
 import com.composables.icons.lucide.EllipsisVertical
 import com.composables.icons.lucide.Eraser
+import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Feather
 import com.composables.icons.lucide.FerrisWheel
 import com.composables.icons.lucide.Flag
@@ -160,6 +162,11 @@ internal object ApgoIcons {
     val Warning = Lucide.TriangleAlert
     val Unlocked = Lucide.Check
     val Locked = Lucide.Lock
+
+    // Quest card
+    val Clock = Lucide.Clock
+    val Expand = Lucide.ChevronDown
+    val External = Lucide.ExternalLink
 
     // A runner, drawn to match Lucide (round 2 px strokes on a 24 px grid), because Lucide has no running figure.
     private val runner: ImageVector by lazy {

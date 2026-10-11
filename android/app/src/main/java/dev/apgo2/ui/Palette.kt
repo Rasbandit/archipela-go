@@ -104,6 +104,14 @@ internal object ApgoPalette {
     val questLocked = Color(0xFF9E9E9E)
     val questHidden = Color(0xFFBDBDBD)
 
+    // Difficulty pill on the quest card: green, amber, purple, lighter on dark so they stay readable.
+    private val easy = Color(0xFF2E7D32)
+    private val medium = Color(0xFFB26A00)
+    private val hard = Color(0xFF6A1B9A)
+    private val easyDark = Color(0xFF8FD694)
+    private val mediumDark = Color(0xFFFFC76B)
+    private val hardDark = Color(0xFFD6A6FF)
+
     // Pickups (forager items): one cream for all, outlined in navy, so they never share a colour with a quest state
     val pickup = Color(0xFFFFF1CC)
 
@@ -220,6 +228,16 @@ internal object ApgoPalette {
     val danger = Color(0xFFC62828)
     val success = Color(0xFF2E7D32)
     val muted = Color(0xFF757575)
+
+    fun difficulty(
+        d: String,
+        dark: Boolean,
+    ): Color =
+        when (d) {
+            "easy" -> if (dark) easyDark else easy
+            "hard" -> if (dark) hardDark else hard
+            else -> if (dark) mediumDark else medium
+        }
 
     fun quest(state: String): Color =
         when (state) {
