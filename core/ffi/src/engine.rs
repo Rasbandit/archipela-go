@@ -403,6 +403,39 @@ pub struct QuestOut {
     pub chain_id: Option<String>,
     /// A forager quest's items and counts; `None` for other quests.
     pub collect: Option<CollectOut>,
+    /// Whether the quest is on a real place whose details `Engine::poi_details` can show (the ⓘ button).
+    pub has_details: bool,
+}
+
+/// What the map knows about a quest's place, for its details card; each field is `None` when the map does not have it.
+#[derive(Debug, uniffi::Record)]
+pub struct PoiDetailsOut {
+    /// Name of the place.
+    pub name: Option<String>,
+    /// What kind of place it is ("Cafe", "Trail").
+    pub type_label: Option<String>,
+    /// Street address.
+    pub address: Option<String>,
+    /// Opening hours, as OpenStreetMap writes them.
+    pub opening_hours: Option<String>,
+    /// Phone number.
+    pub phone: Option<String>,
+    /// Website (`http(s)` only).
+    pub website: Option<String>,
+    /// Wikipedia article address.
+    pub wikipedia_url: Option<String>,
+    /// Free-text description.
+    pub description: Option<String>,
+    /// Trail surface.
+    pub surface: Option<String>,
+    /// Trail length in the player's units.
+    pub length: Option<String>,
+    /// Whether the trail is lit: Yes, No or Partly.
+    pub lit: Option<String>,
+    /// Hiking difficulty.
+    pub difficulty: Option<String>,
+    /// The place on openstreetmap.org.
+    pub osm_url: Option<String>,
 }
 
 /// One item of a forager quest.
@@ -1655,6 +1688,7 @@ impl Engine {
             g.quest_views(now_ms)
                 .into_iter()
                 .map(|q| {
+                    let has_details = q.feature_id.is_some();
                     let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target, units);
                     let collect = collect_out(&q.target, q.collected.as_ref());
                     let anchor = pin_at(collect.as_ref(), q.state, anchor);
@@ -1690,11 +1724,38 @@ impl Engine {
                         reward: q.reward,
                         chain_id: q.chain_id,
                         collect,
+                        has_details,
                     }
                 })
                 .collect()
         })
         .unwrap_or_default()
+    }
+
+    /// What the map knows about the place of quest `location_id`, for its details card. Reads the realm's saved scan, so call
+    /// it off the UI thread. `None` with no game open, for a quest with no real place, or when the place is gone from the
+    /// realm's current scan (rescanned).
+    pub fn poi_details(&self, location_id: i64) -> Option<PoiDetailsOut> {
+        let (realm_id, feature_id) = self.with_game(|g| g.quest_feature(location_id).map(|(r, f)| (r.to_owned(), f.to_owned())))??;
+        let atlas = self.store().load_atlas(&realm_id)?; // read with the game lock released
+        let f = atlas.features.iter().find(|f| f.id == feature_id)?;
+        let d = apgo_core::poi_details::details(f);
+        let units = self.unit_system();
+        Some(PoiDetailsOut {
+            name: d.name,
+            type_label: d.type_label,
+            address: d.address,
+            opening_hours: d.opening_hours,
+            phone: d.phone,
+            website: d.website,
+            wikipedia_url: d.wikipedia_url,
+            description: d.description,
+            surface: d.surface,
+            length: d.length_m.map(|m| distance(m, units)),
+            lit: d.lit,
+            difficulty: d.difficulty,
+            osm_url: d.osm_url,
+        })
     }
 
     /// The park quest (shown on the map, not hidden) whose outline holds the point, for a tap anywhere inside a park; the innermost
@@ -2118,7 +2179,7 @@ impl Engine {
 mod tests {
     use super::*;
     use apgo_core::geo::destination;
-    use apgo_core::scan::build_atlas;
+    use apgo_core::scan::{build_atlas, Feature};
 
     fn home() -> Point {
         Point::new(40.0, -111.0)
@@ -2186,6 +2247,31 @@ mod tests {
         .unwrap();
         e.install(game);
         e
+    }
+
+    #[test]
+    fn poi_details_reads_the_quest_place_from_the_realm_scan_and_is_none_once_it_is_gone() {
+        let e = engine_with_game("poi-details");
+        let id = e.quests(0)[0].location_id;
+        let has = |e: &TestEngine| e.quests(0).into_iter().find(|q| q.location_id == id).unwrap().has_details;
+        assert!(!has(&e), "a street quest has no place");
+        assert!(e.poi_details(id).is_none());
+        let cafe = Feature {
+            id: "n42".into(),
+            point: home(),
+            name: Some("Bean There".into()),
+            tags: BTreeMap::from([("amenity".to_string(), "cafe".to_string()), ("name".to_string(), "Bean There".to_string())]),
+            geometry: vec![],
+        };
+        e.store().save_atlas(&build_atlas("r0", 0, vec![cafe], vec![], &e.catalog)).unwrap();
+        e.with_game(|g| g.assignments.iter_mut().find(|a| a.location_id == id).unwrap().feature_id = Some("n42".into()));
+        assert!(has(&e));
+        let d = e.poi_details(id).expect("the cafe's details");
+        assert_eq!((d.name.as_deref(), d.type_label.as_deref()), (Some("Bean There"), Some("Cafe")));
+        assert_eq!(d.osm_url.as_deref(), Some("https://www.openstreetmap.org/node/42"));
+        e.store().save_atlas(&build_atlas("r0", 0, vec![], vec![], &e.catalog)).unwrap();
+        assert!(e.poi_details(id).is_none(), "rescanned without the cafe");
+        assert!(e.poi_details(-1).is_none(), "no such quest");
     }
 
     #[test]

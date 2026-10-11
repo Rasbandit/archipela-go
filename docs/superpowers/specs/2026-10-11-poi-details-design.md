@@ -32,7 +32,8 @@ Rejected:
 
 - `Assignment` gets `pub feature_id: Option<String>` with `#[serde(default)]`, set from `Cand.feature_id`. Old saves
   load with `None`.
-- `QuestOut` gets `has_details: bool`: true when `feature_id` is set and the feature is in the loaded atlas.
+- `QuestOut` gets `has_details: bool`: true when `feature_id` is set (no atlas read per refresh); a place gone after a
+  rescan is reported when ⓘ is tapped.
 
 ### Trail tag merge (`scan.rs`, synthetic `L:` features)
 
