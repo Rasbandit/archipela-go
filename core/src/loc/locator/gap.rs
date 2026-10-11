@@ -15,6 +15,9 @@ use super::Locator;
 /// Model probabilities when a walked gap re-anchors the filter: walking is by far the likeliest.
 pub(super) const REANCHOR_MU_WALKING: [f64; 3] = [0.1, 0.85, 0.05];
 
+/// Fix spacings the bridge's wait looks back over: enough to span a screen-off batch's short and long spacings.
+pub(super) const SPACINGS_KEPT: usize = 4;
+
 /// Fixes taken after a bridge re-anchor whose estimates do not count yet (adversarial review C1): at 1 Hz about 3 s of quest delay.
 pub(super) const REANCHOR_WARMUP_FIXES: u32 = 3;
 
@@ -130,14 +133,23 @@ impl Locator {
         self.bridge.is_some() && !self.bridge_paused
     }
 
-    /// Walk or Run zone, a filter running, a step counter, and no accepted fix for `bridge_after_ms` (but not yet `bridge_max_ms`), nor
-    /// any fix the filter took (a gated one too, review I2) for `bridge_after_ms`.
+    /// How long without a fix makes a gap: `bridge_after_ms`, or longer while fixes come (or were asked for) far apart, up to
+    /// `bridge_after_max_ms`.
+    pub(super) fn bridge_wait_ms(&self) -> i64 {
+        let p = &self.params;
+        let widest = self.fix_spacing_ms.iter().copied().chain(self.fix_spacing_hint_ms).max().unwrap_or(0);
+        (widest.saturating_mul(p.bridge_after_spacing_pct) / 100).clamp(p.bridge_after_ms, p.bridge_after_max_ms.max(p.bridge_after_ms))
+    }
+
+    /// Walk or Run zone, a filter running, a step counter, and no accepted fix for [`Self::bridge_wait_ms`] (but not yet
+    /// `bridge_max_ms`), nor any fix the filter took (a gated one too, review I2) for that long.
     pub(super) fn may_bridge(&self, t_ms: i64) -> bool {
         let p = &self.params;
+        let wait = self.bridge_wait_ms();
         matches!(self.mode, Mode::Walk | Mode::Run)
-            && self.imm.as_ref().is_some_and(|imm| t_ms.saturating_sub(imm.t_ms) > p.bridge_after_ms)
+            && self.imm.as_ref().is_some_and(|imm| t_ms.saturating_sub(imm.t_ms) > wait)
             && self.steps.present(t_ms, self.params.steps_present_ms)
-            && self.last_accepted_ms.is_some_and(|a| t_ms.saturating_sub(a) > p.bridge_after_ms && t_ms.saturating_sub(a) <= p.bridge_max_ms)
+            && self.last_accepted_ms.is_some_and(|a| t_ms.saturating_sub(a) > wait && t_ms.saturating_sub(a) <= p.bridge_max_ms)
     }
 
     /// Start the cloud from the filter's walking model at its last fix (on the matcher's segment when it is confident), then walk it by
@@ -506,6 +518,54 @@ mod tests {
             }
         }
         out
+    }
+
+    /// A 1 Hz walk for 20 s, then (screen off: the phone asked for fixes `hint` ms apart, if given) fixes every 13 s, each handed over
+    /// after the steps of the next 8 s (batched and late), the last at `until_s`. Returns whether each sparse fix counted.
+    fn screen_off_walk(l: &mut Locator, hint: Option<i64>, until_s: i64) -> Vec<bool> {
+        let total = |t| 10_000 + t * 193 / 100;
+        gap_steps(l, 0, 1, total, |_| 90.0);
+        for t in 0..20 {
+            l.on_fix(&fix(on_street(1.4 * i64_to_f64(t)), t, 4.0));
+        }
+        l.set_fix_spacing_hint(hint);
+        (32..=until_s)
+            .step_by(13)
+            .map(|tf| {
+                gap_steps(l, tf - 12, tf + 9, total, |_| 90.0);
+                l.on_fix(&fix(on_street(1.4 * i64_to_f64(tf)), tf, 4.0)).accepted
+            })
+            .collect()
+    }
+
+    #[test]
+    fn screen_off_fixes_batched_late_behind_steps_all_count() {
+        // Walk test 2026-10-10: each sparse fix bridged and re-anchored the filter, so none counted (nor was journaled or drawn) until
+        // the screen came on. The phone says it asked for a fix every 5 s, batched up to 10 s.
+        let mut l = Locator::default();
+        l.set_graph(grid());
+        let accepted = screen_off_walk(&mut l, Some(15_000), 200);
+        assert!(accepted.iter().all(|a| *a), "{accepted:?}");
+    }
+
+    #[test]
+    fn without_a_hint_sparse_fixes_count_once_their_spacing_is_seen() {
+        // The first gap after the switch still bridges (and its re-anchor's warm-up costs two fixes); from then on the seen spacing
+        // keeps the bridge waiting.
+        let mut l = Locator::default();
+        l.set_graph(grid());
+        let accepted = screen_off_walk(&mut l, None, 200);
+        assert!(accepted[2..].iter().all(|a| *a), "{accepted:?}");
+    }
+
+    #[test]
+    fn a_gps_gap_after_sparse_fixes_is_still_bridged() {
+        let mut l = Locator::default();
+        l.set_graph(grid());
+        screen_off_walk(&mut l, Some(15_000), 136);
+        let bridged = gap_steps(&mut l, 145, 200, |t| 10_000 + t * 193 / 100, |_| 90.0);
+        assert!(l.bridging(), "{bridged:?}");
+        assert!(bridged.first().is_some_and(|e| e.t_ms <= 136_000 + 45_000), "the wait never passes 45 s: {:?}", bridged.first());
     }
 
     #[test]

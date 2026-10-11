@@ -48,6 +48,10 @@ pub struct Locator {
     frame: Option<Frame>,
     imm: Option<Imm>,
     last_t_ms: Option<i64>,
+    /// Spacing of the last few usable fixes, ms: the bridge waits longer when they come far apart ([`Self::bridge_wait_ms`]).
+    fix_spacing_ms: VecDeque<i64>,
+    /// The fix spacing the phone asked for (interval plus batching delay), ms, if it said.
+    fix_spacing_hint_ms: Option<i64>,
     /// Time of the newest fix the filter took (a restart, or an update, however uncertain): the reset-gap clock.
     last_taken_ms: Option<i64>,
     /// Time of the newest accepted estimate: the gap bridge's clocks (ruling FR-I1, Task 7 minor).
@@ -136,6 +140,8 @@ impl Locator {
             frame: None,
             imm: None,
             last_t_ms: None,
+            fix_spacing_ms: VecDeque::new(),
+            fix_spacing_hint_ms: None,
             last_taken_ms: None,
             last_accepted_ms: None,
             started_ms: None,
@@ -203,6 +209,12 @@ impl Locator {
         if self.matcher.set_mask(mode_mask(mode)) {
             self.shown_seg = None; // a restarted match re-enters at the show confidence
         }
+    }
+
+    /// The fix spacing the phone now asks for (interval plus batching delay, ms; `None`: unknown). The bridge waits at least
+    /// `bridge_after_spacing_pct` of it, so the first sparse fix after the screen goes off is no gap either.
+    pub fn set_fix_spacing_hint(&mut self, ms: Option<i64>) {
+        self.fix_spacing_hint_ms = ms;
     }
 
     /// The travel mode in use.
@@ -336,6 +348,7 @@ impl Locator {
         if std::mem::take(&mut self.last_sim) {
             self.clear_filter(); // the Reset this fix becomes restarts the matcher and the line: real GPS may be far from the dev walk
             self.last_t_ms = None;
+            self.fix_spacing_ms.clear();
             // Readings on the simulator's clock (ahead of real time) would drop the real ones that follow (final review M1).
             self.steps = StepHistory::default();
             self.compass = Compass::default();
@@ -349,6 +362,12 @@ impl Locator {
         }
         if jumped {
             self.clock_jump(f.t_ms);
+        }
+        if let Some(prev) = clock.filter(|t| f.t_ms > *t) {
+            self.fix_spacing_ms.push_back(f.t_ms.saturating_sub(prev));
+            if self.fix_spacing_ms.len() > gap::SPACINGS_KEPT {
+                self.fix_spacing_ms.pop_front();
+            }
         }
         self.last_t_ms = Some(f.t_ms);
         self.gnss_seen |= f.provider.is_gnss();
