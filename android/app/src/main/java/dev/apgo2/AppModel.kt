@@ -153,6 +153,7 @@ internal class AppModel(
     /** Surface preference: any, prefer_paved or paved_only. */
     var surfacePref by mutableStateOf("any")
     var avoidStairs by mutableStateOf(false)
+    var allowParking by mutableStateOf(true)
 
     /** The player's pin on any map, for drawing only: the simulator, else the filtered position, else the raw fix (no game open). */
     val mePin: MePin?

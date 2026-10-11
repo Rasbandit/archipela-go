@@ -1,6 +1,6 @@
 //! Assign each apworld slot a concrete quest at a real place, using what the slot's realm offers.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use rand::rngs::StdRng;
 use rand::seq::{IndexedRandom, SliceRandom};
@@ -13,7 +13,7 @@ use crate::geo::{bearing_deg, distance_m, point_in_polygon, point_inside, polyli
 use crate::near_path::{PathIndex, NEAR_PATH_M};
 use crate::num::{count_f64, round_u32};
 use crate::realm::Realm;
-use crate::scan::{Atlas, Feature};
+use crate::scan::{point_key, Atlas, Feature};
 use crate::units::{distance, distance_rounded, Round, UnitSystem};
 use crate::verify::{HOME_RADIUS_M, LINE_SAMPLE_M};
 
@@ -221,6 +221,8 @@ pub struct AssignParams {
     pub surface: SurfacePref,
     /// Whether quests with stairs are dropped.
     pub avoid_stairs: bool,
+    /// Whether quests may be placed on parking-lot aisles.
+    pub allow_parking: bool,
     /// Whether progressive (chain) kinds may be placed. Off for a reroll, so a re-placed quest never joins or starts a chain.
     pub allow_progressive: bool,
 }
@@ -319,12 +321,45 @@ pub(crate) fn street_pool(z: &ZoneCtx<'_>, pref: SurfacePref) -> Vec<Point> {
 
 /// The segment-aware path index of zone `z` over `pool`: its street points and the streets between them (rough ones when the surface
 /// preference uses them).
+#[cfg(test)]
 pub(crate) fn zone_index(z: &ZoneCtx<'_>, pool: &[Point], surface: SurfacePref) -> PathIndex {
+    PathIndex::with_segments(pool, &zone_links(z, surface))
+}
+
+fn zone_links(z: &ZoneCtx<'_>, surface: SurfacePref) -> Vec<(Point, Point)> {
     let mut links = z.atlas.street_links(false);
     if uses_rough(z, surface) {
         links.extend(z.atlas.street_links(true));
     }
-    PathIndex::with_segments(pool, &links)
+    links
+}
+
+/// The street points quests in zone `z` may use under the game's settings: [`street_pool`], less the parking-lot points unless the
+/// game allows them.
+pub(crate) fn quest_pool(z: &ZoneCtx<'_>, p: &AssignParams) -> Vec<Point> {
+    let mut pool = street_pool(z, p.surface);
+    if !p.allow_parking {
+        let parking = parking_keys(z);
+        pool.retain(|q| !parking.contains(&point_key(*q)));
+    }
+    pool
+}
+
+/// [`quest_pool`] and its path index. Without parking lots, the aisles between parking points leave the index too, so no quest is
+/// snapped onto one.
+pub(crate) fn zone_paths(z: &ZoneCtx<'_>, p: &AssignParams) -> (Vec<Point>, PathIndex) {
+    let pool = quest_pool(z, p);
+    let mut links = zone_links(z, p.surface);
+    if !p.allow_parking {
+        let parking = parking_keys(z);
+        links.retain(|(a, b)| !parking.contains(&point_key(*a)) && !parking.contains(&point_key(*b)));
+    }
+    let index = PathIndex::with_segments(&pool, &links);
+    (pool, index)
+}
+
+fn parking_keys(z: &ZoneCtx<'_>) -> HashSet<(u64, u64)> {
+    z.atlas.streets_parking.iter().map(|q| point_key(*q)).collect()
 }
 
 /// A zone's street points and the streets between them, indexed, and where each of its places can be reached from a path (worked out
@@ -342,8 +377,7 @@ struct ZonePaths {
 
 impl ZonePaths {
     fn new(z: &ZoneCtx<'_>, p: &AssignParams) -> Self {
-        let pool = street_pool(z, p.surface);
-        let index = zone_index(z, &pool, p.surface);
+        let (pool, index) = zone_paths(z, p);
         let maps = (HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new());
         Self { pool, index, home: p.home, min_dist: p.min_distance_m, points: maps.0, centers: maps.1, lines: maps.2, shares: maps.3 }
     }
@@ -729,7 +763,7 @@ pub fn replace_unpicked(
     let is_picked = |i: usize| u16::try_from(i).is_ok_and(|i| picked.contains(&i));
     let keep: Vec<Point> = pts.iter().enumerate().filter(|(i, _)| is_picked(*i)).map(|(_, q)| *q).collect();
     let (min_m, far_m) = item_band(p, *r, mid(tier, p.minutes_per_tier), z.mode);
-    let pool = street_pool(z, p.surface);
+    let pool = quest_pool(z, p);
     let mut fresh = place_items(&pool, index, p.home, min_m, far_m, pts.len() - keep.len(), &keep, rng)?;
     fresh.sort_by(|a, b| distance_m(p.home, *b).total_cmp(&distance_m(p.home, *a))); // descending, so pop() gives the nearest
     let pts = (0..pts.len()).map(|i| if is_picked(i) { Some(pts[i]) } else { fresh.pop() }).collect::<Option<Vec<Point>>>()?;
@@ -801,6 +835,7 @@ mod tests {
             seed,
             surface: SurfacePref::Any,
             avoid_stairs: false,
+            allow_parking: true,
             allow_progressive: true,
         }
     }
@@ -1012,6 +1047,25 @@ mod tests {
         assert!(any.iter().any(|o| lon_of(o) < home().lon), "any surface uses both pools");
         assert_eq!(SurfacePref::parse("paved_only"), SurfacePref::PavedOnly);
         assert_eq!(SurfacePref::parse("whatever"), SurfacePref::Any);
+    }
+
+    #[test]
+    fn parking_lot_points_are_used_only_when_parking_lots_are_allowed() {
+        let cat = Catalog::builtin();
+        let r = realm(Mode::Walk);
+        // every street point west of home is on a parking aisle: easy to tell apart
+        let mut a = atlas(&cat, false);
+        a.streets_parking = a.streets.iter().copied().filter(|p| p.lon < home().lon).collect();
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let slots: Vec<SlotIn> = (1..=14).map(|i| slot(i, "reach", 2 + (i % 5) as u8, Mode::Walk)).collect();
+        let lon_of = |o: &Assignment| if let Target::Point { p, .. } = &o.target { p.lon } else { f64::NAN };
+        let mut p = params(2);
+        assert!(p.allow_parking, "parking lots are allowed unless the player says otherwise");
+        assert!(assign(&slots, &z, &cat, &p).iter().any(|o| lon_of(o) < home().lon), "allowed: parking points are used too");
+        p.allow_parking = false;
+        let (pool, _) = zone_paths(&z[0], &p);
+        assert!(!pool.is_empty() && pool.iter().all(|q| q.lon >= home().lon), "the pool leaves parking points out");
+        assert!(assign(&slots, &z, &cat, &p).iter().all(|o| lon_of(o) >= home().lon), "not allowed: no quest in a parking lot");
     }
 
     #[test]

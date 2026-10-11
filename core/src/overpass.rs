@@ -58,6 +58,8 @@ pub struct Candidate {
     pub score: u32,
     /// Unpaved, unknown-surface trail, or stairs (see `scan::is_rough`).
     pub rough: bool,
+    /// On a parking-lot aisle (`service=parking_aisle`).
+    pub parking: bool,
 }
 
 /// One bulk query for named points of interest around a center.
@@ -118,7 +120,14 @@ pub fn parse(body: &str) -> Result<Vec<Candidate>, Error> {
             continue;
         };
         let prefix = kind.chars().next().unwrap_or('?');
-        out.push(Candidate { id: format!("{prefix}{id}"), point: Point::new(lat, lon), name: name.to_string(), score: score(tags), rough: false });
+        out.push(Candidate {
+            id: format!("{prefix}{id}"),
+            point: Point::new(lat, lon),
+            name: name.to_string(),
+            score: score(tags),
+            rough: false,
+            parking: false,
+        });
     }
     Ok(out)
 }

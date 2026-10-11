@@ -121,6 +121,7 @@ internal class ApController(
                             seed,
                             model.surfacePref,
                             model.avoidStairs,
+                            model.allowParking,
                         )
                         model.stepCal.loadInto(model.engine) // as a solo start does: the saved calibration, not a fresh one
                     }
