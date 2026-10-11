@@ -58,8 +58,11 @@ internal class PresenceController(
     var screenOn = true
         private set
     private val homeDebounce = Debouncer()
-    private val carDebounce = Debouncer()
+    private val carDebounce = PresencePolicy.carDebouncer()
     private var zone = Zone.Unknown
+
+    // The last raw car reading logged: the diag shows when Bluetooth really dropped, next to when the state followed.
+    private var loggedCar: Boolean? = null
     private val main = Handler(Looper.getMainLooper())
     private val reevaluate = Runnable { evaluate() }
     private val seedPoll = Runnable { pollSeeding() }
@@ -256,7 +259,11 @@ internal class PresenceController(
 
     private fun rawHome() = PresenceSignals.isHome(monitor.currentWifi, model.settings.homeNetworks)
 
-    private fun rawCar() = PresenceSignals.carConnected(monitor.connectedCarCandidates, model.settings.carDevices)
+    private fun rawCar() =
+        PresenceSignals.carConnected(monitor.connectedCarCandidates, model.settings.carDevices).also {
+            if (it != loggedCar) Diag.info("presence", "car bluetooth", "connected" to it.toString())
+            loggedCar = it
+        }
 
     // Each debouncer takes its first real reading once per monitor start, on its own signal (see [PresenceSeeding]); a signal that
     // never answers (not on Wi-Fi, Bluetooth off) is read as it stands after the timeout. This one runnable reschedules itself while

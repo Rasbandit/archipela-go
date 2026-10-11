@@ -36,6 +36,12 @@ internal object PresencePolicy {
     const val ZONE_MOVE_M = 10f
     const val FAR_MOVE_M = 50f
 
+    // Bluetooth drops for a moment while driving, but once it is gone for this long you got out.
+    private const val CAR_EXIT_HOLD_MS = 5_000L
+
+    /** The car signal's debouncer: in after the usual hold, out after [CAR_EXIT_HOLD_MS]. */
+    fun carDebouncer() = Debouncer(leaveTrueMs = CAR_EXIT_HOLD_MS)
+
     fun decide(s: Signals): Decision =
         when {
             !s.playing -> Decision(PresenceState.Stopped, GpsMode.Off, counting = false)
@@ -54,10 +60,12 @@ internal object PresencePolicy {
 
 /**
  * Holds a signal steady: a change (including to unknown, `null`) only becomes the stable value after it has lasted [holdMs] (Wi-
- * Fi reaches past the door, Bluetooth flaps). The very first value is adopted at once.
+ * Fi reaches past the door, Bluetooth flaps). A change away from `true` holds [leaveTrueMs] instead (getting out of the car should
+ * show within seconds). The very first value is adopted at once.
  */
 internal class Debouncer(
     private val holdMs: Long = 45_000,
+    private val leaveTrueMs: Long = holdMs,
 ) {
     private var stable: Boolean? = null
     private var started = false
@@ -70,7 +78,10 @@ internal class Debouncer(
     private var adoptNext = false
 
     /** How long until a pending change becomes stable (0 when overdue), or `null` when nothing is pending: schedule one look then. */
-    fun settlesInMs(nowMs: Long): Long? = if (pending) (since + holdMs - nowMs).coerceAtLeast(0) else null
+    fun settlesInMs(nowMs: Long): Long? = if (pending) (since + hold() - nowMs).coerceAtLeast(0) else null
+
+    // The hold for the pending change: leaving `true` may settle faster than any other change.
+    private fun hold() = if (stable == true) leaveTrueMs else holdMs
 
     /**
      * Forget the history and start from [value]: a non-null value is stable at once and later changes are debounced; `null` means
@@ -99,7 +110,7 @@ internal class Debouncer(
                 candidate = raw
                 since = nowMs
             }
-            if (candidate != stable && nowMs - since >= holdMs) stable = candidate
+            if (candidate != stable && nowMs - since >= hold()) stable = candidate
         }
         return stable
     }
