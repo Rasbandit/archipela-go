@@ -163,6 +163,13 @@ pub struct Assignment {
     /// and for games saved before it was kept.
     #[serde(default)]
     pub feature_id: Option<String>,
+    /// What kind of place it is ("Bench", "Park", "Trail"), for the quest card's place row; `None` for quests with no real
+    /// place and for games saved before it was kept (until the relink fills it).
+    #[serde(default)]
+    pub place_type: Option<String>,
+    /// Whether the map knows more about the place (facts, a description or a Wikipedia article): the card's "About this place".
+    #[serde(default)]
+    pub has_about: bool,
     /// Effort tier, starting at 1.
     pub tier: u8,
     /// Expected effort in minutes.
@@ -781,6 +788,8 @@ fn one(
         blurb: c.kind.blurb.clone(),
         place: c.place,
         feature_id: c.feature_id,
+        place_type: None,
+        has_about: false,
         tier: s.tier,
         effort_min: c.effort,
         target: c.target,
@@ -991,6 +1000,8 @@ mod tests {
             blurb: String::new(),
             place: place.into(),
             feature_id: None,
+            place_type: None,
+            has_about: false,
             tier: 3,
             effort_min: 20.0,
             target: Target::Line { pts, corridor_m: 25.0, coverage: 0.5 },

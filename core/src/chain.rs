@@ -180,6 +180,8 @@ mod tests {
             blurb: String::new(),
             place: "Anywhere".into(),
             feature_id: None,
+            place_type: None,
+            has_about: false,
             tier: 1,
             effort_min: 10.0,
             target,

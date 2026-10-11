@@ -102,6 +102,8 @@ mod tests {
             blurb: String::new(),
             place: String::new(),
             feature_id: None,
+            place_type: None,
+            has_about: false,
             tier: 1,
             effort_min: 5.0,
             target,
