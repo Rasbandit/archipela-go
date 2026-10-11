@@ -1488,6 +1488,7 @@ impl Engine {
         seed: u64,
         surface: String,
         avoid_stairs: bool,
+        allow_parking: bool,
     ) -> Result<(), CoreError> {
         let opts = to_core(o)?;
         if zone_realms.len() != opts.zone_modes.len() {
@@ -1510,7 +1511,7 @@ impl Engine {
                 solo_rewards: generated.rewards,
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
-                allow_parking: true, // the New Game switch is wired in the next step
+                allow_parking,
             },
             &self.catalog,
         )
@@ -1535,6 +1536,7 @@ impl Engine {
         seed: u64,
         surface: String,
         avoid_stairs: bool,
+        allow_parking: bool,
     ) -> Result<(), CoreError> {
         let slot = SlotData::from_json(&slot_json).map_err(err)?;
         let realms = self.realm_atlases(&zone_realms)?;
@@ -1553,7 +1555,7 @@ impl Engine {
                 solo_rewards: BTreeMap::default(),
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
-                allow_parking: true, // the New Game switch is wired in the next step
+                allow_parking,
             },
             &self.catalog,
         )

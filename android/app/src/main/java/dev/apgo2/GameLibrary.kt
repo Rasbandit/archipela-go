@@ -35,6 +35,7 @@ internal class GameLibrary(
                             seed,
                             model.surfacePref,
                             model.avoidStairs,
+                            model.allowParking,
                         )
                         model.stepCal.loadInto(model.engine)
                     }

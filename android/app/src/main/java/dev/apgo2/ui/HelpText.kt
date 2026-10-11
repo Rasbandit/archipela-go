@@ -123,6 +123,7 @@ internal object Help {
                 "Only some of the map is tagged with surfaces, so this is a best effort.",
         )
     val stairs = HelpTopic("Avoid stairs", "Leaves out quests that are staircases.")
+    val parking = HelpTopic("Allow parking lots", "Turn off to keep quests out of parking lots, where cars back out of spaces.")
 
     // ---- keeping tracking alive (battery optimisation), by phone maker
     val batterySamsung =
