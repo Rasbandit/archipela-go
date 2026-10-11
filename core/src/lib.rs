@@ -19,6 +19,7 @@ pub mod marks;
 pub mod near_path;
 pub mod num;
 pub mod overpass;
+pub mod poi_details;
 pub mod realm;
 pub mod sampler;
 pub mod save_policy;
