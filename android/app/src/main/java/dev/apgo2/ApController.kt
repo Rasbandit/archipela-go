@@ -34,6 +34,15 @@ internal object ApWait {
         status: String,
         active: Boolean,
     ): Boolean = status == "connected" && !active
+
+    /**
+     * Whether a whole wait passed with no data: the Archipelago server pings every 20 s, so silence for [AP_IDLE_WAIT_MS] is a socket
+     * that died without telling (a network switch, a NAT timeout). Reconnecting makes the server send every item again.
+     */
+    fun dead(
+        slept: Boolean,
+        woke: Boolean,
+    ): Boolean = slept && !woke
 }
 
 /** The connection to an Archipelago server and the games played over it. */
@@ -53,6 +62,9 @@ internal class ApController(
     private var syncedChecked = false
     private var pollJob: Job? = null
 
+    // Where the session connected, to reconnect a connection that died silently.
+    private var lastTarget: Pair<String, String>? = null
+
     // The game last synced with this session (its id), so a newly opened or started game syncs at once.
     private var syncedFor: String? = null
 
@@ -65,6 +77,7 @@ internal class ApController(
         syncedFor = null
         slotJson = null
         hint = null
+        lastTarget = url to slot
         val s = ApSession.connect(url, slot, null, ctx.cacheDir.resolve("ap").absolutePath)
         sessions.replace(s)
         // Polled from the model's scope, not the screen: items keep arriving while the app tracks in the background. Ends by itself
@@ -76,7 +89,13 @@ internal class ApController(
                 while (session === s) {
                     val active = tick()
                     // Event-driven while connected: sleep in the socket until the server sends something, not on a timer.
-                    val woke = ApWait.sleeps(status, active) && withContext(Dispatchers.IO) { s.waitForData(AP_IDLE_WAIT_MS.toUInt()) }
+                    val slept = ApWait.sleeps(status, active)
+                    val woke = slept && withContext(Dispatchers.IO) { s.waitForData(AP_IDLE_WAIT_MS.toUInt()) }
+                    if (ApWait.dead(slept, woke) && session === s) {
+                        Diag.warn("ap", "silent connection: reconnecting", "waited_ms" to AP_IDLE_WAIT_MS)
+                        lastTarget?.let { (u, sl) -> connect(u, sl) } // replaces this loop
+                        return@launch
+                    }
                     delay(poll.nextDelayMs(active || woke).toLong()) // at least the short wait: a closed socket stays readable
                 }
             }
@@ -84,6 +103,11 @@ internal class ApController(
             delay(LAN_HINT_AFTER_MS)
             if (session === s && s.status() == "connecting" && ctx.lacksLocalNetwork()) hint = LAN_HINT
         }
+    }
+
+    /** The app came to the front: drain and sync now rather than at the next server message (the player is looking). */
+    fun onForeground() {
+        if (session != null) scope.launch { tick() }
     }
 
     /**

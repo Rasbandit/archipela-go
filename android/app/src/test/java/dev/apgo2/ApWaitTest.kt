@@ -14,4 +14,11 @@ class ApWaitTest {
         assertFalse("no socket yet", ApWait.sleeps(status = "connecting", active = false))
         assertFalse(ApWait.sleeps(status = "disconnected: refused", active = false))
     }
+
+    @Test fun aWholeWaitWithNoDataMeansTheConnectionDied() {
+        // The Archipelago server pings every 20 s: 60 s of silence is a socket that died without telling (network switch, NAT).
+        assertTrue(ApWait.dead(slept = true, woke = false))
+        assertFalse("the server sent something", ApWait.dead(slept = true, woke = true))
+        assertFalse("did not wait (connecting, or busy)", ApWait.dead(slept = false, woke = false))
+    }
 }

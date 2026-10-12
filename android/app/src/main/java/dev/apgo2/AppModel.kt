@@ -328,6 +328,7 @@ internal class AppModel(
         // Set here, not from composition: Compose draws no frame while the activity is stopped, so an effect could not see it.
         presence.appVisible = true
         presence.applyLocation()
+        ap.onForeground()
         val left = engine.lastBackgroundMs()
         val t = now()
         engine.logAppState(true, t)
