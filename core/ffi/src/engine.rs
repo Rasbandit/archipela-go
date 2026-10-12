@@ -2283,6 +2283,14 @@ impl Engine {
             .map(|s| ApServerOut { address: s.address, slot: s.slot })
     }
 
+    /// Where the app should connect now that a game was opened or started, given the session it has (`connected`, `None` for
+    /// none): the open game's saved server when the session is elsewhere or missing (after an app restart, or another game's
+    /// server), else `None` (keep the session). Called on game open, not on every refresh, so a player connecting elsewhere from
+    /// New Game is not pulled back.
+    pub fn ap_server_to_connect(&self, connected: Option<ApServerOut>) -> Option<ApServerOut> {
+        self.ap_saved_server().filter(|saved| connected.as_ref() != Some(saved))
+    }
+
     /// Point the open Archipelago game at a new address (an archipelago.gg room that moved to another port). Its seed and slot stay,
     /// so it is still the same game on the server ([`Self::ap_server_match`]).
     ///
@@ -2875,6 +2883,20 @@ mod tests {
         e.with_game(|g| g.backend = Backend::Archipelago);
         assert_eq!(e.ap_saved_server(), None, "connect from New Game as before");
         assert!(e.set_ap_address("localhost:1".into()).is_err(), "no slot known to keep");
+    }
+
+    #[test]
+    fn an_opened_game_connects_to_its_own_server_unless_already_there() {
+        let e = engine_with_game("ap-target");
+        let at = |a: &str, s: &str| Some(ApServerOut { address: a.into(), slot: s.into() });
+        assert_eq!(e.ap_server_to_connect(None), None, "a solo game connects nowhere");
+        start_ap_game(&e, "localhost:38281");
+        assert_eq!(e.ap_server_to_connect(None), at("localhost:38281", "Tester"), "no session (app start): its own server");
+        assert_eq!(e.ap_server_to_connect(at("localhost:38281", "Tester")), None, "already there: keep the session");
+        assert_eq!(e.ap_server_to_connect(at("other:1", "Tester")), at("localhost:38281", "Tester"), "another game's server: switch");
+        assert_eq!(e.ap_server_to_connect(at("localhost:38281", "Bob")), at("localhost:38281", "Tester"), "same server, other slot");
+        e.close_game();
+        assert_eq!(e.ap_server_to_connect(at("other:1", "Tester")), None, "no game open: leave the session alone");
     }
 
     #[test]

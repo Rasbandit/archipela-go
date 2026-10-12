@@ -31,6 +31,10 @@ use crate::protocol::{ClientMessage, ServerMessage};
 /// custom servers.
 const DEFAULT_PORT: u16 = 38281;
 
+/// The largest frame and message accepted (tungstenite's defaults; a big multiworld's data package fits easily).
+const MAX_FRAME_SIZE: usize = 16 << 20;
+const MAX_MESSAGE_SIZE: usize = 64 << 20;
+
 /// Errors of the WebSocket connection itself.
 #[derive(ThisError, Debug)]
 pub enum WsError {
@@ -82,27 +86,26 @@ struct Target {
 
 impl Target {
     fn parse(url: &str) -> Result<Self, WsError> {
-        let (tls, rest) = if let Some(rest) = url.strip_prefix("wss://") {
-            (true, rest)
-        } else if let Some(rest) = url.strip_prefix("ws://") {
-            (false, rest)
-        } else {
-            return Err(WsError::Url(format!("not a ws:// or wss:// URL: {url}")));
+        let bad = |why: &str| WsError::Url(format!("{why}: {url}"));
+        let without_fragment = url.split('#').next().unwrap_or(url); // a fragment is never sent
+        let uri: http::Uri = without_fragment.parse().map_err(|e: http::uri::InvalidUri| bad(&e.to_string()))?;
+        let tls = match uri.scheme_str() {
+            Some("wss") => true,
+            Some("ws") => false,
+            _ => return Err(bad("not a ws:// or wss:// URL")),
         };
-        let (authority, resource) = rest.find(['/', '?']).map_or((rest, "/"), |i| rest.split_at(i));
-        let resource = if resource.starts_with('?') { format!("/{resource}") } else { resource.to_string() };
-        // The port follows the last colon, except inside an IPv6 literal (`[::1]`).
-        let (host, port) = match authority.rfind(':') {
-            Some(i) if !authority[i..].contains(']') => {
-                let port = authority[i + 1..].parse().map_err(|_| WsError::Url(format!("bad port in {url}")))?;
-                (&authority[..i], port)
-            }
-            _ => (authority, DEFAULT_PORT),
+        // `host()` leaves out any `name:password@` and keeps an IPv6 literal's brackets.
+        let host = uri.host().filter(|h| !h.is_empty() && *h != "[]").ok_or_else(|| bad("no host name"))?;
+        // What follows the host is nothing or `:<port>`; `Uri` takes `host:abc` and just reports no port.
+        let authority = uri.authority().map_or("", |a| a.as_str());
+        let after_host = authority.rsplit_once('@').map_or(authority, |(_, h)| h).strip_prefix(host).unwrap_or_default();
+        let port = match after_host.strip_prefix(':') {
+            None if after_host.is_empty() => DEFAULT_PORT,
+            Some(p) => p.parse().map_err(|_| bad("bad port"))?,
+            None => return Err(bad("bad port")),
         };
-        if host.is_empty() || host == "[]" {
-            return Err(WsError::Url(format!("no host name in {url}")));
-        }
-        Ok(Target { tls, host: host.to_string(), port, resource })
+        let resource = uri.path_and_query().map(|p| p.as_str()).filter(|p| p.starts_with('/')).unwrap_or("/");
+        Ok(Target { tls, host: host.to_string(), port, resource: resource.to_string() })
     }
 
     /// The host name for TLS (no IPv6 brackets).
@@ -302,6 +305,9 @@ impl<S: DeserializeOwned + 'static> Socket<S> {
         debug!("WebSocket connected, permessage-deflate: {compressed}");
         let mut builder = handshake.into_builder();
         builder.add_extensions(extensions);
+        // tungstenite's limits (soketto allows 256 MiB): a corrupt or hostile header must not make the phone allocate it.
+        builder.set_max_frame_size(MAX_FRAME_SIZE);
+        builder.set_max_message_size(MAX_MESSAGE_SIZE);
         let (sender, receiver) = builder.finish();
         Ok(Socket { async_stream, sender, receiving: Some(receive(receiver)), messages: Default::default() })
     }

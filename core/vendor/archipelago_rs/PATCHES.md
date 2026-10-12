@@ -19,6 +19,9 @@
     failed or timed-out send ends the connection (half a frame may be on the wire), so the next update reports it.
   - TLS is `futures-rustls` (rustls only; the `native-tls` feature is gone). `Error::WebSocket` wraps the crate's own `WsError`.
   - flate2's `zlib` backend links Android's system `libz.so` (an NDK stable API).
+  - Frames are capped at 16 MiB and messages at 64 MiB (tungstenite's defaults; soketto allows 256 MiB, which a corrupt header
+    would make the phone allocate). URLs are parsed with `http::Uri` (credentials before `@` and a `#fragment` are not the host);
+    a port that is not a number is refused.
   - Tested in `apgo-ffi` (`ap_handshake_tests`: bad URLs, the upgrade request offers compression) and against the pinned server
     (`the_connection_is_compressed_so_the_server_never_warns`, `just test-ap`).
 

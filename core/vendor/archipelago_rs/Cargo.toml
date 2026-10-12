@@ -51,6 +51,9 @@ path = "examples/text_client.rs"
 [dependencies.bitflags]
 version = "2.11.0"
 
+[dependencies.http]
+version = "1.1"
+
 [dependencies.log]
 version = "0.4.29"
 

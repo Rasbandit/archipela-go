@@ -62,6 +62,8 @@ dependencies = [
  "rusqlite",
  "rustls",
  "serde_json",
+ "smol",
+ "soketto",
  "uniffi",
 ]
 
@@ -81,6 +83,7 @@ dependencies = [
  "bitflags 2.13.2",
  "futures",
  "futures-rustls",
+ "http",
  "log",
  "oneshot",
  "rand 0.10.3",

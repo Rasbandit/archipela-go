@@ -384,7 +384,19 @@ fn a_send_to_a_server_that_stopped_reading_fails_in_seconds_and_disconnects() {
         let failed = (0..5_000).any(|_| sender.send_checks(many.clone()).is_err());
         let _ = tx.send(failed);
     });
-    let failed = rx.recv_timeout(Duration::from_secs(60)).expect("a send blocked on the stopped server for 60 s");
+    // Meanwhile the app's main thread keeps asking for the status and the server: never held up by the stuck send (an ANR).
+    let mut slowest = Duration::ZERO;
+    let failed = loop {
+        let asked = Instant::now();
+        let _ = (s.status(), s.server_identity());
+        slowest = slowest.max(asked.elapsed());
+        if let Ok(failed) = rx.try_recv() {
+            break failed;
+        }
+        assert!(t.elapsed() < Duration::from_secs(60), "a send blocked on the stopped server for 60 s");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(slowest < Duration::from_millis(200), "status() waited {slowest:?} for the stuck send");
     assert!(failed, "the socket never filled: send more");
     assert!(t.elapsed() < Duration::from_secs(45), "took {:?}", t.elapsed());
     drain_until(&s, 5, |s, _| s.status().starts_with("disconnected"));

@@ -24,14 +24,15 @@ import dev.apgo2.ui.ApgoIcons
  */
 @Composable
 internal fun ServerButton(m: AppModel) {
-    val current = m.ap.savedAddress() ?: return
+    // Remembered whether or not the dialog shows: the connect it returns outlives the dialog (a permission prompt, a DNS lookup).
+    val move = rememberLanAwareConnect({ m.ap.moveServer(it) }, { m.ap.hint = it })
+    val current = m.ap.savedServer?.address ?: return
     var editing by rememberSaveable { mutableStateOf(false) }
     TextButton(onClick = { editing = true }) {
         Icon(ApgoIcons.Server, contentDescription = null, modifier = Modifier.size(16.dp))
         Text(" Server", fontSize = 12.sp)
     }
     if (editing) {
-        val move = rememberLanAwareConnect({ m.ap.moveServer(it) }, { m.ap.hint = it })
         ServerMoveDialog(current, onMove = {
             editing = false
             move(it)
