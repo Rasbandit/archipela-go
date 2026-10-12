@@ -153,7 +153,7 @@ fn main() {
     targets.extend(virtual_targets(&reference, 200.0, 25.0));
     let atlases: Vec<Atlas> = a.atlas.iter().map(|p| serde_json::from_str(&std::fs::read_to_string(p).unwrap()).expect("an Atlas JSON")).collect();
     let graph = StreetGraph::for_atlases(&atlases.iter().collect::<Vec<_>>()).map(Arc::new);
-    let opts = ReplayOpts { mode: a.mode, params: a.params.clone(), graph };
+    let opts = ReplayOpts { mode: a.mode, params: a.params.clone(), graph, delivery: None };
     let t0 = std::time::Instant::now();
     let filtered = run_locator(&rec.fixes, &rec.steps, &rec.headings, &opts);
     let per_fix_us = t0.elapsed().as_secs_f64() * 1e6 / rec.fixes.len().max(1) as f64;

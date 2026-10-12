@@ -621,6 +621,58 @@ fn a_carry_change_in_the_gap_falls_back_to_course_and_streets() {
     assert!(percentile(&errs, 0.9) <= 25.0, "p90 {:.1} {errs:?}", percentile(&errs, 0.9));
 }
 
+// p90 bridged error of `s` over the seeds when the phone delivers with `delivery`.
+#[allow(clippy::unwrap_used, clippy::expect_used)] // a test helper: a missing graph or bridge is a failed test
+fn gap_p90_delivered(s: &Scenario, delivery: apgo_core::loc::bench::Delivery) -> f64 {
+    let graph = Arc::new(StreetGraph::from_ways(&grid_ways(origin(), 5, 100.0)).unwrap());
+    let errs: Vec<f64> = (0..SEEDS)
+        .map(|seed| {
+            let r = s.generate(seed);
+            let out = run_scenario(&r, &ReplayOpts { graph: Some(graph.clone()), delivery: Some(delivery), ..opts(Mode::Walk) });
+            reanchor(&r.truth, &out, s.t0_ms + 180_000).expect("bridged through the gap").0
+        })
+        .collect();
+    percentile(&errs, 0.9)
+}
+
+#[test]
+fn screen_off_batching_still_bridges_a_pocket_gap_with_a_carry_change() {
+    // The phone with the screen off in a zone: fixes batched 20 s (GpsPolicy), steps and compass 5 s (StepRate, HeadingSource).
+    // compass_batching_experiment: 10 s compass batches break the bridge (p90 over 75 m); 5 s is as good as 1 s.
+    let d = apgo_core::loc::bench::Delivery { fix_batch_ms: 20_000, steps_batch_ms: 5_000, heading_batch_ms: 5_000 };
+    for (label, s, max) in
+        [("pocket", gap_walk(HeadingSim::pocket(vec![(0, 90.0)])), 20.0), ("carry change", gap_walk(HeadingSim::pocket(vec![(0, 90.0), (130, 0.0)])), 25.0)]
+    {
+        let p90 = gap_p90_delivered(&s, d);
+        assert!(p90 <= max, "{label}: p90 {p90:.1} m");
+    }
+}
+
+#[test]
+#[ignore = "experiment: cargo test --release --test loc_scenarios compass_batching -- --ignored --nocapture"]
+fn compass_batching_experiment() {
+    let cases = [
+        ("in hand", gap_walk(HeadingSim::in_hand())),
+        ("pocket", gap_walk(HeadingSim::pocket(vec![(0, 90.0)]))),
+        ("carry change", gap_walk(HeadingSim::pocket(vec![(0, 90.0), (130, 0.0)]))),
+    ];
+    // (steps, heading) batch ms with fixes batched 20 s, as with the screen off.
+    let combos = [(2_000, 1_000), (2_000, 5_000), (5_000, 5_000), (2_000, 10_000), (2_000, 20_000)];
+    println!("p90 bridged error, m (screen off: fixes batched 20 s); columns: steps/heading batch s");
+    println!("{:>14} | instant | {}", "scenario", combos.map(|(st, h)| format!("{:>2}/{:<2}", st / 1000, h / 1000)).join(" | "));
+    for (label, s) in &cases {
+        let instant = gap_p90_delivered(s, apgo_core::loc::bench::Delivery::default());
+        let row: Vec<String> = combos
+            .iter()
+            .map(|(st, h)| {
+                let d = apgo_core::loc::bench::Delivery { fix_batch_ms: 20_000, steps_batch_ms: *st, heading_batch_ms: *h };
+                format!("{:>5.1}", gap_p90_delivered(s, d))
+            })
+            .collect();
+        println!("{label:>14} | {instant:>7.1} | {}", row.join(" | "));
+    }
+}
+
 #[test]
 #[ignore = "timing harness: cargo test --release --test loc_scenarios timing -- --ignored --nocapture"]
 fn timing_of_a_bridge_step_batch() {
