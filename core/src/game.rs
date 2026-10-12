@@ -773,12 +773,7 @@ impl Game {
     /// Feeds a fix to a quest's tracker (made on first use, resuming saved forager progress) and keeps a forager's progress in the save.
     fn update_tracker(&mut self, id: i64, fix: &Fix, steps_total: Option<i64>) -> Option<Status> {
         if !self.trackers.contains_key(&id) {
-            let a = self.assignments.iter().find(|a| a.location_id == id)?;
-            let target = match self.adjusted(&a.target) {
-                // Game picks forager items (they live in `forage`); the tracker only banks at home and reports progress.
-                Target::Collect { need, r, theme, .. } => Target::Collect { pts: Vec::new(), need, r, theme },
-                t => t,
-            };
+            let target = self.tracker_target(&self.assignments.iter().find(|a| a.location_id == id)?.target);
             let t = match self.collected.get(&id) {
                 Some(c) => Tracker::with_collected(target, self.home, c.clone()),
                 None => Tracker::new(target, self.home),
@@ -791,6 +786,15 @@ impl Game {
             self.collected.insert(id, c.clone());
         }
         Some(status)
+    }
+
+    /// What a quest's tracker checks fixes against: its target as traps adjust it. Game picks forager items (they live in `forage`), so
+    /// a forager's tracker gets no points: it only banks at home and reports progress.
+    fn tracker_target(&self, t: &Target) -> Target {
+        match self.adjusted(t) {
+            Target::Collect { need, r, theme, .. } => Target::Collect { pts: Vec::new(), need, r, theme },
+            t => t,
+        }
     }
 
     fn adjusted(&self, t: &Target) -> Target {
@@ -866,7 +870,7 @@ impl Game {
             return Vec::new();
         }
         self.credit_steps(total);
-        self.top_up_due(t_ms);
+        self.top_up_due(t_ms, self.last_accepted);
         let mut ev = bridged.map(|b| self.on_estimate(&b, None)).unwrap_or_default();
         ev.extend(self.complete_reached(t_ms, self.last_pos()));
         ev
@@ -1037,7 +1041,8 @@ impl Game {
         self.counters.away_mark.is_some() && !self.checks_blocked()
     }
 
-    /// When the next time-away mark will be reached if nothing changes, so the app can schedule one wake-up then; `None` at home.
+    /// When something next falls due if nothing changes (a time-away mark, a dwell the player stands in, a forager top-up), so the app
+    /// can schedule one wake-up then; `None` when nothing is due.
     #[must_use]
     pub fn next_due_ms(&self, now_ms: i64) -> Option<i64> {
         if self.checks_blocked() {
@@ -1071,7 +1076,7 @@ impl Game {
 
     /// A scheduled wake-up (see [`Self::next_due_ms`]): settle time away, finish dwells still running, complete what fell due.
     pub fn tick(&mut self, t_ms: i64) -> Vec<Event> {
-        self.top_up_due(t_ms);
+        self.top_up_due(t_ms, self.last_accepted);
         self.settle_away(t_ms);
         let mut ev = Vec::new();
         if self.counting && !self.checks_blocked() && !self.unseen_since_good {
@@ -1158,7 +1163,7 @@ impl Game {
     /// What an estimate does once counting is on and its distance (`moved`) is added: see [`Self::on_estimate`].
     fn check(&mut self, est: &Estimate, steps_total: Option<i64>, moved: f64) -> Vec<Event> {
         let mut ev = Vec::new();
-        self.top_up_due(est.t_ms);
+        self.top_up_due(est.t_ms, Some(est.point()));
         if let Some(total) = steps_total {
             self.credit_steps(total);
         }
@@ -1311,20 +1316,35 @@ impl Game {
         self.trackers.remove(&id); // rebuilt from `collected` on this fix
     }
 
-    /// Tops up every open forager whose time has come, from its pool; one that cannot fill tries again a respawn later.
-    fn top_up_due(&mut self, now_ms: i64) {
+    /// Tops up every open forager whose time has come, from its pool, clear of the player at `here`; one that cannot fill tries again
+    /// a respawn later.
+    fn top_up_due(&mut self, now_ms: i64, here: Option<Point>) {
         let pools = std::mem::take(&mut self.forage_pools);
         for (id, want) in self.forager_wants() {
             let Some(pool) = pools.get(&id).filter(|p| !p.is_empty()) else { continue };
+            let avoid = self.forage_avoid(id, here);
             let Some(f) = self.forage_entry(id) else { continue };
             if f.due(now_ms) {
-                f.top_up(want, pool, ITEM_SPACING_M, &mut forage_rng(id, now_ms));
+                f.top_up(want, pool, &avoid, ITEM_SPACING_M, &mut forage_rng(id, now_ms));
                 if f.next_spawn_ms.is_some() {
                     f.next_spawn_ms = Some(now_ms + RESPAWN_MS);
                 }
             }
         }
         self.forage_pools = pools;
+    }
+
+    /// Where forager `id`'s new items must keep clear of: every other open quest's point, other foragers' items, and the player at
+    /// `here` (an item there would be picked on the fix that placed it).
+    fn forage_avoid(&self, id: i64, here: Option<Point>) -> Vec<Point> {
+        let others = self.assignments.iter().filter(|a| a.location_id != id && !self.done.contains(&a.location_id));
+        others
+            .flat_map(|a| match &a.target {
+                Target::Collect { .. } => self.live_items(a),
+                t => anchor(t).into_iter().collect(),
+            })
+            .chain(here)
+            .collect()
     }
 
     /// Open foragers and how many items each keeps on the map.
@@ -1352,17 +1372,20 @@ impl Game {
             }
         }
         self.forage_pools = pools;
-        self.fill_unfilled();
+        self.fill_unfilled(0);
     }
 
-    /// Fills each open forager not filled yet (new, loaded, or moved by a Shuffle trap) to its live size from its pool, once.
-    fn fill_unfilled(&mut self) {
+    /// Fills each open forager not filled yet (new, loaded, or moved by a Shuffle trap) to its live size from its pool, once. `salt`
+    /// varies the spots (a Shuffle trap's seed), so a refill does not bring back the ones the first fill chose.
+    fn fill_unfilled(&mut self, salt: u64) {
         let pools = std::mem::take(&mut self.forage_pools);
+        let here = self.last_accepted;
         for (id, want) in self.forager_wants() {
             let Some(pool) = pools.get(&id) else { continue };
+            let avoid = self.forage_avoid(id, here);
             let Some(f) = self.forage_entry(id) else { continue };
             if !f.filled {
-                f.top_up(want, pool, ITEM_SPACING_M, &mut forage_rng(id, 0));
+                f.top_up(want, pool, &avoid, ITEM_SPACING_M, &mut forage_rng(id, i64::from_ne_bytes(salt.to_ne_bytes())));
                 f.filled = true;
             }
         }
@@ -1538,7 +1561,7 @@ impl Game {
                 moved += 1;
             }
         }
-        self.fill_unfilled();
+        self.fill_unfilled(seed);
         let fresh = assign(&slots_in(&self.slot, Some(&todo)), &zones, catalog, &params);
         let n = fresh.len();
         for a in fresh {
@@ -1623,8 +1646,11 @@ impl Game {
             .iter()
             .filter(|a| !self.done.contains(&a.location_id))
             .filter_map(|a| {
-                let at = anchor(&a.target)?;
-                let distance_m = distance_m(here, at);
+                let distance_m = match &a.target {
+                    // A forager counts at any item still out there, not only its first (which may be picked).
+                    Target::Collect { .. } => self.live_items(a).into_iter().map(|p| distance_m(here, p)).reduce(f64::min)?,
+                    t => distance_m(here, anchor(t)?),
+                };
                 if distance_m > radius_m {
                     return None;
                 }
@@ -1778,7 +1804,7 @@ impl Game {
             .into_iter()
             .filter(|(id, _)| !self.done.contains(id))
             .filter_map(|(id, mut t)| {
-                let target = self.adjusted(&self.assignments.iter().find(|a| a.location_id == id)?.target);
+                let target = self.tracker_target(&self.assignments.iter().find(|a| a.location_id == id)?.target);
                 t.pause();
                 t.reattach(target, self.home).then_some((id, t))
             })
@@ -3390,6 +3416,103 @@ mod tests {
         assert_eq!(g.next_due_ms(3000), None);
         g.tick(3000 + RESPAWN_MS);
         assert!(live(&g).is_empty(), "never respawns");
+    }
+
+    /// The forager with its first item picked at t = 0 (5 left of 9 wanted, a top-up due at `RESPAWN_MS`) and `pool` to top up from.
+    fn due_forager(pool: Vec<Point>) -> (Game, Vec<Point>) {
+        let (mut g, pts) = forager_game();
+        g.on_estimate(&fixat(pts[0], 0), None);
+        g.forage_pools.insert(2000, pool);
+        (g, pts)
+    }
+
+    #[test]
+    fn a_due_top_up_runs_on_a_fix_and_on_steps() {
+        let free = destination(home(), 90.0, 700.0);
+        let (mut g, _) = due_forager(vec![free]);
+        g.on_estimate(&fixat(home(), RESPAWN_MS / 1000), None);
+        assert!(live(&g).contains(&free), "on a fix");
+        let (mut g, _) = due_forager(vec![free]);
+        g.on_steps(100, RESPAWN_MS, None);
+        assert!(live(&g).contains(&free), "on steps");
+    }
+
+    #[test]
+    fn a_short_pool_tries_again_a_respawn_later() {
+        let first = destination(home(), 90.0, 700.0);
+        let (mut g, _) = due_forager(vec![first]);
+        g.tick(RESPAWN_MS);
+        assert_eq!((live(&g).len(), g.forage[&2000].next_spawn_ms), (6, Some(2 * RESPAWN_MS)), "5 left and the pool's 1, short of 9");
+        let more = (1..=3).map(|i| destination(home(), 90.0, 700.0 + 100.0 * f64::from(i)));
+        g.forage_pools.insert(2000, std::iter::once(first).chain(more).collect());
+        g.tick(2 * RESPAWN_MS - 1);
+        assert_eq!(live(&g).len(), 6, "not before its time");
+        g.tick(2 * RESPAWN_MS);
+        assert_eq!((live(&g).len(), g.forage[&2000].next_spawn_ms), (9, None));
+    }
+
+    #[test]
+    fn one_fix_picks_every_item_in_reach() {
+        let (mut g, pts) = forager_game();
+        let f = g.forage_entry(2000).unwrap();
+        f.items.push(crate::forage::Item { id: f.next_id, p: destination(pts[0], 90.0, 20.0) });
+        f.next_id += 1;
+        g.on_estimate(&fixat(destination(pts[0], 90.0, 10.0), 600), None);
+        assert_eq!((carried_banked(&g), g.collected[&2000].picked.clone()), ((2, 0), BTreeSet::from([0])), "a topped-up item has no placed index");
+        assert_eq!(live(&g), pts[1..].to_vec());
+    }
+
+    #[test]
+    fn a_top_up_never_places_an_item_where_the_player_stands() {
+        let here = destination(home(), 90.0, 700.0);
+        let (mut g, _) = due_forager(vec![here]);
+        g.on_estimate(&fixat(here, RESPAWN_MS / 1000), None);
+        assert_eq!((live(&g).contains(&here), carried_banked(&g)), (false, (1, 0)), "not placed and picked on the same fix");
+        let (mut g, _) = due_forager(vec![here]);
+        g.on_estimate(&fixat(here, 60), None);
+        g.tick(RESPAWN_MS);
+        assert!(!live(&g).contains(&here), "nor on a wake-up, where the last fix put the player");
+    }
+
+    #[test]
+    fn a_top_up_keeps_clear_of_other_quests_and_other_foragers_items() {
+        let (q, o, free) = (destination(home(), 90.0, 700.0), destination(home(), 180.0, 700.0), destination(home(), 270.0, 700.0));
+        let (mut g, _) = due_forager(vec![destination(q, 0.0, 20.0), destination(o, 0.0, 20.0), free]);
+        g.assignments.push(chain::tests_support::member(2001, 1, "landmark", Target::Point { p: q, r: 40.0 }));
+        let mut other = chain::tests_support::member(2002, 1, "forager", Target::Collect { pts: vec![o], need: 1, r: 25.0, theme: "shells".into() });
+        other.family = "courier".into();
+        g.assignments.push(other);
+        g.tick(RESPAWN_MS);
+        assert_eq!((live(&g).len(), live(&g).contains(&free)), (6, true), "only the free spot");
+    }
+
+    #[test]
+    fn a_restarted_forager_tracker_gets_no_placed_points() {
+        let (mut g, _) = forager_game();
+        g.on_estimate(&fixat(home(), 60), None); // makes its tracker
+        let mut back: Game = serde_json::from_value(serde_json::to_value(&g).unwrap()).unwrap();
+        back.reattach_trackers();
+        assert!(matches!(back.trackers[&2000].target(), Target::Collect { pts, .. } if pts.is_empty()), "the game picks items, never the tracker");
+    }
+
+    #[test]
+    fn a_refill_after_a_shuffle_trap_draws_other_spots_than_the_first_fill() {
+        let (mut g, _) = forager_game();
+        g.forage_pools.insert(2000, (0..20).map(|i| destination(home(), 18.0 * f64::from(i), 1500.0)).collect());
+        let topped = |g: &Game| -> Vec<Point> { g.forage[&2000].items.iter().filter(|i| i.id >= 6).map(|i| i.p).collect() };
+        g.fill_unfilled(0);
+        let first = topped(&g);
+        g.forage.remove(&2000); // as a Shuffle trap leaves it: seeded again, not filled
+        g.fill_unfilled(9);
+        assert_ne!(topped(&g), first, "a refill with the first fill's seed brings back the same (maybe picked) spots");
+    }
+
+    #[test]
+    fn near_miss_diagnostics_measure_a_forager_to_its_nearest_open_item() {
+        let (mut g, pts) = forager_game();
+        g.on_estimate(&fixat(pts[0], 600), None);
+        let nm = g.explain_near(&fixat(destination(pts[3], 90.0, 30.0), 1200), 100.0).into_iter().find(|n| n.location_id == 2000);
+        assert!(nm.is_some_and(|n| (n.distance_m - 30.0).abs() < 0.5), "its 4th item is 30 m away, its picked first item 300 m");
     }
 
     #[test]
