@@ -203,7 +203,7 @@ internal class PresenceController(
         } else {
             model.sensors.stopHeading()
         }
-        model.sensors.setFastSteps(inZone)
+        model.sensors.setStepBatch(StepRate.batchUs(decision.state, inZone))
     }
 
     // Runs after every fix and Wi-Fi change (both end in [evaluate]). A simulated position is not a real visit home. The fix is the

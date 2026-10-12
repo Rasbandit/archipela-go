@@ -84,13 +84,13 @@ private fun TrackingEffects(
     perms: PermissionState,
 ) {
     val context = LocalContext.current
-    LaunchedEffect(perms.steps) { if (perms.steps) model.sensors.startSteps() }
+    LaunchedEffect(perms.steps) { if (perms.steps) model.sensors.allowSteps() }
     // The presence decision picks the rate: precise in a zone, coarse outside, off at home or in the car. Stopped
     // (no game) keeps the map marker while the app is on screen.
     // Visibility is applied by the lifecycle (AppModel.onForeground/onBackground), which runs while the activity is stopped too.
     LaunchedEffect(perms.location, model.hud != null, model.presence.decision) {
         model.presence.locationPermitted = perms.location
-        if (perms.location) model.presence.applyLocation() else model.sensors.stopLocation()
+        model.presence.applyLocation() // with location not permitted it stops location and still sets the step counter
     }
     // Wi-Fi names need location permission; Bluetooth devices need BLUETOOTH_CONNECT (re-read on every start, restarting the
     // monitor when it appears). The model owns the monitor for the whole process; this only tells it when it may start or the

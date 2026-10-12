@@ -15,6 +15,7 @@ import android.os.Looper
 import android.os.SystemClock
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import dev.apgo2.presence.PresenceState
 
 // The log tag of the sensor sources.
 internal const val SENSORS_TAG = "sensors"
@@ -25,6 +26,28 @@ internal const val FUSED_SOURCE = "fused"
 // How long the step counter may hold readings back before delivering them (microseconds).
 private const val STEP_BATCH_US = 10_000_000
 private const val FAST_STEP_BATCH_US = 2_000_000
+private const val IDLE_STEP_BATCH_US = 60_000_000
+
+/** How the step counter batches for a presence state; `null` is off. */
+internal object StepRate {
+    /** [inZone]: in a zone with location on, where the filter wants the cadence. */
+    fun batchUs(
+        state: PresenceState,
+        inZone: Boolean,
+    ): Int? =
+        when {
+            // Steps count only with a game open, and opening one resets the baseline.
+            state == PresenceState.Stopped -> null
+
+            inZone -> FAST_STEP_BATCH_US
+
+            // Counting is off, but the baseline from just before leaving keeps indoor steps from being credited: slow, not off.
+            state == PresenceState.AtHome || state == PresenceState.InCar -> IDLE_STEP_BATCH_US
+
+            else -> STEP_BATCH_US
+        }
+}
+
 private const val GNSS_LINE_MS = 10_000L
 private const val TAG = SENSORS_TAG
 private const val GMS_PACKAGE = "com.google.android.gms"
@@ -41,7 +64,8 @@ internal class Sensors(
     private val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private var stepListener: SensorEventListener? = null
-    private var fastSteps = false
+    private var stepsAllowed = false
+    private var stepBatchUs: Int? = null
     private var gnssCallback: GnssStatus.Callback? = null
     private var gnssHardwareLogged = false
     private var gnssFailLogged = false
@@ -86,8 +110,23 @@ internal class Sensors(
         stopHeading()
     }
 
-    fun startSteps() {
-        if (stepListener != null) return
+    /** The step counter may run (permission granted); it runs while [setStepBatch] asks for a batch. */
+    fun allowSteps() {
+        stepsAllowed = true
+        applySteps()
+    }
+
+    /** Batch steps every [us] microseconds ([StepRate]); `null` stops the counter. Re-registers when it changes. */
+    fun setStepBatch(us: Int?) {
+        if (stepBatchUs == us) return
+        stepBatchUs = us
+        stopSteps()
+        applySteps()
+    }
+
+    private fun applySteps() {
+        val us = stepBatchUs
+        if (!stepsAllowed || us == null || stepListener != null) return
         val sensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return Diag.warn(TAG, "no step counter on this device")
         val l =
             object : SensorEventListener {
@@ -105,10 +144,10 @@ internal class Sensors(
                     // The step counter's accuracy does not matter here.
                 }
             }
-        // Let the hardware batch readings (10 s, or 2 s in a zone where the filter wants the cadence).
-        sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL, if (fastSteps) FAST_STEP_BATCH_US else STEP_BATCH_US)
+        // Let the hardware batch readings ([StepRate]).
+        sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL, us)
         stepListener = l
-        Diag.info(TAG, "steps started")
+        Diag.info(TAG, "steps started", "batch_us" to us)
     }
 
     fun stopSteps() {
@@ -178,14 +217,4 @@ internal class Sensors(
     ) = heading.startHeading(periodUs, onScreen)
 
     fun stopHeading() = heading.stopHeading()
-
-    /** Steps every 2 s while in a zone (cadence for the filter), 10 s otherwise; re-registers when it changes. */
-    fun setFastSteps(on: Boolean) {
-        if (fastSteps == on) return
-        fastSteps = on
-        if (stepListener != null) {
-            stopSteps()
-            startSteps()
-        }
-    }
 }
