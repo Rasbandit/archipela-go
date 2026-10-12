@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,7 +57,6 @@ import dev.apgo2.ui.Tone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.apgo_ffi.AboutOut
-import uniffi.apgo_ffi.Engine
 import uniffi.apgo_ffi.PlaceOut
 import uniffi.apgo_ffi.ProgressOut
 import uniffi.apgo_ffi.QuestOut
@@ -67,8 +67,8 @@ private const val HALF_TURN = 180f
 // a labelled progress block, and the place's about sheet folded away. Everything it says comes from the core.
 @Composable
 internal fun ColumnScope.QuestCard(
-    engine: Engine,
     q: QuestOut,
+    loadAbout: (Long) -> AboutOut?,
     onClose: () -> Unit,
 ) {
     Box(Modifier.fillMaxWidth()) {
@@ -86,7 +86,7 @@ internal fun ColumnScope.QuestCard(
             }
             q.placeRow?.let { PlaceRow(it) }
             q.progressBlock?.let { ProgressBlock(it, ApgoPalette.questOnCard(q.state, isSystemInDarkTheme())) }
-            if (q.hasAbout) AboutFold(engine, q.locationId)
+            if (q.hasAbout) AboutFold(q.locationId, loadAbout)
             q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
         }
         // A 48dp touch target, pulled into the corner so the icon sits tight top-right.
@@ -256,16 +256,17 @@ private fun StepDot(
 // "About this place": folded until tapped, then read from the realm's scan off the UI thread.
 @Composable
 private fun AboutFold(
-    engine: Engine,
     locationId: Long,
+    loadAbout: (Long) -> AboutOut?,
 ) {
     var open by rememberSaveable(locationId) { mutableStateOf(false) }
     var about by remember(locationId) { mutableStateOf<AboutOut?>(null) }
     var loaded by remember(locationId) { mutableStateOf(false) }
+    val load by rememberUpdatedState(loadAbout)
     // Read once, on the first open (it loads the realm's scan from disk).
     LaunchedEffect(locationId, open) {
         if (open && !loaded) {
-            about = withContext(Dispatchers.IO) { runCatching { engine.about(locationId) }.getOrNull() }
+            about = withContext(Dispatchers.IO) { runCatching { load(locationId) }.getOrNull() }
             loaded = true
         }
     }
