@@ -95,8 +95,9 @@ internal object GeoJson {
 /** The name of this quest's pin image in the map style. */
 internal val QuestOut.mapImageKey: String get() = MarkerSpec.Quest(kindId, family, state, MapMarkers.pips(difficulty, boss)).key
 
-// A forager still under way shows its items on the map instead of one pin; a done one is drawn like any done quest.
-private val QuestOut.showsItems: Boolean get() = collect != null && state != DONE
+// A forager still under way shows its items on the map instead of one pin; a done one, or one with every item picked (its pin then
+// sits where the core puts it: home while it carries some), is drawn like any quest.
+internal val QuestOut.showsItems: Boolean get() = collect != null && state != DONE && openItems.isNotEmpty()
 
 /** The name of the pin image of this forager quest's items (null for other quests and done foragers). */
 internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems }?.let { MarkerSpec.Item(it.theme).key }

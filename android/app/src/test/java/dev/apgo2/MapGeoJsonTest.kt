@@ -184,6 +184,16 @@ class MapFeaturesTest {
         assertFalse(props.getBoolean(MapProp.SELECTED))
     }
 
+    // #78: with every item picked the quest vanished from the map; its pin now shows where the core puts it (home while carrying).
+    @Test fun aForagerWithEveryItemPickedShowsItsPin() {
+        val home = geo(5.0, 5.0)
+        val q = quest(9, shape = "collect", anchor = home).copy(collect = CollectOut("acorns", 3u, 2u, 0u, emptyList()))
+        val pins = MapFeatures.quests(listOf(q), selected = null)
+        assertEquals(listOf(q.mapImageKey), pins.map { it.getJSONObject("properties").getString(MapProp.IMAGE) })
+        assertEquals(5.0, pins[0].getJSONObject("geometry").getJSONArray("coordinates").getDouble(1), 0.0)
+        assertTrue(listOf(q).itemFeatures(selected = null).isEmpty())
+    }
+
     @Test fun aDoneForagerShowsNoPickupsLikeAnyDoneQuest() {
         val items = listOf(CollectItemOut(geo(3.0, 3.0), false), CollectItemOut(geo(4.0, 4.0), true))
         val q = quest(8, shape = "collect", state = "done").copy(collect = CollectOut("acorns", 1u, 0u, 1u, items))
