@@ -27,9 +27,11 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - **Home picker**: full-screen map, draggable house pin, tap to place, "Use my location".
 - **New Game** (no tab: opened from the "New game" button on the empty Play screen, over Play; any tab or Back closes it; `AppNav`): zones added once (card = travel mode + quest types with live counts), several goals + rule, tooltips everywhere (`ui/Help*.kt`), Archipelago join.
 - **Play**: map with kind icons, per-goal progress, quest list, dev simulator buttons.
-  Quests keep the place they were made from (`feature_id`); `Engine::poi_details` looks it up in the realm atlas
-  (`core/src/poi_details.rs` maps tags to fields; stitched trails carry their ways' merged tags). No UI yet: the quest card
-  (`docs/superpowers/specs/2026-10-11-quest-card-design.md`) will show it.
+  Tapping a quest opens the quest card (`QuestCard.kt`, spec `docs/superpowers/specs/2026-10-11-quest-card-design.md`). All
+  its text comes from the core (`core/src/card.rs`): `headline`/`card_detail`, `place_row`, `progress_block`. Quests keep the
+  place they were made from (`feature_id`, `place_type`, `has_about`); `Engine::about` reads the about sheet from the realm
+  atlas off the UI thread (`core/src/poi_details.rs`; stitched trails carry their ways' merged tags). Old games fill these in
+  by relink after the streets build (`Game::relink_places`), so no new game is needed. Verified on the Pixel 8 Pro (dark).
 
 ## Track and audit journal (new, branch `feat/adaptive-gps-interval`)
 
