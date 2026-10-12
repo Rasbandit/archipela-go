@@ -25,7 +25,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,7 +48,6 @@ import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.ChoiceChips
 import dev.apgo2.ui.Help
 import dev.apgo2.ui.HelpTip
-import dev.apgo2.ui.HelpTopic
 import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.IconLabel
 import dev.apgo2.ui.LabelWithHelp

@@ -9,10 +9,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.apgo2.ui.ChoiceChips
@@ -43,11 +39,6 @@ internal fun SettingsScreen(
         Text("Settings", style = MaterialTheme.typography.titleLarge)
         LabelWithHelp("Distance units", Help.units)
         ChoiceChips(UNIT_OPTIONS, m.units.choice, m.units::choose, ::unitLabel)
-        var trapAlerts by remember { mutableStateOf(m.engine.trapAlerts()) }
-        SwitchRow("Trap alerts", Help.trapAlerts, trapAlerts) { on ->
-            runCatching { m.engine.setTrapAlerts(on) }
-                .onSuccess { trapAlerts = on }
-                .onFailure { m.fail("set_trap_alerts", "Could not save trap alerts", it) }
-        }
+        SwitchRow("Trap alerts", Help.trapAlerts, m.trapSettings.on, m.trapSettings::set)
     }
 }

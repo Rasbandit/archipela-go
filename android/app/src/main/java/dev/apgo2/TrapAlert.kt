@@ -6,7 +6,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
 import android.os.Build
+import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -51,7 +53,7 @@ internal class TrapAlert(
                 .setAutoCancel(true)
                 .setContentIntent(open)
                 .build()
-        nm.notify(ID_BASE + item.hashCode() % ID_SPREAD, n) // the same trap again replaces its alert, different traps stack
+        nm.notify(ID_BASE + Math.floorMod(item.hashCode(), ID_SPREAD), n) // the same trap again replaces its alert, different traps stack
     }
 
     private fun buzz() {
@@ -62,11 +64,19 @@ internal class TrapAlert(
                 @Suppress("DEPRECATION") // VibratorManager only exists from Android 12
                 ctx.getSystemService(Vibrator::class.java)
             }
-        vibrator?.vibrate(VibrationEffect.createWaveform(PATTERN, -1))
+        val effect = VibrationEffect.createWaveform(PATTERN, -1)
+        // As an alarm: a plain buzz is dropped with the ringer on silent or the app in the background.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            vibrator?.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_ALARM))
+        } else {
+            @Suppress("DEPRECATION") // VibrationAttributes only exists from Android 13
+            vibrator?.vibrate(effect, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
+        }
     }
 
     companion object {
-        private const val CHANNEL = "traps"
+        // Android fixes a channel's buzz when it is first created: a new PATTERN needs a new channel id to reach existing installs.
+        private const val CHANNEL = "traps_v1"
         private const val ID_BASE = 2000
         private const val ID_SPREAD = 1000
 

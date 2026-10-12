@@ -83,6 +83,7 @@ internal class AppModel(
     val sensors = Sensors(ctx, this)
     val settings = PresenceSettings(ctx)
     private val trapAlert = TrapAlert(ctx)
+    val trapSettings = TrapSettings(this)
     val units = UnitSettings(this)
     val stepCal = StepCalStore(ctx)
     val presence = PresenceController(this, ctx)
