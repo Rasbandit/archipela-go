@@ -27,6 +27,9 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - **Home picker**: full-screen map, draggable house pin, tap to place, "Use my location".
 - **New Game** (no tab: opened from the "New game" button on the empty Play screen, over Play; any tab or Back closes it; `AppNav`): zones added once (card = travel mode + quest types with live counts), several goals + rule, tooltips everywhere (`ui/Help*.kt`), Archipelago join.
 - **Play**: map with kind icons, per-goal progress, quest list, dev simulator buttons.
+  Forager quests use live items and the shared backpack (`core/src/forage.rs`, spec
+  `docs/superpowers/specs/2026-10-12-forager-backpack-design.md`); `Engine::bag` feeds the card's backpack row and the panel's
+  "Backpack: Heavy" line.
   Tapping a quest opens the quest card (`QuestCard.kt`, spec `docs/superpowers/specs/2026-10-11-quest-card-design.md`). All
   its text comes from the core (`core/src/card.rs`): `headline`/`card_detail`, `place_row`, `progress_block`. Quests keep the
   place they were made from (`feature_id`, `place_type`, `has_about`); `Engine::about` reads the about sheet from the realm

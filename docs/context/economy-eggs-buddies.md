@@ -60,6 +60,10 @@ HOME (bank) -> walk/run out -> caches, quests, eggs -> walk home -> BANK -> REVE
 - **Bag limit is soft.** Carrying over the limit gives a growing **step penalty** (counted steps shrink, e.g. -5% per
   item over, floor 50%), like carry weight in RPGs. Bag size is an upgrade.
 - Haul persisted in SQLite; a dead phone never loses it.
+- **Built so far (#142, forager items only):** one shared backpack, `bag_size` 20 (`core/src/forage.rs`); picking is never
+  refused; each item over costs 5% of counted steps (floor 50%, step chains only); banking at Home lifts it. Forager items
+  are abundant (3 x need on the map) and top up 3 h after the first pick, on fixes, steps or the scheduled wake-up (pools
+  come from the streets build). Not built: bag upgrades, bank places, money, sealed AP checks, eggs.
 
 ### Shop
 
