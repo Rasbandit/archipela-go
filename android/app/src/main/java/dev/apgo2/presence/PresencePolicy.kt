@@ -13,7 +13,10 @@ internal data class Signals(
 )
 
 internal sealed interface GpsMode {
-    object Off : GpsMode
+    data object Off : GpsMode
+
+    /** In a zone: the fast rate, picked by the screen in `GpsPolicy.inZone` (no distance filter: the core needs a steady stream). */
+    data object Precise : GpsMode
 
     data class Rate(
         val intervalMs: Long,
@@ -30,10 +33,9 @@ internal data class Decision(
 /** Presence rules (spec Part B): which state the player is in decides how GPS runs and whether progress counts. First match wins. */
 internal object PresencePolicy {
     const val COARSE_MS = 90_000L
-    private const val PRECISE_MS = 5_000L
 
-    // Fixes only once the player moved this far: dwell and time away finish on a scheduled tick, so standing still needs no GPS.
-    const val ZONE_MOVE_M = 10f
+    // Far from every zone, fixes only once the player moved this far: dwell and time away finish on a scheduled tick, so standing
+    // still needs no GPS there. In a zone there is no distance filter ([GpsMode.Precise]).
     const val FAR_MOVE_M = 50f
 
     // Bluetooth drops for a moment while driving, but once it is gone for this long you got out.
@@ -48,7 +50,7 @@ internal object PresencePolicy {
             s.carBluetooth == true -> Decision(PresenceState.InCar, GpsMode.Off, counting = false)
             s.homeWifi == true -> Decision(PresenceState.AtHome, GpsMode.Off, counting = false)
             s.zone == Zone.Far -> Decision(PresenceState.OutsideZones, GpsMode.Rate(COARSE_MS, FAR_MOVE_M), counting = true)
-            else -> Decision(PresenceState.InZone, GpsMode.Rate(PRECISE_MS, ZONE_MOVE_M), counting = true)
+            else -> Decision(PresenceState.InZone, GpsMode.Precise, counting = true)
         }
 
     /** Whether presence just arrived home (home Wi-Fi joined): the moment forager quests bank what they carry. */
