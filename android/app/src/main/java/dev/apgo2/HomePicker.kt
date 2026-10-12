@@ -101,7 +101,7 @@ internal fun HomePicker(
             emptyList(),
             m.realmOps.shown,
             emptyList(),
-            m.mePin,
+            { m.mePin },
             null,
             null,
             null,

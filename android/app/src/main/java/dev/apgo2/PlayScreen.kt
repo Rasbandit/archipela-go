@@ -388,7 +388,6 @@ private fun PlayMap(
 ) {
     val quests = held(onShow) { m.quests }
     val realms = held(onShow) { m.realms.filter { r -> m.zones.any { it.realmId == r.id } } }
-    val me = held(onShow) { m.mePin }
     val trace = held(onShow) { m.trace }
     val traceOld = held(onShow) { m.traceOld }
     val chain = held(onShow) { m.chains.firstOrNull { it.id == m.selectedChain } }
@@ -416,7 +415,7 @@ private fun PlayMap(
             quests,
             realms,
             emptyList(),
-            me,
+            { m.mePin },
             hud.thaw?.let { LatLng(it.lat, it.lon) },
             hud.waypoint?.let { LatLng(it.lat, it.lon) },
             m.selected,

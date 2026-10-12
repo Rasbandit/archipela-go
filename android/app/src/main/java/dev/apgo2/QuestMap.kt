@@ -22,12 +22,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -506,7 +508,8 @@ internal fun QuestMap(
     quests: List<QuestOut>,
     realms: List<RealmOut>,
     draft: List<LatLng>,
-    me: MePin?,
+    /** Your pin, read only where it is used (not while composing): it moves with every fix and must not recompose the map. */
+    me: () -> MePin?,
     thaw: LatLng?,
     waypoint: LatLng?,
     selected: Long?,
@@ -576,15 +579,19 @@ internal fun QuestMap(
         )
     // Framing keys on whether you are known, not on where: the pin moves several times a second, which would restart (and starve) the
     // framing wait.
-    val meAt by rememberUpdatedState(me?.let { LatLng(it.lat, it.lon) })
-    val meKnown = me != null
-    val points = remember(quests, realms, meKnown, home, draft) { framePoints(quests, realms, meAt, home, draft) }
+    val meNow = rememberUpdatedState(me)
+    val meAt = { meNow.value()?.let { LatLng(it.lat, it.lon) } }
+    val meKnown by remember { derivedStateOf { meNow.value() != null } }
+    val points =
+        remember(quests, realms, meKnown, home, draft) {
+            framePoints(quests, realms, Snapshot.withoutReadObservation(meAt), home, draft)
+        }
     val holder = remember { MapHolder(context, density, inputs, MapStart.center(listOfNotNull(circle?.first) + points, lastPlace)) }
     MapLifecycle(holder.view, onShow)
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
     SyncContent(holder, quests, realms, selected, finds, trace, traceOld)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
-    SyncPins(holder, thaw, waypoint, home, me)
+    SyncPins(holder, thaw, waypoint, home, me, onShow)
     MapCamera(holder, inputs, overlaysFollowed, fit, focus, anchor)
     MapFraming(holder, circle, meKnown, quests, realms, points)
     // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
@@ -594,10 +601,11 @@ internal fun QuestMap(
     Box(modifier) {
         AndroidView(factory = { holder.view }, modifier = Modifier.matchParentSize())
         MapCredit(holder::showSources, Modifier.align(Alignment.TopEnd).padding(top = overlayTopDp.dp))
-        val last by rememberUpdatedState(lastPlace)
-        if (MapLocate.target(meAt, lastPlace) != null) {
+        val last = rememberUpdatedState(lastPlace)
+        val canLocate by remember { derivedStateOf { MapLocate.target(meAt(), last.value) != null } }
+        if (canLocate) {
             LocateButton(
-                { MapLocate.target(meAt, last)?.let { at -> holder.map?.let { flyToMe(it, at) } } },
+                { MapLocate.target(meAt(), last.value)?.let { at -> holder.map?.let { flyToMe(it, at) } } },
                 // Read in layout, not composition: a sliding panel moves the button without recomposing the map.
                 Modifier.align(Alignment.BottomEnd).offset {
                     IntOffset(
@@ -747,7 +755,8 @@ private fun SyncPins(
     thaw: LatLng?,
     waypoint: LatLng?,
     home: LatLng?,
-    me: MePin?,
+    me: () -> MePin?,
+    onShow: Boolean,
 ) {
     val style = holder.style
     LaunchedEffect(style, thaw, waypoint) { holder.show(MapSource.MARKS, MapFeatures.marks(thaw, waypoint)) }
@@ -755,7 +764,9 @@ private fun SyncPins(
         holder.show(MapSource.HOME, MapFeatures.pin(home))
         holder.repaint()
     }
-    LaunchedEffect(style, me) { holder.showMe(me) }
+    // Collected only while on show: a hidden map is not drawn, and showing it again emits the current pin at once.
+    val meNow = rememberUpdatedState(me)
+    LaunchedEffect(style, onShow) { if (onShow) snapshotFlow { meNow.value() }.collect(holder::showMe) }
 }
 
 // Moves the camera when the caller asks: overlay padding, fit these points, focus this point, keep the anchor reported.
