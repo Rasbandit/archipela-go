@@ -32,6 +32,9 @@ pub struct Forage {
     pub next_id: u32,
     /// When the map tops back up; set by the first pick, cleared once full again.
     pub next_spawn_ms: Option<i64>,
+    /// Whether the quest was filled to its live size once (the first streets build after it was placed or loaded).
+    #[serde(default)]
+    pub filled: bool,
 }
 
 impl Forage {
@@ -39,7 +42,7 @@ impl Forage {
     #[must_use]
     pub fn seed(pts: &[Point]) -> Self {
         let items: Vec<Item> = (0u32..).zip(pts).map(|(id, p)| Item { id, p: *p }).collect();
-        Self { next_id: crate::num::count_u32(items.len()), items, next_spawn_ms: None }
+        Self { next_id: crate::num::count_u32(items.len()), items, next_spawn_ms: None, filled: false }
     }
 
     /// Picks up every item within `r` of `at` at `t_ms`; returns how many. Never refused, whatever the bag holds.

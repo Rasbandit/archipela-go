@@ -335,7 +335,7 @@ fn line_share(kind_id: &str, raw: f64, floor: f64, most: f64) -> f64 {
 /// How many effort-minutes of misfit a favorite place can make up for.
 const FAVORITE_BONUS_MIN: f64 = 6.0;
 /// Least distance between two forager items (and between an item and another quest's point), in metres.
-const ITEM_SPACING_M: f64 = 60.0;
+pub(crate) const ITEM_SPACING_M: f64 = 60.0;
 /// How many shuffled street points a forager placement looks at.
 const MAX_ITEM_CANDIDATES: usize = 2000;
 
@@ -867,6 +867,14 @@ pub fn replace_unpicked(
     fresh.sort_by(|a, b| distance_m(p.home, *b).total_cmp(&distance_m(p.home, *a))); // descending, so pop() gives the nearest
     let pts = (0..pts.len()).map(|i| if is_picked(i) { Some(pts[i]) } else { fresh.pop() }).collect::<Option<Vec<Point>>>()?;
     Some(Target::Collect { pts, need: *need, r: *r, theme: theme.clone() })
+}
+
+/// Street points of zone `z` where new items of a forager (tier `tier`, pick-up radius `r`) may appear: the band its items were placed
+/// in (see [`place_items`]).
+pub(crate) fn forage_pool(z: &ZoneCtx<'_>, p: &AssignParams, tier: u8, r: f64) -> Vec<Point> {
+    let (min_m, far_m) = item_band(p, r, mid(tier, p.minutes_per_tier), z.mode);
+    let far_m = far_m.max(min_m + 2.0 * ITEM_SPACING_M);
+    quest_pool(z, p).into_iter().filter(|q| (min_m..=far_m * 1.5).contains(&distance_m(p.home, *q))).collect()
 }
 
 #[cfg(test)]
