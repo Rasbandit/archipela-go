@@ -20,7 +20,6 @@ import com.google.android.gms.location.DeviceOrientationRequest
 import com.google.android.gms.location.LocationServices
 
 // Compass readings may be batched up to 1 s ([PinFeed.onHeading] passes at most 2 Hz on to the core).
-private const val HEADING_BATCH_US = 1_000_000
 private const val ROTATION_MATRIX_SIZE = 9
 private const val ORIENTATION_SIZE = 3
 private const val TAG = SENSORS_TAG
@@ -48,6 +47,7 @@ internal class HeadingSource(
 
     // The compass is wanted (it may be running nothing: no sensor, or the fused one failed and is remembered as failed).
     private var headingOn = false
+    private var headingOnScreen = false
     private val fusedWatch = FusedHeadingWatch()
     private val headingHandler = Handler(Looper.getMainLooper())
     private val fusedCheck = Runnable { checkFused() }
@@ -79,10 +79,12 @@ internal class HeadingSource(
         onScreen: Boolean,
     ) {
         val fused = fusedWatch.wanted(gms, onScreen)
+        // The period follows onScreen too (CompassRate), so it also stands for the batch.
         if (headingOn && headingPeriodUs == periodUs && headingFused == fused) return
         stopHeading()
         headingOn = true
         headingPeriodUs = periodUs
+        headingOnScreen = onScreen
         headingFused = fused
         if (fused) startFusedHeading(periodUs) else startRotationHeading(periodUs)
     }
@@ -154,7 +156,7 @@ internal class HeadingSource(
                     headingAccuracy = a
                 }
             }
-        sm.registerListener(l, sensor, periodUs, HEADING_BATCH_US)
+        sm.registerListener(l, sensor, periodUs, CompassRate.batchUs(headingOnScreen))
         headingListener = l
         Diag.info(TAG, "heading started", "period_us" to periodUs, "source" to "rotation_vector")
     }

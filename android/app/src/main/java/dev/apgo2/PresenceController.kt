@@ -205,7 +205,7 @@ internal class PresenceController(
         }
         // Home or car signal gone but not yet confirmed: count steps from the door (backfilled once it is).
         val leaving = homeDebounce.pending || carDebounce.pending
-        model.sensors.setStepBatch(StepRate.batchUs(decision.state, inZone, leaving))
+        model.sensors.setStepBatch(StepRate.batchUs(decision.state, inZone, leaving, onScreen = screenOn && appVisible))
     }
 
     // Runs after every fix and Wi-Fi change (both end in [evaluate]). A simulated position is not a real visit home. The fix is the

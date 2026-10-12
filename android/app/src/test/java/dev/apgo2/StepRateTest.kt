@@ -11,8 +11,10 @@ class StepRateTest {
         assertNull(StepRate.batchUs(PresenceState.Stopped, inZone = false))
     }
 
-    @Test fun aZoneGetsTheCadenceEveryTwoSeconds() {
-        assertEquals(2_000_000, StepRate.batchUs(PresenceState.InZone, inZone = true))
+    @Test fun aZoneGetsTheCadenceEveryTwoSecondsOnScreenAndFiveOff() {
+        assertEquals(2_000_000, StepRate.batchUs(PresenceState.InZone, inZone = true, onScreen = true))
+        // The same 5 s as the compass off screen (loc_scenarios screen_off_batching_...): the bridge loses nothing.
+        assertEquals(5_000_000, StepRate.batchUs(PresenceState.InZone, inZone = true, onScreen = false))
     }
 
     @Test fun atHomeOrInTheCarTheStepCounterIsOff() {

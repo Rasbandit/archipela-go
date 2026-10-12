@@ -7,6 +7,11 @@ import uniffi.apgo_ffi.HeadingIn
 // The rotation vector at 5 Hz while the player looks at the map, once a second otherwise.
 private const val ON_SCREEN_PERIOD_US = 200_000
 private const val OFF_SCREEN_PERIOD_US = 1_000_000
+
+// How long the hardware may hold readings: 1 s on screen; 5 s off screen, as long as the gap bridge allows (loc_scenarios
+// screen_off_batching_still_bridges_a_pocket_gap_with_a_carry_change: 10 s breaks it), so the CPU wakes a fifth as often.
+private const val ON_SCREEN_BATCH_US = 1_000_000
+private const val OFF_SCREEN_BATCH_US = 5_000_000
 private const val UNRELIABLE = "unreliable"
 
 /** `SensorManager.SENSOR_STATUS_ACCURACY_*` (3 high, 2 medium, 1 low, 0 unreliable) as the core's names. */
@@ -46,6 +51,9 @@ internal object CompassRate {
         screenOn: Boolean,
         appVisible: Boolean,
     ): Int = if (screenOn && appVisible) ON_SCREEN_PERIOD_US else OFF_SCREEN_PERIOD_US
+
+    /** How long the rotation vector may batch its readings ([onScreen]: screen on and the app in front). */
+    fun batchUs(onScreen: Boolean): Int = if (onScreen) ON_SCREEN_BATCH_US else OFF_SCREEN_BATCH_US
 }
 
 /**

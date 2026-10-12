@@ -79,6 +79,12 @@ class CompassTest {
         assertEquals(1_000_000, CompassRate.periodUs(screenOn = false, appVisible = true))
         assertEquals(1_000_000, CompassRate.periodUs(screenOn = true, appVisible = false))
     }
+
+    @Test fun offScreenTheCompassIsHandedOverEveryFiveSeconds() {
+        // loc_scenarios screen_off_batching_still_bridges_a_pocket_gap_with_a_carry_change: 5 s bridges as well as 1 s, 10 s breaks.
+        assertEquals(1_000_000, CompassRate.batchUs(onScreen = true))
+        assertEquals(5_000_000, CompassRate.batchUs(onScreen = false))
+    }
 }
 
 class FusedHeadingWatchTest {

@@ -201,7 +201,10 @@ runs only in a zone with the map in front: its 1 Hz callback would wake the CPU 
   the decision.
 - Compass: 5 Hz on screen, 1 Hz off. Play services' Fused Orientation Provider only while the map is on screen (it delivers only in
   the foreground); rotation vector otherwise. Readings go to `on_heading` with `error_deg` from the fused provider.
-- Steps: `TYPE_STEP_COUNTER` only, 2 s batches in a zone, 10 s outside zones, off with no game open, at home or in the car
+- Off-screen batching (compass and steps 5 s in a zone, fixes 20 s): `ReplayOpts.delivery` replays scenarios in phone arrival order;
+  `compass_batching_experiment` (ignored) shows 5 s step and compass batches bridge a 60 s gap as well as 1 s (p90 ~11 m), while 10 s
+  compass batches break it (p90 over 75 m). `screen_off_batching_still_bridges_a_pocket_gap_with_a_carry_change` pins it.
+- Steps: `TYPE_STEP_COUNTER` only, 2 s batches in a zone on screen (5 s off screen), 10 s outside zones, off with no game open, at home or in the car
   (`StepRate`). Leaving (home Wi-Fi or car Bluetooth gone, 45 s debounce still running) starts it: the first reading is the core's
   leave mark (`Game::leave_mark`, good for 2 min), and once leaving is confirmed every step since the door is credited (backfill).
   A stale mark (a Wi-Fi blip) is dropped, so indoor steps are never credited; event time sent so cadence is known.

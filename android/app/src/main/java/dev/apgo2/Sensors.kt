@@ -27,16 +27,20 @@ internal const val FUSED_SOURCE = "fused"
 private const val STEP_BATCH_US = 10_000_000
 private const val FAST_STEP_BATCH_US = 2_000_000
 
+// In a zone off screen: as long as the gap bridge allows, like the compass (CompassRate.batchUs).
+private const val ZONE_OFF_SCREEN_STEP_BATCH_US = 5_000_000
+
 /** How the step counter batches for a presence state; `null` is off. */
 internal object StepRate {
     /**
      * [inZone]: in a zone with location on, where the filter wants the cadence. [leaving]: home Wi-Fi or the car's Bluetooth dropped
-     * and the debounce that confirms it still runs.
+     * and the debounce that confirms it still runs. [onScreen]: screen on and the app in front.
      */
     fun batchUs(
         state: PresenceState,
         inZone: Boolean,
         leaving: Boolean = false,
+        onScreen: Boolean = true,
     ): Int? =
         when {
             // Nothing counts with no game open.
@@ -46,7 +50,7 @@ internal object StepRate {
             // steps walked until leaving is confirmed are credited then (backfill).
             state == PresenceState.AtHome || state == PresenceState.InCar -> if (leaving) STEP_BATCH_US else null
 
-            inZone -> FAST_STEP_BATCH_US
+            inZone -> if (onScreen) FAST_STEP_BATCH_US else ZONE_OFF_SCREEN_STEP_BATCH_US
 
             else -> STEP_BATCH_US
         }
