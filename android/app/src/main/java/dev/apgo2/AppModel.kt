@@ -93,6 +93,9 @@ internal class AppModel(
     val diag = FieldDiagnostics(this, ctx)
     val due = DueTimer(this, scope, ctx)
     private val traceThrottle = Throttle(TRACE_REFRESH_MS)
+
+    /** Whether the app is on screen: off it, fixes still drive the game but nothing is redrawn until it comes back. */
+    val screen = ScreenGate()
     private val stepRefresh = StepRefresh(STEP_REFRESH_STEPS)
     val pins = PinFeed(this)
     private val sessionTrace = TraceBuffer()
@@ -206,24 +209,14 @@ internal class AppModel(
         presence.evaluate() // the `playing` signal follows `hud`, which every game start, open and pause goes through here
     }
 
-    /** Reload the open game's quests, zones, chains, HUD and pin (and its trace, when [withTrace]). */
+    /**
+     * Reload the open game's quests, zones, chains, HUD and pin (and its trace, when [withTrace]). Off screen only the HUD (presence
+     * and the tracking service read it), the journal and the next due moment: the rest is owed and drawn once on [onForeground].
+     */
     fun refreshPlay(withTrace: Boolean = true) {
         if (engine.hasGame()) {
-            quests = engine.quests(now())
-            zones = engine.zones()
-            chains = engine.chains(now())
             hud = engine.hud(now())
-            if (withTrace) {
-                // This session's lines follow the streets where the match is confident (broken where the filter restarted far away);
-                // the engine sends only what changed (Task 19b). The journal draws everything before them, reloaded only when the
-                // session's start is unknown or moved, or the session's line was replaced.
-                val delta = engine.traceMatchedSince(sessionTrace.cursor)
-                if (sessionTrace.apply(delta)) {
-                    olderTrace =
-                        engine.track(0L, (delta.fromMs ?: Long.MAX_VALUE) - 1).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
-                }
-                trace = (olderTrace + sessionTrace.lines()).filter { it.size >= 2 }
-            }
+            if (screen.draw()) drawPlay(withTrace)
         } else {
             quests = emptyList()
             zones = emptyList()
@@ -237,6 +230,24 @@ internal class AppModel(
         noteJournal()
         due.schedule()
         pins.refresh() // also clears the pin of a closed game, and of the last game when another one opens
+    }
+
+    // What only the screen shows: quests, zones, chains and the trace.
+    private fun drawPlay(withTrace: Boolean) {
+        quests = engine.quests(now())
+        zones = engine.zones()
+        chains = engine.chains(now())
+        if (withTrace) {
+            // This session's lines follow the streets where the match is confident (broken where the filter restarted far away);
+            // the engine sends only what changed (Task 19b). The journal draws everything before them, reloaded only when the
+            // session's start is unknown or moved, or the session's line was replaced.
+            val delta = engine.traceMatchedSince(sessionTrace.cursor)
+            if (sessionTrace.apply(delta)) {
+                olderTrace =
+                    engine.track(0L, (delta.fromMs ?: Long.MAX_VALUE) - 1).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
+            }
+            trace = (olderTrace + sessionTrace.lines()).filter { it.size >= 2 }
+        }
     }
 
     /** Pick up whether the activity log changed (a cheap read; call after anything that may have logged). */
@@ -284,6 +295,7 @@ internal class AppModel(
         rememberPlace()
         engine.logAppState(false, now())
         noteJournal()
+        screen.hide()
         Diag.info("lifecycle", "background")
         diag.drainCore()
     }
@@ -296,12 +308,14 @@ internal class AppModel(
             .onFailure { Diag.warn("map", "last place not saved", "error" to it.message) }
     }
 
-    /** Back on screen: log it, and how long the app was away. */
+    /** Back on screen: log it, and how long the app was away; draw once what changed while off screen. */
     fun onForeground() {
+        val owed = screen.show()
         val left = engine.lastBackgroundMs()
         val t = now()
         engine.logAppState(true, t)
         units.onForeground()
+        if (owed) refreshPlay()
         noteJournal()
         Diag.info("lifecycle", "foreground", "away_ms" to (left?.let { t - it } ?: -1L))
     }
