@@ -80,7 +80,7 @@ its own `.ap/compliance` on :38291), one test per rule; the pre-push hook runs i
 
 | Rule (source) | How we meet it | Test |
 | --- | --- | --- |
-| Handle ws and wss (client guide) | `archipelago_rs` tries `wss://` then `ws://` for a bare address, like `CommonClient` | `an_address_without_a_scheme_falls_back_to_ws_and_connects` |
+| Handle ws and wss (client guide) | a bare address tries `ws://`, then `wss://` when the answer is not a plain WebSocket, like `CommonClient` (local patch; TLS first took 25-40 s on a LAN server, #170) | `an_address_without_a_scheme_connects_over_ws_at_once` |
 | Send missed checks on connection (client guide) | every (re)connect sends every finished check in one `LocationChecks` and the goal (`Engine::server_report`) | `checks_reach_the_server_and_sending_them_again_is_harmless` |
 | Keep an item index, resync on a gap (protocol) | `archipelago_rs` sends `Sync` when `index` skips; `index 0` replaces | `received_items_carry_a_gapless_index` |
 | Goal `StatusUpdate` (client guide) | `ApSession::send_goal`, re-sent on connect | `the_goal_status_update_is_accepted` |

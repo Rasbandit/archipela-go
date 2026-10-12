@@ -124,13 +124,16 @@ fn check_one(s: &ApSession) {
     });
 }
 
-/// Hard requirement: "Handle both secure and unsecure websocket connections". An address without a scheme tries `wss://` first
-/// and falls back to `ws://` (as Archipelago's own client does), then completes the handshake (`RoomInfo`, `Connect`, `Connected`).
+/// Hard requirement: "Handle both secure and unsecure websocket connections". An address without a scheme tries `ws://` first and
+/// `wss://` only when the answer is not a plain WebSocket (as Archipelago's `CommonClient` does), then completes the handshake
+/// (`RoomInfo`, `Connect`, `Connected`). Against a plain server that is at once: TLS first waited for the server's timeout (#170).
 #[test]
 #[ignore = "needs the pinned Archipelago server: just test-ap"]
-fn an_address_without_a_scheme_falls_back_to_ws_and_connects() {
+fn an_address_without_a_scheme_connects_over_ws_at_once() {
     let _server = server();
+    let t = Instant::now();
     let s = connect();
+    assert!(t.elapsed() < Duration::from_secs(3), "connected in {:?}", t.elapsed());
     assert!(s.slot_data_json().is_some(), "Connected carries slot_data");
     let plain = connect_to(&format!("ws://localhost:{PORT}"), SLOT);
     assert_eq!(plain.status(), "connected", "an explicit ws:// works too");

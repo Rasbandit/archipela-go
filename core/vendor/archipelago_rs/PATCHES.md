@@ -22,6 +22,12 @@
   - Tested in `apgo-ffi` (`ap_handshake_tests`: bad URLs, the upgrade request offers compression) and against the pinned server
     (`the_connection_is_compressed_so_the_server_never_warns`, `just test-ap`).
 
+- `src/client.rs` (2026-10-12, #170): an address without a scheme tries `ws://` first and `wss://` only when the plain attempt
+  fails with something other than a refused/unreachable socket, like Archipelago's `CommonClient`. Upstream tried `wss://` first,
+  and a TLS hello to a plain server is only answered by the server's open timeout (25-40 s on the emulator). Tested in `apgo-ffi`
+  (`an_address_without_a_scheme_tries_plain_ws_first_like_the_archipelago_client`); a bare `host:443` of a public TLS WebSocket
+  server still connected over wss in 0.8 s.
+
 ## Evidence (2026-10-07)
 Minimal repro with the unpatched crate, no TLS features, no other code:
 `archipelago_rs = { version = "=3.0.1", default-features = false }` then `cargo check` passes on host Linux and fails with

@@ -594,6 +594,28 @@ mod ap_handshake_tests {
     }
 
     #[test]
+    fn an_address_without_a_scheme_tries_plain_ws_first_like_the_archipelago_client() {
+        // CommonClient adds ws:// and tries wss:// only when the answer looks encrypted: a plain request to a TLS server fails at
+        // once, while a TLS hello to a plain server waits for its timeout (25-40 s on a LAN server, #170).
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let url = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let mut first = [0u8; 4];
+            peer.read_exact(&mut first).unwrap();
+            tx.send(first).unwrap();
+        });
+        let s = ApSession::connect(url, "Tester".into(), None, cache());
+        let mut got = None;
+        poll_until(&s, |_| {
+            got = rx.try_recv().ok();
+            got.is_some()
+        });
+        assert_eq!(&got.unwrap(), b"GET ", "the first attempt is a plain WebSocket upgrade, not a TLS hello");
+    }
+
+    #[test]
     fn an_ipv6_address_keeps_its_port() {
         if let Some(req) = upgrade_request("::1", "ws://[::1]:{port}") {
             assert!(req.starts_with("GET / HTTP/1.1\r\n"), "{req}");
