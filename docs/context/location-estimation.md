@@ -204,6 +204,10 @@ runs only in a zone with the map in front: its 1 Hz callback would wake the CPU 
 - Off-screen batching (compass and steps 5 s in a zone, fixes 20 s): `ReplayOpts.delivery` replays scenarios in phone arrival order;
   `compass_batching_experiment` (ignored) shows 5 s step and compass batches bridge a 60 s gap as well as 1 s (p90 ~11 m), while 10 s
   compass batches break it (p90 over 75 m). `screen_off_batching_still_bridges_a_pocket_gap_with_a_carry_change` pins it.
+  Off screen both use the **wake-up** sensor variants (`CompassRate.wakeUp`, `StepRate.wakeUp`): the app holds no wakelock, and a
+  non-wake-up sensor holds its batch until something else wakes the CPU (the 20 s GPS batch), which the bench shows breaks the
+  bridge (20/20: p90 77 to 115 m). The 2026-10-10 walk log shows why this never showed before: off screen the compass still arrived
+  every ~1 s and fixes every ~5 s, so something (the 1 Hz GnssStatus callback, now gated) kept the CPU awake and batching never ran.
 - Steps: `TYPE_STEP_COUNTER` only, 2 s batches in a zone on screen (5 s off screen), 10 s outside zones, off with no game open, at home or in the car
   (`StepRate`). Leaving (home Wi-Fi or car Bluetooth gone, 45 s debounce still running) starts it: the first reading is the core's
   leave mark (`Game::leave_mark`, good for 2 min), and once leaving is confirmed every step since the door is credited (backfill).

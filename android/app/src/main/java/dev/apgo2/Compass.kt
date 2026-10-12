@@ -54,6 +54,12 @@ internal object CompassRate {
 
     /** How long the rotation vector may batch its readings ([onScreen]: screen on and the app in front). */
     fun batchUs(onScreen: Boolean): Int = if (onScreen) ON_SCREEN_BATCH_US else OFF_SCREEN_BATCH_US
+
+    /**
+     * Whether to use the wake-up rotation vector: off screen nothing else wakes the phone every 5 s (GPS batches 20 s), and a
+     * non-wake-up sensor holds its readings until something does; 20 s compass batches break the gap bridge.
+     */
+    fun wakeUp(onScreen: Boolean): Boolean = !onScreen
 }
 
 /**

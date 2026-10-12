@@ -656,8 +656,9 @@ fn compass_batching_experiment() {
         ("pocket", gap_walk(HeadingSim::pocket(vec![(0, 90.0)]))),
         ("carry change", gap_walk(HeadingSim::pocket(vec![(0, 90.0), (130, 0.0)]))),
     ];
-    // (steps, heading) batch ms with fixes batched 20 s, as with the screen off.
-    let combos = [(2_000, 1_000), (2_000, 5_000), (5_000, 5_000), (2_000, 10_000), (2_000, 20_000)];
+    // (steps, heading) batch ms with fixes batched 20 s, as with the screen off. 20/20 is non-wake-up sensors with the CPU asleep:
+    // their batches wait for the next GPS batch to wake it.
+    let combos = [(2_000, 1_000), (2_000, 5_000), (5_000, 5_000), (2_000, 10_000), (2_000, 20_000), (20_000, 20_000)];
     println!("p90 bridged error, m (screen off: fixes batched 20 s); columns: steps/heading batch s");
     println!("{:>14} | instant | {}", "scenario", combos.map(|(st, h)| format!("{:>2}/{:<2}", st / 1000, h / 1000)).join(" | "));
     for (label, s) in &cases {

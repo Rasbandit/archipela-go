@@ -30,6 +30,18 @@ class StepRateTest {
         assertNull("no game: nothing to backfill", StepRate.batchUs(PresenceState.Stopped, inZone = false, leaving = true))
     }
 
+    @Test fun theStepCounterWakesThePhoneOnlyWhereItsReadingsMustArriveOnTime() {
+        // Off screen in a zone (the gap bridge) and while leaving (the leave mark): a wake-up sensor delivers each batch on time.
+        assertEquals(true, StepRate.wakeUp(PresenceState.InZone, inZone = true, leaving = false, onScreen = false))
+        assertEquals(true, StepRate.wakeUp(PresenceState.AtHome, inZone = false, leaving = true, onScreen = false))
+        assertEquals(
+            "on screen: awake anyway",
+            false,
+            StepRate.wakeUp(PresenceState.InZone, inZone = true, leaving = false, onScreen = true),
+        )
+        assertEquals("outside zones: whenever the phone wakes", false, StepRate.wakeUp(PresenceState.OutsideZones, false, false, false))
+    }
+
     @Test fun outsideTheZonesStepsCountEveryTenSeconds() {
         assertEquals(10_000_000, StepRate.batchUs(PresenceState.OutsideZones, inZone = false))
         assertEquals("in a zone without location: no cadence wanted", 10_000_000, StepRate.batchUs(PresenceState.InZone, inZone = false))

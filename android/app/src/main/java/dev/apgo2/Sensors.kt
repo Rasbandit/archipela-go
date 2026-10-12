@@ -54,6 +54,22 @@ internal object StepRate {
 
             else -> STEP_BATCH_US
         }
+
+    /**
+     * Whether to use the wake-up step counter: where its readings must arrive on time even with the screen off (the gap bridge in a
+     * zone, the leave mark while leaving). Elsewhere a batch can wait for the next time the phone wakes.
+     */
+    fun wakeUp(
+        state: PresenceState,
+        inZone: Boolean,
+        leaving: Boolean,
+        onScreen: Boolean,
+    ): Boolean =
+        when {
+            state == PresenceState.Stopped -> false
+            state == PresenceState.AtHome || state == PresenceState.InCar -> leaving
+            else -> inZone && !onScreen
+        }
 }
 
 private const val GNSS_LINE_MS = 10_000L
@@ -74,6 +90,7 @@ internal class Sensors(
     private var stepListener: SensorEventListener? = null
     private var stepsAllowed = false
     private var stepBatchUs: Int? = null
+    private var stepWakeUp = false
     private var gnssCallback: GnssStatus.Callback? = null
     private var gnssHardwareLogged = false
     private var gnssFailLogged = false
@@ -124,10 +141,17 @@ internal class Sensors(
         applySteps()
     }
 
-    /** Batch steps every [us] microseconds ([StepRate]); `null` stops the counter. Re-registers when it changes. */
-    fun setStepBatch(us: Int?) {
-        if (stepBatchUs == us) return
+    /**
+     * Batch steps every [us] microseconds ([StepRate]); `null` stops the counter. [wakeUp]: the wake-up counter, so batches arrive
+     * on time with the screen off. Re-registers when either changes.
+     */
+    fun setStepBatch(
+        us: Int?,
+        wakeUp: Boolean = false,
+    ) {
+        if (stepBatchUs == us && stepWakeUp == wakeUp) return
         stepBatchUs = us
+        stepWakeUp = wakeUp
         stopSteps()
         applySteps()
     }
@@ -135,7 +159,10 @@ internal class Sensors(
     private fun applySteps() {
         val us = stepBatchUs
         if (!stepsAllowed || us == null || stepListener != null) return
-        val sensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return Diag.warn(TAG, "no step counter on this device")
+        val sensor =
+            (if (stepWakeUp) sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER, true) else null)
+                ?: sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+                ?: return Diag.warn(TAG, "no step counter on this device")
         val l =
             object : SensorEventListener {
                 override fun onSensorChanged(e: SensorEvent) {
@@ -155,7 +182,7 @@ internal class Sensors(
         // Let the hardware batch readings ([StepRate]).
         sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL, us)
         stepListener = l
-        Diag.info(TAG, "steps started", "batch_us" to us)
+        Diag.info(TAG, "steps started", "batch_us" to us, "wake_up" to sensor.isWakeUpSensor)
     }
 
     fun stopSteps() {

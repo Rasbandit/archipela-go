@@ -85,6 +85,13 @@ class CompassTest {
         assertEquals(1_000_000, CompassRate.batchUs(onScreen = true))
         assertEquals(5_000_000, CompassRate.batchUs(onScreen = false))
     }
+
+    @Test fun offScreenTheCompassWakesThePhoneForItsBatch() {
+        // Nothing else wakes the phone every 5 s off screen (GPS batches 20 s): a non-wake-up sensor would hold its readings until
+        // then, and 20 s compass batches break the gap bridge (loc_scenarios compass_batching_experiment).
+        assertEquals(true, CompassRate.wakeUp(onScreen = false))
+        assertEquals("on screen the phone is awake anyway", false, CompassRate.wakeUp(onScreen = true))
+    }
 }
 
 class FusedHeadingWatchTest {

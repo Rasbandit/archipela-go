@@ -134,7 +134,11 @@ internal class HeadingSource(
     }
 
     private fun startRotationHeading(periodUs: Int) {
-        val sensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        val wake = CompassRate.wakeUp(headingOnScreen)
+        // The wake-up variant when wanted and the phone has one; else the usual one (its batches then wait for the next wake).
+        val sensor =
+            (if (wake) sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR, true) else null)
+                ?: sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         if (sensor == null) {
             if (!headingMissingLogged) Diag.warn(TAG, "no rotation vector sensor")
             headingMissingLogged = true
@@ -158,7 +162,7 @@ internal class HeadingSource(
             }
         sm.registerListener(l, sensor, periodUs, CompassRate.batchUs(headingOnScreen))
         headingListener = l
-        Diag.info(TAG, "heading started", "period_us" to periodUs, "source" to "rotation_vector")
+        Diag.info(TAG, "heading started", "period_us" to periodUs, "source" to "rotation_vector", "wake_up" to sensor.isWakeUpSensor)
     }
 
     // Azimuth (magnetic, where the top of the turned screen points), pitch and roll in degrees of a rotation vector.
