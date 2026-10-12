@@ -62,7 +62,8 @@ widgets or write colours themselves.
   and quest-state colours drawn on a card or panel use the theme-aware `ApgoPalette.tone` / `questOnCard` (a darker shade on
   light, a lighter one on dark); the plain `quest(state)` colours are for the map. `ContrastTest` checks every pair against
   the real card and panel backgrounds: WCAG 4.5:1 for text, 3:1 for bars and icons. A new colour on a card gets a row there.
-- Touch targets are at least 48dp (a small icon keeps its look inside a full-size `IconButton`); fold-outs have a button role
+- Touch targets are at least 48dp (a small icon keeps its look inside a full-size `IconButton`), except inline text links,
+  whose hit area is their line of text; fold-outs have a button role
   and an expanded/collapsed state; links are `LinkAnnotation.Url`, so TalkBack announces them as links.
 - **Play quest card** (`QuestCard.kt`), top to bottom: a 40dp badge in the quest's **state** colour (never the quest type)
   with the kind icon (`badgeInk` picks navy or white) and a check when done; beside it the headline on one line

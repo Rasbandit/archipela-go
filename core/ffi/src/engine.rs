@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use apgo_core::assign::SurfacePref;
-use apgo_core::assign::Target;
+use apgo_core::assign::{Assignment, Target};
 use apgo_core::card;
 use apgo_core::catalog::{Catalog, Kind, Mode};
 use apgo_core::chain::ChainUnit;
@@ -1810,11 +1810,12 @@ impl Engine {
     pub fn quests(&self, now_ms: i64) -> Vec<QuestOut> {
         let units = self.unit_system();
         self.with_game(|g| {
-            let by_id: HashMap<i64, &apgo_core::assign::Assignment> = g.assignments.iter().map(|a| (a.location_id, a)).collect();
+            let by_id: HashMap<i64, &Assignment> = g.assignments.iter().map(|a| (a.location_id, a)).collect();
             g.quest_views(now_ms)
                 .into_iter()
                 .map(|q| {
-                    let card = by_id.get(&q.location_id).map(|a| card::card_text(a, g.home, units));
+                    // Worded from the view's target, which carries trap adjustments (a Slow trap doubles dwells).
+                    let card = by_id.get(&q.location_id).map(|a| card::card_text(&Assignment { target: q.target.clone(), ..(*a).clone() }, g.home, units));
                     let (headline, card_detail) = card.map(|c| (c.headline, c.detail)).unwrap_or_default();
                     let progress_block = card::card_progress(&q, now_ms, units).map(|p| ProgressOut {
                         label: p.label,
@@ -2462,6 +2463,15 @@ mod tests {
         assert!(q.card_detail.starts_with("Within "), "{}", q.card_detail);
         assert!(q.progress_block.is_none(), "reaching a point has no progress block");
         assert!(q.place_row.is_none() && !q.has_about, "a street spot is no place");
+        // Under a Slow trap the headline says the time the tracker actually needs.
+        e.with_game(|g| {
+            let a = g.assignments.iter_mut().find(|a| a.location_id == id).unwrap();
+            a.target = Target::Dwell { p: destination(home(), 0.0, 300.0), r: 40.0, minutes: 3.0 };
+            a.kind_id = "bench_warmer".into();
+            g.traps.active.push(apgo_core::traps::Trap::Slow { until_ms: i64::MAX });
+        });
+        let q = e.quests(0).into_iter().find(|q| q.location_id == id).unwrap();
+        assert_eq!(q.headline, "Sit 6 min");
     }
 
     #[test]

@@ -261,28 +261,44 @@ private fun AboutFold(
 ) {
     var open by rememberSaveable(locationId) { mutableStateOf(false) }
     var about by remember(locationId) { mutableStateOf<AboutOut?>(null) }
-    if (open) {
-        LaunchedEffect(locationId) {
+    var loaded by remember(locationId) { mutableStateOf(false) }
+    // Read once, on the first open (it loads the realm's scan from disk).
+    LaunchedEffect(locationId, open) {
+        if (open && !loaded) {
             about = withContext(Dispatchers.IO) { runCatching { engine.about(locationId) }.getOrNull() }
+            loaded = true
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp)
-                .clickable(role = Role.Button, onClickLabel = if (open) "Hide details" else "Show details") { open = !open }
-                .semantics { stateDescription = if (open) "Expanded" else "Collapsed" },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("About this place", fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            Icon(
-                ApgoIcons.Expand,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp).rotate(if (open) HALF_TURN else 0f),
-            )
+        AboutToggle(open) { open = !open }
+        if (open && loaded) {
+            // A rescan can drop the place or its facts before the quest catches up: say so rather than open to nothing.
+            about?.let { AboutSheet(it) }
+                ?: Text("Nothing more is known about this place", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (open) about?.let { AboutSheet(it) }
+    }
+}
+
+// The "About this place ▾" row: a button that says whether the sheet is open.
+@Composable
+private fun AboutToggle(
+    open: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClickLabel = if (open) "Hide details" else "Show details", onClick = onToggle)
+            .semantics { stateDescription = if (open) "Expanded" else "Collapsed" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("About this place", fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        Icon(
+            ApgoIcons.Expand,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp).rotate(if (open) HALF_TURN else 0f),
+        )
     }
 }
 

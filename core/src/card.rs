@@ -166,9 +166,17 @@ pub fn card_progress(q: &crate::game::QuestView, now_ms: i64, units: UnitSystem)
             p
         }
         Target::Courier { time_limit_min, .. } => {
-            let left = q.picked_at_ms.filter(|_| f >= 0.5).map(|t0| (time_limit_min * 60_000.0 - crate::num::i64_to_f64(now_ms - t0)).max(0.0) / 60_000.0);
-            let hint = left.map_or_else(|| format!("{time_limit_min:.0} min to deliver once picked up"), |m| format!("{} left to deliver", clock(m)));
-            steps(["Pick up", "Deliver"], Some(hint))
+            let left = q.picked_at_ms.filter(|_| f >= 0.5).map(|t0| (time_limit_min * 60_000.0 - crate::num::i64_to_f64(now_ms - t0)) / 60_000.0);
+            match left {
+                // The limit passed but no fix has reset the tracker yet (it resets on the next fix): back to step one now.
+                Some(m) if m <= 0.0 => {
+                    let mut p = steps(["Pick up", "Deliver"], Some("Time ran out: pick it up again".into()));
+                    (p.step_at, p.frac) = (0, 0.0);
+                    p
+                }
+                Some(m) => steps(["Pick up", "Deliver"], Some(format!("{} left to deliver", clock(m)))),
+                None => steps(["Pick up", "Deliver"], Some(format!("{time_limit_min:.0} min to deliver once picked up"))),
+            }
         }
         Target::RoundTrip { .. } => steps(["Reach the far point", "Back home"], None),
     })
@@ -395,6 +403,11 @@ mod tests {
         carrying.picked_at_ms = Some(1_000_000 - 200_000);
         let c = prog(&carrying);
         assert_eq!((c.step_at, c.hint.as_deref()), (1, Some("6:40 left to deliver")));
+        // The limit passed but no fix has reset the tracker yet (standing still): no "0:00 left", back to step one.
+        let mut late = view(courier.clone(), InProgress, 0.5);
+        late.picked_at_ms = Some(1_000_000 - 11 * 60_000);
+        let l = prog(&late);
+        assert_eq!((l.step_at, l.hint.as_deref()), (0, Some("Time ran out: pick it up again")));
         // Time ran out: the tracker forgot the pick-up, so the card is back at step one with no stale clock.
         let timed_out = prog(&view(courier, InProgress, 0.0));
         assert_eq!((timed_out.step_at, timed_out.hint.as_deref()), (0, Some("10 min to deliver once picked up")));
