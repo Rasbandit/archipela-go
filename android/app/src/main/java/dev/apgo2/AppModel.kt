@@ -214,6 +214,7 @@ internal class AppModel(
         realms.forEach { offers[it.id] = engine.realmOffers(it.id) }
         refreshPlay()
         presence.evaluate() // the `playing` signal follows `hud`, which every game start, open and pause goes through here
+        ap.syncNow() // an Archipelago game just started or opened shows its items now, not at the server's next message
     }
 
     /**

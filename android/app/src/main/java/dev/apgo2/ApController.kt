@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -9,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import uniffi.apgo_ffi.ApEvent
@@ -28,13 +31,19 @@ private const val LAN_HINT_AFTER_MS = 10_000L
 // The longest a quiet, connected session sleeps before looking again (a safety net: the server's own pings wake it sooner).
 private const val AP_IDLE_WAIT_MS = 60_000
 
+// The core's ApSession.status() while connected.
+private const val CONNECTED = "connected"
+
+// Silence after which a connected session counts as dead when the app comes back: the stock server pings every 20 s.
+private const val AP_STALE_MS = 45_000L
+
 /** How the poll loop waits between drains. */
 internal object ApWait {
     /** Whether to sleep until the server sends something: connected and quiet. Otherwise the core's back-off times the next drain. */
     fun sleeps(
         status: String,
         active: Boolean,
-    ): Boolean = status == "connected" && !active
+    ): Boolean = status == CONNECTED && !active
 
     /**
      * Whether a whole wait passed with no data: the Archipelago server pings every 20 s, so silence for [AP_IDLE_WAIT_MS] is a socket
@@ -54,6 +63,17 @@ internal object ApWait {
         status: String,
         everConnected: Boolean,
     ): Boolean = everConnected && status.startsWith("disconnected")
+
+    /**
+     * Whether the app, coming to the front, reconnects at once: the session dropped, or it shows connected but the server was
+     * silent for [silentMs] (elapsed real time, which runs on while the phone sleeps and the wait's timer cannot), longer than its
+     * 20 s pings allow.
+     */
+    fun stale(
+        status: String,
+        everConnected: Boolean,
+        silentMs: Long,
+    ): Boolean = reconnects(status, everConnected) || (status == CONNECTED && silentMs > AP_STALE_MS)
 }
 
 /** The connection to an Archipelago server and the games played over it. */
@@ -78,6 +98,10 @@ internal class ApController(
     private var lastTarget: Pair<String, String>? = null
     private var everConnected = false
     private val reconnect = ApReconnect()
+
+    // One drain at a time (the loop and a foreground or game-open sync), and when the server last sent anything (elapsedRealtime).
+    private val tickLock = Mutex()
+    private var lastDataMs = SystemClock.elapsedRealtime()
 
     // The game last synced with this session (its id), so a newly opened or started game syncs at once.
     private var syncedFor: String? = null
@@ -115,7 +139,7 @@ internal class ApController(
         val poll = ApPoll() // the back-off while connecting lives in the core
         while (session === s) {
             val active = tick()
-            if (status == "connected" && !everConnected) {
+            if (status == CONNECTED && !everConnected) {
                 everConnected = true
                 reconnect.reset()
             }
@@ -124,7 +148,9 @@ internal class ApController(
                 return reconnectFrom(s)
             }
             val slept = ApWait.sleeps(status, active)
-            val woke = slept && withContext(Dispatchers.IO) { s.waitForData(AP_IDLE_WAIT_MS.toUInt()) }
+            // A session closed by a reconnect meanwhile throws; that is a wake like any other (the loop then ends).
+            val woke = slept && withContext(Dispatchers.IO) { runCatching { s.waitForData(AP_IDLE_WAIT_MS.toUInt()) }.getOrDefault(true) }
+            if (active || woke) lastDataMs = SystemClock.elapsedRealtime()
             if (ApWait.dead(slept, woke)) {
                 Diag.warn("ap", "silent connection: reconnecting", "waited_ms" to AP_IDLE_WAIT_MS)
                 return reconnectFrom(s)
@@ -138,16 +164,33 @@ internal class ApController(
         if (session === s) lastTarget?.let { (url, slot) -> connect(url, slot, auto = true) }
     }
 
-    /** The app came to the front: drain and sync now rather than at the next server message (the player is looking). */
+    /**
+     * The app came to the front: reconnect at once a session that dropped or went silent while the phone slept ([ApWait.stale]),
+     * else drain and sync now rather than at the next server message (the player is looking).
+     */
     fun onForeground() {
+        val s = session ?: return
+        if (ApWait.stale(status, everConnected, SystemClock.elapsedRealtime() - lastDataMs)) {
+            Diag.info("ap", "stale on foreground: reconnecting", "was" to status)
+            reconnect.reset()
+            reconnectFrom(s)
+        } else {
+            syncNow()
+        }
+    }
+
+    /** Drain and sync now (a game was started, opened or resumed: it shows its items at once, not at the next server message). */
+    fun syncNow() {
         if (session != null) scope.launch { tick() }
     }
 
     /**
-     * Called from the poll loop started in [connect]; true when the server sent anything (the loop then polls again soon, see
-     * [ApPoll]). The open game is synced only when items or server data changed, or it was never synced with this session.
+     * Drain the session (from its loop, [syncNow] or [onForeground], one at a time); true when the server sent anything. The open
+     * game is synced only when items or server data changed, or it was never synced with this session.
      */
-    suspend fun tick(): Boolean {
+    suspend fun tick(): Boolean = tickLock.withLock { drain() }
+
+    private suspend fun drain(): Boolean {
         var active = false
         sessions.use { s ->
             val events = withContext(Dispatchers.IO) { runCatching { s.poll() }.getOrDefault(emptyList()) }
