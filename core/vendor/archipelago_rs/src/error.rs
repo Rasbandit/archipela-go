@@ -8,10 +8,10 @@ use crate::LocatedItem;
 #[derive(ThisError, Debug)]
 pub enum Error {
     /// An error occurred with the underlying WebSocket connection. If the inner
-    /// error is [tungstenite::Error::ConnectionClosed], that means that the
-    /// connection closed normally.
+    /// error is [WsError::ConnectionClosed](crate::WsError::ConnectionClosed),
+    /// that means that the connection closed normally.
     #[error("{0}")]
-    WebSocket(#[from] tungstenite::Error),
+    WebSocket(#[from] crate::connection::WsError),
 
     /// An error occurred with the underlying asynchrony library.
     #[error("{0}")]

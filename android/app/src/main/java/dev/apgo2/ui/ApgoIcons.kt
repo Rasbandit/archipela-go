@@ -87,6 +87,7 @@ import com.composables.icons.lucide.Rocket
 import com.composables.icons.lucide.Route
 import com.composables.icons.lucide.Sailboat
 import com.composables.icons.lucide.ScrollText
+import com.composables.icons.lucide.Server
 import com.composables.icons.lucide.Settings
 import com.composables.icons.lucide.Shell
 import com.composables.icons.lucide.Ship
@@ -124,6 +125,7 @@ internal object ApgoIcons {
     val Activity = Lucide.ScrollText
     val Settings = Lucide.Settings
     val Pause = Lucide.Pause
+    val Server = Lucide.Server // the open Archipelago game's server address
     val Heading = Lucide.Navigation2 // the map pin's arrow: points up (north) before it is rotated
 
     // Marks on places

@@ -238,6 +238,31 @@ fn wait_ready(ready: Option<ap::Readiness>, timeout_ms: u32) -> bool {
 #[derive(uniffi::Object)]
 pub struct ApSession {
     conn: Mutex<ap::Connection>,
+    // What the app asks for on its main thread, refreshed by every poll (the only place the connection's state changes): read
+    // without the connection lock, which a send to a dead network holds for up to 10 s.
+    seen: Mutex<Seen>,
+}
+
+/// The session's state as of the last poll. Identity and slot data are taken once, when it first connects: a session is one
+/// connection (the host reconnects with a new one), so they never change, and they stay known after it drops.
+struct Seen {
+    status: String,
+    identity: Option<String>,
+    slot_data: Option<String>,
+}
+
+impl Seen {
+    fn refresh(&mut self, conn: &ap::Connection) {
+        self.status = match conn.state() {
+            ap::ConnectionState::Connecting(_) => "connecting".into(),
+            ap::ConnectionState::Connected(_) => "connected".into(),
+            ap::ConnectionState::Disconnected(err) => format!("disconnected: {err}"),
+        };
+        if let (None, Some(c)) = (&self.identity, conn.client()) {
+            self.identity = Some(format!("{}/{}", c.seed_name(), c.this_player().name()));
+            self.slot_data = Some(c.slot_data().to_string());
+        }
+    }
 }
 
 #[uniffi::export]
@@ -258,13 +283,19 @@ impl ApSession {
         if let Some(p) = password {
             options = options.password(p);
         }
-        Arc::new(Self { conn: Mutex::new(ap::Connection::new(&url, &slot, Some(GAME_NAME), options)) })
+        let conn = ap::Connection::new(&url, &slot, Some(GAME_NAME), options);
+        let mut seen = Seen { status: String::new(), identity: None, slot_data: None };
+        seen.refresh(&conn);
+        Arc::new(Self { seen: Mutex::new(seen), conn: Mutex::new(conn) })
     }
 
     /// Drain pending network events: after [`Self::wait_for_data`] woke, and while connecting.
     pub fn poll(&self) -> Vec<ApEvent> {
         let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        conn.update()
+        let events = conn.update();
+        self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).refresh(&conn);
+        drop(conn);
+        events
             .into_iter()
             .map(|e| match e {
                 ap::Event::Connected => ApEvent::Connected,
@@ -301,25 +332,19 @@ impl ApSession {
 
     /// Which seed and slot this session is connected to (`seed/slot`), once connected: an Archipelago game stores it at its start
     /// and exchanges checks, goal and items only with that server (`Engine::ap_server_match`).
+    /// Never waits for the connection (see `seen`).
     pub fn server_identity(&self) -> Option<String> {
-        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        conn.client().map(|c| format!("{}/{}", c.seed_name(), c.this_player().name()))
+        self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).identity.clone()
     }
 
-    /// `connecting`, `connected`, or `disconnected: <reason>`.
+    /// `connecting`, `connected`, or `disconnected: <reason>`, as of the last [`Self::poll`]. Never waits for the connection.
     pub fn status(&self) -> String {
-        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        match conn.state() {
-            ap::ConnectionState::Connecting(_) => "connecting".into(),
-            ap::ConnectionState::Connected(_) => "connected".into(),
-            ap::ConnectionState::Disconnected(err) => format!("disconnected: {err}"),
-        }
+        self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).status.clone()
     }
 
-    /// The `slot_data` the apworld sent (JSON), once connected.
+    /// The `slot_data` the apworld sent (JSON), once connected. Never waits for the connection.
     pub fn slot_data_json(&self) -> Option<String> {
-        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        conn.client().map(|c| c.slot_data().to_string())
+        self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).slot_data.clone()
     }
 
     /// Every item received so far, in order.
@@ -521,5 +546,135 @@ mod ap_wait_tests {
         assert!(!wait_ready(Some(ready.clone()), 50), "nothing sent: times out");
         server.write_all(b"x").unwrap();
         assert!(wait_ready(Some(ready), 5_000), "data sent: wakes");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)] // test code: a failed step is a failed test
+mod ap_handshake_tests {
+    use super::ApSession;
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    fn cache() -> String {
+        std::env::temp_dir().join(format!("apgo-handshake-{}", std::process::id())).to_string_lossy().into_owned()
+    }
+
+    // Drain `s` until `done` or 5 s pass.
+    fn poll_until(s: &ApSession, mut done: impl FnMut(&ApSession) -> bool) {
+        let end = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < end {
+            let _ = s.poll();
+            if done(s) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("not done in 5 s; status {}", s.status());
+    }
+
+    #[test]
+    fn an_address_that_is_not_a_url_fails_at_once_without_the_network() {
+        for url in ["ws://h:port", "ws://h:99999", "ws://", "ws://:1", "wss://[]"] {
+            let s = ApSession::connect(url.into(), "Tester".into(), None, cache());
+            poll_until(&s, |s| s.status().starts_with("disconnected"));
+            assert!(s.status().contains("invalid URL"), "{url}: {}", s.status());
+        }
+    }
+
+    // The HTTP upgrade request a session sends to a TCP server at `url` (`{port}` is filled in).
+    fn upgrade_request(host: &str, url: &str) -> Option<String> {
+        let listener = TcpListener::bind((host, 0)).ok()?; // no IPv6 here: nothing to check
+        let url = url.replace("{port}", &listener.local_addr().unwrap().port().to_string());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let mut req = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !req.ends_with(b"\r\n\r\n") {
+                let n = peer.read(&mut buf).unwrap();
+                req.extend_from_slice(&buf[..n]);
+            }
+            tx.send(String::from_utf8(req).unwrap()).unwrap();
+            std::thread::sleep(Duration::from_millis(200)); // keep the socket open while the test reads
+        });
+        let s = ApSession::connect(url, "Tester".into(), None, cache());
+        let mut got = None;
+        poll_until(&s, |_| {
+            got = rx.try_recv().ok();
+            got.is_some()
+        });
+        got
+    }
+
+    #[test]
+    fn the_upgrade_asks_for_the_path_and_offers_compression() {
+        let req = upgrade_request("127.0.0.1", "ws://127.0.0.1:{port}/room?x=1").unwrap();
+        assert!(req.starts_with("GET /room?x=1 HTTP/1.1\r\n"), "{req}");
+        assert!(req.lines().any(|l| l.starts_with("Host: 127.0.0.1:")), "{req}");
+        let ext = req.lines().find(|l| l.to_ascii_lowercase().starts_with("sec-websocket-extensions:")).unwrap_or_default();
+        assert!(ext.contains("permessage-deflate"), "compression offered (Archipelago deprecates uncompressed connections): {req}");
+    }
+
+    #[test]
+    fn an_address_without_a_scheme_tries_plain_ws_first_like_the_archipelago_client() {
+        // CommonClient adds ws:// and tries wss:// only when the answer looks encrypted: a plain request to a TLS server fails at
+        // once, while a TLS hello to a plain server waits for its timeout (25-40 s on a LAN server, #170).
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let url = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let mut first = [0u8; 4];
+            peer.read_exact(&mut first).unwrap();
+            tx.send(first).unwrap();
+        });
+        let s = ApSession::connect(url, "Tester".into(), None, cache());
+        let mut got = None;
+        poll_until(&s, |_| {
+            got = rx.try_recv().ok();
+            got.is_some()
+        });
+        assert_eq!(&got.unwrap(), b"GET ", "the first attempt is a plain WebSocket upgrade, not a TLS hello");
+    }
+
+    #[test]
+    fn a_frame_too_large_ends_the_connection_instead_of_being_read() {
+        // A corrupt or hostile header announcing 100 MiB: refused at once (the limit is 16 MiB per frame), not allocated and read.
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let url = format!("ws://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        std::thread::spawn(move || {
+            let (peer, _) = listener.accept().unwrap();
+            smol::block_on(async {
+                let mut server = soketto::handshake::Server::new(smol::Async::new(peer).unwrap());
+                let key = server.receive_request().await.unwrap().key();
+                server.send_response(&soketto::handshake::server::Response::Accept { key, protocol: None }).await.unwrap();
+                let mut raw = server.into_inner();
+                let mut frame = vec![0x81, 127]; // a final text frame with a 64-bit length
+                frame.extend_from_slice(&(100_u64 << 20).to_be_bytes());
+                smol::io::AsyncWriteExt::write_all(&mut raw, &frame).await.unwrap();
+                smol::Timer::after(Duration::from_secs(10)).await; // keep the socket open: the client must not wait for the rest
+            });
+        });
+        let s = ApSession::connect(url, "Tester".into(), None, cache());
+        poll_until(&s, |s| s.status().starts_with("disconnected"));
+    }
+
+    #[test]
+    fn credentials_and_a_fragment_in_the_address_still_reach_the_host() {
+        // CommonClient takes `ws://name:password@host:port`; the part before `@` is not the host.
+        let req = upgrade_request("127.0.0.1", "ws://user:pw@127.0.0.1:{port}/").expect("reached the host");
+        assert!(req.starts_with("GET / HTTP/1.1\r\n"), "{req}");
+        let req = upgrade_request("127.0.0.1", "ws://127.0.0.1:{port}/#x").expect("reached the host");
+        assert!(req.starts_with("GET / HTTP/1.1\r\n"), "the fragment is not sent: {req}");
+    }
+
+    #[test]
+    fn an_ipv6_address_keeps_its_port() {
+        if let Some(req) = upgrade_request("::1", "ws://[::1]:{port}") {
+            assert!(req.starts_with("GET / HTTP/1.1\r\n"), "{req}");
+        }
     }
 }

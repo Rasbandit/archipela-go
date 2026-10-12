@@ -6,7 +6,7 @@ use ustr::{Ustr, UstrMap, UstrSet};
 use crate::{
     ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, ItemHandling, Iter,
     LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem, SignedDuration, Socket,
-    UnsizedIter, UpdatedField, Version, protocol::*,
+    UnsizedIter, UpdatedField, Version, WsError, protocol::*,
 };
 
 mod bounce_options;
@@ -118,25 +118,25 @@ impl<S: DeserializeOwned + 'static> Client<S> {
             )
             .await?
         } else {
+            // Local patch (see PATCHES.md): plain first, like Archipelago's CommonClient. A plain request to a TLS server fails at
+            // once; a TLS hello to a plain server only fails when the server times the connection out (25-40 s).
             match Socket::connect(
-                format!("wss://{}", url),
+                format!("ws://{}", url),
                 #[cfg(feature = "rustls")]
                 options.rustls_config.clone(),
             )
             .await
             {
                 Ok(socket) => socket,
-                Err(Error::WebSocket(err)) => {
-                    match Socket::connect(
-                        format!("ws://{}", url),
+                // Nothing listens there (refused, unreachable): TLS would not help.
+                Err(err @ Error::WebSocket(WsError::Io(_))) => return Err(err),
+                Err(Error::WebSocket(_)) => {
+                    Socket::connect(
+                        format!("wss://{}", url),
                         #[cfg(feature = "rustls")]
                         options.rustls_config,
                     )
-                    .await
-                    {
-                        Ok(socket) => socket,
-                        Err(_) => return Err(err.into()),
-                    }
+                    .await?
                 }
                 Err(err) => return Err(err),
             }

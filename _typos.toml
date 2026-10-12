@@ -4,3 +4,4 @@ extend-exclude = ["*.jar", "*.png", "*.so", "Cargo.lock"]
 [default.extend-words]
 Rin = "Rin"
 certifi = "certifi"
+flate = "flate" # flate2, the deflate crate soketto uses

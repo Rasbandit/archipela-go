@@ -72,6 +72,7 @@ internal class GameLibrary(
                 }
             opened.onSuccess {
                 Diag.info("game", "opened", "id" to id)
+                model.ap.onGameOpened() // before the refresh's sync: it would warn that another game's server is connected
                 refreshStreets(null)
                 model.engine.logSession(true, model.now())
                 model.sim.resetClock()

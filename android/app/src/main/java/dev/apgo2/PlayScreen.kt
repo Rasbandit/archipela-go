@@ -380,9 +380,12 @@ private fun GameHeader(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        OutlinedButton(onClick = { m.library.pause() }) {
-            Icon(ApgoIcons.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
-            Text(" Stop playing", fontSize = 12.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ServerButton(m)
+            OutlinedButton(onClick = { m.library.pause() }) {
+                Icon(ApgoIcons.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(" Stop playing", fontSize = 12.sp)
+            }
         }
     }
 }

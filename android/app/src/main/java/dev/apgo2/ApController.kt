@@ -17,6 +17,7 @@ import org.json.JSONObject
 import uniffi.apgo_ffi.ApEvent
 import uniffi.apgo_ffi.ApPoll
 import uniffi.apgo_ffi.ApReconnect
+import uniffi.apgo_ffi.ApServerOut
 import uniffi.apgo_ffi.ApSession
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.ServerMatch
@@ -102,6 +103,11 @@ internal class ApController(
     var hint by mutableStateOf<String?>(null)
     var slotJson by mutableStateOf<String?>(null)
     var zoneModes by mutableStateOf<List<String>>(emptyList())
+
+    // The open game's saved server (null: solo, or from before servers were saved), for the Server button; read from the engine
+    // when a game opens or refreshes, not on every recomposition.
+    var savedServer by mutableStateOf<ApServerOut?>(null)
+        private set
     private var syncedChecked = false
     private var pollJob: Job? = null
 
@@ -119,14 +125,18 @@ internal class ApController(
     // The game last synced with this session (its id), so a newly opened or started game syncs at once.
     private var syncedFor: String? = null
 
-    /** Open a session to [url] as [slot]; [auto] is a reconnect of the same target (keeps its back-off). */
+    /**
+     * Open a session to [url] as [slot]; [auto] is a reconnect of the same target (keeps its back-off). [saved] is the open game's
+     * own server (it connected there before), so a drop or refusal is retried like a reconnect, not left to the player.
+     */
     fun connect(
         url: String,
         slot: String,
         auto: Boolean = false,
+        saved: Boolean = false,
     ) {
         if (!auto) {
-            everConnected = false
+            everConnected = saved
             reconnect.reset()
         }
         syncedChecked = false
@@ -151,9 +161,12 @@ internal class ApController(
     // reconnect when it drops (after a back-off) or a whole wait passes in silence.
     private suspend fun runSession(s: ApSession) {
         val poll = ApPoll() // the back-off while connecting lives in the core
+        var connectedHere = false
         while (session === s) {
             val active = tick()
-            if (status == CONNECTED && !everConnected) {
+            // Once per session, whether a first connect, a reconnect or a saved server: the next drop starts at the short wait.
+            if (status == CONNECTED && !connectedHere) {
+                connectedHere = true
                 everConnected = true
                 reconnect.reset()
             }
@@ -217,7 +230,37 @@ internal class ApController(
 
     /** Drain and sync now (a game was started, opened or resumed: it shows its items at once, not at the next server message). */
     fun syncNow() {
+        savedServer = model.engine.apSavedServer()
         if (session != null) scope.launch { tick() }
+    }
+
+    /**
+     * A game was opened (by the player, or on app start): connect to its saved server if the session is elsewhere or missing (the
+     * core decides, Engine.apServerToConnect). Not on every refresh: a player connecting elsewhere from New Game stays there.
+     */
+    fun onGameOpened() {
+        savedServer = model.engine.apSavedServer()
+        val here = lastTarget?.takeIf { session != null }?.let { (url, slot) -> ApServerOut(url, slot) }
+        model.engine.apServerToConnect(here)?.let(::connectSaved)
+    }
+
+    // The open game's own server: it connected there before, so a drop or refusal is retried like a reconnect.
+    private fun connectSaved(server: ApServerOut) {
+        Diag.info("ap", "connecting the open game's saved server")
+        connect(server.address, server.slot, saved = true)
+    }
+
+    /** The open game's server moved (an archipelago.gg room on a new port): save [address] and reconnect there. */
+    fun moveServer(address: String) {
+        scope.launch {
+            val moved = withContext(Dispatchers.IO) { runCatching { model.engine.setApAddress(address) } } // saves the game
+            moved.onSuccess {
+                Diag.info("ap", "server moved")
+                savedServer = model.engine.apSavedServer()
+                savedServer?.let(::connectSaved) // replaces the session to the old address
+            }
+            moved.onFailure { model.fail("move_server", "Could not change the server", it) }
+        }
     }
 
     /**
@@ -264,6 +307,7 @@ internal class ApController(
         }
         // The server's seed and slot: the game exchanges checks, goal and items only with that one (Engine.apServerMatch).
         val server = session?.serverIdentity() ?: LEGACY_SERVER
+        val (url, slot) = lastTarget ?: return // set by every connect, and slot data needs one
         scope.launch {
             val seed = Random.nextLong().toULong() shr 1
             val r =
@@ -279,6 +323,8 @@ internal class ApController(
                             model.surfacePref,
                             model.avoidStairs,
                             model.allowParking,
+                            url,
+                            slot,
                         )
                         model.stepCal.loadInto(model.engine) // as a solo start does: the saved calibration, not a fresh one
                     }
@@ -373,7 +419,8 @@ internal class ApController(
         val items = withContext(Dispatchers.IO) { runCatching { s.receivedItems().map { it.name } }.getOrDefault(emptyList()) }
         if (session !== s) return // reconnected meanwhile: the old server's items and checks are not this game's
         if (!syncedChecked && slotJson != null) {
-            model.engine.markChecked(s.checkedLocationIds(), model.now())
+            val checked = withContext(Dispatchers.IO) { runCatching { s.checkedLocationIds() }.getOrDefault(emptyList()) }
+            model.engine.markChecked(checked, model.now())
             syncedChecked = true
             reportProgress(s)
         }

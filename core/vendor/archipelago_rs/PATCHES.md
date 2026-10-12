@@ -7,6 +7,30 @@
   crate only offers non-blocking `update()`, so a host had to poll on a timer; this lets it sleep until the server sends something
   (battery) without holding the connection. Tested in `apgo-ffi` (`ap_wait_tests`). Candidate for an upstream PR.
 
+- `src/connection/socket.rs`, `src/error.rs`, `src/connection.rs`, `Cargo.toml` (2026-10-12, #166): the WebSocket layer is
+  **soketto 0.8 with permessage-deflate** instead of tungstenite. Archipelago's protocol says uncompressed connections are deprecated
+  and may stop working, and the 0.6.8 server warns every client without compression; tungstenite has had no permessage-deflate
+  since the request in 2017 (issue snapview/tungstenite-rs#2; PRs #426 and #561 unmerged), so carrying a fork was rejected.
+  - Same outward API: `Socket::{connect, recv_all, try_recv, recv_async, send, readiness}`, `Readiness`, the wss-then-ws fallback.
+  - soketto is async: the next receive is one persistent future (never dropped mid-frame), polled with a no-op waker by
+    `read_inner` until it has to wait, which answers pings on the way, so the `Readiness` socket wait still works. `send` blocks
+    until the frame is out while also driving that future (it may hold the writer while answering a ping), for at most 10 s
+    (`SEND_TIMEOUT`): a dead network or hung server would otherwise hold the connection until the OS gives up minutes later. A
+    failed or timed-out send ends the connection (half a frame may be on the wire), so the next update reports it.
+  - TLS is `futures-rustls` (rustls only; the `native-tls` feature is gone). `Error::WebSocket` wraps the crate's own `WsError`.
+  - flate2's `zlib` backend links Android's system `libz.so` (an NDK stable API).
+  - Frames are capped at 16 MiB and messages at 64 MiB (tungstenite's defaults; soketto allows 256 MiB, which a corrupt header
+    would make the phone allocate). URLs are parsed with `http::Uri` (credentials before `@` and a `#fragment` are not the host);
+    a port that is not a number is refused.
+  - Tested in `apgo-ffi` (`ap_handshake_tests`: bad URLs, the upgrade request offers compression) and against the pinned server
+    (`the_connection_is_compressed_so_the_server_never_warns`, `just test-ap`).
+
+- `src/client.rs` (2026-10-12, #170): an address without a scheme tries `ws://` first and `wss://` only when the plain attempt
+  fails with something other than a refused/unreachable socket, like Archipelago's `CommonClient`. Upstream tried `wss://` first,
+  and a TLS hello to a plain server is only answered by the server's open timeout (25-40 s on the emulator). Tested in `apgo-ffi`
+  (`an_address_without_a_scheme_tries_plain_ws_first_like_the_archipelago_client`); a bare `host:443` of a public TLS WebSocket
+  server still connected over wss in 0.8 s.
+
 ## Evidence (2026-10-07)
 Minimal repro with the unpatched crate, no TLS features, no other code:
 `archipelago_rs = { version = "=3.0.1", default-features = false }` then `cargo check` passes on host Linux and fails with

@@ -11,6 +11,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.apgo2.presence.PresenceSettings
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.AuditEventOut
 import uniffi.apgo_ffi.BagOut
@@ -391,15 +394,18 @@ internal class AppModel(
         if (hud?.backend == "archipelago" && ap.mayExchange()) report("ap_goal", "could not report goal") { ap.session?.sendGoal() }
     }
 
-    // Run an Archipelago call; if it throws, log it and tell the player in the on-screen log.
+    // Run an Archipelago call off the main thread (a send waits for the network, up to 10 s when it is dead); if it throws, log it
+    // and tell the player in the on-screen log.
     private fun report(
         what: String,
         message: String,
         call: () -> Unit,
     ) {
-        runCatching(call).onFailure {
-            Diag.failure(what, it)
-            say("$message: ${it.message}")
+        scope.launch {
+            withContext(Dispatchers.IO) { runCatching(call) }.onFailure {
+                Diag.failure(what, it)
+                say("$message: ${it.message}")
+            }
         }
     }
 }
