@@ -12,8 +12,9 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # Gradle's releaseCore runs this script without `just`, so the guard lives here too (re-review N4).
 bash "$root/scripts/core_unmutated.sh"
 
+# Cargo builds the dev profile into target/*/debug; every other profile into a directory of its own name.
 case "$profile" in
-  debug) flag=() ;;
+  debug | dev) flag=() profile=debug ;;
   release) flag=(--release) ;;
   *) flag=(--profile "$profile") ;;
 esac
