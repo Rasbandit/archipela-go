@@ -21,4 +21,15 @@ class ApWaitTest {
         assertFalse("the server sent something", ApWait.dead(slept = true, woke = true))
         assertFalse("did not wait (connecting, or busy)", ApWait.dead(slept = false, woke = false))
     }
+
+    @Test fun aDroppedConnectionReconnectsButARefusedFirstConnectDoesNot() {
+        // Archipelago hard requirement: reconnect if the connection is lost while playing.
+        assertTrue(ApWait.reconnects(status = "disconnected: connection reset", everConnected = true))
+        assertFalse(
+            "never connected (wrong slot, password or address): the player fixes it",
+            ApWait.reconnects("disconnected: refused", false),
+        )
+        assertFalse(ApWait.reconnects(status = "connected", everConnected = true))
+        assertFalse(ApWait.reconnects(status = "connecting", everConnected = true))
+    }
 }

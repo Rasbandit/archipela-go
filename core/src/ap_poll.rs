@@ -31,6 +31,32 @@ impl PollBackoff {
     }
 }
 
+/// The first wait before reconnecting a lost connection, ms (Archipelago's `CommonClient`: 5 s, doubling).
+pub const RECONNECT_FIRST_MS: u64 = 5_000;
+/// The longest wait between reconnect tries, ms: the reference client has no cap; a phone saves its battery while a server is down.
+pub const RECONNECT_MAX_MS: u64 = 300_000;
+
+/// When to try reconnecting a session that was connected and dropped ("reconnect if the connection is lost while playing", a hard
+/// client requirement): 5 s, doubling, never slower than [`RECONNECT_MAX_MS`]; reset once connected again.
+#[derive(Debug, Clone, Default)]
+pub struct ReconnectBackoff {
+    next_ms: Option<u64>,
+}
+
+impl ReconnectBackoff {
+    /// The wait before the next try.
+    pub fn next_wait_ms(&mut self) -> u64 {
+        let wait = self.next_ms.unwrap_or(RECONNECT_FIRST_MS);
+        self.next_ms = Some((wait * 2).min(RECONNECT_MAX_MS));
+        wait
+    }
+
+    /// Connected again: the next drop starts from the first wait.
+    pub fn reset(&mut self) {
+        self.next_ms = None;
+    }
+}
+
 /// Whether the open game must sync with the server: no game is open (`None`) means nothing to sync; otherwise items or server data
 /// changed, or this game is not the one last synced with the session (newly opened, or reopened after a pause).
 #[must_use]
@@ -50,6 +76,16 @@ mod tests {
         assert!(quiet.windows(2).all(|w| w[1] >= w[0]), "never faster while quiet: {quiet:?}");
         assert_eq!(*quiet.last().unwrap(), SLOW_MS, "settles at the slow rate");
         assert_eq!(p.next(true), FAST_MS, "activity again: fast at once");
+    }
+
+    #[test]
+    fn reconnects_like_the_reference_client_but_never_slower_than_five_minutes() {
+        let mut r = ReconnectBackoff::default();
+        let waits: Vec<u64> = (0..10).map(|_| r.next_wait_ms()).collect();
+        assert_eq!(&waits[..4], &[5_000, 10_000, 20_000, 40_000], "CommonClient: 5 s, doubling");
+        assert_eq!(*waits.last().unwrap(), RECONNECT_MAX_MS, "capped: a server that is down for hours costs one try per 5 min");
+        r.reset();
+        assert_eq!(r.next_wait_ms(), 5_000, "connected again: start over");
     }
 
     #[test]

@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import uniffi.apgo_ffi.ApEvent
 import uniffi.apgo_ffi.ApPoll
+import uniffi.apgo_ffi.ApReconnect
 import uniffi.apgo_ffi.ApSession
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.apNeedsSync
@@ -43,6 +44,16 @@ internal object ApWait {
         slept: Boolean,
         woke: Boolean,
     ): Boolean = slept && !woke
+
+    /**
+     * Whether to reconnect a session that dropped (a hard Archipelago client requirement: reconnect if the connection is lost while
+     * playing). Only after it was connected to this server: a first connect that fails (wrong slot, password, address) is the
+     * player's to fix, not a loop.
+     */
+    fun reconnects(
+        status: String,
+        everConnected: Boolean,
+    ): Boolean = everConnected && status.startsWith("disconnected")
 }
 
 /** The connection to an Archipelago server and the games played over it. */
@@ -62,17 +73,25 @@ internal class ApController(
     private var syncedChecked = false
     private var pollJob: Job? = null
 
-    // Where the session connected, to reconnect a connection that died silently.
+    // Where the session connected, to reconnect a connection that dropped or died silently; whether it ever connected there; and
+    // when to try again (5 s doubling, capped, in the core).
     private var lastTarget: Pair<String, String>? = null
+    private var everConnected = false
+    private val reconnect = ApReconnect()
 
     // The game last synced with this session (its id), so a newly opened or started game syncs at once.
     private var syncedFor: String? = null
 
-    /** Open a session to [url] as [slot]. */
+    /** Open a session to [url] as [slot]; [auto] is a reconnect of the same target (keeps its back-off). */
     fun connect(
         url: String,
         slot: String,
+        auto: Boolean = false,
     ) {
+        if (!auto) {
+            everConnected = false
+            reconnect.reset()
+        }
         syncedChecked = false
         syncedFor = null
         slotJson = null
@@ -83,26 +102,40 @@ internal class ApController(
         // Polled from the model's scope, not the screen: items keep arriving while the app tracks in the background. Ends by itself
         // when this session is replaced.
         pollJob?.cancel()
-        pollJob =
-            scope.launch {
-                val poll = ApPoll() // the back-off lives in the core
-                while (session === s) {
-                    val active = tick()
-                    // Event-driven while connected: sleep in the socket until the server sends something, not on a timer.
-                    val slept = ApWait.sleeps(status, active)
-                    val woke = slept && withContext(Dispatchers.IO) { s.waitForData(AP_IDLE_WAIT_MS.toUInt()) }
-                    if (ApWait.dead(slept, woke) && session === s) {
-                        Diag.warn("ap", "silent connection: reconnecting", "waited_ms" to AP_IDLE_WAIT_MS)
-                        lastTarget?.let { (u, sl) -> connect(u, sl) } // replaces this loop
-                        return@launch
-                    }
-                    delay(poll.nextDelayMs(active || woke).toLong()) // at least the short wait: a closed socket stays readable
-                }
-            }
+        pollJob = scope.launch { runSession(s) }
         scope.launch {
             delay(LAN_HINT_AFTER_MS)
             if (session === s && s.status() == "connecting" && ctx.lacksLocalNetwork()) hint = LAN_HINT
         }
+    }
+
+    // The session's loop, until it is replaced: drain, then sleep in the socket until the server sends something (not a timer);
+    // reconnect when it drops (after a back-off) or a whole wait passes in silence.
+    private suspend fun runSession(s: ApSession) {
+        val poll = ApPoll() // the back-off while connecting lives in the core
+        while (session === s) {
+            val active = tick()
+            if (status == "connected" && !everConnected) {
+                everConnected = true
+                reconnect.reset()
+            }
+            if (ApWait.reconnects(status, everConnected)) {
+                delay(reconnect.nextDelayMs().toLong())
+                return reconnectFrom(s)
+            }
+            val slept = ApWait.sleeps(status, active)
+            val woke = slept && withContext(Dispatchers.IO) { s.waitForData(AP_IDLE_WAIT_MS.toUInt()) }
+            if (ApWait.dead(slept, woke)) {
+                Diag.warn("ap", "silent connection: reconnecting", "waited_ms" to AP_IDLE_WAIT_MS)
+                return reconnectFrom(s)
+            }
+            delay(poll.nextDelayMs(active || woke).toLong()) // at least the short wait: a closed socket stays readable
+        }
+    }
+
+    // A new session to the same server, unless the player connected elsewhere meanwhile; it replaces [s]'s loop.
+    private fun reconnectFrom(s: ApSession) {
+        if (session === s) lastTarget?.let { (url, slot) -> connect(url, slot, auto = true) }
     }
 
     /** The app came to the front: drain and sync now rather than at the next server message (the player is looking). */

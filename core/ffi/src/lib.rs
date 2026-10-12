@@ -365,6 +365,33 @@ impl ApSession {
     }
 }
 
+/// When the host retries a dropped Archipelago connection (see `apgo_core::ap_poll::ReconnectBackoff`). The host keeps one across
+/// sessions and resets it once connected.
+#[derive(uniffi::Object)]
+pub struct ApReconnect {
+    backoff: Mutex<apgo_core::ap_poll::ReconnectBackoff>,
+}
+
+#[uniffi::export]
+impl ApReconnect {
+    /// A fresh back-off, starting at the first wait.
+    #[uniffi::constructor]
+    #[must_use]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { backoff: Mutex::new(apgo_core::ap_poll::ReconnectBackoff::default()) })
+    }
+
+    /// The wait before the next reconnect try, ms.
+    pub fn next_delay_ms(&self) -> u64 {
+        self.backoff.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next_wait_ms()
+    }
+
+    /// Connected again.
+    pub fn reset(&self) {
+        self.backoff.lock().unwrap_or_else(std::sync::PoisonError::into_inner).reset();
+    }
+}
+
 /// How long the host waits between Archipelago polls (see `apgo_core::ap_poll`): fast right after the server said something,
 /// slower while it is quiet. The host keeps one per session.
 #[derive(uniffi::Object)]
