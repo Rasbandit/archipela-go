@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the Rust core for Android (cargo-ndk) and regenerate the Kotlin UniFFI bindings.
-# Usage: scripts/android_core.sh [debug|release]   (default: debug)
+# Usage: scripts/android_core.sh [debug|phone|release]   (default: debug; phone: optimised dev, what `just android-run` uses)
 # ABIs: APGO_ABIS="arm64-v8a" (default, phone) or "arm64-v8a x86_64" (also emulator)
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,8 +12,11 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # Gradle's releaseCore runs this script without `just`, so the guard lives here too (re-review N4).
 bash "$root/scripts/core_unmutated.sh"
 
-flag=()
-[ "$profile" = release ] && flag=(--release)
+case "$profile" in
+  debug) flag=() ;;
+  release) flag=(--release) ;;
+  *) flag=(--profile "$profile") ;;
+esac
 
 cd "$root/core"
 targets=()

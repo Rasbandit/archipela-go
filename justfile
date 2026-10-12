@@ -125,7 +125,7 @@ android-release:
     cd android && ./gradlew assembleRelease --console=plain -q
 
 # One command: rebuild Rust + app, install on the phone, launch.
-android-run: android-core android-build android-install android-start
+android-run: (android-core "phone") android-build android-install android-start
 
 android-logs:
     adb logcat --pid=$(adb shell pidof {{app}}) -v time
