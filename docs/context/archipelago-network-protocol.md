@@ -87,6 +87,7 @@ its own `.ap/compliance` on :38291), one test per rule; the pre-push hook runs i
 | Reconnect if lost while playing (client guide) | reconnect after `disconnected` (5 s doubling like `CommonClient`, capped 5 min), on foreground when stale, after a silent wait | `a_server_restart_drops_the_session_and_a_new_one_gets_every_item_again` |
 | Reconnect after an app restart (client guide) | a game saves its address and slot (`Engine::ap_saved_server`); with no session, opening it connects there and retries like a drop | `a_restarted_app_reconnects_from_the_saved_address_and_gets_its_items` |
 | Change the port of saved connection info (client guide) | Play's Server button saves a new address (`Engine::set_ap_address`) and reconnects; seed and slot stay | `a_room_moved_to_another_port_is_the_same_game` |
+| Per-message compression (protocol: uncompressed is deprecated) | soketto permessage-deflate in the vendored client; the server's "does not support compressed" Print never arrives | `the_connection_is_compressed_so_the_server_never_warns` |
 | A refused first connect is not a loop | auto-reconnect only after a session was connected | `a_wrong_slot_is_refused_and_never_connected` |
 | Server pings every 20 s (websockets defaults; `CommonClient` sends none) | the app sleeps in the socket; 60 s silence = dead | `the_server_pings_a_quiet_connection_within_twenty_five_seconds` |
 | Servers that do not ping | a `Get` probe before reconnecting | `a_probe_is_answered` |
@@ -96,9 +97,9 @@ parallel worktrees take turns on :38291. A game stores its server's `seed/slot` 
 goal and items only with that server (`Engine::ap_server_match`); games from before keep live sends but get no automatic re-send. An
 auto-reconnect that keeps being refused (the seed was regenerated, the slot is gone) retries every 5 min until the player connects.
 
-Not covered by a test: per-message compression (#166). The protocol doc says uncompressed connections are deprecated and may stop
-working; `tungstenite` has no permessage-deflate in any release (0.30.0; open PR snapview/tungstenite-rs#561), and the 0.6.8
-server only sends a warning Print to clients without it. Passwords: the app has no password field, so none is saved.
+Per-message compression (#166): the vendored client runs on soketto with permessage-deflate (`core/vendor/archipelago_rs/PATCHES.md`),
+since tungstenite has had no compression since 2017 and a fork was rejected. The server agrees `server_no_context_takeover` and
+11-bit windows. Passwords: the app has no password field, so none is saved.
 
 Test gotcha: the server sends a check's `ReceivedItems` and its `RoomUpdate` as separate async packets, in no fixed order, so
 `check_one` waits for both (items count = checked count in the one-player seed).
