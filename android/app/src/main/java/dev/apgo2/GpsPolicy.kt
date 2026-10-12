@@ -14,6 +14,9 @@ import com.google.android.gms.location.Priority
  *   so the path stays dense while the CPU sleeps). GNSS quality and no distance filter either way: the core's stationary hold and
  *   gap bridge need a steady stream.
  * - Outside every zone: the coarse rate (90 s, 50 m, balanced). At home or in the car: off.
+ * - Leaving a batched request for another one (the screen comes on, the app comes to the front): flush the batch first and change
+ *   the request only once the flush completed ([shouldFlush]), so the pin, trace and any quest completion show at once and swapping
+ *   the request cannot drop fixes still held in the batch.
  */
 internal object GpsPolicy {
     /**
@@ -78,6 +81,15 @@ internal object GpsPolicy {
         } else {
             Rate(OFF_SCREEN_MS, 0f, highAccuracy = true, maxDelayMs = OFF_SCREEN_BATCH_MS)
         }
+
+    /**
+     * Whether to flush the running request's batch before replacing it with [next]: only a batched request holds fixes back, and only
+     * a new request replaces it. Stopping needs none: a stop follows a decision that stops counting, so the core ignores those fixes.
+     */
+    fun shouldFlush(
+        running: Rate?,
+        next: Rate?,
+    ): Boolean = running != null && next != null && running.maxDelayMs > 0 && running != next
 
     /** The rate a presence decision asks for; `null` means location is off. Stopped keeps "map marker while the app is on screen". */
     fun forDecision(

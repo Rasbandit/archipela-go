@@ -31,6 +31,22 @@ class GpsPolicyTest {
         }
     }
 
+    @Test fun comingBackToTheMapFlushesTheBatchBeforeTheFastRequest() {
+        val batched = GpsPolicy.inZone(onScreen = false)
+        val fast = GpsPolicy.inZone(onScreen = true)
+        assertTrue("batched -> 1 s", GpsPolicy.shouldFlush(batched, fast))
+        assertTrue("batched -> any other rate", GpsPolicy.shouldFlush(batched, GpsPolicy.IDLE))
+    }
+
+    @Test fun nothingIsFlushedWithoutABatchToSaveOrARequestToSwap() {
+        val batched = GpsPolicy.inZone(onScreen = false)
+        val fast = GpsPolicy.inZone(onScreen = true)
+        assertFalse("unchanged rate keeps its request", GpsPolicy.shouldFlush(batched, batched))
+        assertFalse("1 s is never batched", GpsPolicy.shouldFlush(fast, batched))
+        assertFalse("nothing running", GpsPolicy.shouldFlush(null, fast))
+        assertFalse("stopping: no new request, and a stop follows a counting change", GpsPolicy.shouldFlush(batched, null))
+    }
+
     @Test fun theSpacingToldToTheCoreIsTheIntervalPlusTheBatchingDelay() {
         assertEquals(15_000L, GpsPolicy.Rate(5_000L, 0f, highAccuracy = true, maxDelayMs = 10_000L).fixSpacingMs)
         assertEquals(1_000L, GpsPolicy.Rate(1_000L, 0f, highAccuracy = true).fixSpacingMs)
