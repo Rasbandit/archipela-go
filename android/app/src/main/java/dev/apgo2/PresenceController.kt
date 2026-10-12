@@ -193,7 +193,8 @@ internal class PresenceController(
         val rate = if (locationPermitted) GpsPolicy.forDecision(decision, appVisible, screenOn, holding) else null
         if (rate == null) model.sensors.stopLocation() else model.sensors.startLocation(rate)
         val inZone = rate != null && decision.state == PresenceState.InZone
-        if (inZone) model.sensors.startGnss() else model.sensors.stopGnss()
+        // Satellite status wakes the main thread every second: only while the map is in front (it would undo screen-off batching).
+        if (inZone && screenOn && appVisible) model.sensors.startGnss() else model.sensors.stopGnss()
         if (inZone) {
             model.sensors.startHeading(
                 CompassRate.periodUs(screenOn, appVisible),

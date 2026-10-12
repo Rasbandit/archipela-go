@@ -20,6 +20,14 @@ class GnssTest {
         assertEquals("only fused fixes are retagged", "gps", g.providerOf("gps", 41_000L))
     }
 
+    @Test fun withTheGpsProviderOffAFusedFixIsNetworkEvenWithoutStatus() {
+        // Off screen there is no GnssStatus (the callback runs only with the map in front): the GPS toggle still tells.
+        val g = GnssEvidence()
+        assertEquals("network", g.providerOf("fused", 1_000L, gpsOn = false))
+        assertEquals("fused", g.providerOf("fused", 1_000L, gpsOn = true))
+        assertEquals("only fused fixes are retagged", "gps", g.providerOf("gps", 1_000L, gpsOn = false))
+    }
+
     @Test fun carrierFrequenciesMapToBands() {
         assertEquals("L1", GnssBands.of(1_575.42e6f)) // GPS L1, Galileo E1
         assertEquals("L1", GnssBands.of(1_561.098e6f)) // BeiDou B1

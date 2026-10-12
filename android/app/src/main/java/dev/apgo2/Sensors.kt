@@ -116,7 +116,10 @@ internal class Sensors(
         stepListener = null
     }
 
-    /** While in a zone: a `gnss` line every 10 s (no positions), and the chip's model and capabilities once per session. */
+    /**
+     * In a zone with the map in front: a `gnss` line every 10 s (no positions), and the chip's model and capabilities once per
+     * session.
+     */
     @SuppressLint("MissingPermission")
     fun startGnss() {
         if (gnssCallback != null) return

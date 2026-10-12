@@ -232,7 +232,8 @@ internal class LocationSource(
     // Play services names its fixes "fused" (the core's Fused provider); set it so a blank or odd name never reads as Other. A fused
     // fix while the GNSS chip uses no satellite is a Wi-Fi or cell position: "network", display only (adversarial review I2).
     private fun deliverGms(loc: Location) {
-        loc.provider = gnssEvidence.providerOf(FUSED_SOURCE, SystemClock.elapsedRealtime())
+        val gpsOn = runCatching { lm.isProviderEnabled(LocationManager.GPS_PROVIDER) }.getOrDefault(true)
+        loc.provider = gnssEvidence.providerOf(FUSED_SOURCE, SystemClock.elapsedRealtime(), gpsOn)
         deliver(loc)
     }
 
