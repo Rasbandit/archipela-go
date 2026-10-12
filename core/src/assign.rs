@@ -170,6 +170,10 @@ pub struct Assignment {
     /// Whether the map knows more about the place (facts, a description or a Wikipedia article): the card's "About this place".
     #[serde(default)]
     pub has_about: bool,
+    /// A boss quest's own kind ("`pedal_pusher`"), for its wording; `kind_id` is then "`the_big_one`". `None` for other quests and
+    /// for bosses saved before it was kept.
+    #[serde(default)]
+    pub base_kind: Option<String>,
     /// Effort tier, starting at 1.
     pub tier: u8,
     /// Expected effort in minutes.
@@ -310,6 +314,24 @@ struct Cand {
 const SPACING_M: f64 = 40.0;
 /// The least share of a trail a quest asks for.
 const MIN_TRAIL_SHARE: f64 = 0.25;
+
+/// Shares of a line a quest asks for, so the card can say "half the trail" exactly.
+const FRIENDLY_SHARES: [f64; 5] = [0.25, 1.0 / 3.0, 0.5, 2.0 / 3.0, 0.75];
+
+/// The share of a line to ask for, given the share the effort wants (`raw`), never under `floor` or over the kind's cap `most`: the
+/// nearest friendly share that fits, the cap itself once the effort reaches it, or `raw` when no friendly share fits. Stairs are
+/// always the whole flight (their cap is GPS slack, not a part of the flight).
+fn line_share(kind_id: &str, raw: f64, floor: f64, most: f64) -> f64 {
+    if kind_id == "stairmaster" || raw >= most - 1e-9 {
+        return most;
+    }
+    FRIENDLY_SHARES
+        .iter()
+        .copied()
+        .filter(|f| *f >= floor - 1e-9 && *f <= most + 1e-9)
+        .min_by(|a, b| (a - raw).abs().total_cmp(&(b - raw).abs()))
+        .unwrap_or(raw)
+}
 /// How many effort-minutes of misfit a favorite place can make up for.
 const FAVORITE_BONUS_MIN: f64 = 6.0;
 /// Least distance between two forager items (and between an item and another quest's point), in metres.
@@ -603,7 +625,7 @@ fn feature_target(
             let travel = travel_min(nearest, mode);
             let full = len / pace;
             let floor = MIN_TRAIL_SHARE.max(150.0 / len).min(most);
-            let share = ((want - travel) / full).clamp(floor, most);
+            let share = line_share(&k.id, ((want - travel) / full).clamp(floor, most), floor, most);
             Some((Target::Line { pts, corridor_m: *corridor_m, coverage: share }, travel + share * full))
         }
         _ => None,
@@ -793,6 +815,7 @@ fn one(
         feature_id: c.feature_id,
         place_type,
         has_about,
+        base_kind: s.boss.then(|| c.kind.id.clone()),
         tier: s.tier,
         effort_min: c.effort,
         target: c.target,
@@ -1005,6 +1028,7 @@ mod tests {
             feature_id: None,
             place_type: None,
             has_about: false,
+            base_kind: None,
             tier: 3,
             effort_min: 20.0,
             target: Target::Line { pts, corridor_m: 25.0, coverage: 0.5 },
@@ -1179,6 +1203,19 @@ mod tests {
         let short = make(900.0); // walking all of it is well under the effort asked for
         let Target::Line { coverage: whole, .. } = short.target else { panic!("expected a line") };
         assert!((whole - 0.9).abs() < 1e-9, "a short trail keeps the kind's own coverage, got {whole}");
+    }
+
+    #[test]
+    fn trail_shares_snap_to_friendly_fractions_and_stairs_are_never_cut() {
+        // (kind, share the effort asks for, floor, the kind's cap) -> share asked
+        assert!((line_share("trail_boss", 0.47, 0.25, 0.9) - 0.5).abs() < 1e-12);
+        assert!((line_share("trail_boss", 0.30, 0.25, 0.9) - 1.0 / 3.0).abs() < 1e-12);
+        assert!((line_share("trail_boss", 0.71, 0.25, 0.9) - 0.75).abs() < 1e-12, "nearest of 2/3 and 3/4");
+        assert!((line_share("trail_boss", 0.9, 0.25, 0.9) - 0.9).abs() < 1e-12, "at the cap: the cap, stated exactly");
+        assert!((line_share("trail_boss", 0.84, 0.25, 0.9) - 0.75).abs() < 1e-12, "past 3/4 but short of the cap");
+        assert!((line_share("trail_boss", 0.26, 0.4, 0.9) - 0.5).abs() < 1e-12, "never under the floor (a short trail's 150 m)");
+        assert!((line_share("trail_boss", 0.3, 0.28, 0.3) - 0.3).abs() < 1e-12, "no friendly share fits: keep the exact one");
+        assert!((line_share("stairmaster", 0.25, 0.25, 0.8) - 0.8).abs() < 1e-12, "stairs are always the whole flight");
     }
 
     #[test]
