@@ -284,8 +284,11 @@ pub struct LocParams {
     pub bridge_after_max_ms: i64,
     /// ... for at most this long (then the next fix starts the filter afresh), ms ...
     pub bridge_max_ms: i64,
-    /// ... and ends after this long without new steps (the pin then ages into "predicted" and "stale"), ms.
+    /// ... and ends after this long without new steps (the pin then ages into "predicted" and "stale"), ms ...
     pub bridge_no_steps_ms: i64,
+    /// ... or after this many Blurry fixes in a row (passed the gate, too coarse to count): GPS is back, if coarse, and its pin beats a
+    /// cloud drifting for minutes; one alone leaves the cloud (#126).
+    pub bridge_end_blurry_fixes: usize,
     /// Particles in the cloud.
     pub bridge_particles: usize,
     /// Share of the particles started off the street network.
@@ -454,6 +457,7 @@ impl Default for LocParams {
             bridge_after_max_ms: 45_000,
             bridge_max_ms: 300_000,
             bridge_no_steps_ms: 30_000,
+            bridge_end_blurry_fixes: 3,
             bridge_particles: 300,
             bridge_off_share: 0.1,
             bridge_bias_sigma_deg: 10.0,

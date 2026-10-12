@@ -99,19 +99,43 @@ impl Zone {
         )
     }
 
-    /// Overpass spatial filter for this zone (annulus queries its outer circle).
+    /// Overpass spatial filters that together cover this zone (annulus queries its outer circle). Overpass reads a poly's longitudes
+    /// literally, so a polygon across lon ±180 is cut there into two halves, one filter each; anything else is one filter.
     #[must_use]
-    pub fn overpass_filter(&self) -> String {
+    pub fn overpass_filters(&self) -> Vec<String> {
+        let poly = |v: &[Point]| format!("poly:\"{}\"", v.iter().map(|p| format!("{} {}", p.lat, p.lon)).collect::<Vec<_>>().join(" "));
         match self {
             Self::Circle { center, radius_m } | Self::Annulus { center, max_m: radius_m, .. } => {
-                format!("around:{},{},{}", radius_m.round(), center.lat, center.lon)
+                vec![format!("around:{},{},{}", radius_m.round(), center.lat, center.lon)]
             }
             Self::Polygon(v) => {
-                let pts: Vec<String> = v.iter().map(|p| format!("{} {}", p.lat, p.lon)).collect();
-                format!("poly:\"{}\"", pts.join(" "))
+                // Longitudes taken the short way from the first corner: past ±180 means the polygon crosses that line.
+                let around = v.first().map_or(0.0, |p| p.lon);
+                let flat: Vec<Point> = v.iter().map(|p| Point::new(p.lat, unwrap_lon(p.lon, around))).collect();
+                let Some(line) = flat.iter().find(|p| p.lon.abs() > 180.0).map(|p| 180f64.copysign(p.lon)) else { return vec![poly(v)] };
+                let near = clip_at_lon(&flat, line, -line.signum());
+                let far: Vec<Point> = clip_at_lon(&flat, line, line.signum()).into_iter().map(|p| Point::new(p.lat, p.lon - 2.0 * line)).collect();
+                vec![poly(&near), poly(&far)]
             }
         }
     }
+}
+
+/// The part of polygon `v` on one side of the meridian `lon`: `side` -1 keeps the west, 1 the east (Sutherland-Hodgman, planar).
+fn clip_at_lon(v: &[Point], lon: f64, side: f64) -> Vec<Point> {
+    let keep = |p: Point| (p.lon - lon) * side >= 0.0;
+    let mut out = Vec::new();
+    for (i, &a) in v.iter().enumerate() {
+        let b = v[(i + 1) % v.len()];
+        if keep(a) {
+            out.push(a);
+        }
+        if keep(a) != keep(b) {
+            let t = (lon - a.lon) / (b.lon - a.lon);
+            out.push(Point::new(a.lat + t * (b.lat - a.lat), lon));
+        }
+    }
+    out
 }
 
 /// Whether segments `a`-`b` and `c`-`d` cross or touch (planar on lat/lon; fine at city scale).
@@ -163,6 +187,36 @@ mod tests {
         assert!(fiji_square().touches_segment(w, e));
         let (n_w, n_e) = (Point::new(-16.5, 179.8), Point::new(-16.5, -179.8));
         assert!(!fiji_square().touches_segment(n_w, n_e), "north of the square");
+    }
+
+    /// The (lat, lon) pairs of a `poly:"..."` filter.
+    fn poly_points(filter: &str) -> Vec<(f64, f64)> {
+        let inner = filter.strip_prefix("poly:\"").and_then(|s| s.strip_suffix('"')).expect(filter);
+        let n: Vec<f64> = inner.split(' ').map(|s| s.parse().expect(s)).collect();
+        n.chunks(2).map(|c| (c[0], c[1])).collect()
+    }
+
+    #[test]
+    fn a_polygon_across_lon_180_asks_overpass_for_each_half() {
+        let filters = fiji_square().overpass_filters();
+        assert_eq!(filters.len(), 2, "{filters:?}");
+        let halves: Vec<Vec<(f64, f64)>> = filters.iter().map(|f| poly_points(f)).collect();
+        let west = halves.iter().find(|h| h.iter().all(|p| p.1 > 0.0)).expect("a half east of lon 179.9");
+        let east = halves.iter().find(|h| h.iter().all(|p| p.1 < 0.0)).expect("a half west of lon -179.9");
+        let span = |h: &[(f64, f64)], f: fn(f64, f64) -> f64, init| h.iter().map(|p| p.1).fold(init, f);
+        assert!((span(west, f64::min, f64::MAX) - 179.9).abs() < 1e-9 && (span(west, f64::max, f64::MIN) - 180.0).abs() < 1e-9, "{west:?}");
+        assert!((span(east, f64::min, f64::MAX) + 180.0).abs() < 1e-9 && (span(east, f64::max, f64::MIN) + 179.9).abs() < 1e-9, "{east:?}");
+        for h in [west, east] {
+            assert!(h.iter().all(|p| p.0 >= -17.1 - 1e-9 && p.0 <= -16.9 + 1e-9), "{h:?}");
+        }
+    }
+
+    #[test]
+    fn a_polygon_away_from_lon_180_is_one_filter_as_given() {
+        let z = Zone::Polygon(vec![Point::new(40.0, -111.0), Point::new(40.0, -110.9), Point::new(40.1, -110.9)]);
+        assert_eq!(z.overpass_filters(), vec!["poly:\"40 -111 40 -110.9 40.1 -110.9\"".to_string()]);
+        let c = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 1000.0 };
+        assert_eq!(c.overpass_filters(), vec!["around:1000,40,-111".to_string()]);
     }
 
     #[test]

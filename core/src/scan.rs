@@ -307,29 +307,37 @@ fn statements(kinds: &[&Kind], filter: &str, element: &str) -> BTreeSet<String> 
 /// Query A: points and area centers for point/area kinds.
 #[must_use]
 pub fn poi_query_in(filter: &str, catalog: &Catalog) -> String {
+    poi_query_all(&[filter], catalog)
+}
+
+fn poi_query_all<S: AsRef<str>>(filters: &[S], catalog: &Catalog) -> String {
     let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| matches!(k.geom, Geom::Point | Geom::Area)).collect();
-    let body: String = statements(&kinds, filter, "nwr").into_iter().collect::<Vec<_>>().join("\n");
+    let body: String = filters.iter().flat_map(|f| statements(&kinds, f.as_ref(), "nwr")).collect::<Vec<_>>().join("\n");
     format!("[out:json][timeout:40];\n(\n{body}\n);\nout center tags qt;")
 }
 
 /// Query B: full geometry (ways only) for line kinds and for area kinds (polygon outlines).
 #[must_use]
 pub fn geom_query_in(filter: &str, catalog: &Catalog) -> String {
+    geom_query_all(&[filter], catalog)
+}
+
+fn geom_query_all<S: AsRef<str>>(filters: &[S], catalog: &Catalog) -> String {
     let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| matches!(k.geom, Geom::Line | Geom::Area)).collect();
-    let body: String = statements(&kinds, filter, "way").into_iter().collect::<Vec<_>>().join("\n");
+    let body: String = filters.iter().flat_map(|f| statements(&kinds, f.as_ref(), "way")).collect::<Vec<_>>().join("\n");
     format!("[out:json][timeout:40];\n(\n{body}\n);\nout geom tags qt;")
 }
 
 /// Overpass query for the places the catalog can use inside `zone`.
 #[must_use]
 pub fn poi_query(zone: &Zone, catalog: &Catalog) -> String {
-    poi_query_in(&zone.overpass_filter(), catalog)
+    poi_query_all(&zone.overpass_filters(), catalog)
 }
 
 /// Overpass query for the trail, park and water geometry inside `zone`.
 #[must_use]
 pub fn geom_query(zone: &Zone, catalog: &Catalog) -> String {
-    geom_query_in(&zone.overpass_filter(), catalog)
+    geom_query_all(&zone.overpass_filters(), catalog)
 }
 
 fn osm_prefix(t: &str) -> char {
@@ -1613,6 +1621,15 @@ mod tests {
         let big = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 20_000.0 };
         assert!(plan(&big, &cat, &|_| false).missing() > 100);
         assert_eq!(jobs_for(&small, &cat)[0].1, jobs_for(&small, &cat)[0].1, "the same area always asks the same questions");
+    }
+
+    #[test]
+    fn a_realm_across_lon_180_asks_for_places_and_geometry_in_both_halves() {
+        let cat = Catalog::builtin();
+        let fiji = Zone::Polygon(vec![Point::new(-17.1, 179.9), Point::new(-17.1, -179.9), Point::new(-16.9, -179.9), Point::new(-16.9, 179.9)]);
+        let (q, g) = (poi_query(&fiji, &cat), geom_query(&fiji, &cat));
+        assert_eq!(q.matches("nwr(poly:").count(), 2 * poi_query_in("x", &cat).matches("nwr(x)").count(), "{q}");
+        assert_eq!(g.matches("way(poly:").count(), 2 * geom_query_in("x", &cat).matches("way(x)").count(), "{g}");
     }
 
     #[test]

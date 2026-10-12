@@ -53,8 +53,8 @@ impl Locator {
     /// A step counter reading. Steps coming in end a stationary hold at once. In a Walk or Run zone, once the last accepted fix is
     /// `bridge_after_ms` old and steps keep coming, the gap is bridged (Task 22): each step batch moves the particle cloud by `steps x
     /// L(cadence) x k` and returns a bridged estimate (display, fog and Cartographer squares only, `accepted = false`). The bridge ends at
-    /// the next accepted fix, or `bridge_max_ms` after the last one (then the filter starts afresh and the last bridged pin stays, aging
-    /// by the display rules). After `bridge_no_steps_ms` without steps it pauses, and the next steps carry the same cloud on.
+    /// the next accepted fix, after `bridge_end_blurry_fixes` Blurry fixes in a row, or `bridge_max_ms` after the last one (then the
+    /// filter starts afresh and the last bridged pin stays, aging by the display rules). After `bridge_no_steps_ms` without steps it pauses, and the next steps carry the same cloud on.
     pub fn on_steps(&mut self, total: i64, t_ms: i64, cadence: Option<f64>) -> Option<Estimate> {
         let before = self.steps.latest();
         self.steps.push(total, t_ms);
@@ -339,7 +339,7 @@ impl Locator {
         self.imm = Some(Imm::with_prior(frame.to_enu(mean), cov, vel, mu, b.last_step_ms, self.mode, &self.params));
     }
 
-    /// An accepted fix ends the bridge; the bridged pin is kept but [`Self::last`] is newer.
+    /// A taken fix, or a run of Blurry ones, ends the bridge; the bridged pin is kept but [`Self::last`] is newer.
     pub(super) fn end_bridge(&mut self) {
         self.bridge = None;
         self.bridge_paused = false;
@@ -347,6 +347,7 @@ impl Locator {
         self.turn_check = None;
         self.bridge_step_az = None;
         self.reanchored_step_ms = None;
+        self.bridge_blurry = 0;
     }
 }
 
@@ -768,6 +769,36 @@ mod tests {
         assert!(distance_m(e.point(), on_street(1.4 * 86.0)) < 8.0, "{} m", distance_m(e.point(), on_street(1.4 * 86.0)));
         let counted = (87..90).map(|t| l.on_fix(&fix(on_street(1.4 * i64_to_f64(t)), t, 4.0))).last().unwrap();
         assert!(counted.accepted, "the fourth fix after the re-anchor counts (C1): {counted:?}");
+    }
+
+    #[test]
+    fn a_run_of_coarse_fixes_ends_the_bridge_for_the_display_only() {
+        // #126: fixes of 60 m or worse are Blurry and never taken, so the cloud ran on for up to bridge_max_ms while it drifted. Three in
+        // a row end it; one alone, or a run broken by a gated fix, leaves it (review I2).
+        let mut l = Locator::default();
+        l.set_graph(grid());
+        walk_into_a_gap(&mut l, 40, 56, |_| 90.0);
+        let coarse = |t: i64| fix(on_street(1.4 * i64_to_f64(t)), t, 80.0);
+        let v: Vec<Verdict> = (56..58).map(|t| walking_fix(&mut l, t, &coarse(t)).verdict).collect();
+        assert!(v.iter().all(|v| *v == Verdict::Blurry) && l.bridging(), "two coarse fixes leave the cloud: {v:?}");
+        assert_eq!(walking_fix(&mut l, 58, &multipath(58)).verdict, Verdict::Gated);
+        let v: Vec<Verdict> = (59..61).map(|t| walking_fix(&mut l, t, &coarse(t)).verdict).collect();
+        assert!(v.iter().all(|v| *v == Verdict::Blurry) && l.bridging(), "a gated fix starts the run over: {v:?}");
+        let e = walking_fix(&mut l, 61, &coarse(61));
+        assert!(e.verdict == Verdict::Blurry && !e.accepted && !l.bridging(), "the third coarse fix in a row ends it: {e:?}");
+        let shown = l.display(61_000).unwrap();
+        assert!(shown.source != DisplaySource::Bridged && distance_m(Point::new(shown.lat, shown.lon), on_street(1.4 * 61.0)) < 60.0, "{shown:?}");
+        let counted = (62..70).map(|t| walking_fix(&mut l, t, &fix(on_street(1.4 * i64_to_f64(t)), t, 4.0))).find(|e| e.accepted).unwrap();
+        assert!(l.resumed_after_bridge(), "the coarse stretch was not seen well enough to dwell: {counted:?}");
+    }
+
+    #[test]
+    fn a_zero_blurry_run_setting_still_leaves_the_cloud_on_a_gated_fix() {
+        let mut l = Locator::new(LocParams { bridge_end_blurry_fixes: 0, ..LocParams::default() });
+        l.set_graph(grid());
+        walk_into_a_gap(&mut l, 40, 56, |_| 90.0);
+        assert_eq!(walking_fix(&mut l, 56, &multipath(56)).verdict, Verdict::Gated);
+        assert!(l.bridging(), "review I2: a gated fix never ends the bridge");
     }
 
     #[test]
