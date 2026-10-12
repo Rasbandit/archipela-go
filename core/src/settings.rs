@@ -59,14 +59,17 @@ impl Settings {
         real
     }
 
-    /// Save to `dir`, creating it if needed.
+    /// Save to `dir`, creating it if needed. The file is replaced in one step (written beside it, then renamed over it), so a
+    /// [`Self::load`] at the same moment (it takes no lock) never reads half a file and falls back to the defaults.
     ///
     /// # Errors
     /// Returns an error if the file cannot be written.
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let body = serde_json::to_string(self).map_err(|e| e.to_string())?;
-        std::fs::write(dir.join(FILE), body).map_err(|e| e.to_string())
+        let tmp = dir.join(format!("{FILE}.tmp"));
+        std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, dir.join(FILE)).map_err(|e| e.to_string())
     }
 
     /// Load, change with `change` and save, as one step: two updates at once (the units picked as the app leaves the screen and
@@ -118,6 +121,7 @@ mod tests {
         let s = Settings { units: UnitChoice::Imperial, last_place: Some(Point { lat: 40.5, lon: -111.9 }), trap_alerts: false };
         s.save(&dir).unwrap();
         assert_eq!(Settings::load(&dir), s);
+        assert!(!dir.join(format!("{FILE}.tmp")).exists(), "replaced in one step, leaving no temp file");
     }
 
     #[test]

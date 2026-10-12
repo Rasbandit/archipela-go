@@ -103,7 +103,7 @@ impl Engine {
 
     /// Whether a trap alerts the player with a loud notification and buzz (on until the player turns it off).
     pub fn trap_alerts(&self) -> bool {
-        Settings::load(self.dir()).trap_alerts
+        self.trap_alerts.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Save the trap alerts switch, keeping every other setting.
@@ -116,6 +116,7 @@ impl Engine {
             true
         })
         .map_err(|detail| CoreError::Failed { detail })?;
+        self.trap_alerts.store(on, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 

@@ -1022,6 +1022,8 @@ pub struct Engine {
     region: Mutex<String>,
     /// The units text is written in, worked out from the unit setting and `region` whenever either changes.
     units: Mutex<UnitSystem>,
+    /// The trap alerts setting, kept in memory so a trap never reads the settings file (saved by `set_trap_alerts`).
+    pub(crate) trap_alerts: std::sync::atomic::AtomicBool,
     /// The last journal point written, for the 5 s / 5 m throttle.
     last_journal: Mutex<Option<TrackPoint>>,
     /// The last street-build generation handed out (see [`Game::set_streets`]).
@@ -1148,9 +1150,9 @@ impl Engine {
         self.dir.join("http-cache")
     }
 
-    /// `ev` for the app, with each trap's alert following the player's trap alerts setting (read once).
+    /// `ev` for the app, with each trap's alert following the player's trap alerts setting.
     fn events_out(&self, ev: Vec<Event>) -> Vec<EventOut> {
-        let alerts = ev.iter().any(|e| matches!(e, Event::Trap { .. })) && Settings::load(&self.dir).trap_alerts;
+        let alerts = self.trap_alerts.load(std::sync::atomic::Ordering::Relaxed);
         ev.into_iter().map(|e| ev_out(e, alerts)).collect()
     }
 
@@ -1399,6 +1401,7 @@ impl Engine {
             fix_spacing_hint: Mutex::new(None),
             last_proximity: Mutex::new(None),
             units: Mutex::new(resolve_units(Settings::load(&dir).units, "")),
+            trap_alerts: std::sync::atomic::AtomicBool::new(Settings::load(&dir).trap_alerts),
             region: Mutex::new(String::new()),
             last_journal: Mutex::new(None),
             streets_gen: AtomicU64::default(),

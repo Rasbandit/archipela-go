@@ -111,7 +111,7 @@ impl Traps {
                 (Trap::Freeze { thaw, until_ms: now_ms + 30 * MIN }, "Frozen! Reach the glowing thaw point to move again.".to_string())
             }
             "Fog Of War Trap" => (Trap::Fog { until_ms: now_ms + 15 * MIN }, "Fog rolls in: the map is hidden for 15 minutes.".into()),
-            "Silence Trap" => (Trap::Silence { until_ms: now_ms + 15 * MIN }, "Silence: notifications muted for 15 minutes.".into()),
+            "Silence Trap" => (Trap::Silence { until_ms: now_ms + 15 * MIN }, "Silence: trap alerts muted for 15 minutes.".into()),
             "Leash Trap" => (
                 Trap::Leash { center: home, radius_m: LEASH_M, until_ms: now_ms + 30 * MIN },
                 format!("Leashed! Checks only count within {} of home for 30 minutes.", distance_rounded(LEASH_M, self.units, Round::Down)),
