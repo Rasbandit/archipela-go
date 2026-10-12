@@ -261,7 +261,7 @@ impl ApSession {
         Arc::new(Self { conn: Mutex::new(ap::Connection::new(&url, &slot, Some(GAME_NAME), options)) })
     }
 
-    /// Drain pending network events. Call every few hundred ms.
+    /// Drain pending network events: after [`Self::wait_for_data`] woke, and while connecting.
     pub fn poll(&self) -> Vec<ApEvent> {
         let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         conn.update()

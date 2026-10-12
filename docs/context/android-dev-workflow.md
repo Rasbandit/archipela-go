@@ -35,8 +35,9 @@ so release bindings come from a host build of the same source.
 Phone joined a local server running OUR apworld, received `slot_data` (contract v1), sent location checks, got items back (server log:
 `Tester sent Take a Breather! to Tester (Trip #1)`). Loop: `just ap-host` (generates a 100-trip seed for slot `Tester`, hosts on :38281,
 sets `adb reverse` so the phone uses `localhost:38281`), then `just android-run`, tap Connect / Check next trip. `just ap-log`, `just ap-stop`.
-Archipelago uses ONE persistent WebSocket (server pushes items, prints, bounces); the Rust crate `archipelago_rs` is non-blocking: Kotlin calls `poll()`
-every 250 ms to drain already-read events. No push channel exists when the app is dead; plan a foreground service + reconnect/`Sync` item resync.
+Archipelago uses ONE persistent WebSocket (server pushes items, prints, bounces); the Rust crate `archipelago_rs` is non-blocking, so `ApController`
+sleeps in the socket (`ApSession.wait_for_data`) and drains (`poll()`) when the server sends something; it reconnects a dropped session
+(5 s doubling, max 5 min), probes a silent one before reconnecting, and re-sends every finished check and the goal on each connect.
 
 Gotchas for the connection:
 

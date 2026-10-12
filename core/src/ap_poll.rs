@@ -1,8 +1,9 @@
 //! How often the host drains the Archipelago connection, and when the open game must sync with the server.
 //!
-//! The client library has no callbacks, so the host has to poll it; but only fast right after the server said something. Each quiet
-//! poll waits longer, up to [`SLOW_MS`] (an item then shows up a few seconds late, which is nothing for a walking game). The game is
-//! synced only when items or server data changed, or when the open game was never synced with this session.
+//! While connected the host sleeps until the server sends something (`ApSession::wait_for_data`); this back-off times the drains
+//! right after activity and while connecting: fast right after the server said something, slower on each quiet poll, up to
+//! [`SLOW_MS`]. [`ReconnectBackoff`] times reconnects of a dropped session. The game is synced only when items or server data
+//! changed, or when the open game was never synced with this session.
 
 /// The wait right after the server said something, in milliseconds.
 pub const FAST_MS: u64 = 300;

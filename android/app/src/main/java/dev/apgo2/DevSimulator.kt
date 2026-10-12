@@ -82,7 +82,7 @@ internal class DevSimulator(
 
     /** Walk to the next quest that can be reached and complete it. */
     fun teleportNext() {
-        val quests = model.quests
+        val quests = model.questsNow // off screen the drawn list is not reloaded
         // Fog: undiscovered quests are not "open", but a walker heading for one discovers it on arrival.
         val next = quests.firstOrNull { it.state == "open" || it.state == "progress" } ?: quests.firstOrNull { it.state == "hidden" }
         if (next == null) {

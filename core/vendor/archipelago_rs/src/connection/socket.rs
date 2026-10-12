@@ -418,4 +418,3 @@ impl<S: DeserializeOwned + 'static> Socket<S> {
         Ok(())
     }
 }
-
