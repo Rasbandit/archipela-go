@@ -277,7 +277,7 @@ pub struct LocParams {
     /// `coast_max_ms` is not added, ruling T22-R2.)
     pub bridge_after_ms: i64,
     /// ... or longer when fixes come far apart: this share (percent) of the widest of the last few fix spacings, so screen-off fixes
-    /// (5 s batched up to 10 s, seen 13 s apart and handed over 8 s late) are never a gap (walk test 2026-10-10: each one bridged and
+    /// (5 s batched up to 10 s, seen 13 s apart and handed over 8 s late; now batched up to 20 s) are never a gap (walk test 2026-10-10: each one bridged and
     /// re-anchored, and the warm-up kept every fix from counting) ...
     pub bridge_after_spacing_pct: i64,
     /// ... but never longer than this, ms ...

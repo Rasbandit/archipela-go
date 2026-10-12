@@ -22,12 +22,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import dev.apgo2.MapStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.Style
@@ -55,7 +55,6 @@ internal const val PREVIEW_DP = 104
 /** The zoom a home preview is drawn at: a few blocks around the spot. */
 internal const val HOME_PREVIEW_ZOOM = 15.2
 
-private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 private const val WORLD_TILE_PX = 512.0
 private const val QUARTER_PI = PI / 4.0
 private const val HALF_TURN_DEG = 180.0
@@ -137,7 +136,7 @@ private suspend fun renderSnapshot(
     val sidePx = (PREVIEW_DP * context.resources.displayMetrics.density).toInt()
     return snapshotLock.withLock {
         withContext(Dispatchers.Main) {
-            MapLibre.getInstance(context)
+            MapStyle.init(context)
             suspendCancellableCoroutine<Bitmap?> { cont ->
                 val camera =
                     CameraPosition
@@ -148,7 +147,7 @@ private suspend fun renderSnapshot(
                 val options =
                     MapSnapshotter
                         .Options(sidePx, sidePx)
-                        .withStyleBuilder(Style.Builder().fromUri(STYLE_URL))
+                        .withStyleBuilder(Style.Builder().fromUri(MapStyle.URL))
                         .withCameraPosition(camera)
                         .withLogo(false)
                 val snapshotter = MapSnapshotter(context, options)

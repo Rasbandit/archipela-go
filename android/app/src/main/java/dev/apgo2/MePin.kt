@@ -4,6 +4,7 @@ import android.location.Location
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MarkerSpec
 import uniffi.apgo_ffi.PositionOut
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 
@@ -52,6 +53,9 @@ internal object MePins {
     private const val MIN_GLIDE_MS = 200L
     private const val SNAP_M = 50.0
     private const val MIN_CIRCLE_M = 3.0
+    private const val REDRAW_MOVE_M = 1.0
+    private const val REDRAW_TURN_DEG = 5.0
+    private const val REDRAW_ACCURACY_M = 2f
     private val STATES = listOf(GPS, BRIDGED, STALE)
 
     /**
@@ -100,6 +104,27 @@ internal object MePins {
         lon: Double,
         accuracyM: Double?,
     ): MePin = MePin(lat, lon, accuracyM?.takeIf { it >= MIN_CIRCLE_M }?.toFloat() ?: 0f, null, MarkerSpec.Me(false, GPS), 0L)
+
+    /**
+     * Whether [new] looks different enough from the pin last drawn ([old]) to draw it: another image, a move of 1 m, a turn of 5
+     * degrees or the arrow coming or going, or the accuracy circle changing by 2 m. Anything less is not worth a map redraw
+     * (comparing with the last drawn pin, small steps still add up to one).
+     */
+    fun meaningfullyDiffers(
+        old: MePin?,
+        new: MePin,
+    ): Boolean {
+        if (old == null || old.spec != new.spec) return true
+        val turned =
+            if (old.bearingDeg == null || new.bearingDeg == null) {
+                old.bearingDeg != new.bearingDeg
+            } else {
+                abs(HeadingCompare.signedDiff(old.bearingDeg.toDouble(), new.bearingDeg.toDouble())) >= REDRAW_TURN_DEG
+            }
+        return turned ||
+            abs(new.accuracyM - old.accuracyM) >= REDRAW_ACCURACY_M ||
+            metersBetween(old.lat, old.lon, new.lat, new.lon) >= REDRAW_MOVE_M
+    }
 
     /** Every pin image the style needs. */
     fun specs(): List<MarkerSpec.Me> = listOf(false, true).flatMap { h -> STATES.map { MarkerSpec.Me(h, it) } }

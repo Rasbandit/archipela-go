@@ -1,12 +1,15 @@
 package dev.apgo2
 
+import android.content.Context
 import androidx.compose.ui.graphics.Color
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.hex
 import dev.apgo2.ui.renderMarker
+import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.Style
+import org.maplibre.android.offline.OfflineManager
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillLayer
@@ -118,6 +121,7 @@ internal object MapSource {
     const val REALMS = "realms"
     const val AREAS = "areas"
     const val LINES = "lines"
+    const val TRACE_OLD = "trace-old"
     const val TRACE = "trace"
     const val QUESTS = "quests"
     const val QUEST_SEL = "quest-sel"
@@ -136,6 +140,7 @@ internal object MapSource {
             REALMS,
             AREAS,
             LINES,
+            TRACE_OLD,
             TRACE,
             ITEMS,
             QUESTS,
@@ -158,6 +163,10 @@ internal object MapSource {
 /** The base map and the sources and layers drawn over it. */
 internal object MapStyle {
     const val URL = "https://tiles.openfreemap.org/styles/liberty"
+
+    // MapLibre's ambient tile cache defaults to 50 MB; a walk's worth of zooms over a few zones outgrows it and refetches over the radio.
+    private const val TILE_CACHE_BYTES = 200L * 1024 * 1024
+    private var initialized = false
 
     /**
      * The map data's credit, always on show over the map (OpenStreetMap's licence asks that it be seen without a tap; MapLibre's
@@ -228,14 +237,21 @@ internal object MapStyle {
             Expression.stop("done", Expression.literal(AREA_FILL_DONE)),
         )
 
+    private fun traceLine(
+        id: String,
+        source: String,
+    ) = LineLayer(id, source).withProperties(
+        lineColor(ApgoPalette.trace.hex()),
+        scaledWidth(LineKind.TRACE),
+        lineCap(ROUND),
+        lineJoin(ROUND),
+    )
+
     private fun traceLayers() =
         listOf(
-            LineLayer("trace-layer", MapSource.TRACE).withProperties(
-                lineColor(ApgoPalette.trace.hex()),
-                scaledWidth(LineKind.TRACE),
-                lineCap(ROUND),
-                lineJoin(ROUND),
-            ),
+            // Two sources, one look: the older trace is set rarely, so a refresh re-sends only this session's lines.
+            traceLine("trace-old-layer", MapSource.TRACE_OLD),
+            traceLine("trace-layer", MapSource.TRACE),
             // Parks: a thin dashed outline; only its state colour tells the state, as on pins. The fill shows progress (realmLayers).
             LineLayer("park-line", MapSource.LINES)
                 .withFilter(isPark())
@@ -530,4 +546,19 @@ internal object MapStyle {
         image: String,
         size: Float,
     ) = SymbolLayer(id, source).withProperties(iconImage(image), iconSize(size), iconAllowOverlap(true), iconIgnorePlacement(true))
+
+    /** Start MapLibre (once per process) with the larger tile cache. Call before creating any map view. */
+    fun init(context: Context) {
+        MapLibre.getInstance(context)
+        if (initialized) return
+        initialized = true
+        OfflineManager.getInstance(context).setMaximumAmbientCacheSize(
+            TILE_CACHE_BYTES,
+            object : OfflineManager.FileSourceCallback {
+                override fun onSuccess() = Unit
+
+                override fun onError(message: String) = Diag.warn("map", "tile cache size not set", "error" to message)
+            },
+        )
+    }
 }

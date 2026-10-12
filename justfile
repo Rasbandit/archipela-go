@@ -125,7 +125,7 @@ android-release:
     cd android && ./gradlew assembleRelease --console=plain -q
 
 # One command: rebuild Rust + app, install on the phone, launch.
-android-run: android-core android-build android-install android-start
+android-run: (android-core "phone") android-build android-install android-start
 
 android-logs:
     adb logcat --pid=$(adb shell pidof {{app}}) -v time
@@ -137,6 +137,18 @@ android-tap x y:
     adb shell input tap {{x}} {{y}}
 
 # --- Dev Archipelago server with OUR apworld (slot "Tester") ---
+# Archipelago client compliance: our ApSession against the real pinned server (its own :38291, never the dev one). Needs `just setup-ap`.
+test-ap: ap-present
+    #!/usr/bin/env bash
+    set -uo pipefail
+    # One run at a time across worktrees: they share the port, and a start stops whatever listens on it.
+    exec 9>"${TMPDIR:-/tmp}/apgo-test-ap.lock"
+    flock 9
+    (cd core && cargo test -q -p apgo-ffi --test ap_compliance -- --ignored --test-threads=1)
+    status=$?
+    APGO_AP_DIR="$PWD/.ap/compliance" APGO_AP_PORT=38291 bash scripts/ap_host.sh stop >/dev/null
+    exit $status
+
 ap-host trips="100":
     bash scripts/ap_host.sh start {{trips}}
 

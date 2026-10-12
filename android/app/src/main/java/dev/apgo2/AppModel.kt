@@ -96,10 +96,12 @@ internal class AppModel(
     val diag = FieldDiagnostics(this, ctx)
     val due = DueTimer(this, scope, ctx)
     private val traceThrottle = Throttle(TRACE_REFRESH_MS)
+
+    /** Whether the app is on screen: off it, fixes still drive the game but nothing is redrawn until it comes back. */
+    val screen = ScreenGate()
     private val stepRefresh = StepRefresh(STEP_REFRESH_STEPS)
     val pins = PinFeed(this)
     private val sessionTrace = TraceBuffer()
-    private var olderTrace: List<List<LatLng>> = emptyList()
 
     // Bench only: `adb shell run-as dev.apgo2.app touch files/allow_mock` lets mock fixes through in a debuggable build. It is read
     // once at start: force-stop the app (`adb shell am force-stop dev.apgo2.app`) for a new or removed flag to take effect.
@@ -127,8 +129,11 @@ internal class AppModel(
     var hud by mutableStateOf<HudOut?>(null)
     var bag by mutableStateOf<BagOut?>(null)
 
-    /** Where you have been in this game: one line per unbroken stretch of GPS. */
+    /** Where you have been in this session: one line per unbroken stretch of GPS. Changes with each trace refresh. */
     var trace by mutableStateOf<List<List<LatLng>>>(emptyList())
+
+    /** Where you had been in this game before this session; reloaded only when the session's start moves, so it rarely changes. */
+    var traceOld by mutableStateOf<List<List<LatLng>>>(emptyList())
 
     var games by mutableStateOf<List<GameInfo>>(emptyList())
 
@@ -173,6 +178,9 @@ internal class AppModel(
     val here: LatLng?
         get() = Here.pick(simPos, pins.pin?.fix?.let { LatLng(it.lat, it.lon) }, realLoc?.let { LatLng(it.latitude, it.longitude) })
 
+    /** The open game's quests as they are now: the drawn list on screen, read from the core off screen (where it is not reloaded). */
+    val questsNow: List<QuestOut> get() = if (screen.shown) quests else engine.quests(now())
+
     /** Where the player is for game logic: the simulator, else the open game's last accepted estimate (adversarial review M3). */
     val acceptedHere: LatLng?
         get() = Here.logic(simPos, engine.lastAcceptedPos()?.let { LatLng(it.lat, it.lon) })
@@ -208,27 +216,17 @@ internal class AppModel(
         realms.forEach { offers[it.id] = engine.realmOffers(it.id) }
         refreshPlay()
         presence.evaluate() // the `playing` signal follows `hud`, which every game start, open and pause goes through here
+        ap.syncNow() // an Archipelago game just started or opened shows its items now, not at the server's next message
     }
 
-    /** Reload the open game's quests, zones, chains, HUD and pin (and its trace, when [withTrace]). */
+    /**
+     * Reload the open game's quests, zones, chains, HUD and pin (and its trace, when [withTrace]). Off screen only the HUD (presence
+     * and the tracking service read it), the journal and the next due moment: the rest is owed and drawn once on [onForeground].
+     */
     fun refreshPlay(withTrace: Boolean = true) {
         if (engine.hasGame()) {
-            quests = engine.quests(now())
-            zones = engine.zones()
-            chains = engine.chains(now())
             hud = engine.hud(now())
-            bag = engine.bag()
-            if (withTrace) {
-                // This session's lines follow the streets where the match is confident (broken where the filter restarted far away);
-                // the engine sends only what changed (Task 19b). The journal draws everything before them, reloaded only when the
-                // session's start is unknown or moved, or the session's line was replaced.
-                val delta = engine.traceMatchedSince(sessionTrace.cursor)
-                if (sessionTrace.apply(delta)) {
-                    olderTrace =
-                        engine.track(0L, (delta.fromMs ?: Long.MAX_VALUE) - 1).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
-                }
-                trace = (olderTrace + sessionTrace.lines()).filter { it.size >= 2 }
-            }
+            if (screen.draw()) drawPlay(withTrace)
         } else {
             quests = emptyList()
             zones = emptyList()
@@ -237,12 +235,34 @@ internal class AppModel(
             hud = null
             bag = null
             sessionTrace.clear()
-            olderTrace = emptyList()
+            traceOld = emptyList()
             trace = emptyList()
         }
         noteJournal()
         due.schedule()
         pins.refresh() // also clears the pin of a closed game, and of the last game when another one opens
+    }
+
+    // What only the screen shows: quests, zones, chains, the backpack and the trace.
+    private fun drawPlay(withTrace: Boolean) {
+        quests = engine.quests(now())
+        zones = engine.zones()
+        chains = engine.chains(now())
+        bag = engine.bag()
+        if (withTrace) {
+            // This session's lines follow the streets where the match is confident (broken where the filter restarted far away);
+            // the engine sends only what changed (Task 19b). The journal draws everything before them, reloaded only when the
+            // session's start is unknown or moved, or the session's line was replaced.
+            val delta = engine.traceMatchedSince(sessionTrace.cursor)
+            if (sessionTrace.apply(delta)) {
+                traceOld =
+                    engine
+                        .track(0L, (delta.fromMs ?: Long.MAX_VALUE) - 1)
+                        .map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
+                        .filter { it.size >= 2 }
+            }
+            trace = sessionTrace.lines().filter { it.size >= 2 }
+        }
     }
 
     /** Pick up whether the activity log changed (a cheap read; call after anything that may have logged). */
@@ -290,6 +310,9 @@ internal class AppModel(
         rememberPlace()
         engine.logAppState(false, now())
         noteJournal()
+        screen.hide()
+        presence.appVisible = false
+        presence.applyLocation() // another app in front: the batched in-zone rate, and no idle marker rate
         Diag.info("lifecycle", "background")
         diag.drainCore()
     }
@@ -302,12 +325,18 @@ internal class AppModel(
             .onFailure { Diag.warn("map", "last place not saved", "error" to it.message) }
     }
 
-    /** Back on screen: log it, and how long the app was away. */
+    /** Back on screen: log it, and how long the app was away; draw once what changed while off screen. */
     fun onForeground() {
+        val owed = screen.show()
+        // Set here, not from composition: Compose draws no frame while the activity is stopped, so an effect could not see it.
+        presence.appVisible = true
+        presence.applyLocation()
+        ap.onForeground()
         val left = engine.lastBackgroundMs()
         val t = now()
         engine.logAppState(true, t)
         units.onForeground()
+        if (owed) refreshPlay()
         noteJournal()
         Diag.info("lifecycle", "foreground", "away_ms" to (left?.let { t - it } ?: -1L))
     }
@@ -346,7 +375,7 @@ internal class AppModel(
                 }
 
                 is EventOut.SendCheck -> {
-                    report("ap_check", "check failed") { ap.session?.sendCheck(e.locationId) }
+                    if (ap.mayExchange()) report("ap_check", "check failed") { ap.session?.sendCheck(e.locationId) }
                 }
 
                 is EventOut.ShuffleRequested -> {
@@ -359,7 +388,7 @@ internal class AppModel(
     private fun onGoal(label: String) {
         say("GOAL ACHIEVED: $label")
         status = "You won! $label"
-        if (hud?.backend == "archipelago") report("ap_goal", "could not report goal") { ap.session?.sendGoal() }
+        if (hud?.backend == "archipelago" && ap.mayExchange()) report("ap_goal", "could not report goal") { ap.session?.sendGoal() }
     }
 
     // Run an Archipelago call; if it throws, log it and tell the player in the on-screen log.

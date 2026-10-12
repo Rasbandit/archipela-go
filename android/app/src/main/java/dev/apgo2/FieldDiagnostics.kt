@@ -32,6 +32,9 @@ internal class FieldDiagnostics(
     private val progressBuckets = HashMap<Long, Int>()
     private val providerCounts = HashMap<String, Int>()
     private val beat = Throttle(BEAT_EVERY_MS)
+
+    // Off screen the quest list is read from the core for this (not kept by the model): once a minute, not every fix.
+    private val offScreenProgress = Throttle(BEAT_EVERY_MS)
     private val onFixMicros = RecentSamples(MAX_PERF_SAMPLES)
     private var beats = 0
 
@@ -52,7 +55,8 @@ internal class FieldDiagnostics(
 
     /** Log quest progress each time it crosses a 10% step, so a quest that never moves shows up in the log. */
     fun logProgress() {
-        for (q in model.quests) {
+        if (!model.screen.shown && !offScreenProgress.due(model.now())) return
+        for (q in model.questsNow) {
             if (q.state != "progress") {
                 progressBuckets.remove(q.locationId)
                 continue
@@ -112,7 +116,7 @@ internal class FieldDiagnostics(
 
     private fun gameFields(): Array<Pair<String, Any?>> =
         arrayOf(
-            "quests" to model.quests.size,
+            "quests" to model.questsNow.size,
             "done" to (model.hud?.done ?: 0),
             "presence" to model.presence.decision.state.name,
             "counting" to model.presence.decision.counting,

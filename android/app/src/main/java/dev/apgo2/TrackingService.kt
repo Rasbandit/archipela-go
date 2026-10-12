@@ -92,7 +92,7 @@ class TrackingService : Service() {
     // What the activity's effects would start: steps, presence and GPS.
     private fun resumeWithoutScreen(model: AppModel) {
         Diag.info(TAG, "resume without screen")
-        if (hasActivityRecognition()) model.sensors.startSteps()
+        if (hasActivityRecognition()) model.sensors.allowSteps()
         model.presence.startHeadless(hasFineLocation(), hasBluetoothConnect())
     }
 

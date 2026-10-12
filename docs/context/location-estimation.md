@@ -52,7 +52,7 @@ Android (`android/app/src/main/java/dev/apgo2/`):
 | File | Holds |
 | --- | --- |
 | `GpsPolicy.kt` | Rate by presence and screen (`forDecision`, `inZone`), `request`, `gmsRequest`, `gmsColdStart`, `providers(enabled, gms)` |
-| `Sensors.kt` | Facade the app calls; Play services detection, GNSS callback, steps (2 s batch in a zone) |
+| `Sensors.kt` | Facade the app calls; Play services detection, GNSS callback (map in front only), steps (`StepRate`) |
 | `LocationSource.kt`, `HeadingSource.kt` | Play services or LocationManager listener (batched, oldest first), cold start, fall-back; compass (fused or rotation vector), heading compare |
 | `Compass.kt` | `CompassRate`, `CompassSource` (fused or rotation vector), `FusedHeadingWatch` (falls back from a silent fused compass), `HeadingCompare` |
 | `RawTrack.kt` | `FixSample`, `FixTime` (fix time from `elapsedRealtimeNanos`), `RawLines` (raw-track line formats), `MockPolicy` |
@@ -188,18 +188,34 @@ building, each by a ruling in the plan's ledger:
 The core inflates a network fix's `R` 4x and never accepts its estimates (a Wi-Fi position can be spoofed without the mock flag,
 adversarial review I2). They are display only until the session's first GNSS fix; from then on network fixes are dropped
 (`Unusable`), not shown. So indoors in a zone, once GPS was seen, a fused fix tagged `network` leaves the pin stale instead of following
-Wi-Fi (re-review N6). A fused fix is sent as `network` when a
-`GnssStatus` reported within the last 30 s with no satellite used in a fix (`GnssEvidence`); with no `GnssStatus` data (it runs only
-in a zone) fused is trusted. If a Play services request fails, the session falls back to the LocationManager plan until the next game open.
+Wi-Fi (re-review N6). A fused fix is sent as `network` when the GPS provider is off, or when a
+`GnssStatus` reported within the last 30 s with no satellite used in a fix (`GnssEvidence`); with GPS on and no `GnssStatus` data (it
+runs continuously only in a zone with the map in front: its 1 Hz callback would wake the CPU through screen-off batching) fused is
+trusted. Each batched in-zone Play services batch (`GpsPolicy.samplesSatellites`: off screen) first waits for one status sample,
+at most 3 s (`GnssSampler`, `SampleGate`); later fixes never overtake a held batch. The 3 s is not a wake-up alarm: asleep it ends at
+the next wake (about 5 s in a zone, from the wake-up compass and steps). A `gnss sample` diag line records whether a status came
+(`status`) and how long it waited (`waited_ms`), so a walk shows how often it works. Outside zones nothing waits (the chip is off). If a Play services request fails, the session falls back to the LocationManager plan until the next game open.
 
-- Rate: in a zone, 1 s with the screen on, 5 s (batched up to 10 s) with it off, high accuracy in both (`GpsPolicy.inZone`), with no
+- Rate: in a zone, 1 s with the screen on and the app in front, otherwise 5 s batched up to 20 s (the chip still fixes every 5 s; the CPU
+  wakes a quarter as often; 20 s keeps a late batch well under the 45 s gap cap below), high accuracy in both (`GpsPolicy.inZone`). Leaving a batched request (screen on, app to the front) flushes
+  the batch first and swaps the request when the flush completes, 2 s timeout (`GpsPolicy.shouldFlush`, `LocationSource.flushThen`), with no
   distance filter: this replaces main's 5 s / 10 m in-zone rate (`PresencePolicy.ZONE_MOVE_M`), because the filter needs a steady
   stream (stationary hold, gaps, resets) and a standing player would otherwise look like a GPS gap. Idle 15 s / 20 m; outside zones
   main's 90 s / 50 m. No location while a game waits to learn whether you are home (`holding`). A screen on/off broadcast re-applies
   the decision.
 - Compass: 5 Hz on screen, 1 Hz off. Play services' Fused Orientation Provider only while the map is on screen (it delivers only in
   the foreground); rotation vector otherwise. Readings go to `on_heading` with `error_deg` from the fused provider.
-- Steps: `TYPE_STEP_COUNTER` only, 2 s batches in a zone (10 s otherwise), event time sent so cadence is known.
+- Off-screen batching (compass and steps 5 s in a zone, fixes 20 s): `ReplayOpts.delivery` replays scenarios in phone arrival order;
+  `compass_batching_experiment` (ignored) shows 5 s step and compass batches bridge a 60 s gap as well as 1 s (p90 ~11 m), while 10 s
+  compass batches break it (p90 over 75 m). `screen_off_batching_still_bridges_a_pocket_gap_with_a_carry_change` pins it.
+  Off screen both use the **wake-up** sensor variants (`CompassRate.wakeUp`, `StepRate.wakeUp`): the app holds no wakelock, and a
+  non-wake-up sensor holds its batch until something else wakes the CPU (the 20 s GPS batch), which the bench shows breaks the
+  bridge (20/20: p90 77 to 115 m). The 2026-10-10 walk log shows why this never showed before: off screen the compass still arrived
+  every ~1 s and fixes every ~5 s, so something (the 1 Hz GnssStatus callback, now gated) kept the CPU awake and batching never ran.
+- Steps: `TYPE_STEP_COUNTER` only, 2 s batches in a zone on screen (5 s off screen), 10 s outside zones, off with no game open, at home or in the car
+  (`StepRate`). Leaving (home Wi-Fi or car Bluetooth gone, 45 s debounce still running) starts it: the first reading is the core's
+  leave mark (`Game::leave_mark`, good for 2 min), and once leaving is confirmed every step since the door is credited (backfill).
+  A stale mark (a Wi-Fi blip) is dropped, so indoor steps are never credited; event time sent so cadence is known.
 - Step calibration: loaded from preferences `stepcal` on game open and on a solo or Archipelago start, saved on close, background and
   every 5th heartbeat (heartbeats come with fixes, at most one a minute: no timer wakes the phone); a calibration with no samples is never saved over a stored one.
 - Network fixes (LocationManager `network`, or fused without satellites) count double sigma and never count for quests; after the

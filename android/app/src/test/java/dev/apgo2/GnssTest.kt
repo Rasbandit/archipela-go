@@ -20,6 +20,37 @@ class GnssTest {
         assertEquals("only fused fixes are retagged", "gps", g.providerOf("gps", 41_000L))
     }
 
+    @Test fun withTheGpsProviderOffAFusedFixIsNetworkEvenWithoutStatus() {
+        // Off screen there is no GnssStatus (the callback runs only with the map in front): the GPS toggle still tells.
+        val g = GnssEvidence()
+        assertEquals("network", g.providerOf("fused", 1_000L, gpsOn = false))
+        assertEquals("fused", g.providerOf("fused", 1_000L, gpsOn = true))
+        assertEquals("only fused fixes are retagged", "gps", g.providerOf("gps", 1_000L, gpsOn = false))
+    }
+
+    @Test fun batchesWaitingForOneSatelliteSampleAreReleasedTogether() {
+        val gate = SampleGate()
+        val ran = mutableListOf<Int>()
+        assertTrue("the first batch starts a sample", gate.request { ran += 1 })
+        assertFalse("a batch arriving meanwhile waits for the same one", gate.request { ran += 2 })
+        assertTrue("nothing runs before the sample ends", ran.isEmpty())
+        gate.complete()
+        assertEquals("in arrival order", listOf(1, 2), ran)
+        gate.complete()
+        assertEquals("a second end (a late status after the timeout) runs nothing again", listOf(1, 2), ran)
+        assertTrue("the next batch starts a new sample", gate.request { ran += 3 })
+    }
+
+    @Test fun aBatchSkipsTheSampleOnlyWhenNothingIsHeld() {
+        val gate = SampleGate()
+        assertTrue("map in front, nothing held: count at once", gate.bypass(continuous = true))
+        assertFalse("off screen: sample first", gate.bypass(continuous = false))
+        gate.request {}
+        assertFalse("a batch is held: newer fixes wait behind it, even with the map back in front", gate.bypass(continuous = true))
+        gate.complete()
+        assertTrue(gate.bypass(continuous = true))
+    }
+
     @Test fun carrierFrequenciesMapToBands() {
         assertEquals("L1", GnssBands.of(1_575.42e6f)) // GPS L1, Galileo E1
         assertEquals("L1", GnssBands.of(1_561.098e6f)) // BeiDou B1

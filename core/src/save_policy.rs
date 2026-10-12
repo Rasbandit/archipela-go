@@ -14,8 +14,9 @@ impl SavePolicy {
     }
 
     /// `eventful`: this call produced game events (always save). Returns true when the caller should save now and records it.
+    /// A time earlier than the last save by less than the interval is a late (batched) fix, not a clock change: not due.
     pub fn due(&mut self, now_ms: i64, eventful: bool) -> bool {
-        let due = eventful || self.last_ms.is_none_or(|last| now_ms < last || now_ms - last >= self.interval_ms);
+        let due = eventful || self.last_ms.is_none_or(|last| (now_ms - last).abs() >= self.interval_ms);
         if due {
             self.last_ms = Some(now_ms);
         }
@@ -67,6 +68,16 @@ mod tests {
         p.due(100_000, false);
         assert!(p.due(50_000, false));
         assert!(!p.due(60_000, false));
+    }
+
+    #[test]
+    fn a_late_batched_fix_is_not_a_clock_change() {
+        // Steps arrive with the current time, a batched fix with its own (up to its batch older): no second save for that.
+        let mut p = SavePolicy::new(90_000);
+        assert!(p.due(166_000, false));
+        assert!(!p.due(140_000, false));
+        assert!(!p.due(170_000, false));
+        assert!(p.due(256_000, false));
     }
 
     #[test]

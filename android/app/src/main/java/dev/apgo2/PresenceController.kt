@@ -54,7 +54,7 @@ internal class PresenceController(
             field = v
         }
 
-    /** Whether the screen is on (the in-zone rate is 1 s with it on, 5 s with it off). */
+    /** Whether the screen is on (the in-zone rate is 1 s with it on and the app in front, else 5 s batched: [GpsPolicy]). */
     var screenOn = true
         private set
     private val homeDebounce = Debouncer()
@@ -193,7 +193,8 @@ internal class PresenceController(
         val rate = if (locationPermitted) GpsPolicy.forDecision(decision, appVisible, screenOn, holding) else null
         if (rate == null) model.sensors.stopLocation() else model.sensors.startLocation(rate)
         val inZone = rate != null && decision.state == PresenceState.InZone
-        if (inZone) model.sensors.startGnss() else model.sensors.stopGnss()
+        // Satellite status wakes the main thread every second: only while the map is in front (it would undo screen-off batching).
+        if (inZone && screenOn && appVisible) model.sensors.startGnss() else model.sensors.stopGnss()
         if (inZone) {
             model.sensors.startHeading(
                 CompassRate.periodUs(screenOn, appVisible),
@@ -202,7 +203,13 @@ internal class PresenceController(
         } else {
             model.sensors.stopHeading()
         }
-        model.sensors.setFastSteps(inZone)
+        // Home or car signal gone but not yet confirmed: count steps from the door (backfilled once it is).
+        val leaving = StepRate.leaving(decision.state, homeDebounce.pending, carDebounce.pending)
+        val onScreen = screenOn && appVisible
+        model.sensors.setStepBatch(
+            StepRate.batchUs(decision.state, inZone, leaving, onScreen),
+            StepRate.wakeUp(decision.state, inZone, leaving, onScreen),
+        )
     }
 
     // Runs after every fix and Wi-Fi change (both end in [evaluate]). A simulated position is not a real visit home. The fix is the

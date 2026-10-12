@@ -229,7 +229,12 @@ pub enum ApEvent {
     Other,
 }
 
-/// A connection to an Archipelago server, polled by the host on a timer.
+// Wait on `ready` up to `timeout_ms`; no socket (not connected) returns at once.
+fn wait_ready(ready: Option<ap::Readiness>, timeout_ms: u32) -> bool {
+    ready.is_some_and(|r| r.wait(std::time::Duration::from_millis(u64::from(timeout_ms))))
+}
+
+/// A connection to an Archipelago server: the host waits for data ([`ApSession::wait_for_data`]) and drains it ([`ApSession::poll`]).
 #[derive(uniffi::Object)]
 pub struct ApSession {
     conn: Mutex<ap::Connection>,
@@ -256,7 +261,7 @@ impl ApSession {
         Arc::new(Self { conn: Mutex::new(ap::Connection::new(&url, &slot, Some(GAME_NAME), options)) })
     }
 
-    /// Drain pending network events. Call every few hundred ms.
+    /// Drain pending network events: after [`Self::wait_for_data`] woke, and while connecting.
     pub fn poll(&self) -> Vec<ApEvent> {
         let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         conn.update()
@@ -270,6 +275,35 @@ impl ApSession {
                 _ => ApEvent::Other,
             })
             .collect()
+    }
+
+    /// Block until the server sends something or `timeout_ms` passes, so the host sleeps between messages instead of polling on a
+    /// timer; then call [`Self::poll`]. Holds no lock while waiting (checks are sent meanwhile). Returns `false` at once while not
+    /// connected (the host keeps its back-off then), and `false` on a timeout.
+    pub fn wait_for_data(&self, timeout_ms: u32) -> bool {
+        let ready = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner).readiness();
+        wait_ready(ready, timeout_ms)
+    }
+
+    /// Ask the server something it always answers (a `Get` of an unused key; it replies `Retrieved`), so a silent but live
+    /// connection wakes [`Self::wait_for_data`] and a dead one stays silent. Used before reconnecting after a whole silent wait, for
+    /// servers that do not ping.
+    ///
+    /// # Errors
+    /// `Failed` when not connected.
+    #[allow(clippy::significant_drop_tightening)] // the client borrows from the connection guard until the request is sent
+    pub fn probe(&self) -> Result<(), CoreError> {
+        let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let client = conn.client_mut().ok_or_else(|| CoreError::Failed { detail: "not connected".into() })?;
+        drop(client.get(["_apgo_probe"])); // the answer is only a wake-up; nobody reads it
+        Ok(())
+    }
+
+    /// Which seed and slot this session is connected to (`seed/slot`), once connected: an Archipelago game stores it at its start
+    /// and exchanges checks, goal and items only with that server (`Engine::ap_server_match`).
+    pub fn server_identity(&self) -> Option<String> {
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        conn.client().map(|c| format!("{}/{}", c.seed_name(), c.this_player().name()))
     }
 
     /// `connecting`, `connected`, or `disconnected: <reason>`.
@@ -338,6 +372,44 @@ impl ApSession {
         let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let client = conn.client_mut().ok_or_else(|| CoreError::Failed { detail: "not connected".into() })?;
         client.mark_checked([location_id]).map_err(|e| CoreError::Failed { detail: e.to_string() })
+    }
+
+    /// Send many checks in one `LocationChecks` packet (on connect, everything finished so far: the server ignores repeats).
+    ///
+    /// # Errors
+    /// `Failed` when not connected or the send fails.
+    #[allow(clippy::significant_drop_tightening)] // the client borrows from the connection guard until the result is built
+    pub fn send_checks(&self, location_ids: Vec<i64>) -> Result<(), CoreError> {
+        let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let client = conn.client_mut().ok_or_else(|| CoreError::Failed { detail: "not connected".into() })?;
+        client.mark_checked(location_ids).map_err(|e| CoreError::Failed { detail: e.to_string() })
+    }
+}
+
+/// When the host retries a dropped Archipelago connection (see `apgo_core::ap_poll::ReconnectBackoff`). The host keeps one across
+/// sessions and resets it once connected.
+#[derive(uniffi::Object)]
+pub struct ApReconnect {
+    backoff: Mutex<apgo_core::ap_poll::ReconnectBackoff>,
+}
+
+#[uniffi::export]
+impl ApReconnect {
+    /// A fresh back-off, starting at the first wait.
+    #[uniffi::constructor]
+    #[must_use]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { backoff: Mutex::new(apgo_core::ap_poll::ReconnectBackoff::default()) })
+    }
+
+    /// The wait before the next reconnect try, ms.
+    pub fn next_delay_ms(&self) -> u64 {
+        self.backoff.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next_wait_ms()
+    }
+
+    /// Connected again.
+    pub fn reset(&self) {
+        self.backoff.lock().unwrap_or_else(std::sync::PoisonError::into_inner).reset();
     }
 }
 
@@ -425,4 +497,29 @@ pub fn line_width_stops(kind: LineKind) -> Vec<WidthStop> {
 #[must_use]
 pub const fn line_width_curve_base() -> f32 {
     apgo_core::line_width::CURVE_BASE
+}
+
+#[cfg(test)]
+mod ap_wait_tests {
+    use super::{ap, wait_ready};
+    use std::io::Write;
+    use std::net::{TcpListener, TcpStream};
+
+    #[test]
+    fn not_connected_returns_at_once() {
+        let t = std::time::Instant::now();
+        assert!(!wait_ready(None, 5_000));
+        assert!(t.elapsed().as_millis() < 1_000, "no socket to wait on: the host falls back to its back-off");
+    }
+
+    #[test]
+    fn waits_for_the_servers_data_or_the_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut server = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (client, _) = listener.accept().unwrap();
+        let ready = ap::Readiness::new(client).unwrap();
+        assert!(!wait_ready(Some(ready.clone()), 50), "nothing sent: times out");
+        server.write_all(b"x").unwrap();
+        assert!(wait_ready(Some(ready), 5_000), "data sent: wakes");
+    }
 }

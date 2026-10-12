@@ -15,5 +15,5 @@ pub use metrics::{
 };
 pub use record::{parse_raw_lines, read_journal, read_raw_dir, Recording};
 pub use reference::{good_fix_reference, rts_reference};
-pub use run::{run_locator, run_scenario, shown, Replay, ReplayOpts};
+pub use run::{run_locator, run_scenario, shown, Delivery, Replay, ReplayOpts};
 pub use synth::{cadence_for, gauss, grid_ways, truth_at, HeadingSim, Leg, Run, Scenario, Spike, TruthPoint};

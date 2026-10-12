@@ -746,10 +746,34 @@ pub struct AuditEventOut {
     pub at: Option<GeoPoint>,
 }
 
+/// The seed name an Archipelago game was given before games remembered their server's `seed/slot`.
+const LEGACY_AP_SEED: &str = "archipelago";
+
+/// Whether the open game belongs to the connected Archipelago server ([`Engine::ap_server_match`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ServerMatch {
+    /// Started on this server's seed and slot.
+    Same,
+    /// Started on another seed or slot: exchange nothing.
+    Other,
+    /// Not known (a game from before, or none open).
+    Unknown,
+}
+
+/// What to tell the Archipelago server on (re)connect ([`Engine::server_report`]).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ServerReportOut {
+    /// Every finished location id, ascending.
+    pub checks: Vec<i64>,
+    /// Whether the goal was reached.
+    pub goal: bool,
+}
+
 /// Quests this close to a fix get a line in the log saying whether they count.
 const NEAR_MISS_RADIUS_M: f64 = 100.0;
-/// Longest the open game goes unsaved while the player moves without events.
-const SAVE_INTERVAL_MS: i64 = 30_000;
+/// Longest the open game goes unsaved while the player moves without lasting events (each save rewrites and syncs the whole file;
+/// the app also saves when it leaves the screen).
+const SAVE_INTERVAL_MS: i64 = 90_000;
 /// The drawn trace drops fixes within this of the last kept one (standing still), in metres.
 const TRACE_MIN_STEP_M: f64 = 8.0;
 /// The drawn trace smooths out wobble smaller than this, in metres.
@@ -961,10 +985,20 @@ fn journal_due(last: Option<&TrackPoint>, p: &TrackPoint) -> bool {
     })
 }
 
-/// Each of `game`'s zones as its realm's shape (from `shapes`, one per zone realm) and its travel mode; zones whose realm is gone are left
-/// out.
-fn zone_modes_of(game: &Game, shapes: Vec<Option<Shape>>) -> Vec<(Shape, Mode)> {
-    game.slot.zones.iter().zip(shapes).filter_map(|(z, s)| s.map(|s| (s, z.mode))).collect()
+/// What the engine keeps of the open game's zone realms, so per-fix checks and `zones()` read no realm file.
+#[derive(Default)]
+struct ZoneCache {
+    /// Each zone's realm shape and travel mode; zones whose realm is gone are left out.
+    modes: Vec<(Shape, Mode)>,
+    /// Each zone realm's name, one per zone realm of the game (empty for a realm that is gone).
+    names: Vec<String>,
+}
+
+/// The zone cache of `game` from its zone realms as saved now (`realms`, one per zone realm, `None` for one that is gone).
+fn zone_cache_of(game: &Game, realms: Vec<Option<Realm>>) -> ZoneCache {
+    let names = realms.iter().map(|r| r.as_ref().map(|r| r.name.clone()).unwrap_or_default()).collect();
+    let modes = game.slot.zones.iter().zip(realms).filter_map(|(z, r)| r.map(|r| (r.shape, z.mode))).collect();
+    ZoneCache { modes, names }
 }
 
 /// The `fix_rejected` line for an estimate that may not count, if it is one of those.
@@ -997,8 +1031,9 @@ pub struct Engine {
     game: Mutex<Option<Game>>,
     /// When the open game is next written to disk between events (so counters survive a kill).
     save_policy: Mutex<SavePolicy>,
-    /// Shape and travel mode of each zone of the open game: the "inside a zone" check and the filter's mode at the player's position.
-    zone_modes: Mutex<Vec<(Shape, Mode)>>,
+    /// Shape and travel mode of each zone of the open game (the "inside a zone" check and the filter's mode at the player's position),
+    /// and its realm names.
+    zones: Mutex<ZoneCache>,
     /// The fix spacing the phone last said it asks for ([`Self::set_fix_spacing_hint`]), handed to every game opened.
     fix_spacing_hint: Mutex<Option<i64>>,
     // Where the last fix's estimate was relative to the zones, worked out once in `on_fix` for presence to read.
@@ -1013,6 +1048,8 @@ pub struct Engine {
     last_journal: Mutex<Option<TrackPoint>>,
     /// The last street-build generation handed out (see [`Game::set_streets`]).
     streets_gen: AtomicU64,
+    /// Bumped by every realm save or delete, so a street swap that read the realm files before an edit does not undo it.
+    realm_edits: AtomicU64,
     /// Stop flags of the scans running now (see [`Engine::cancel_scan`]).
     scans: ScanRegistry,
     /// Held while a finished scan saves and while a realm is deleted, so a delete can never land between a scan's last check
@@ -1203,8 +1240,24 @@ impl Engine {
     /// Swap built streets into the open game if it is still `game_id` over `zone_realms` and nothing newer went in; true when they did.
     /// The zone shapes are read again then too, so an outline edit moves in-zone, proximity and the filter's mode (final review M2).
     fn swap_streets(&self, game_id: &str, zone_realms: &[String], streets: Streets, generation: u64, realms: &[(Realm, Atlas)]) -> bool {
+        let edits = self.realm_edits.load(std::sync::atomic::Ordering::SeqCst);
+        let saved = self.zone_realm_files(zone_realms); // read before the lock: no file reads while fixes wait
+        self.swap_streets_from(game_id, zone_realms, streets, generation, realms, saved, edits)
+    }
+
+    /// [`Self::swap_streets`] with the zone realm files as read (`saved`) when the realm edit count was `edits`.
+    #[allow(clippy::too_many_arguments)] // split out so a test can land an edit between the file read and the lock
+    fn swap_streets_from(
+        &self,
+        game_id: &str,
+        zone_realms: &[String],
+        streets: Streets,
+        generation: u64,
+        realms: &[(Realm, Atlas)],
+        saved: Vec<Option<Realm>>,
+        edits: u64,
+    ) -> bool {
         let atlases: Vec<&Atlas> = realms.iter().map(|(_, a)| a).collect();
-        let shapes = self.realm_shapes(zone_realms); // read before the lock: no file reads while fixes wait
         let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(g) = slot.as_mut().filter(|g| g.id == game_id && g.zone_realms == zone_realms) else { return false };
         if !g.set_streets(streets, generation) {
@@ -1219,15 +1272,18 @@ impl Engine {
             }
         }
         // Set while the game lock is held, so a game installed meanwhile cannot get these shapes (lock order: game, then zones).
-        let modes = zone_modes_of(g, shapes);
-        self.set_zones(slot, modes);
+        // A realm edit since the files were read already set fresher zones (refresh_zones_of): keep those.
+        if self.realm_edits.load(std::sync::atomic::Ordering::SeqCst) == edits {
+            let zones = zone_cache_of(g, saved);
+            self.set_zones(slot, zones);
+        }
         true
     }
 
-    /// The saved shape of each realm in `ids` (`None` for one that is gone).
-    fn realm_shapes(&self, ids: &[String]) -> Vec<Option<Shape>> {
+    /// Each realm in `ids` as saved now (`None` for one that is gone).
+    fn zone_realm_files(&self, ids: &[String]) -> Vec<Option<Realm>> {
         let store = self.store();
-        ids.iter().map(|id| store.get(id).map(|r| r.shape)).collect()
+        ids.iter().map(|id| store.get(id)).collect()
     }
 
     /// Make `game` the open game and remember the shapes of its zones' realms (for "inside a zone" checks). Its streets come later,
@@ -1239,7 +1295,7 @@ impl Engine {
         if let Err(e) = Game::mark_playing(&self.dir, &game.id) {
             self.note(format!("could not remember game {} as being played: {e}", game.id));
         }
-        let shapes = self.realm_shapes(&game.zone_realms);
+        let realms = self.zone_realm_files(&game.zone_realms);
         let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Read the units under the game lock: `refresh_units` stores new units before it takes this lock, so a change racing
         // this install is either seen here or applied to this game right after.
@@ -1251,34 +1307,36 @@ impl Engine {
                 self.note(format!("could not save game {} before replacing it: {e}", old.id));
             }
         }
-        let modes = zone_modes_of(&game, shapes);
+        let zones = zone_cache_of(&game, realms);
         *slot = Some(game);
-        self.set_zones(slot, modes);
+        self.set_zones(slot, zones);
     }
 
     /// Realm `id` was redrawn or deleted: when it is a zone of the open game, in-zone checks use what is saved now, not what was
     /// saved when the game was opened.
     fn refresh_zones_of(&self, id: &str) {
+        self.realm_edits.fetch_add(1, std::sync::atomic::Ordering::SeqCst); // before the lock: a swap holding it sees the edit
         let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(modes) = slot.as_ref().filter(|g| g.zone_realms.iter().any(|r| r == id)).map(|g| zone_modes_of(g, self.realm_shapes(&g.zone_realms))) else {
+        let Some(zones) = slot.as_ref().filter(|g| g.zone_realms.iter().any(|r| r == id)).map(|g| zone_cache_of(g, self.zone_realm_files(&g.zone_realms)))
+        else {
             return;
         };
-        self.set_zones(slot, modes);
+        self.set_zones(slot, zones);
     }
 
     // The open game's zone shapes; a new set (another game, or none) forgets where the last fix was relative to the old ones.
     // Takes the game guard and releases it after, so the shapes only ever change together with the game, never between another
     // thread's read and write (lock order: game, then zones).
-    fn set_zones(&self, game: MutexGuard<'_, Option<Game>>, modes: Vec<(Shape, Mode)>) {
-        *self.zone_modes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = modes;
+    fn set_zones(&self, game: MutexGuard<'_, Option<Game>>, zones: ZoneCache) {
+        *self.zones.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = zones;
         *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         drop(game);
     }
 
     /// Distance in metres from a point to the nearest zone area of the open game (0 inside), or `None` with no game.
     fn zone_distance_m(&self, p: Point) -> Option<f64> {
-        let zones = self.zone_modes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        zones.iter().map(|(s, _)| s.distance_m(p)).reduce(f64::min)
+        let zones = self.zones.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        zones.modes.iter().map(|(s, _)| s.distance_m(p)).reduce(f64::min)
     }
 
     /// Remember where the last fix's estimate was relative to the open game's zones (`None`: no zones), for presence.
@@ -1382,7 +1440,7 @@ impl Engine {
             catalog: Catalog::builtin(),
             game: Mutex::new(None),
             save_policy: Mutex::new(SavePolicy::new(SAVE_INTERVAL_MS)),
-            zone_modes: Mutex::new(Vec::new()),
+            zones: Mutex::new(ZoneCache::default()),
             fix_spacing_hint: Mutex::new(None),
             last_proximity: Mutex::new(None),
             units: Mutex::new(resolve_units(Settings::load(&dir).units, "")),
@@ -1390,6 +1448,7 @@ impl Engine {
             region: Mutex::new(String::new()),
             last_journal: Mutex::new(None),
             streets_gen: AtomicU64::default(),
+            realm_edits: AtomicU64::default(),
             scans: ScanRegistry::default(),
             store_write: Mutex::new(()),
             dir,
@@ -1791,7 +1850,7 @@ impl Engine {
             }
         }
         *game = None;
-        self.set_zones(game, Vec::new());
+        self.set_zones(game, ZoneCache::default());
     }
 
     /// Delete a saved game; its file is archived, not erased.
@@ -1808,7 +1867,7 @@ impl Engine {
             let hit = g.as_ref().is_some_and(|x| x.id == id);
             if hit {
                 *g = None;
-                self.set_zones(g, Vec::new());
+                self.set_zones(g, ZoneCache::default());
             }
             hit
         };
@@ -1958,8 +2017,9 @@ impl Engine {
 
     /// The zones of the open game.
     pub fn zones(&self) -> Vec<ZoneOut> {
-        let store = self.store();
+        // Lock order: game, then zones.
         self.with_game(|g| {
+            let names = &self.zones.lock().unwrap_or_else(std::sync::PoisonError::into_inner).names;
             g.slot
                 .zones
                 .iter()
@@ -1970,7 +2030,7 @@ impl Engine {
                     unlocked: g.zone_unlocked(z.id),
                     keys_needed: z.zone_keys_needed,
                     tool: z.tool.clone(),
-                    realm_name: g.zone_realms.get(i).and_then(|id| store.get(id)).map(|r| r.name).unwrap_or_default(),
+                    realm_name: names.get(i).cloned().unwrap_or_default(),
                     realm_id: g.zone_realms.get(i).cloned().unwrap_or_default(),
                 })
                 .collect()
@@ -2022,7 +2082,7 @@ impl Engine {
         let t_ms = raw.t_ms;
         let Some((game_id, ev, entries, near, est)) = self.with_game(|g| {
             // Ruling E2: the mode (set before the filter runs) and the zone come from estimates, the raw fix only before the first one.
-            let mode = fix_mode(&self.zone_modes.lock().unwrap_or_else(std::sync::PoisonError::into_inner), g.last_estimate().map(|e| e.point()), raw.point());
+            let mode = fix_mode(&self.zones.lock().unwrap_or_else(std::sync::PoisonError::into_inner).modes, g.last_estimate().map(|e| e.point()), raw.point());
             if let Some(m) = mode {
                 g.set_travel_mode(m);
             }
@@ -2033,7 +2093,7 @@ impl Engine {
             if est.is_none() {
                 self.set_proximity(self.zone_distance_m(raw.point()));
             }
-            self.save_if_due(g, t_ms, !ev.is_empty());
+            self.save_if_due(g, t_ms, ev.iter().any(Event::saves_at_once));
             let at = est.map(|e| (e.lat, e.lon));
             let entries = g.journal_events(&ev, t_ms, at);
             let near = est.map(|e| g.explain_near(&e, NEAR_MISS_RADIUS_M)).unwrap_or_default();
@@ -2047,25 +2107,28 @@ impl Engine {
             .map(|e| TrackPoint { t_ms, lat: e.lat, lon: e.lon, accuracy_m: e.uncertainty_m, simulated })
             .filter(|p| self.journal_point_due(p));
         let rejected = est.map_or_else(|| Some("unusable fix".into()), |e| rejected_detail(&e, self.unit_system())).filter(|_| self.reject_log_due(t_ms));
+        // One transaction per fix: the point and its log lines cost one commit.
         self.journal_do(|j| {
-            if let Some(p) = &point {
-                j.add_point(&game_id, p)?;
-            }
-            if let Some(detail) = rejected {
-                j.log(&game_id, &JournalEvent { t_ms, kind: kind::FIX_REJECTED.into(), detail, at })?;
-            }
-            for n in self.new_near_misses(near, t_ms) {
-                j.log(
-                    &game_id,
-                    &JournalEvent {
-                        t_ms,
-                        kind: kind::NEAR_MISS.into(),
-                        detail: format!("{}: {} ({})", n.name, n.reason, distance(n.distance_m, self.unit_system())),
-                        at,
-                    },
-                )?;
-            }
-            entries.iter().try_for_each(|e| j.log(&game_id, e))
+            j.batch(|j| {
+                if let Some(p) = &point {
+                    j.add_point(&game_id, p)?;
+                }
+                if let Some(detail) = rejected {
+                    j.log(&game_id, &JournalEvent { t_ms, kind: kind::FIX_REJECTED.into(), detail, at })?;
+                }
+                for n in self.new_near_misses(near, t_ms) {
+                    j.log(
+                        &game_id,
+                        &JournalEvent {
+                            t_ms,
+                            kind: kind::NEAR_MISS.into(),
+                            detail: format!("{}: {} ({})", n.name, n.reason, distance(n.distance_m, self.unit_system())),
+                            at,
+                        },
+                    )?;
+                }
+                entries.iter().try_for_each(|e| j.log(&game_id, e))
+            })
         });
         self.events_out(ev)
     }
@@ -2136,7 +2199,7 @@ impl Engine {
     pub fn on_steps(&self, total: i64, t_ms: i64, cadence: Option<f64>) -> Vec<EventOut> {
         let Some((game_id, ev, entries)) = self.with_game(|g| {
             let ev = g.on_steps(total, t_ms, cadence);
-            self.save_if_due(g, t_ms, !ev.is_empty());
+            self.save_if_due(g, t_ms, ev.iter().any(Event::saves_at_once));
             let entries = g.journal_events(&ev, t_ms, None);
             (g.id.clone(), ev, entries)
         }) else {
@@ -2185,6 +2248,28 @@ impl Engine {
             g.mark_checked(&ids, now_ms);
             let _ = g.save(&dir);
         });
+    }
+
+    /// Whether the open game belongs to the connected Archipelago server, `identity` being its `seed/slot`
+    /// (`ApSession::server_identity`, stored at the game's start): its checks, goal and items are only exchanged with that one.
+    /// A game started before games remembered their server (seed name `archipelago`), or no game open, is `Unknown`.
+    pub fn ap_server_match(&self, identity: String) -> ServerMatch {
+        self.with_game(|g| match g.seed_name.as_str() {
+            LEGACY_AP_SEED => ServerMatch::Unknown,
+            own if own == identity => ServerMatch::Same,
+            _ => ServerMatch::Other,
+        })
+        .unwrap_or(ServerMatch::Unknown)
+    }
+
+    /// What the open game tells the Archipelago server `identity` on every (re)connect: every finished location and whether the goal
+    /// was reached. The protocol asks clients to send checks made while offline on connection, and the server ignores repeats, so
+    /// this is all of them, every time. `None` unless the game belongs to that server ([`Self::ap_server_match`]): another seed's
+    /// server must never get them (a goal there could release its whole world).
+    pub fn server_report(&self, identity: String) -> Option<ServerReportOut> {
+        (self.ap_server_match(identity) == ServerMatch::Same)
+            .then(|| self.with_game(|g| ServerReportOut { checks: g.done.iter().copied().collect(), goal: g.goal_reported }))
+            .flatten()
     }
 
     /// Messages the core queued for the diagnostics log since the last call (journal failures and the like).
@@ -2242,7 +2327,7 @@ impl Engine {
     pub fn tick(&self, t_ms: i64) -> Vec<EventOut> {
         let Some((id, entries, ev)) = self.with_game(|g| {
             let ev = g.tick(t_ms);
-            self.save_if_due(g, t_ms, !ev.is_empty());
+            self.save_if_due(g, t_ms, ev.iter().any(Event::saves_at_once));
             (g.id.clone(), g.journal_events(&ev, t_ms, None), ev)
         }) else {
             return Vec::new();
@@ -2676,6 +2761,69 @@ mod tests {
             e.dir.clone()
         };
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn the_server_report_lists_every_finished_location_and_the_goal() {
+        let e = engine_with_game("server-report"); // its seed name is "s"
+        let r = e.server_report("s".into()).unwrap();
+        assert!(r.checks.is_empty() && !r.goal, "nothing done yet");
+        e.with_game(|g| {
+            g.done.insert(7);
+            g.done.insert(3);
+            g.goal_reported = true;
+        });
+        let r = e.server_report("s".into()).unwrap();
+        assert_eq!((r.checks, r.goal), (vec![3, 7], true), "all of them, every time: checks made offline reach the server on connect");
+        e.close_game();
+        assert!(e.server_report("s".into()).is_none(), "no open game: nothing to report");
+    }
+
+    #[test]
+    fn a_game_only_reports_to_the_server_seed_and_slot_it_was_started_on() {
+        let e = engine_with_game("server-match");
+        e.with_game(|g| {
+            g.done.insert(3);
+            g.goal_reported = true;
+        });
+        assert_eq!(e.ap_server_match("s".into()), ServerMatch::Same);
+        assert_eq!(e.ap_server_match("other-seed/Tester".into()), ServerMatch::Other);
+        assert!(e.server_report("other-seed/Tester".into()).is_none(), "another seed's server never gets this game's checks or goal");
+        e.with_game(|g| g.seed_name = "archipelago".into()); // started before games remembered their server
+        assert_eq!(e.ap_server_match("s".into()), ServerMatch::Unknown);
+        assert!(e.server_report("s".into()).is_none(), "an unknown server gets no automatic re-send");
+        e.close_game();
+        assert_eq!(e.ap_server_match("s".into()), ServerMatch::Unknown, "no game open");
+    }
+
+    #[test]
+    fn a_rename_during_a_street_swap_is_not_undone() {
+        let e = engine_with_game("rename-race");
+        let (id, zones) = e.streets_target(Some("r0")).unwrap();
+        let streets = Game::build_streets(&e.zone_realm_atlases(&zones).iter().map(|(_, a)| a).collect::<Vec<_>>());
+        let generation = e.next_streets_gen();
+        // The swap reads the realm files, then a rename lands before it takes the game lock.
+        let edits = e.realm_edits.load(std::sync::atomic::Ordering::SeqCst);
+        let stale = e.zone_realm_files(&zones);
+        e.save_realm("r0".into(), "North".into(), None, Some(circle(home(), 2000.0)), vec![], false).unwrap();
+        assert!(e.swap_streets_from(&id, &zones, streets, generation, &[], stale, edits));
+        assert_eq!(e.zones().into_iter().map(|z| z.realm_name).collect::<Vec<_>>(), ["North"], "the rename stays");
+    }
+
+    #[test]
+    fn zone_realm_names_are_kept_with_the_game_and_follow_engine_edits() {
+        let e = engine_with_game("zone-names");
+        let names = || e.zones().into_iter().map(|z| z.realm_name).collect::<Vec<_>>();
+        assert_eq!(names(), ["R0"]);
+        // Written behind the engine's back: zones() no longer reads the realm file on every call.
+        let mut r = e.store().get("r0").unwrap();
+        r.name = "Behind".into();
+        e.store().save(&r).unwrap();
+        assert_eq!(names(), ["R0"], "zones() reads no file");
+        e.save_realm("r0".into(), "Renamed".into(), None, Some(circle(home(), 2000.0)), vec![], false).unwrap();
+        assert_eq!(names(), ["Renamed"], "a rename through the engine shows at once");
+        e.delete_realm("r0".into()).unwrap();
+        assert_eq!(names(), [""], "a deleted realm has no name");
     }
 
     #[test]

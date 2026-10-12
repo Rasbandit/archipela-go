@@ -10,11 +10,10 @@ import android.hardware.SensorManager
 import android.location.GnssStatus
 import android.location.LocationManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import dev.apgo2.presence.PresenceState
 
 // The log tag of the sensor sources.
 internal const val SENSORS_TAG = "sensors"
@@ -25,6 +24,62 @@ internal const val FUSED_SOURCE = "fused"
 // How long the step counter may hold readings back before delivering them (microseconds).
 private const val STEP_BATCH_US = 10_000_000
 private const val FAST_STEP_BATCH_US = 2_000_000
+
+// In a zone off screen: as long as the gap bridge allows, like the compass (CompassRate.batchUs).
+private const val ZONE_OFF_SCREEN_STEP_BATCH_US = 5_000_000
+
+/** How the step counter batches for a presence state; `null` is off. */
+internal object StepRate {
+    /**
+     * [inZone]: in a zone with location on, where the filter wants the cadence. [leaving]: home Wi-Fi or the car's Bluetooth dropped
+     * and the debounce that confirms it still runs. [onScreen]: screen on and the app in front.
+     */
+    fun batchUs(
+        state: PresenceState,
+        inZone: Boolean,
+        leaving: Boolean = false,
+        onScreen: Boolean = true,
+    ): Int? =
+        when {
+            // Nothing counts with no game open.
+            state == PresenceState.Stopped -> null
+
+            // At home or in the car nothing counts either, except while leaving: the first reading is the core's leave mark, so the
+            // steps walked until leaving is confirmed are credited then (backfill).
+            state == PresenceState.AtHome || state == PresenceState.InCar -> if (leaving) STEP_BATCH_US else null
+
+            inZone -> if (onScreen) FAST_STEP_BATCH_US else ZONE_OFF_SCREEN_STEP_BATCH_US
+
+            else -> STEP_BATCH_US
+        }
+
+    /**
+     * Whether the player is leaving: the place they are at (home, car) has lost its signal and the debounce that confirms it still
+     * runs. Only that place counts: a car connecting at home, or home Wi-Fi seen from the car, is arriving.
+     */
+    fun leaving(
+        state: PresenceState,
+        homePending: Boolean,
+        carPending: Boolean,
+    ): Boolean = (state == PresenceState.AtHome && homePending) || (state == PresenceState.InCar && carPending)
+
+    /**
+     * Whether to use the wake-up step counter: where its readings must arrive on time even with the screen off (the gap bridge in a
+     * zone, the leave mark while leaving). Elsewhere a batch can wait for the next time the phone wakes.
+     */
+    fun wakeUp(
+        state: PresenceState,
+        inZone: Boolean,
+        leaving: Boolean,
+        onScreen: Boolean,
+    ): Boolean =
+        when {
+            state == PresenceState.Stopped -> false
+            state == PresenceState.AtHome || state == PresenceState.InCar -> leaving
+            else -> inZone && !onScreen
+        }
+}
+
 private const val GNSS_LINE_MS = 10_000L
 private const val TAG = SENSORS_TAG
 private const val GMS_PACKAGE = "com.google.android.gms"
@@ -41,7 +96,9 @@ internal class Sensors(
     private val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private var stepListener: SensorEventListener? = null
-    private var fastSteps = false
+    private var stepsAllowed = false
+    private var stepBatchUs: Int? = null
+    private var stepWakeUp = false
     private var gnssCallback: GnssStatus.Callback? = null
     private var gnssHardwareLogged = false
     private var gnssFailLogged = false
@@ -58,7 +115,7 @@ internal class Sensors(
                     .getOrDefault(false)
         }
 
-    private val location = LocationSource(ctx, model, gms, gnssEvidence)
+    private val location = LocationSource(ctx, model, gms, gnssEvidence, GnssSampler(ctx, lm, gnssEvidence) { gnssCallback != null })
     private val heading = HeadingSource(ctx, model, gms)
 
     // The flags overload exists from Android 13; older phones only have the int one.
@@ -86,9 +143,34 @@ internal class Sensors(
         stopHeading()
     }
 
-    fun startSteps() {
-        if (stepListener != null) return
-        val sensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return Diag.warn(TAG, "no step counter on this device")
+    /** The step counter may run (permission granted); it runs while [setStepBatch] asks for a batch. */
+    fun allowSteps() {
+        stepsAllowed = true
+        applySteps()
+    }
+
+    /**
+     * Batch steps every [us] microseconds ([StepRate]); `null` stops the counter. [wakeUp]: the wake-up counter, so batches arrive
+     * on time with the screen off. Re-registers when either changes.
+     */
+    fun setStepBatch(
+        us: Int?,
+        wakeUp: Boolean = false,
+    ) {
+        if (stepBatchUs == us && stepWakeUp == wakeUp) return
+        stepBatchUs = us
+        stepWakeUp = wakeUp
+        stopSteps()
+        applySteps()
+    }
+
+    private fun applySteps() {
+        val us = stepBatchUs
+        if (!stepsAllowed || us == null || stepListener != null) return
+        val sensor =
+            (if (stepWakeUp) sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER, true) else null)
+                ?: sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+                ?: return Diag.warn(TAG, "no step counter on this device")
         val l =
             object : SensorEventListener {
                 override fun onSensorChanged(e: SensorEvent) {
@@ -105,26 +187,31 @@ internal class Sensors(
                     // The step counter's accuracy does not matter here.
                 }
             }
-        // Let the hardware batch readings (10 s, or 2 s in a zone where the filter wants the cadence).
-        sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL, if (fastSteps) FAST_STEP_BATCH_US else STEP_BATCH_US)
+        // Let the hardware batch readings ([StepRate]).
+        sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL, us)
         stepListener = l
-        Diag.info(TAG, "steps started")
+        Diag.info(TAG, "steps started", "batch_us" to us, "wake_up" to sensor.isWakeUpSensor)
     }
 
     fun stopSteps() {
         stepListener?.let { sm.unregisterListener(it) }
         stepListener = null
+        // A total from before the stop must not reach the core with later fixes: once counting resumes it would become the baseline
+        // and the next reading would credit every step taken while the counter was off.
+        model.stepsTotal = null
     }
 
-    /** While in a zone: a `gnss` line every 10 s (no positions), and the chip's model and capabilities once per session. */
+    /**
+     * In a zone with the map in front: a `gnss` line every 10 s (no positions), and the chip's model and capabilities once per
+     * session.
+     */
     @SuppressLint("MissingPermission")
     fun startGnss() {
         if (gnssCallback != null) return
         val cb =
             object : GnssStatus.Callback() {
                 override fun onSatelliteStatusChanged(status: GnssStatus) {
-                    val used = (0 until status.satelliteCount).count { status.usedInFix(it) }
-                    gnssEvidence.onStatus(used, SystemClock.elapsedRealtime())
+                    gnssEvidence.onStatus(status.usedCount, SystemClock.elapsedRealtime())
                     if (!gnssThrottle.due(System.currentTimeMillis())) return
                     val sats =
                         (0 until status.satelliteCount).map { i ->
@@ -139,12 +226,7 @@ internal class Sensors(
                 }
             }
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                lm.registerGnssStatusCallback(ctx.mainExecutor, cb)
-            } else {
-                @Suppress("DEPRECATION") // the Handler overload is the only one before Android 11
-                lm.registerGnssStatusCallback(cb, Handler(Looper.getMainLooper()))
-            }
+            lm.registerStatus(ctx, cb)
             gnssCallback = cb
             gnssFailLogged = false
         }.onFailure {
@@ -175,14 +257,4 @@ internal class Sensors(
     ) = heading.startHeading(periodUs, onScreen)
 
     fun stopHeading() = heading.stopHeading()
-
-    /** Steps every 2 s while in a zone (cadence for the filter), 10 s otherwise; re-registers when it changes. */
-    fun setFastSteps(on: Boolean) {
-        if (fastSteps == on) return
-        fastSteps = on
-        if (stepListener != null) {
-            stopSteps()
-            startSteps()
-        }
-    }
 }

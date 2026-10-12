@@ -318,6 +318,11 @@ impl<S: DeserializeOwned + 'static> Client<S> {
         }
     }
 
+    /// A handle that waits for the server's next data without borrowing this client (local patch, see PATCHES.md).
+    pub fn readiness(&self) -> crate::Readiness {
+        self.socket.readiness()
+    }
+
     // == Session information
 
     /// The game that's currently being played.

@@ -8,6 +8,8 @@ import android.location.LocationManager
 import android.location.LocationRequest
 import android.os.Build
 import android.os.CancellationSignal
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationCallback
@@ -16,6 +18,8 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.tasks.CancellationTokenSource
 
 private const val TAG = SENSORS_TAG
+private const val FLUSH_REQUEST = 1
+private const val FLUSH_TIMEOUT_MS = 2_000L
 
 /**
  * Fixes: Play services' fused location or a LocationManager provider ([GpsPolicy.providers]), the once-per-session cold-start fix,
@@ -26,6 +30,7 @@ internal class LocationSource(
     private val model: AppModel,
     gms: Lazy<Boolean>,
     private val gnssEvidence: GnssEvidence,
+    private val gnssSampler: GnssSampler,
 ) {
     private val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private var locationListener: LocationListener? = null
@@ -51,14 +56,79 @@ internal class LocationSource(
 
     private val locationRunning get() = locationListener != null || gmsCallback != null
 
+    // The LocationManager provider [locationListener] listens to (a flush names it).
+    private var managerProvider: String? = null
+
+    // A flush in flight (its token), the rate to start when it completes, and the LocationManager completion to call.
+    private var flushing: Any? = null
+    private var afterFlush: GpsPolicy.Rate? = null
+    private var onFlushed: (() -> Unit)? = null
+    private val flushTimeout = Handler(Looper.getMainLooper())
+
     private fun plan(): GpsPolicy.ProviderPlan {
         val enabled = lm.allProviders.filter { lm.isProviderEnabled(it) }.toSet()
         return GpsPolicy.providers(enabled, gms && !gmsLocationFailed)
     }
 
-    /** Start (or re-start with a new [rate]). Calling again with the same rate does nothing. */
+    /**
+     * Start (or re-start with a new [rate]). Calling again with the same rate does nothing. Leaving a batched request flushes it
+     * first and swaps the request when the flush completed ([GpsPolicy.shouldFlush]); a later call meanwhile only replaces the rate
+     * the swap will use.
+     */
     fun startLocation(rate: GpsPolicy.Rate) {
-        if (locationRunning && this.rate == rate) return
+        when {
+            flushing != null -> afterFlush = rate
+            locationRunning && this.rate == rate -> Unit
+            locationRunning && GpsPolicy.shouldFlush(this.rate, rate) && flushThen(rate) -> Unit
+            else -> register(rate)
+        }
+    }
+
+    // Ask the running request to deliver its batch now; [next] is started once that is done (or after FLUSH_TIMEOUT_MS, so a flush
+    // that never reports back cannot hold the rate). False when this request cannot flush (LocationManager before Android 12).
+    private fun flushThen(next: GpsPolicy.Rate): Boolean {
+        val token = Any()
+        val done = {
+            if (flushing === token) {
+                flushing = null
+                onFlushed = null
+                flushTimeout.removeCallbacksAndMessages(null)
+                val wanted = afterFlush
+                afterFlush = null
+                // The latest rate asked for, registered directly: startLocation would see the batch still running and flush again.
+                wanted?.takeIf { it != rate }?.let(::register)
+            }
+        }
+        val l = locationListener
+        val p = managerProvider
+        val started =
+            runCatching {
+                when {
+                    gmsCallback != null -> {
+                        fusedLocation.flushLocations().addOnCompleteListener(mainExecutor) { done() }
+                        true
+                    }
+
+                    l != null && p != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                        onFlushed = done
+                        lm.requestFlush(p, l, FLUSH_REQUEST)
+                        true
+                    }
+
+                    else -> {
+                        false
+                    }
+                }
+            }.onFailure { Diag.warn(TAG, "location flush failed", "error" to it.toString()) }.getOrDefault(false)
+        if (!started) return false
+        flushing = token
+        afterFlush = next
+        flushTimeout.postDelayed({ done() }, FLUSH_TIMEOUT_MS)
+        Diag.info(TAG, "location flush", "next_interval_ms" to next.intervalMs)
+        return true
+    }
+
+    private fun register(rate: GpsPolicy.Rate) {
         unregister()
         // One provider only: mixing them interleaved 100 m-off network fixes with good GPS fixes and made the position jump streets.
         val plan = plan()
@@ -106,10 +176,16 @@ internal class LocationSource(
                 // Android 12+ hands a screen-off batch over at once; the filter needs them in the order they were taken.
                 override fun onLocationChanged(locations: List<Location>) =
                     FixTime.oldestFirst(locations) { it.elapsedRealtimeNanos }.forEach(::deliver)
+
+                // Android 12+: the batch asked for by [flushThen] was delivered.
+                override fun onFlushComplete(requestCode: Int) {
+                    if (requestCode == FLUSH_REQUEST) onFlushed?.invoke()
+                }
             }
         return runCatching {
             request(provider, rate, l)
             locationListener = l
+            managerProvider = provider
             lm.getLastKnownLocation(provider)?.let { model.realLoc = it }
         }.onFailure {
             Diag.error(TAG, "requestLocationUpdates failed for $provider", it)
@@ -123,8 +199,11 @@ internal class LocationSource(
     private fun startGmsUpdates(rate: GpsPolicy.Rate): Boolean {
         val cb =
             object : LocationCallback() {
-                override fun onLocationResult(result: LocationResult) =
-                    FixTime.oldestFirst(result.locations) { it.elapsedRealtimeNanos }.forEach(::deliverGms)
+                // Off screen a batch first waits for one satellite status, so Wi-Fi fixes tagged fused are told apart (I2).
+                override fun onLocationResult(result: LocationResult) {
+                    val deliver = { FixTime.oldestFirst(result.locations) { it.elapsedRealtimeNanos }.forEach(::deliverGms) }
+                    if (GpsPolicy.samplesSatellites(rate)) gnssSampler.withEvidence(deliver) else gnssSampler.afterHeld(deliver)
+                }
             }
         // Set first: the failure check below compares against it.
         gmsCallback = cb
@@ -138,8 +217,10 @@ internal class LocationSource(
                         gmsLocationFailed = true
                         // The Play services cold start may never come: let the network one run once.
                         coldStartDone = false
-                        unregister()
-                        startLocation(rate)
+                        // The latest rate asked for (a flush of this failed request waits for it), not the one that failed.
+                        val wanted = afterFlush ?: rate
+                        cancelFlush()
+                        register(wanted)
                     }
                 }
             fusedLocation.lastLocation.addOnSuccessListener(mainExecutor) { loc ->
@@ -155,7 +236,8 @@ internal class LocationSource(
     // Play services names its fixes "fused" (the core's Fused provider); set it so a blank or odd name never reads as Other. A fused
     // fix while the GNSS chip uses no satellite is a Wi-Fi or cell position: "network", display only (adversarial review I2).
     private fun deliverGms(loc: Location) {
-        loc.provider = gnssEvidence.providerOf(FUSED_SOURCE, SystemClock.elapsedRealtime())
+        val gpsOn = runCatching { lm.isProviderEnabled(LocationManager.GPS_PROVIDER) }.getOrDefault(true)
+        loc.provider = gnssEvidence.providerOf(FUSED_SOURCE, SystemClock.elapsedRealtime(), gpsOn)
         deliver(loc)
     }
 
@@ -228,6 +310,8 @@ internal class LocationSource(
 
     /** Stop location: listener, any pending cold-start fix, and the once-per-session cold-start mark. */
     fun stopLocation() {
+        gnssSampler.release()
+        cancelFlush()
         unregister()
         coldStartCancel?.cancel()
         coldStartCancel = null
@@ -236,12 +320,21 @@ internal class LocationSource(
         coldStartDone = false
     }
 
+    // A flush in flight no longer starts its rate.
+    private fun cancelFlush() {
+        flushing = null
+        afterFlush = null
+        onFlushed = null
+        flushTimeout.removeCallbacksAndMessages(null)
+    }
+
     // Remove the listener only (a rate change re-registers; a pending cold-start fix stays wanted).
     private fun unregister() {
         if (locationRunning) Diag.info(TAG, "location stopped")
         locationListener?.let { lm.removeUpdates(it) }
         gmsCallback?.let { fusedLocation.removeLocationUpdates(it) }
         locationListener = null
+        managerProvider = null
         gmsCallback = null
         rate = null
     }

@@ -58,8 +58,9 @@ private const val NETWORK_SOURCE = "network"
 /**
  * Whether Play services' fused fixes come from satellites (adversarial review I2). With the GPS toggle off, fused returns Wi-Fi and
  * cell positions of 10 to 30 m tagged `fused`; those must reach the core as `network` (display only, never counted for quests). A
- * fused fix is network when a GnssStatus reported within the last 30 s with no satellite used in a fix. With no GnssStatus data (it
- * runs only in a zone, or the phone gives none), fused is trusted. Times are `elapsedRealtime` ms.
+ * fused fix is network when the GPS provider is off, or when a GnssStatus reported within the last 30 s with no satellite used in a
+ * fix. With no GnssStatus data (it runs only with the map in front in a zone, or the phone gives none) and GPS on, fused is trusted.
+ * Times are `elapsedRealtime` ms.
  */
 internal class GnssEvidence {
     @Volatile private var lastStatusMs: Long? = null
@@ -78,11 +79,15 @@ internal class GnssEvidence {
     /** Fresh GnssStatus data says no satellite is used in a fix. */
     fun networkOnly(elapsedMs: Long): Boolean = lastStatusMs?.let { elapsedMs - it <= GNSS_EVIDENCE_MS && used == 0 } ?: false
 
-    /** The provider to send to the core for a fix tagged [provider]: a fused fix without satellites is [NETWORK_SOURCE]. */
+    /**
+     * The provider to send to the core for a fix tagged [provider]: a fused fix without satellites (or with the GPS provider off,
+     * [gpsOn] false) is [NETWORK_SOURCE].
+     */
     fun providerOf(
         provider: String,
         elapsedMs: Long,
-    ): String = if (provider == FUSED_SOURCE && networkOnly(elapsedMs)) NETWORK_SOURCE else provider
+        gpsOn: Boolean = true,
+    ): String = if (provider == FUSED_SOURCE && (!gpsOn || networkOnly(elapsedMs))) NETWORK_SOURCE else provider
 }
 
 /** Nearest-rank percentiles of a minute's `onFix` times (heartbeat perf fields). */

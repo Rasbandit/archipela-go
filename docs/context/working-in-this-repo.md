@@ -13,7 +13,12 @@
 - **Events over polling** (hard rule, `CLAUDE.md`): battery matters most. Drive logic from events (presence changes, fixes that arrive anyway, one scheduled
   wake-up when something falls due: core `next_due_ms`/`tick`, app `DueTimer`) and compute derived values when asked. No ticking loops; GPS only reports
   movement while playing. The polling audit of 2026-10-09 removed the AP 300 ms full refresh, the Activity 3 s reload, the 60 s service heartbeat, presence
-  re-check polls, the 5 s step refresh, scan-progress polling and GPS-for-timing.
+  re-check polls, the 5 s step refresh, scan-progress polling and GPS-for-timing. The battery sweep (2026-10) removed the last one: a connected
+  Archipelago session no longer polls every 0.3-3 s but sleeps in its socket until the server sends something (`ApSession.wait_for_data`,
+  a `Readiness` patch to the vendored `archipelago_rs`, see its `PATCHES.md`); the back-off only times drains right after activity
+  and while connecting. Safety nets: the app drains
+  and syncs on every foreground (`ApController.onForeground`), and since the stock server pings every 20 s, a 60 s wait with no data is a
+  socket that died silently (network switch, NAT timeout), so the session reconnects (`ApWait.dead`), which re-sends every item.
 
 ## Parallel sessions: always work in a worktree
 

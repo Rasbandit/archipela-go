@@ -14,7 +14,8 @@ Generated `uniffi/` is excluded. Needs a JDK: `scripts/java_home.sh` finds it (`
 
 ## Daily loop (about 8 s from edit to running app)
 
-`just android-run` = `android-core` (cargo-ndk arm64 + UniFFI Kotlin bindings) -> `android-build` (Gradle) -> `android-install` (adb, also grants
+`just android-run` = `android-core phone` (cargo-ndk arm64 in the `phone` profile: optimised dev, unstripped, incremental; the phone
+never runs an opt-level 0 core, which costs ~4.5x the CPU per fix) + UniFFI Kotlin bindings -> `android-build` (Gradle) -> `android-install` (adb, also grants
 location) -> `android-start`. Also: `just android-logs`, `just android-shot`, `scripts/android_tap.sh "<label>"` (tap a button by its text via
 uiautomator, no coordinates needed). Rust-only logic is faster to iterate on desktop: `cd core && cargo test` and `cargo run --example gen_zone`.
 `APGO_ABIS="arm64-v8a x86_64"` also builds for an emulator.
@@ -34,8 +35,9 @@ so release bindings come from a host build of the same source.
 Phone joined a local server running OUR apworld, received `slot_data` (contract v1), sent location checks, got items back (server log:
 `Tester sent Take a Breather! to Tester (Trip #1)`). Loop: `just ap-host` (generates a 100-trip seed for slot `Tester`, hosts on :38281,
 sets `adb reverse` so the phone uses `localhost:38281`), then `just android-run`, tap Connect / Check next trip. `just ap-log`, `just ap-stop`.
-Archipelago uses ONE persistent WebSocket (server pushes items, prints, bounces); the Rust crate `archipelago_rs` is non-blocking: Kotlin calls `poll()`
-every 250 ms to drain already-read events. No push channel exists when the app is dead; plan a foreground service + reconnect/`Sync` item resync.
+Archipelago uses ONE persistent WebSocket (server pushes items, prints, bounces); the Rust crate `archipelago_rs` is non-blocking, so `ApController`
+sleeps in the socket (`ApSession.wait_for_data`) and drains (`poll()`) when the server sends something; it reconnects a dropped session
+(5 s doubling, max 5 min), probes a silent one before reconnecting, and re-sends every finished check and the goal on each connect.
 
 Gotchas for the connection:
 

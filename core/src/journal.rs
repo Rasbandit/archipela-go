@@ -1,5 +1,5 @@
 //! On-device journal in SQLite: every accepted GPS fix (the trace) and an audit log of what happened while you were out.
-//! One file for all games; rows carry the game id. Points also feed an R*Tree so map-viewport queries stay fast.
+//! One file for all games; rows carry the game id. A fix's point and its events are written in one transaction (`Journal::batch`).
 
 use std::path::Path;
 
@@ -111,7 +111,6 @@ CREATE TABLE IF NOT EXISTS points (
     simulated INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS points_game_t ON points (game, t_ms);
-CREATE VIRTUAL TABLE IF NOT EXISTS points_rt USING rtree (id, min_lat, max_lat, min_lon, max_lon);
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY,
     game TEXT NOT NULL,
@@ -124,6 +123,9 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_game_t ON events (game, t_ms);
 ";
 
+// Journals before 2026-10 mirrored every point into an R*Tree that only a test read: drop it (the points stay in `points`).
+const DROP_OLD: &str = "DROP TABLE IF EXISTS points_rt;";
+
 const POINT_COLS: &str = "t_ms, lat, lon, accuracy_m, simulated";
 
 fn point_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<TrackPoint> {
@@ -133,6 +135,7 @@ fn point_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<TrackPoint> {
 impl Journal {
     fn init(conn: Connection) -> rusqlite::Result<Self> {
         conn.execute_batch(SCHEMA)?;
+        conn.execute_batch(DROP_OLD)?;
         Ok(Self { conn, revision: std::cell::Cell::new(0) })
     }
 
@@ -144,6 +147,8 @@ impl Journal {
         let conn = Connection::open(path)?;
         // Write-ahead log: a fix every few seconds must not block, and a crash must not lose the trace.
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        // NORMAL is safe with WAL (a power cut may lose the last commits, never corrupt) and syncs at checkpoints, not on every commit.
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
         Self::init(conn)
     }
 
@@ -160,14 +165,26 @@ impl Journal {
     /// # Errors
     /// Returns any SQLite error.
     pub fn add_point(&self, game: &str, p: &TrackPoint) -> rusqlite::Result<()> {
+        self.conn.prepare_cached("INSERT INTO points (game, t_ms, lat, lon, accuracy_m, simulated) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?.execute((
+            game,
+            p.t_ms,
+            p.lat,
+            p.lon,
+            p.accuracy_m,
+            i64::from(p.simulated),
+        ))?;
+        Ok(())
+    }
+
+    /// Run `f` as one transaction: everything it writes lands together (one commit, one WAL sync) or not at all.
+    ///
+    /// # Errors
+    /// Returns the first error of `f` (after rolling back) or any SQLite error.
+    pub fn batch<T>(&self, f: impl FnOnce(&Self) -> rusqlite::Result<T>) -> rusqlite::Result<T> {
         let tx = self.conn.unchecked_transaction()?;
-        tx.execute(
-            "INSERT INTO points (game, t_ms, lat, lon, accuracy_m, simulated) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            (game, p.t_ms, p.lat, p.lon, p.accuracy_m, i64::from(p.simulated)),
-        )?;
-        let id = tx.last_insert_rowid();
-        tx.execute("INSERT INTO points_rt (id, min_lat, max_lat, min_lon, max_lon) VALUES (?1, ?2, ?2, ?3, ?3)", (id, p.lat, p.lon))?;
-        tx.commit()
+        let out = f(self)?;
+        tx.commit()?;
+        Ok(out)
     }
 
     /// Points of a game in time order, `from_ms..=to_ms`.
@@ -176,7 +193,7 @@ impl Journal {
     /// Returns any SQLite error.
     pub fn track(&self, game: &str, from_ms: i64, to_ms: i64) -> rusqlite::Result<Vec<TrackPoint>> {
         let sql = format!("SELECT {POINT_COLS} FROM points WHERE game = ?1 AND t_ms BETWEEN ?2 AND ?3 ORDER BY t_ms, id");
-        self.conn.prepare(&sql)?.query_map((game, from_ms, to_ms), point_row)?.collect()
+        self.conn.prepare_cached(&sql)?.query_map((game, from_ms, to_ms), point_row)?.collect()
     }
 
     /// The trace as separate lines, split wherever two points are further apart in time than `max_gap_ms`.
@@ -194,20 +211,6 @@ impl Journal {
         Ok(out)
     }
 
-    /// Points inside a lat/lon box (map viewport), time-ordered.
-    ///
-    /// # Errors
-    /// Returns any SQLite error.
-    pub fn points_in_box(&self, game: &str, min: (f64, f64), max: (f64, f64)) -> rusqlite::Result<Vec<TrackPoint>> {
-        let sql = format!(
-            "SELECT {cols} FROM points p JOIN points_rt r ON r.id = p.id
-             WHERE p.game = ?1 AND r.min_lat >= ?2 AND r.max_lat <= ?3 AND r.min_lon >= ?4 AND r.max_lon <= ?5
-             ORDER BY p.t_ms, p.id",
-            cols = POINT_COLS.split(", ").map(|c| format!("p.{c}")).collect::<Vec<_>>().join(", ")
-        );
-        self.conn.prepare(&sql)?.query_map((game, min.0, max.0, min.1, max.1), point_row)?.collect()
-    }
-
     /// Append an event to the audit log of `game`.
     ///
     /// # Errors
@@ -215,7 +218,8 @@ impl Journal {
     pub fn log(&self, game: &str, e: &JournalEvent) -> rusqlite::Result<()> {
         let (lat, lon) = e.at.unzip();
         self.conn
-            .execute("INSERT INTO events (game, t_ms, kind, detail, lat, lon) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", (game, e.t_ms, &e.kind, &e.detail, lat, lon))?;
+            .prepare_cached("INSERT INTO events (game, t_ms, kind, detail, lat, lon) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?
+            .execute((game, e.t_ms, &e.kind, &e.detail, lat, lon))?;
         self.revision.set(self.revision.get() + 1);
         Ok(())
     }
@@ -232,7 +236,7 @@ impl Journal {
     /// Returns any SQLite error.
     pub fn recent_events(&self, game: &str, limit: u32) -> rusqlite::Result<Vec<JournalEvent>> {
         self.conn
-            .prepare("SELECT t_ms, kind, detail, lat, lon FROM events WHERE game = ?1 ORDER BY t_ms DESC, id DESC LIMIT ?2")?
+            .prepare_cached("SELECT t_ms, kind, detail, lat, lon FROM events WHERE game = ?1 ORDER BY t_ms DESC, id DESC LIMIT ?2")?
             .query_map((game, limit), Self::event_row)?
             .collect()
     }
@@ -256,7 +260,6 @@ impl Journal {
     /// Returns any SQLite error.
     pub fn clear_game(&self, game: &str) -> rusqlite::Result<()> {
         let tx = self.conn.unchecked_transaction()?;
-        tx.execute("DELETE FROM points_rt WHERE id IN (SELECT id FROM points WHERE game = ?1)", [game])?;
         tx.execute("DELETE FROM points WHERE game = ?1", [game])?;
         tx.execute("DELETE FROM events WHERE game = ?1", [game])?;
         tx.commit()
@@ -320,16 +323,6 @@ mod tests {
         assert_eq!(segs.iter().map(Vec::len).collect::<Vec<_>>(), vec![3, 2]);
         assert!(j.segments("g", 0, i64::MAX, 0).unwrap().len() >= 5, "zero gap isolates every point");
         assert!(j.segments("empty", 0, i64::MAX, DEFAULT_MAX_GAP_MS).unwrap().is_empty());
-    }
-
-    #[test]
-    fn box_query_uses_game_and_bounds() {
-        let j = Journal::open_memory().unwrap();
-        j.add_point("g", &pt(1, 40.0, -111.0)).unwrap();
-        j.add_point("g", &pt(2, 40.5, -111.0)).unwrap();
-        j.add_point("other", &pt(3, 40.0, -111.0)).unwrap();
-        let hit = j.points_in_box("g", (39.9, -111.1), (40.1, -110.9)).unwrap();
-        assert_eq!(hit.iter().map(|p| p.t_ms).collect::<Vec<_>>(), vec![1]);
     }
 
     #[test]
@@ -398,7 +391,6 @@ mod tests {
         j.log("a", &ev(1, kind::INFO)).unwrap();
         j.clear_game("a").unwrap();
         assert!(j.track("a", 0, 9).unwrap().is_empty());
-        assert!(j.points_in_box("a", (0.0, -180.0), (90.0, 0.0)).unwrap().is_empty());
         assert!(j.recent_events("a", 9).unwrap().is_empty());
         assert_eq!(j.track("b", 0, 9).unwrap().len(), 1);
     }
@@ -411,6 +403,65 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         Journal::open(&path).unwrap().add_point("g", &pt(1, 40.0, -111.0)).unwrap();
         assert_eq!(Journal::open(&path).unwrap().track("g", 0, 9).unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn temp_db(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("apgo-journal-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.db");
+        let _ = std::fs::remove_file(&path);
+        (dir, path)
+    }
+
+    #[test]
+    fn file_database_uses_wal_with_normal_sync() {
+        let (dir, path) = temp_db("sync");
+        let j = Journal::open(&path).unwrap();
+        let mode: String = j.conn.query_row("PRAGMA journal_mode", [], |r| r.get(0)).unwrap();
+        let sync: i64 = j.conn.query_row("PRAGMA synchronous", [], |r| r.get(0)).unwrap();
+        assert_eq!((mode.as_str(), sync), ("wal", 1), "WAL with synchronous=NORMAL: one fsync per checkpoint, not per fix");
+        drop(j);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_batch_writes_all_or_nothing() {
+        let j = Journal::open_memory().unwrap();
+        j.batch(|j| {
+            j.add_point("g", &pt(1, 40.0, -111.0))?;
+            j.log("g", &ev(1, kind::INFO))
+        })
+        .unwrap();
+        assert_eq!((j.track("g", 0, 9).unwrap().len(), j.recent_events("g", 9).unwrap().len()), (1, 1));
+        let failed: rusqlite::Result<()> = j.batch(|j| {
+            j.add_point("g", &pt(2, 40.0, -111.0))?;
+            j.log("g", &ev(2, kind::INFO))?;
+            Err(rusqlite::Error::InvalidQuery)
+        });
+        assert!(failed.is_err());
+        assert_eq!((j.track("g", 0, 9).unwrap().len(), j.recent_events("g", 9).unwrap().len()), (1, 1), "the failed batch left nothing behind");
+    }
+
+    #[test]
+    fn points_skip_the_spatial_index_and_old_databases_drop_it() {
+        let (dir, path) = temp_db("rtree");
+        {
+            // A journal from before: points mirrored into an R*Tree.
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(SCHEMA).unwrap();
+            c.execute_batch(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS points_rt USING rtree (id, min_lat, max_lat, min_lon, max_lon); INSERT INTO points_rt VALUES (1, 40, 40, -111, -111);",
+            )
+            .unwrap();
+            c.execute("INSERT INTO points (game, t_ms, lat, lon, accuracy_m, simulated) VALUES ('g', 1, 40.0, -111.0, 5.0, 0)", []).unwrap();
+        }
+        let j = Journal::open(&path).unwrap();
+        let rt: i64 = j.conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'points_rt%'", [], |r| r.get(0)).unwrap();
+        assert_eq!(rt, 0, "the R*Tree is gone");
+        j.add_point("g", &pt(2, 40.0, -111.0)).unwrap();
+        assert_eq!(j.track("g", 0, 9).unwrap().len(), 2, "the old points are still there");
+        drop(j);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

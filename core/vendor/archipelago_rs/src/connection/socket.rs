@@ -44,7 +44,39 @@ pub(crate) struct Socket<S: DeserializeOwned + 'static> {
     messages: VecDeque<Result<ServerMessage<S>, Error>>,
 }
 
+/// Waits until the socket has data, without borrowing the [Socket] (local patch, see PATCHES.md): a host can sleep until the server
+/// sends something instead of polling on a timer, while other threads keep using the connection.
+#[derive(Clone)]
+pub struct Readiness(Arc<Async<SyncTcpStream>>);
+
+impl Readiness {
+    /// A handle for `stream` (made non-blocking), for hosts and tests that hold a socket of their own.
+    pub fn new(stream: SyncTcpStream) -> io::Result<Self> {
+        Ok(Self(Arc::new(Async::new(stream)?)))
+    }
+
+    /// Blocks until the socket is readable (data, a close or an error, all of which the next update reports) or `timeout` passes.
+    /// Returns whether it became readable.
+    pub fn wait(&self, timeout: std::time::Duration) -> bool {
+        smol::block_on(smol::future::or(
+            async {
+                let _ = self.0.readable().await; // an error is "readable" too: the next update reports it
+                true
+            },
+            async {
+                smol::Timer::after(timeout).await;
+                false
+            },
+        ))
+    }
+}
+
 impl<S: DeserializeOwned + 'static> Socket<S> {
+    /// A handle that waits for this socket's next data.
+    pub(crate) fn readiness(&self) -> Readiness {
+        Readiness(self.async_stream.clone())
+    }
+
     /// Begins the process of establishing a WebSocket connection using the
     /// given [request] (which may be passed as a simple `ws://` or `wss://`
     /// URL).
