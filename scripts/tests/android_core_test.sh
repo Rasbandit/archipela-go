@@ -21,3 +21,21 @@ if [ "$(cat "$jni/libapgo_ffi.so" 2>/dev/null)" != old ]; then
   exit 1
 fi
 echo "ok failed build keeps jniLibs"
+
+# Each profile reaches cargo-ndk with its own flag: dev for debug, --release, or a named profile (`phone`: optimised dev).
+printf '#!/bin/sh\necho "$*" >>"%s"\nexit 1\n' "$tmp/args" >"$tmp/home/.cargo/bin/cargo"
+for p in debug release phone; do
+  : >"$tmp/args"
+  HOME="$tmp/home" ANDROID_HOME="$tmp" ANDROID_NDK_HOME="$tmp/ndk" bash "$repo/scripts/android_core.sh" "$p" >/dev/null 2>&1 || true
+  args="$(cat "$tmp/args")"
+  case "$p" in
+    debug) want="build -p apgo-ffi" bad="--" ;;
+    release) want="build -p apgo-ffi --release" bad="--profile" ;;
+    phone) want="build -p apgo-ffi --profile phone" bad="--release" ;;
+  esac
+  if [[ "$args" != *"$want"* ]] || [[ "$args" == *"apgo-ffi $bad"* ]]; then
+    echo "FAIL $p profile ran: $args"
+    exit 1
+  fi
+done
+echo "ok each profile builds with its flag"

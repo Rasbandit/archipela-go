@@ -27,9 +27,21 @@ module_name_repetitions = "allow"  # `poi::PoiCache` style names read better tha
 [profile.dev]
 debug = 0
 
+# Dependencies (geo, SQLite, serde_json) built optimised once and cached: tests and the dev core run them fast, while our own
+# crates stay quick to rebuild (and to mutate).
+[profile.dev.package."*"]
+opt-level = 2
+
+# What `just android-run` puts on the phone: optimised (an unoptimised core keeps the CPU awake 10-50x longer per fix), yet
+# incremental, unstripped (the bindings read its UniFFI metadata) and with debug assertions.
+[profile.phone]
+inherits = "dev"
+opt-level = 2
+
 [profile.release]
 lto = "thin"
 strip = true
+codegen-units = 1
 
 [package]
 name = "apgo-core"
