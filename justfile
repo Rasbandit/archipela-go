@@ -137,6 +137,15 @@ android-tap x y:
     adb shell input tap {{x}} {{y}}
 
 # --- Dev Archipelago server with OUR apworld (slot "Tester") ---
+# Archipelago client compliance: our ApSession against the real pinned server (its own :38291, never the dev one). Needs `just setup-ap`.
+test-ap: ap-present
+    #!/usr/bin/env bash
+    set -uo pipefail
+    (cd core && cargo test -q -p apgo-ffi --test ap_compliance -- --ignored --test-threads=1)
+    status=$?
+    APGO_AP_DIR="$PWD/.ap/compliance" APGO_AP_PORT=38291 bash scripts/ap_host.sh stop >/dev/null
+    exit $status
+
 ap-host trips="100":
     bash scripts/ap_host.sh start {{trips}}
 

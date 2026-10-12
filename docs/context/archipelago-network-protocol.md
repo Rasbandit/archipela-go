@@ -72,6 +72,27 @@ Client -> server: `Connect`, `ConnectUpdate`, `Sync`, `LocationChecks`, `Locatio
 - Server has been observed to send negative `hint_points` (undocumented; noted in archipelago_rs commit, 2026-04).
 - `received json depth limited to 16` since 0.6.8 release notes (#6378): keep outgoing JSON shallow.
 
+## Our client's compliance (`just test-ap`)
+
+`core/ffi/tests/ap_compliance.rs` runs our `ApSession` against the real pinned server (`.ap/MultiServer.py`, our apworld, slot `Tester`,
+its own `.ap/compliance` on :38291), one test per rule; the pre-push hook runs it when AP client code, `scripts/ap_host.sh` or
+`.ap-version` change. Verified 2026-10-12 on 0.6.8, all passing:
+
+| Rule (source) | How we meet it | Test |
+| --- | --- | --- |
+| Handle ws and wss (client guide) | `archipelago_rs` tries `wss://` then `ws://` for a bare address, like `CommonClient` | `an_address_without_a_scheme_falls_back_to_ws_and_connects` |
+| Send missed checks on connection (client guide) | every (re)connect sends every finished check in one `LocationChecks` and the goal (`Engine::server_report`) | `checks_reach_the_server_and_sending_them_again_is_harmless` |
+| Keep an item index, resync on a gap (protocol) | `archipelago_rs` sends `Sync` when `index` skips; `index 0` replaces | `received_items_carry_a_gapless_index` |
+| Goal `StatusUpdate` (client guide) | `ApSession::send_goal`, re-sent on connect | `the_goal_status_update_is_accepted` |
+| Reconnect if lost while playing (client guide) | reconnect after `disconnected` (5 s doubling like `CommonClient`, capped 5 min), on foreground when stale, after a silent wait | `a_server_restart_drops_the_session_and_a_new_one_gets_every_item_again` |
+| A refused first connect is not a loop | auto-reconnect only after a session was connected | `a_wrong_slot_is_refused_and_never_connected` |
+| Server pings every 20 s (websockets defaults; `CommonClient` sends none) | the app sleeps in the socket; 60 s silence = dead | `the_server_pings_a_quiet_connection_within_twenty_five_seconds` |
+| Servers that do not ping | a `Get` probe before reconnecting | `a_probe_is_answered` |
+
+Not covered by a test: changing the port of a saved connection (UI), and per-message compression. The protocol doc says
+uncompressed connections are deprecated and may stop working; `tungstenite` has no permessage-deflate, so watch the server's
+release notes. The app also does not reconnect on its own after an app restart (connect from New Game).
+
 ## References
 
 - Protocol doc URL above; 0.6.8 release: <https://github.com/ArchipelagoMW/Archipelago/releases/tag/0.6.8>

@@ -18,16 +18,21 @@ expect docs-only   "docs/a.md"                                "check-hygiene"
 expect py          "apworld/ap_go2/x.py"                      "check-hygiene check-py"
 expect deleted-py  "apworld/ap_go2/gone.py"                   "check-hygiene check-py"
 expect rust-core   "core/src/lib.rs"                          "check-hygiene check-rust check-android"
-expect ffi-only    "core/ffi/src/lib.rs"                      "check-hygiene check-rust check-android"
+expect ffi-only    "core/ffi/src/engine.rs"                   "check-hygiene check-rust check-android"
 expect kotlin      "android/app/src/main/java/dev/apgo2/A.kt" "check-hygiene check-android"
 expect justfile    "justfile"                                 "$ALL"
 expect mixed       $'apworld/a.py\nandroid/b.kt'              "check-hygiene check-py check-android"
 expect empty       ""                                         "check-hygiene"
 # core embeds these with include_str!, so they feed the Rust (and Android) builds too
 expect apworld-docs "apworld/docs/slot_data.sample.json"      "$ALL"
-expect ap-version  ".ap-version"                              "check-hygiene check-py"
+expect ap-version  ".ap-version"                              "check-hygiene check-py test-ap"
 # android/.editorconfig is not root=true, so ktlint also reads the top-level one
 expect editorconfig ".editorconfig"                           "$ALL"
+# Archipelago client code and the server it is checked against: also the compliance suite against the real server
+expect ap-session  "core/ffi/src/lib.rs"                      "check-hygiene check-rust check-android test-ap"
+expect ap-vendor   "core/vendor/archipelago_rs/src/client.rs" "check-hygiene check-rust check-android test-ap"
+expect ap-suite    "core/ffi/tests/ap_compliance.rs"          "check-hygiene check-rust check-android test-ap"
+expect ap-host     "scripts/ap_host.sh"                       "$ALL test-ap"
 
 # --- range logic: `prepush.sh files` (pre-push stdin lines -> changed paths) ---
 tmp="$(mktemp -d)"

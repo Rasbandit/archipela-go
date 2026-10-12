@@ -4,8 +4,12 @@
 set -euo pipefail
 
 select_recipes() {
-  local py=0 rs=0 an=0 all=0 path
+  local py=0 rs=0 an=0 ap=0 all=0 path
   while IFS= read -r path || [ -n "$path" ]; do
+    # The Archipelago client and the server it is checked against: also the compliance suite (`just test-ap`, real server).
+    case "$path" in
+      core/ffi/src/lib.rs|core/ffi/tests/ap_compliance.rs|core/vendor/archipelago_rs/*|scripts/ap_host.sh|.ap-version) ap=1 ;;
+    esac
     case "$path" in
       "") ;;
       __ALL__|justfile|lefthook.yml|mise.toml|.editorconfig|scripts/*|.github/*) all=1 ;;
@@ -20,6 +24,7 @@ select_recipes() {
   [ "$py" = 1 ] && out+=" check-py"
   [ "$rs" = 1 ] && out+=" check-rust"
   [ "$an" = 1 ] && out+=" check-android"
+  [ "$ap" = 1 ] && out+=" test-ap"
   printf '%s\n' "$out"
 }
 
