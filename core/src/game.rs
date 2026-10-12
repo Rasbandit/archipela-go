@@ -839,8 +839,10 @@ impl Game {
         if gained == 0 {
             return;
         }
+        // An overloaded backpack slows the count (#142): steps are the only thing it slows.
+        let counted = i64_to_f64(gained) * self.step_factor();
         for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Steps) {
-            *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64(gained);
+            *self.counters.progress.entry(c.id).or_insert(0.0) += counted;
         }
     }
 
@@ -1230,6 +1232,23 @@ impl Game {
             }
         }
         self.credit_cells(self.fog.cells.len() - cells_before);
+    }
+
+    /// Items carried in the shared backpack: what every open forager carries.
+    #[must_use]
+    pub fn carried_total(&self) -> u32 {
+        self.assignments
+            .iter()
+            .filter(|a| matches!(a.target, Target::Collect { .. }) && !self.done.contains(&a.location_id))
+            .filter_map(|a| self.collected.get(&a.location_id))
+            .map(|c| c.carried)
+            .sum()
+    }
+
+    /// How much a step counts now: less while the backpack holds more than `bag_size` (see [`crate::forage::step_factor`]).
+    #[must_use]
+    pub fn step_factor(&self) -> f64 {
+        crate::forage::step_factor(self.carried_total().saturating_sub(self.bag_size))
     }
 
     /// How quests of this game are placed (re-placing them, forager pools).
@@ -3204,6 +3223,50 @@ mod tests {
 
     fn live(g: &Game) -> Vec<Point> {
         g.quest_views(0).into_iter().find(|v| v.location_id == 2000).unwrap().live_items
+    }
+
+    /// A step chain (one mark at 5000) and a forager carrying `carried` items, with the step baseline set.
+    fn loaded_walker(carried: u32) -> Game {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 5000 }]);
+        let forager = Target::Collect { pts: vec![destination(home(), 0.0, 500.0)], need: 3, r: 25.0, theme: "acorns".into() };
+        g.assignments.push(chain::tests_support::member(2000, 1, "forager", forager));
+        g.collected.insert(2000, Collected { carried, ..Collected::default() });
+        g.on_steps(10_000, 1, None);
+        g
+    }
+
+    fn steps_counted(g: &Game) -> f64 {
+        g.counters.progress.values().sum()
+    }
+
+    #[test]
+    fn overloaded_steps_count_less() {
+        let mut g = loaded_walker(22); // bag 20: 2 over
+        assert!((g.step_factor() - 0.9).abs() < 1e-12);
+        g.on_steps(11_000, 2, None);
+        assert!((steps_counted(&g) - 900.0).abs() < 1e-9, "{}", steps_counted(&g));
+        let mut light = loaded_walker(20);
+        light.on_steps(11_000, 2, None);
+        assert!((steps_counted(&light) - 1000.0).abs() < 1e-9, "a full bag is not over");
+    }
+
+    #[test]
+    fn banking_lifts_the_step_penalty() {
+        let mut g = loaded_walker(40);
+        g.set_counting(false, 0);
+        g.bank_at_home(5);
+        g.set_counting(true, 0);
+        g.on_steps(10_000, 6, None); // counting resumes from here
+        g.on_steps(11_000, 7, None);
+        assert!((g.step_factor() - 1.0).abs() < 1e-12);
+        assert!((steps_counted(&g) - 1000.0).abs() < 1e-9, "{}", steps_counted(&g));
+    }
+
+    #[test]
+    fn a_done_forager_carries_nothing_into_the_bag() {
+        let mut g = loaded_walker(30);
+        g.done.insert(2000);
+        assert_eq!(g.carried_total(), 0);
     }
 
     #[test]
