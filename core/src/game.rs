@@ -273,6 +273,15 @@ pub struct Counters {
     pub last_at_home: Option<bool>,
 }
 
+/// The Archipelago server a game connects to: its address (`host:port`, with or without a scheme) and the slot it plays as.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApServer {
+    /// Server address; the port changes when an archipelago.gg room moves.
+    pub address: String,
+    /// Slot name.
+    pub slot: String,
+}
+
 /// A game in progress: its quests, progress, rewards, fog, traps and goal. Saved as JSON.
 #[derive(Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)] // persisted state flags, each independent
@@ -307,6 +316,10 @@ pub struct Game {
     pub stats: Stats,
     /// Whether the win has been reported to the server.
     pub goal_reported: bool,
+    /// Archipelago: where the game connects (saved at its start, so the app reconnects after a restart). `None` for solo games and
+    /// games from before servers were saved.
+    #[serde(default)]
+    pub ap_server: Option<ApServer>,
     /// A thinned sample of street points, the fallback for placing trap targets when no street index is attached.
     pub trap_pool: Vec<Point>,
     /// Every street and path of the game's zones, indexed to place trap targets; attached when the game is made or opened, never saved.
@@ -555,6 +568,7 @@ impl Game {
             traps: Traps::default(),
             stats: Stats::default(),
             goal_reported: false,
+            ap_server: None,
             trap_pool: pool,
             street_index: None, // the background refresh builds it with the graph (`build_streets`), once (final review M6)
             streets_gen: 0,

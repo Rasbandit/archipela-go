@@ -10,7 +10,7 @@ use apgo_core::assign::{Assignment, Target};
 use apgo_core::card;
 use apgo_core::catalog::{Catalog, Kind, Mode};
 use apgo_core::chain::ChainUnit;
-use apgo_core::game::{Backend, Event, Game, NearMiss, NewGame, QuestState, Streets};
+use apgo_core::game::{ApServer, Backend, Event, Game, NearMiss, NewGame, QuestState, Streets};
 use apgo_core::geo::{distance_m, simplify_spaced, Point};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::loc::calib::StepCal;
@@ -767,6 +767,15 @@ pub struct ServerReportOut {
     pub checks: Vec<i64>,
     /// Whether the goal was reached.
     pub goal: bool,
+}
+
+/// Where an Archipelago game connects ([`Engine::ap_saved_server`]).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ApServerOut {
+    /// Server address as typed (`host:port`, with or without a scheme).
+    pub address: String,
+    /// Slot name.
+    pub slot: String,
 }
 
 /// Quests this close to a fix get a line in the log saying whether they count.
@@ -1775,6 +1784,7 @@ impl Engine {
     ///
     /// # Errors
     /// Returns an error if the `slot_data` is invalid, a realm is missing or not scanned, or the game cannot be saved.
+    /// `address` and `slot_name` are where it connected: saved, so the app reconnects after a restart ([`Self::ap_saved_server`]).
     #[allow(clippy::too_many_arguments)] // pre-existing: flat argument lists keep the exported/geometry call sites explicit
     pub fn start_archipelago(
         &self,
@@ -1787,11 +1797,13 @@ impl Engine {
         surface: String,
         avoid_stairs: bool,
         allow_parking: bool,
+        address: String,
+        slot_name: String,
     ) -> Result<(), CoreError> {
         let slot = SlotData::from_json(&slot_json).map_err(err)?;
         let realms = self.realm_atlases(&zone_realms)?;
         let home = self.home_for(&realms);
-        let game = Game::create(
+        let mut game = Game::create(
             NewGame {
                 id: game_id,
                 name,
@@ -1810,6 +1822,7 @@ impl Engine {
             &self.catalog,
         )
         .map_err(err)?;
+        game.ap_server = Some(ApServer { address: address.trim().into(), slot: slot_name });
         game.save(&self.dir).map_err(err)?;
         self.install(game);
         Ok(())
@@ -2260,6 +2273,34 @@ impl Engine {
             _ => ServerMatch::Other,
         })
         .unwrap_or(ServerMatch::Unknown)
+    }
+
+    /// Where the open Archipelago game connects, saved at its start: the app connects there on its own when the game opens (after
+    /// an app restart too). `None` for a solo game, a game from before servers were saved, or no game open.
+    pub fn ap_saved_server(&self) -> Option<ApServerOut> {
+        self.with_game(|g| g.ap_server.clone().filter(|_| g.backend == Backend::Archipelago))
+            .flatten()
+            .map(|s| ApServerOut { address: s.address, slot: s.slot })
+    }
+
+    /// Point the open Archipelago game at a new address (an archipelago.gg room that moved to another port). Its seed and slot stay,
+    /// so it is still the same game on the server ([`Self::ap_server_match`]).
+    ///
+    /// # Errors
+    /// `Failed` when `address` is blank, the open game has no saved server, or it cannot be saved.
+    pub fn set_ap_address(&self, address: String) -> Result<(), CoreError> {
+        let address = address.trim();
+        if address.is_empty() {
+            return Err(CoreError::Failed { detail: "the server address is empty".into() });
+        }
+        let dir = self.dir.clone();
+        self.with_game(|g| {
+            let server = g.ap_server.as_mut().filter(|_| g.backend == Backend::Archipelago).ok_or("this game has no saved server")?;
+            server.address = address.into();
+            g.save(&dir)
+        })
+        .unwrap_or_else(|| Err("no game open".into()))
+        .map_err(err)
     }
 
     /// What the open game tells the Archipelago server `identity` on every (re)connect: every finished location and whether the goal
@@ -2794,6 +2835,61 @@ mod tests {
         assert!(e.server_report("s".into()).is_none(), "an unknown server gets no automatic re-send");
         e.close_game();
         assert_eq!(e.ap_server_match("s".into()), ServerMatch::Unknown, "no game open");
+    }
+
+    // Start an Archipelago game "ap" on `e`'s realm from its open game's slot_data, connected at `address` as `Tester`.
+    fn start_ap_game(e: &Engine, address: &str) {
+        let slot = serde_json::to_string(&e.with_game(|g| g.slot.clone()).unwrap()).unwrap();
+        e.start_archipelago(
+            "ap".into(),
+            "AP".into(),
+            slot,
+            "seed/Tester".into(),
+            vec!["r0".into()],
+            1,
+            "any".into(),
+            false,
+            true,
+            address.into(),
+            "Tester".into(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn an_archipelago_game_remembers_its_server_across_a_restart() {
+        let e = engine_with_game("ap-saved");
+        assert_eq!(e.ap_saved_server(), None, "a solo game has no server");
+        start_ap_game(&e, "localhost:38281");
+        let saved = Some(ApServerOut { address: "localhost:38281".into(), slot: "Tester".into() });
+        assert_eq!(e.ap_saved_server(), saved);
+        let restarted = Engine::new(e.dir.to_string_lossy().into_owned());
+        assert_eq!(restarted.ap_saved_server(), None, "no game open yet");
+        restarted.open_game("ap".into()).unwrap();
+        assert_eq!(restarted.ap_saved_server(), saved, "the app reconnects there without the player");
+    }
+
+    #[test]
+    fn a_game_from_before_saved_servers_has_none() {
+        let e = engine_with_game("ap-legacy");
+        e.with_game(|g| g.backend = Backend::Archipelago);
+        assert_eq!(e.ap_saved_server(), None, "connect from New Game as before");
+        assert!(e.set_ap_address("localhost:1".into()).is_err(), "no slot known to keep");
+    }
+
+    #[test]
+    fn a_moved_room_keeps_the_game_on_a_new_port() {
+        let e = engine_with_game("ap-move");
+        assert!(e.set_ap_address("localhost:1".into()).is_err(), "a solo game has no server");
+        start_ap_game(&e, "archipelago.gg:38281");
+        assert!(e.set_ap_address("   ".into()).is_err(), "an empty address is refused");
+        e.set_ap_address(" archipelago.gg:49152 ".into()).unwrap();
+        let moved = Some(ApServerOut { address: "archipelago.gg:49152".into(), slot: "Tester".into() });
+        assert_eq!(e.ap_saved_server(), moved);
+        assert_eq!(e.ap_server_match("seed/Tester".into()), ServerMatch::Same, "same seed and slot: same game");
+        let restarted = Engine::new(e.dir.to_string_lossy().into_owned());
+        restarted.open_game("ap".into()).unwrap();
+        assert_eq!(restarted.ap_saved_server(), moved, "saved");
     }
 
     #[test]
