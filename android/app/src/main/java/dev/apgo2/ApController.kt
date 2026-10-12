@@ -32,8 +32,10 @@ private const val LAN_HINT_AFTER_MS = 10_000L
 // The longest a quiet, connected session sleeps before looking again (a safety net: the server's own pings wake it sooner).
 private const val AP_IDLE_WAIT_MS = 60_000
 
-// How long a probe after a silent wait may take to be answered before the connection counts as dead.
+// How long a probe after a silent wait may take to be answered before the connection counts as dead; shorter when the player is
+// looking (coming back to the app).
 private const val AP_PROBE_WAIT_MS = 15_000
+private const val AP_FOREGROUND_PROBE_MS = 3_000
 
 // The seed name of a game whose server is not known (started before games remembered theirs).
 private const val LEGACY_SERVER = "archipelago"
@@ -129,6 +131,7 @@ internal class ApController(
         }
         syncedChecked = false
         syncedFor = null
+        status = "connecting" // not the old session's "disconnected" until the first drain (a quick foreground would reconnect again)
         slotJson = null
         hint = null
         lastTarget = url to slot
@@ -172,12 +175,15 @@ internal class ApController(
 
     // After a whole silent wait: ask the server something it always answers. A live connection on a server that does not ping
     // wakes and stays (no reconnect, which would announce a leave and join to the room); a dead one stays silent.
-    private suspend fun probeAnswered(s: ApSession): Boolean {
+    private suspend fun probeAnswered(
+        s: ApSession,
+        waitMs: Int = AP_PROBE_WAIT_MS,
+    ): Boolean {
         val answered =
             withContext(Dispatchers.IO) {
                 runCatching {
                     s.probe()
-                    s.waitForData(AP_PROBE_WAIT_MS.toUInt())
+                    s.waitForData(waitMs.toUInt())
                 }.getOrDefault(false)
             }
         if (answered) lastDataMs = SystemClock.elapsedRealtime()
@@ -195,12 +201,17 @@ internal class ApController(
      */
     fun onForeground() {
         val s = session ?: return
-        if (ApWait.stale(status, everConnected, SystemClock.elapsedRealtime() - lastDataMs)) {
+        if (!ApWait.stale(status, everConnected, SystemClock.elapsedRealtime() - lastDataMs)) return syncNow()
+        scope.launch {
+            // Shown connected but silent: its pings may only be waiting in the socket, so ask before tearing it down (a reconnect
+            // announces a leave and join to the room). A dropped session reconnects at once.
+            if (status == CONNECTED && probeAnswered(s, AP_FOREGROUND_PROBE_MS)) {
+                tick()
+                return@launch
+            }
             Diag.info("ap", "stale on foreground: reconnecting", "was" to status)
             reconnect.reset()
             reconnectFrom(s)
-        } else {
-            syncNow()
         }
     }
 
@@ -231,7 +242,9 @@ internal class ApController(
             val game = model.engine.openGameId()?.takeIf { model.hud?.backend == "archipelago" }
             if (game == null) syncedFor = null
             val changed = events.any { it is ApEvent.Connected || it is ApEvent.ReceivedItems || it is ApEvent.Updated }
+            if (active) lastDataMs = SystemClock.elapsedRealtime()
             if (apNeedsSync(changed, syncedFor, game)) {
+                if (game != syncedFor) syncedChecked = false // another game opened: its own check sync and re-send
                 syncGame(s)
                 syncedFor = game
             }
@@ -330,17 +343,15 @@ internal class ApController(
     // server ignores repeats, so send everything finished (one packet) and the goal if it was reached.
     private suspend fun reportProgress(s: ApSession) {
         val report = s.serverIdentity()?.let { model.engine.serverReport(it) } ?: return // only to the game's own server
-        withContext(Dispatchers.IO) {
-            if (report.checks.isNotEmpty()) {
+        val sent =
+            withContext(Dispatchers.IO) {
                 runCatching {
-                    s.sendChecks(
-                        report.checks,
-                    )
-                }.onFailure { Diag.warn("ap", "re-sending checks failed", "error" to it.toString()) }
+                    if (report.checks.isNotEmpty()) s.sendChecks(report.checks)
+                    if (report.goal) s.sendGoal()
+                }
             }
-            if (report.goal) runCatching { s.sendGoal() }.onFailure { Diag.warn("ap", "re-sending goal failed", "error" to it.toString()) }
-        }
-        Diag.info("ap", "progress sent", "checks" to report.checks.size, "goal" to report.goal)
+        sent.onSuccess { Diag.info("ap", "progress sent", "checks" to report.checks.size, "goal" to report.goal) }
+        sent.onFailure { Diag.warn("ap", "re-sending progress failed", "error" to it.toString()) }
     }
 
     /**
