@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -143,6 +144,11 @@ class QuestCardA11yTest {
     fun doneWithRewardDark() = show(dwellQuest("done"))
 
     @Test fun courierStepsLight() = show(courierQuest("progress"))
+
+    @Test fun theStepsReadAsOneItemNamingTheCurrentStep() {
+        show(courierQuest("progress"))
+        compose.onNode(hasStateDescription("Step 2 of 2: Deliver")).assertExists()
+    }
 
     @Config(qualifiers = "+night")
     @Test

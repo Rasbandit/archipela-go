@@ -1,5 +1,7 @@
 package dev.apgo2
 
+import android.annotation.SuppressLint
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,6 +64,7 @@ import uniffi.apgo_ffi.ProgressOut
 import uniffi.apgo_ffi.QuestOut
 
 private const val HALF_TURN = 180f
+private const val LOG_TAG = "apgo.QuestCard"
 
 // The Play popup: what to do first (headline), then the quest's name, its difficulty, time and mode, the measurements, the place,
 // a labelled progress block, and the place's about sheet folded away. Everything it says comes from the core.
@@ -201,7 +204,8 @@ private fun ProgressBar(
     Column(Modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth()) {
             Text(p.label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-            Text(p.value, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            // "Done" in the state colour (green on a done quest; ContrastTest checks it on the card).
+            Text(p.value, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (p.frac >= 1f) color else Color.Unspecified)
         }
         LinearProgressIndicator(progress = { p.frac.coerceIn(0f, 1f) }, Modifier.fillMaxWidth(), color = color)
     }
@@ -214,7 +218,13 @@ private fun Steps(
     color: Color,
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    // Read as one item that names where you are: "Step 2 of 2: Deliver".
+    val where = steps.getOrNull(at)?.let { "Step ${at + 1} of ${steps.size}: $it" } ?: "Done"
+    Row(
+        Modifier.semantics(mergeDescendants = true) { stateDescription = where },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         steps.forEachIndexed { i, label ->
             if (i > 0) Box(Modifier.width(18.dp).height(2.dp).background(if (at >= i) color else muted))
             StepDot(i, at, color)
@@ -254,6 +264,7 @@ private fun StepDot(
 }
 
 // "About this place": folded until tapped, then read from the realm's scan off the UI thread.
+@SuppressLint("LogNotTimber") // the app does not use Timber (as in DevSimulator)
 @Composable
 private fun AboutFold(
     locationId: Long,
@@ -266,7 +277,12 @@ private fun AboutFold(
     // Read once, on the first open (it loads the realm's scan from disk).
     LaunchedEffect(locationId, open) {
         if (open && !loaded) {
-            about = withContext(Dispatchers.IO) { runCatching { load(locationId) }.getOrNull() }
+            about =
+                withContext(Dispatchers.IO) {
+                    runCatching { load(locationId) }
+                        .onFailure { Log.w(LOG_TAG, "about($locationId) failed", it) } // the card then says nothing more is known
+                        .getOrNull()
+                }
             loaded = true
         }
     }

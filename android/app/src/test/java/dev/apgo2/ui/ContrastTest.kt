@@ -47,6 +47,15 @@ class ContrastTest {
         }
     }
 
+    @Test fun stepNumbersAreReadableOnTheirDot() =
+        themes.forEach { (dark, _) ->
+            states.forEach { st ->
+                val dot = ApgoPalette.questOnCard(st, dark)
+                val r = Contrast.ratio(ApgoPalette.inkOn(dot), dot)
+                assertTrue("step number on $st dot (dark=$dark): %.2f".format(r), r >= TEXT)
+            }
+        }
+
     @Test fun theBadgeIconStandsOutOnEveryStateColour() =
         states.forEach { st ->
             val r = Contrast.ratio(ApgoPalette.badgeInk(st), ApgoPalette.quest(st))
