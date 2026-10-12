@@ -220,8 +220,8 @@ internal object HeadingCompare {
         )
     }
 
-    // a - b the short way round, in [-180, 180).
-    private fun signedDiff(
+    /** a - b the short way round, in [-180, 180). */
+    fun signedDiff(
         a: Double,
         b: Double,
     ): Double = (a - b + HALF_CIRCLE_DEG).mod(FULL_CIRCLE_DEG) - HALF_CIRCLE_DEG

@@ -54,9 +54,8 @@ internal object MePins {
     private const val SNAP_M = 50.0
     private const val MIN_CIRCLE_M = 3.0
     private const val REDRAW_MOVE_M = 1.0
-    private const val REDRAW_TURN_DEG = 5f
+    private const val REDRAW_TURN_DEG = 5.0
     private const val REDRAW_ACCURACY_M = 2f
-    private const val FULL_TURN_DEG = 360f
     private val STATES = listOf(GPS, BRIDGED, STALE)
 
     /**
@@ -120,20 +119,11 @@ internal object MePins {
             if (old.bearingDeg == null || new.bearingDeg == null) {
                 old.bearingDeg != new.bearingDeg
             } else {
-                turnDeg(old.bearingDeg, new.bearingDeg) >= REDRAW_TURN_DEG
+                abs(HeadingCompare.signedDiff(old.bearingDeg.toDouble(), new.bearingDeg.toDouble())) >= REDRAW_TURN_DEG
             }
         return turned ||
             abs(new.accuracyM - old.accuracyM) >= REDRAW_ACCURACY_M ||
             metersBetween(old.lat, old.lon, new.lat, new.lon) >= REDRAW_MOVE_M
-    }
-
-    // The smaller angle between two bearings, 0 to 180 degrees.
-    private fun turnDeg(
-        a: Float,
-        b: Float,
-    ): Float {
-        val d = abs(a - b) % FULL_TURN_DEG
-        return minOf(d, FULL_TURN_DEG - d)
     }
 
     /** Every pin image the style needs. */
