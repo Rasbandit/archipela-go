@@ -589,6 +589,8 @@ pub struct HudOut {
     pub waypoint: Option<GeoPoint>,
     /// Why checks are blocked right now (a trap), if they are.
     pub blocked: Option<String>,
+    /// The active traps and the block as one line, each once, for the part of the Play panel that never hides; `None` with neither.
+    pub danger: Option<String>,
     /// Distance travelled so far, in kilometres.
     pub distance_km: f64,
     /// Days in a row on which a quest was completed.
@@ -652,6 +654,17 @@ pub enum EventOut {
         /// The message.
         text: String,
     },
+}
+
+/// `traps` and `blocked` as one line, each once; `None` when there is neither.
+fn danger_line(traps: &[String], blocked: Option<String>) -> Option<String> {
+    let mut all: Vec<String> = Vec::new();
+    for t in traps.iter().cloned().chain(blocked) {
+        if !all.contains(&t) {
+            all.push(t);
+        }
+    }
+    (!all.is_empty()).then(|| all.join("  ·  "))
 }
 
 fn ev_out(e: Event) -> EventOut {
@@ -1976,6 +1989,7 @@ impl Engine {
                 keys: count_u32(g.items.iter().filter(|i| *i == "Progressive Zone Key").count()),
                 tools,
                 letters: letters.into_iter().collect(),
+                danger: danger_line(&g.trap_labels(), g.blocked_reason()),
                 traps: g.trap_labels(),
                 thaw: g.traps.thaw_point().map(gp),
                 waypoint: g.traps.waypoint().map(gp),
@@ -2522,6 +2536,15 @@ mod tests {
         });
         let q = e.quests(0).into_iter().find(|q| q.location_id == id).unwrap();
         assert_eq!(q.headline, "Sit 6 min");
+    }
+
+    #[test]
+    fn the_danger_line_joins_traps_and_the_block_once_and_is_absent_with_neither() {
+        let s = |v: &[&str]| v.iter().map(|t| (*t).to_string()).collect::<Vec<_>>();
+        assert_eq!(danger_line(&[], None), None);
+        assert_eq!(danger_line(&s(&["Frozen!"]), None).as_deref(), Some("Frozen!"));
+        assert_eq!(danger_line(&s(&["Frozen!", "Leashed"]), Some("Frozen!".into())).as_deref(), Some("Frozen!  ·  Leashed"));
+        assert_eq!(danger_line(&[], Some("Zone 2 locked".into())).as_deref(), Some("Zone 2 locked"));
     }
 
     #[test]

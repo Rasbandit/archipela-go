@@ -1,7 +1,6 @@
 package dev.apgo2
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 import uniffi.apgo_ffi.QuestOut
 
@@ -92,13 +91,5 @@ class PlayLayoutTest {
                 listOf(quest(1, "point", "done"), quest(2, "point", "open"), quest(3, "point", "locked"), quest(4, "point", "hidden")),
             )
         assertEquals(listOf(2L, 3L, 1L, 4L), ids(p.places))
-    }
-
-    // #120: traps and a blocked zone show in the part of the panel that never hides, as one line.
-    @Test fun theDangerLineJoinsTrapsAndTheBlockOnceAndIsAbsentWithNeither() {
-        assertNull(PlayLayout.danger(emptyList(), null))
-        assertEquals("Frozen!", PlayLayout.danger(listOf("Frozen!"), null))
-        assertEquals("Frozen!  ·  Leashed", PlayLayout.danger(listOf("Frozen!", "Leashed"), "Frozen!"))
-        assertEquals("Zone 2 locked", PlayLayout.danger(emptyList(), "Zone 2 locked"))
     }
 }

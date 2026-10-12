@@ -358,7 +358,7 @@ private fun PanelTop(
         GoalsBlock(hud, withLines = shown)
         Text(summaryLine(hud), fontSize = 11.sp)
         // Traps and a blocked zone stay in sight while the panel is hidden (#120).
-        PlayLayout.danger(hud.traps, hud.blocked)?.let { FeedbackText(it, Tone.Danger) }
+        hud.danger?.let { FeedbackText(it, Tone.Danger) }
     }
 }
 
