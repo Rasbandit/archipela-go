@@ -161,6 +161,9 @@ internal class Sensors(
     fun stopSteps() {
         stepListener?.let { sm.unregisterListener(it) }
         stepListener = null
+        // A total from before the stop must not reach the core with later fixes: once counting resumes it would become the baseline
+        // and the next reading would credit every step taken while the counter was off.
+        model.stepsTotal = null
     }
 
     /**
