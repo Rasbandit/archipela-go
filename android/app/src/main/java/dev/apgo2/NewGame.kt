@@ -54,6 +54,7 @@ import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.IconLabel
 import dev.apgo2.ui.LabelWithHelp
 import dev.apgo2.ui.PLAY_MODES
+import dev.apgo2.ui.SwitchRow
 import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
 import uniffi.apgo_ffi.GoalPickIn
@@ -297,19 +298,6 @@ private fun StartButtons(
             OutlinedButton(enabled = ready, onClick = { m.library.exportYaml(form.options()) }) { Text("Export YAML") }
         }
         if (!ready) Text("Add at least one zone to continue.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun SwitchRow(
-    label: String,
-    help: HelpTopic,
-    on: Boolean,
-    onChange: (Boolean) -> Unit,
-) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        LabelWithHelp(label, help)
-        Switch(on, onChange)
     }
 }
 

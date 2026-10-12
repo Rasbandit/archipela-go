@@ -82,6 +82,7 @@ internal class AppModel(
     val engine = Engine(ctx.filesDir.absolutePath)
     val sensors = Sensors(ctx, this)
     val settings = PresenceSettings(ctx)
+    private val trapAlert = TrapAlert(ctx)
     val units = UnitSettings(this)
     val stepCal = StepCalStore(ctx)
     val presence = PresenceController(this, ctx)
@@ -330,6 +331,7 @@ internal class AppModel(
 
                 is EventOut.Trap -> {
                     say(e.message)
+                    if (e.alert) trapAlert.fire(e.item, e.message)
                 }
 
                 is EventOut.Discovered -> {}
