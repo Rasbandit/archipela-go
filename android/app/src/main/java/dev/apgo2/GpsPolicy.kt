@@ -5,7 +5,16 @@ import com.google.android.gms.location.Granularity
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.Priority
 
-/** How the phone is asked for location: rate, batching and quality from the presence decision and the screen; which provider. */
+/**
+ * How the phone is asked for location: rate, batching and quality from the presence decision and the screen; which provider.
+ *
+ * The cadence policy (owner decision 2026-10-12, clean trace paths):
+ * - In a zone while playing the interval is never slower than 5 s. The map in front (screen on and this app visible): 1 s.
+ *   Screen off, or another app in front: 5 s, with hardware batching up to 30 s (every 5 s fix is kept, only delivered in bursts,
+ *   so the path stays dense while the CPU sleeps). GNSS quality and no distance filter either way: the core's stationary hold and
+ *   gap bridge need a steady stream.
+ * - Outside every zone: the coarse rate (90 s, 50 m, balanced). At home or in the car: off.
+ */
 internal object GpsPolicy {
     /**
      * [highAccuracy] asks for the GNSS chip (a fused request without it is served as BALANCED: Wi-Fi and cell, 20-100 m off).
@@ -45,9 +54,9 @@ internal object GpsPolicy {
     private const val QUALITY_BALANCED = 102
     private const val GPS = "gps"
     private const val NETWORK = "network"
-    private const val SCREEN_ON_MS = 1_000L
-    private const val SCREEN_OFF_MS = 5_000L
-    private const val SCREEN_OFF_BATCH_MS = 10_000L
+    private const val ON_SCREEN_MS = 1_000L
+    private const val OFF_SCREEN_MS = 5_000L
+    private const val OFF_SCREEN_BATCH_MS = 30_000L
     private const val COLD_START_MAX_AGE_MS = 120_000L
 
     // Providers that mean location is on (passive is always listed and only relays others' fixes).
@@ -59,12 +68,15 @@ internal object GpsPolicy {
     /** Not playing, app on screen: a relaxed rate for the map marker (time-based, plus a distance filter). */
     val IDLE = Rate(intervalMs = 15_000L, minDistanceM = 20f)
 
-    /** In a zone while playing: every second with the screen on, every 5 s (batched up to 10 s) with it off; GNSS quality in both. */
-    fun inZone(screenOn: Boolean): Rate =
-        if (screenOn) {
-            Rate(SCREEN_ON_MS, 0f, highAccuracy = true)
+    /**
+     * In a zone while playing: every second while the map is [onScreen] (screen on and the app in front), else every 5 s batched up
+     * to 30 s; GNSS quality and no distance filter in both (see the class comment).
+     */
+    fun inZone(onScreen: Boolean): Rate =
+        if (onScreen) {
+            Rate(ON_SCREEN_MS, 0f, highAccuracy = true)
         } else {
-            Rate(SCREEN_OFF_MS, 0f, highAccuracy = true, maxDelayMs = SCREEN_OFF_BATCH_MS)
+            Rate(OFF_SCREEN_MS, 0f, highAccuracy = true, maxDelayMs = OFF_SCREEN_BATCH_MS)
         }
 
     /** The rate a presence decision asks for; `null` means location is off. Stopped keeps "map marker while the app is on screen". */
@@ -80,7 +92,7 @@ internal object GpsPolicy {
 
             d.state == dev.apgo2.presence.PresenceState.Stopped -> if (appVisible) IDLE else null
 
-            d.state == dev.apgo2.presence.PresenceState.InZone -> inZone(screenOn)
+            d.state == dev.apgo2.presence.PresenceState.InZone -> inZone(screenOn && appVisible)
 
             d.gps is dev.apgo2.presence.GpsMode.Rate -> Rate(d.gps.intervalMs, d.gps.minDistanceM)
 

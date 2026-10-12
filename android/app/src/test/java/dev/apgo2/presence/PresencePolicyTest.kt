@@ -44,9 +44,9 @@ class PresencePolicyTest {
 
     @Test fun theCoarseIntervalIsNinetySeconds() = assertEquals(90_000L, PresencePolicy.COARSE_MS)
 
-    @Test fun standingStillProducesNoFixes() {
-        // Dwell and time away finish on a scheduled tick, so GPS only needs to report movement: 10 m in a zone, 50 m far away.
-        assertEquals(10f, PresencePolicy.ZONE_MOVE_M)
+    @Test fun farAwayStandingStillProducesNoFixes() {
+        // Dwell and time away finish on a scheduled tick, so far from every zone GPS only needs to report 50 m moves. In a zone
+        // there is no distance filter: the core's stationary hold and gap bridge need a steady stream (GpsPolicy.inZone).
         assertEquals(50f, PresencePolicy.FAR_MOVE_M)
     }
 
@@ -61,7 +61,7 @@ class PresencePolicyTest {
         for (z in listOf(Zone.Inside, Zone.Near, Zone.Unknown)) {
             assertEquals(
                 "$z",
-                Decision(PresenceState.InZone, GpsMode.Rate(5_000L, PresencePolicy.ZONE_MOVE_M), counting = true),
+                Decision(PresenceState.InZone, GpsMode.Precise, counting = true),
                 PresencePolicy.decide(signals(zone = z)),
             )
         }

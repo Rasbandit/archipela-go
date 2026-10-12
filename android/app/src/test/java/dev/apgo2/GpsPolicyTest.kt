@@ -12,20 +12,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GpsPolicyTest {
-    private val inZone = Decision(PresenceState.InZone, GpsMode.Rate(5_000L, 0f), counting = true)
+    private val inZone = Decision(PresenceState.InZone, GpsMode.Precise, counting = true)
 
-    @Test fun inAZoneTheScreenPicksOneOrFiveSecondsAndBothUseGpsQuality() {
+    @Test fun inAZoneOnlyTheMapInFrontGetsOneSecondEverythingElseFiveSecondsBatchedUpToThirty() {
+        val fast = GpsPolicy.Rate(1_000L, 0f, highAccuracy = true)
+        val slow = GpsPolicy.Rate(5_000L, 0f, highAccuracy = true, maxDelayMs = 30_000L)
+        assertEquals("screen on, app visible", fast, GpsPolicy.forDecision(inZone, appVisible = true, screenOn = true))
+        assertEquals("screen on, other app in front", slow, GpsPolicy.forDecision(inZone, appVisible = false, screenOn = true))
+        assertEquals("screen off, visible", slow, GpsPolicy.forDecision(inZone, appVisible = true, screenOn = false))
+        assertEquals("screen off, hidden", slow, GpsPolicy.forDecision(inZone, appVisible = false, screenOn = false))
+    }
+
+    @Test fun inAZoneTheIntervalIsNeverSlowerThanFiveSecondsSoTheTraceStaysDense() {
         for (visible in listOf(true, false)) {
-            assertEquals(
-                "on, visible=$visible",
-                GpsPolicy.Rate(1_000L, 0f, highAccuracy = true),
-                GpsPolicy.forDecision(inZone, visible, screenOn = true),
-            )
-            assertEquals(
-                "off, visible=$visible",
-                GpsPolicy.Rate(5_000L, 0f, highAccuracy = true, maxDelayMs = 10_000L),
-                GpsPolicy.forDecision(inZone, visible, screenOn = false),
-            )
+            for (screen in listOf(true, false)) {
+                assertTrue(GpsPolicy.forDecision(inZone, visible, screen)!!.intervalMs <= 5_000L)
+            }
         }
     }
 
@@ -62,13 +64,13 @@ class GpsPolicyTest {
 
     @Test fun playingStaysFarUnderTheCoreGapLimit() {
         // The core resets the filter after 5 minutes without a fix: even screen-off batches must be far below that.
-        val off = GpsPolicy.inZone(screenOn = false)
+        val off = GpsPolicy.inZone(onScreen = false)
         assertTrue(off.intervalMs + off.maxDelayMs < 60_000L)
     }
 
     @Test fun theRequestCarriesIntervalBatchingAndQuality() {
-        assertEquals(GpsPolicy.RequestSpec(1_000L, 1_000L, 0L, 0f, 100), GpsPolicy.request(GpsPolicy.inZone(screenOn = true)))
-        assertEquals(GpsPolicy.RequestSpec(5_000L, 5_000L, 10_000L, 0f, 100), GpsPolicy.request(GpsPolicy.inZone(screenOn = false)))
+        assertEquals(GpsPolicy.RequestSpec(1_000L, 1_000L, 0L, 0f, 100), GpsPolicy.request(GpsPolicy.inZone(onScreen = true)))
+        assertEquals(GpsPolicy.RequestSpec(5_000L, 5_000L, 30_000L, 0f, 100), GpsPolicy.request(GpsPolicy.inZone(onScreen = false)))
         assertEquals(102, GpsPolicy.request(GpsPolicy.IDLE).quality)
     }
 }
@@ -104,7 +106,7 @@ class GpsProvidersTest {
 class GmsRequestTest {
     @Test fun inAZoneEitherScreenWaitsForAnAccurateFineFix() {
         for (screen in listOf(true, false)) {
-            val r = GpsPolicy.gmsRequest(GpsPolicy.inZone(screenOn = screen))
+            val r = GpsPolicy.gmsRequest(GpsPolicy.inZone(onScreen = screen))
             assertTrue("screen=$screen", r.isWaitForAccurateLocation)
             assertEquals("screen=$screen", Granularity.GRANULARITY_FINE, r.granularity)
         }
@@ -117,7 +119,7 @@ class GmsRequestTest {
     }
 
     @Test fun screenOnInAZoneIsHighAccuracyEverySecondUnbatched() {
-        val r = GpsPolicy.gmsRequest(GpsPolicy.inZone(screenOn = true))
+        val r = GpsPolicy.gmsRequest(GpsPolicy.inZone(onScreen = true))
         assertEquals(Priority.PRIORITY_HIGH_ACCURACY, r.priority)
         assertEquals(1_000L, r.intervalMillis)
         assertEquals(1_000L, r.minUpdateIntervalMillis)
@@ -126,13 +128,13 @@ class GmsRequestTest {
         assertEquals(0f, r.minUpdateDistanceMeters)
     }
 
-    @Test fun screenOffInAZoneIsHighAccuracyEveryFiveSecondsBatchedUpToTen() {
-        val r = GpsPolicy.gmsRequest(GpsPolicy.inZone(screenOn = false))
+    @Test fun screenOffInAZoneIsHighAccuracyEveryFiveSecondsBatchedUpToThirty() {
+        val r = GpsPolicy.gmsRequest(GpsPolicy.inZone(onScreen = false))
         assertEquals(Priority.PRIORITY_HIGH_ACCURACY, r.priority)
         assertEquals(5_000L, r.intervalMillis)
         assertEquals(5_000L, r.minUpdateIntervalMillis)
         assertTrue(r.isBatched)
-        assertEquals(10_000L, r.maxUpdateDelayMillis)
+        assertEquals(30_000L, r.maxUpdateDelayMillis)
     }
 
     @Test fun theIdleMarkerIsBalancedWithItsDistanceFilter() {

@@ -54,7 +54,7 @@ internal class PresenceController(
             field = v
         }
 
-    /** Whether the screen is on (the in-zone rate is 1 s with it on, 5 s with it off). */
+    /** Whether the screen is on (the in-zone rate is 1 s with it on and the app in front, else 5 s batched: [GpsPolicy]). */
     var screenOn = true
         private set
     private val homeDebounce = Debouncer()
