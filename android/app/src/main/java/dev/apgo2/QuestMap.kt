@@ -547,8 +547,10 @@ internal fun QuestMap(
     onAnchor: ((Offset?) -> Unit)? = null,
     /** When false the drawn shape is only an outline: no handles, radius line, label or corner dots (and [onHandleMove] is not called). */
     editable: Boolean = true,
-    /** Where you have been: one line per unbroken stretch of GPS. */
+    /** Where you have been this session: one line per unbroken stretch of GPS. */
     trace: List<List<LatLng>> = emptyList(),
+    /** Where you had been before this session, drawn alike; its own source so a [trace] refresh does not re-send it. */
+    traceOld: List<List<LatLng>> = emptyList(),
     /** Where to start when there is nothing to frame yet (the last place you were). */
     lastPlace: LatLng? = null,
     /** False while the map is kept but hidden (another tab is up): it stops drawing and keeps its camera, style and tiles. */
@@ -580,7 +582,7 @@ internal fun QuestMap(
     val holder = remember { MapHolder(context, density, inputs, MapStart.center(listOfNotNull(circle?.first) + points, lastPlace)) }
     MapLifecycle(holder.view, onShow)
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
-    SyncContent(holder, quests, realms, selected, finds, trace)
+    SyncContent(holder, quests, realms, selected, finds, trace, traceOld)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
     SyncPins(holder, thaw, waypoint, home, me)
     MapCamera(holder, inputs, overlaysFollowed, fit, focus, anchor)
@@ -685,6 +687,7 @@ private fun SyncContent(
     selected: Long?,
     finds: List<MapFind>,
     trace: List<List<LatLng>>,
+    traceOld: List<List<LatLng>>,
 ) {
     val style = holder.style
     LaunchedEffect(style, realms) { holder.show(MapSource.REALMS, MapFeatures.realms(realms)) }
@@ -710,6 +713,7 @@ private fun SyncContent(
         holder.show(MapSource.AREAS, MapFeatures.areas(quests))
     }
     LaunchedEffect(style, trace) { holder.show(MapSource.TRACE, MapFeatures.trace(trace)) }
+    LaunchedEffect(style, traceOld) { holder.show(MapSource.TRACE_OLD, MapFeatures.trace(traceOld)) }
 }
 
 // The shape being drawn, the circle's radius and the handles.

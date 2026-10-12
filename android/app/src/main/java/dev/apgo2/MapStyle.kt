@@ -121,6 +121,7 @@ internal object MapSource {
     const val REALMS = "realms"
     const val AREAS = "areas"
     const val LINES = "lines"
+    const val TRACE_OLD = "trace-old"
     const val TRACE = "trace"
     const val QUESTS = "quests"
     const val QUEST_SEL = "quest-sel"
@@ -139,6 +140,7 @@ internal object MapSource {
             REALMS,
             AREAS,
             LINES,
+            TRACE_OLD,
             TRACE,
             ITEMS,
             QUESTS,
@@ -234,14 +236,21 @@ internal object MapStyle {
             Expression.stop("done", Expression.literal(AREA_FILL_DONE)),
         )
 
+    private fun traceLine(
+        id: String,
+        source: String,
+    ) = LineLayer(id, source).withProperties(
+        lineColor(ApgoPalette.trace.hex()),
+        scaledWidth(LineKind.TRACE),
+        lineCap(ROUND),
+        lineJoin(ROUND),
+    )
+
     private fun traceLayers() =
         listOf(
-            LineLayer("trace-layer", MapSource.TRACE).withProperties(
-                lineColor(ApgoPalette.trace.hex()),
-                scaledWidth(LineKind.TRACE),
-                lineCap(ROUND),
-                lineJoin(ROUND),
-            ),
+            // Two sources, one look: the older trace is set rarely, so a refresh re-sends only this session's lines.
+            traceLine("trace-old-layer", MapSource.TRACE_OLD),
+            traceLine("trace-layer", MapSource.TRACE),
             // Parks: a thin dashed outline; only its state colour tells the state, as on pins. The fill shows progress (realmLayers).
             LineLayer("park-line", MapSource.LINES)
                 .withFilter(isPark())

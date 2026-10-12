@@ -390,6 +390,7 @@ private fun PlayMap(
     val realms = held(onShow) { m.realms.filter { r -> m.zones.any { it.realmId == r.id } } }
     val me = held(onShow) { m.mePin }
     val trace = held(onShow) { m.trace }
+    val traceOld = held(onShow) { m.traceOld }
     val chain = held(onShow) { m.chains.firstOrNull { it.id == m.selectedChain } }
     val selected = quests.firstOrNull { it.locationId == m.selected }
     // Selecting a quest brings its pin into view together with its popup, whose real height is measured once it is shown.
@@ -429,6 +430,7 @@ private fun PlayMap(
             },
             home = m.home?.let { LatLng(it.lat, it.lon) },
             trace = trace,
+            traceOld = traceOld,
             lastPlace = m.lastPlace,
             onShow = onShow,
             overlayBottomDp = coverDp,

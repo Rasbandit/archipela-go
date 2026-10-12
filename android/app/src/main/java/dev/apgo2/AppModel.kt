@@ -99,7 +99,6 @@ internal class AppModel(
     private val stepRefresh = StepRefresh(STEP_REFRESH_STEPS)
     val pins = PinFeed(this)
     private val sessionTrace = TraceBuffer()
-    private var olderTrace: List<List<LatLng>> = emptyList()
 
     // Bench only: `adb shell run-as dev.apgo2.app touch files/allow_mock` lets mock fixes through in a debuggable build. It is read
     // once at start: force-stop the app (`adb shell am force-stop dev.apgo2.app`) for a new or removed flag to take effect.
@@ -126,8 +125,11 @@ internal class AppModel(
     var zones by mutableStateOf<List<ZoneOut>>(emptyList())
     var hud by mutableStateOf<HudOut?>(null)
 
-    /** Where you have been in this game: one line per unbroken stretch of GPS. */
+    /** Where you have been in this session: one line per unbroken stretch of GPS. Changes with each trace refresh. */
     var trace by mutableStateOf<List<List<LatLng>>>(emptyList())
+
+    /** Where you had been in this game before this session; reloaded only when the session's start moves, so it rarely changes. */
+    var traceOld by mutableStateOf<List<List<LatLng>>>(emptyList())
 
     var games by mutableStateOf<List<GameInfo>>(emptyList())
 
@@ -224,7 +226,7 @@ internal class AppModel(
             selectedChain = null
             hud = null
             sessionTrace.clear()
-            olderTrace = emptyList()
+            traceOld = emptyList()
             trace = emptyList()
         }
         noteJournal()
@@ -243,10 +245,13 @@ internal class AppModel(
             // session's start is unknown or moved, or the session's line was replaced.
             val delta = engine.traceMatchedSince(sessionTrace.cursor)
             if (sessionTrace.apply(delta)) {
-                olderTrace =
-                    engine.track(0L, (delta.fromMs ?: Long.MAX_VALUE) - 1).map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
+                traceOld =
+                    engine
+                        .track(0L, (delta.fromMs ?: Long.MAX_VALUE) - 1)
+                        .map { seg -> seg.points.map { LatLng(it.lat, it.lon) } }
+                        .filter { it.size >= 2 }
             }
-            trace = (olderTrace + sessionTrace.lines()).filter { it.size >= 2 }
+            trace = sessionTrace.lines().filter { it.size >= 2 }
         }
     }
 
