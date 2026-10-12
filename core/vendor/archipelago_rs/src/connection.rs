@@ -9,6 +9,8 @@ use crate::{Client, ConnectionOptions, Event, error::*};
 
 mod socket;
 
+pub use socket::Readiness;
+
 pub(crate) use socket::*;
 
 /// A connection to the Archipelago server. This includes connections that are
@@ -161,6 +163,11 @@ impl<S: DeserializeOwned + Send + 'static> Connection<S> {
     /// The type of the current connection state.
     pub fn state_type(&self) -> ConnectionStateType {
         self.state.state_type()
+    }
+
+    /// A handle that waits for the server's next data while connected (local patch, see PATCHES.md).
+    pub fn readiness(&self) -> Option<Readiness> {
+        self.client().map(Client::readiness)
     }
 
     /// Returns the [Client] if the connection is currently open.

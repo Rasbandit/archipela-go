@@ -2,6 +2,11 @@
 
 - `src/cache.rs`: add a fallback `platform_cache_dir()` (returns `None`) for targets other than Windows/macOS/Linux so the crate compiles for Android. Candidate for an upstream PR.
 
+- `src/connection/socket.rs`, `src/connection.rs`, `src/client.rs`: add `Readiness` (`Connection::readiness`, `Client::readiness`,
+  `Readiness::new`), a clone of the socket's `Arc<Async<TcpStream>>` whose `wait(timeout)` blocks until the socket is readable. The
+  crate only offers non-blocking `update()`, so a host had to poll on a timer; this lets it sleep until the server sends something
+  (battery) without holding the connection. Tested in `apgo-ffi` (`ap_wait_tests`). Candidate for an upstream PR.
+
 ## Evidence (2026-10-07)
 Minimal repro with the unpatched crate, no TLS features, no other code:
 `archipelago_rs = { version = "=3.0.1", default-features = false }` then `cargo check` passes on host Linux and fails with

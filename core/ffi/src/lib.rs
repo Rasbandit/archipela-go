@@ -229,7 +229,12 @@ pub enum ApEvent {
     Other,
 }
 
-/// A connection to an Archipelago server, polled by the host on a timer.
+// Wait on `ready` up to `timeout_ms`; no socket (not connected) returns at once.
+fn wait_ready(ready: Option<ap::Readiness>, timeout_ms: u32) -> bool {
+    ready.is_some_and(|r| r.wait(std::time::Duration::from_millis(u64::from(timeout_ms))))
+}
+
+/// A connection to an Archipelago server: the host waits for data ([`ApSession::wait_for_data`]) and drains it ([`ApSession::poll`]).
 #[derive(uniffi::Object)]
 pub struct ApSession {
     conn: Mutex<ap::Connection>,
@@ -270,6 +275,14 @@ impl ApSession {
                 _ => ApEvent::Other,
             })
             .collect()
+    }
+
+    /// Block until the server sends something or `timeout_ms` passes, so the host sleeps between messages instead of polling on a
+    /// timer; then call [`Self::poll`]. Holds no lock while waiting (checks are sent meanwhile). Returns `false` at once while not
+    /// connected (the host keeps its back-off then), and `false` on a timeout.
+    pub fn wait_for_data(&self, timeout_ms: u32) -> bool {
+        let ready = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner).readiness();
+        wait_ready(ready, timeout_ms)
     }
 
     /// `connecting`, `connected`, or `disconnected: <reason>`.
@@ -425,4 +438,29 @@ pub fn line_width_stops(kind: LineKind) -> Vec<WidthStop> {
 #[must_use]
 pub const fn line_width_curve_base() -> f32 {
     apgo_core::line_width::CURVE_BASE
+}
+
+#[cfg(test)]
+mod ap_wait_tests {
+    use super::{ap, wait_ready};
+    use std::io::Write;
+    use std::net::{TcpListener, TcpStream};
+
+    #[test]
+    fn not_connected_returns_at_once() {
+        let t = std::time::Instant::now();
+        assert!(!wait_ready(None, 5_000));
+        assert!(t.elapsed().as_millis() < 1_000, "no socket to wait on: the host falls back to its back-off");
+    }
+
+    #[test]
+    fn waits_for_the_servers_data_or_the_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut server = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (client, _) = listener.accept().unwrap();
+        let ready = ap::Readiness::new(client).unwrap();
+        assert!(!wait_ready(Some(ready.clone()), 50), "nothing sent: times out");
+        server.write_all(b"x").unwrap();
+        assert!(wait_ready(Some(ready), 5_000), "data sent: wakes");
+    }
 }
