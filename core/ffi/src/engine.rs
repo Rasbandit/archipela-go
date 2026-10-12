@@ -1997,25 +1997,28 @@ impl Engine {
             .map(|e| TrackPoint { t_ms, lat: e.lat, lon: e.lon, accuracy_m: e.uncertainty_m, simulated })
             .filter(|p| self.journal_point_due(p));
         let rejected = est.map_or_else(|| Some("unusable fix".into()), |e| rejected_detail(&e, self.unit_system())).filter(|_| self.reject_log_due(t_ms));
+        // One transaction per fix: the point and its log lines cost one commit.
         self.journal_do(|j| {
-            if let Some(p) = &point {
-                j.add_point(&game_id, p)?;
-            }
-            if let Some(detail) = rejected {
-                j.log(&game_id, &JournalEvent { t_ms, kind: kind::FIX_REJECTED.into(), detail, at })?;
-            }
-            for n in self.new_near_misses(near, t_ms) {
-                j.log(
-                    &game_id,
-                    &JournalEvent {
-                        t_ms,
-                        kind: kind::NEAR_MISS.into(),
-                        detail: format!("{}: {} ({})", n.name, n.reason, distance(n.distance_m, self.unit_system())),
-                        at,
-                    },
-                )?;
-            }
-            entries.iter().try_for_each(|e| j.log(&game_id, e))
+            j.batch(|j| {
+                if let Some(p) = &point {
+                    j.add_point(&game_id, p)?;
+                }
+                if let Some(detail) = rejected {
+                    j.log(&game_id, &JournalEvent { t_ms, kind: kind::FIX_REJECTED.into(), detail, at })?;
+                }
+                for n in self.new_near_misses(near, t_ms) {
+                    j.log(
+                        &game_id,
+                        &JournalEvent {
+                            t_ms,
+                            kind: kind::NEAR_MISS.into(),
+                            detail: format!("{}: {} ({})", n.name, n.reason, distance(n.distance_m, self.unit_system())),
+                            at,
+                        },
+                    )?;
+                }
+                entries.iter().try_for_each(|e| j.log(&game_id, e))
+            })
         });
         ev.into_iter().map(ev_out).collect()
     }
