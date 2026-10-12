@@ -62,6 +62,11 @@ widgets or write colours themselves.
   and quest-state colours drawn on a card or panel use the theme-aware `ApgoPalette.tone` / `questOnCard` (a darker shade on
   light, a lighter one on dark); the plain `quest(state)` colours are for the map. `ContrastTest` checks every pair against
   the real card and panel backgrounds: WCAG 4.5:1 for text, 3:1 for bars and icons. A new colour on a card gets a row there.
+- `QuestCardA11yTest` runs Google's Accessibility Test Framework (via Roborazzi, under Robolectric in JVM tests, so
+  `just check-android` and CI need no emulator) on the rendered quest card in light and dark: touch targets, contrast
+  measured from the pixels, missing labels; any warning fails. Two control tests prove it bites (an unlabelled button, the
+  old reward green on the dark card). A composable that calls the native `Engine` takes the call as a parameter (see
+  `QuestCard`'s `loadAbout`) so it renders in tests. New screens get a test like it (#144).
 - Touch targets are at least 48dp (a small icon keeps its look inside a full-size `IconButton`), except inline text links,
   whose hit area is their line of text; fold-outs have a button role
   and an expanded/collapsed state; links are `LinkAnnotation.Url`, so TalkBack announces them as links.

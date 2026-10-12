@@ -21,6 +21,9 @@ android {
 
     buildFeatures { compose = true }
 
+    // Robolectric renders composables in JVM tests (A11yTest) and needs the app's resources and manifest.
+    testOptions { unitTests.isIncludeAndroidResources = true }
+
     lint {
         warningsAsErrors = true
         abortOnError = true
@@ -88,6 +91,16 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.org.json) // android.jar stubs org.json out in local unit tests
     testImplementation(libs.jna) // the desktop JNA (with its native dispatch) to load the host core in JVM tests
+    // Accessibility checks (Google's Accessibility Test Framework) on rendered composables, in JVM tests via Robolectric
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.junit)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.junit.rule)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.roborazzi.accessibility.check)
 }
 
 kover {
