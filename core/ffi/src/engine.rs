@@ -589,6 +589,8 @@ pub struct HudOut {
     pub waypoint: Option<GeoPoint>,
     /// Why checks are blocked right now (a trap), if they are.
     pub blocked: Option<String>,
+    /// The active traps and the block as one line, each once, for the part of the Play panel that never hides; `None` with neither.
+    pub danger: Option<String>,
     /// Distance travelled so far, in kilometres.
     pub distance_km: f64,
     /// Days in a row on which a quest was completed.
@@ -654,6 +656,17 @@ pub enum EventOut {
         /// The message.
         text: String,
     },
+}
+
+/// `traps` and `blocked` as one line, each once; `None` when there is neither.
+fn danger_line(traps: &[String], blocked: Option<String>) -> Option<String> {
+    let mut all: Vec<String> = Vec::new();
+    for t in traps.iter().cloned().chain(blocked) {
+        if !all.contains(&t) {
+            all.push(t);
+        }
+    }
+    (!all.is_empty()).then(|| all.join("  ·  "))
 }
 
 /// `e` for the app; a trap alerts only while `alerts` (the player's trap alerts setting) is on.
@@ -731,34 +744,6 @@ pub struct AuditEventOut {
     pub detail: String,
     /// Where the player was when it happened, if known.
     pub at: Option<GeoPoint>,
-}
-
-/// How many events of one kind happened.
-#[derive(Debug, uniffi::Record)]
-pub struct KindCountOut {
-    /// Machine name of the event kind.
-    pub kind: String,
-    /// Number of events of that kind.
-    pub count: u32,
-}
-
-/// "While you were out": everything recorded between two moments.
-#[derive(Debug, uniffi::Record)]
-pub struct AwayReportOut {
-    /// Start of the period, in Unix milliseconds.
-    pub from_ms: i64,
-    /// End of the period, in Unix milliseconds.
-    pub to_ms: i64,
-    /// Number of GPS points recorded.
-    pub points: u32,
-    /// How many of those points came from the dev simulator.
-    pub simulated_points: u32,
-    /// Distance travelled in the period, in metres.
-    pub distance_m: f64,
-    /// Number of events of each kind.
-    pub counts: Vec<KindCountOut>,
-    /// The events themselves, oldest first.
-    pub events: Vec<AuditEventOut>,
 }
 
 /// Quests this close to a fix get a line in the log saying whether they count.
@@ -2016,6 +2001,7 @@ impl Engine {
                 keys: count_u32(g.items.iter().filter(|i| *i == "Progressive Zone Key").count()),
                 tools,
                 letters: letters.into_iter().collect(),
+                danger: danger_line(&g.trap_labels(), g.blocked_reason()),
                 traps: g.trap_labels(),
                 thaw: g.traps.thaw_point().map(gp),
                 waypoint: g.traps.waypoint().map(gp),
@@ -2321,28 +2307,6 @@ impl Engine {
         }
     }
 
-    /// Everything that happened in the open game between two moments.
-    pub fn away_report(&self, from_ms: i64, to_ms: i64) -> Option<AwayReportOut> {
-        let id = self.game_id()?;
-        let j = self.journal.as_ref()?.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let s = j.summary(&id, from_ms, to_ms).ok()?;
-        let events = j.events_since(&id, from_ms).ok()?;
-        drop(j);
-        Some(AwayReportOut {
-            from_ms,
-            to_ms,
-            points: s.points,
-            simulated_points: s.simulated_points,
-            distance_m: s.distance_m,
-            counts: s.by_kind.into_iter().map(|(kind, count)| KindCountOut { kind, count }).collect(),
-            events: events
-                .into_iter()
-                .filter(|e| e.t_ms <= to_ms)
-                .map(|e| AuditEventOut { t_ms: e.t_ms, kind: e.kind, detail: e.detail, at: e.at.map(|(lat, lon)| GeoPoint { lat, lon }) })
-                .collect(),
-        })
-    }
-
     /// Reroll unfinished quests (all if `ids` is empty). Returns how many were re-placed.
     ///
     /// # Errors
@@ -2584,6 +2548,15 @@ mod tests {
         });
         let q = e.quests(0).into_iter().find(|q| q.location_id == id).unwrap();
         assert_eq!(q.headline, "Sit 6 min");
+    }
+
+    #[test]
+    fn the_danger_line_joins_traps_and_the_block_once_and_is_absent_with_neither() {
+        let s = |v: &[&str]| v.iter().map(|t| (*t).to_string()).collect::<Vec<_>>();
+        assert_eq!(danger_line(&[], None), None);
+        assert_eq!(danger_line(&s(&["Frozen!"]), None).as_deref(), Some("Frozen!"));
+        assert_eq!(danger_line(&s(&["Frozen!", "Leashed"]), Some("Frozen!".into())).as_deref(), Some("Frozen!  ·  Leashed"));
+        assert_eq!(danger_line(&[], Some("Zone 2 locked".into())).as_deref(), Some("Zone 2 locked"));
     }
 
     #[test]
