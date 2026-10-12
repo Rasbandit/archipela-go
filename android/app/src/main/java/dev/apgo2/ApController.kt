@@ -24,6 +24,18 @@ private const val MAX_PRINT_LOG = 40
 // A LAN server blocked by Android 17's local network protection never answers: after this long, show LAN_HINT.
 private const val LAN_HINT_AFTER_MS = 10_000L
 
+// The longest a quiet, connected session sleeps before looking again (a safety net: the server's own pings wake it sooner).
+private const val AP_IDLE_WAIT_MS = 60_000
+
+/** How the poll loop waits between drains. */
+internal object ApWait {
+    /** Whether to sleep until the server sends something: connected and quiet. Otherwise the core's back-off times the next drain. */
+    fun sleeps(
+        status: String,
+        active: Boolean,
+    ): Boolean = status == "connected" && !active
+}
+
 /** The connection to an Archipelago server and the games played over it. */
 internal class ApController(
     private val model: AppModel,
@@ -61,7 +73,12 @@ internal class ApController(
         pollJob =
             scope.launch {
                 val poll = ApPoll() // the back-off lives in the core
-                while (session === s) delay(poll.nextDelayMs(tick()).toLong())
+                while (session === s) {
+                    val active = tick()
+                    // Event-driven while connected: sleep in the socket until the server sends something, not on a timer.
+                    val woke = ApWait.sleeps(status, active) && withContext(Dispatchers.IO) { s.waitForData(AP_IDLE_WAIT_MS.toUInt()) }
+                    delay(poll.nextDelayMs(active || woke).toLong()) // at least the short wait: a closed socket stays readable
+                }
             }
         scope.launch {
             delay(LAN_HINT_AFTER_MS)
