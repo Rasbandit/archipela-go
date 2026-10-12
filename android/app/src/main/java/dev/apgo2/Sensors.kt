@@ -10,8 +10,6 @@ import android.hardware.SensorManager
 import android.location.GnssStatus
 import android.location.LocationManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
@@ -117,7 +115,7 @@ internal class Sensors(
                     .getOrDefault(false)
         }
 
-    private val location = LocationSource(ctx, model, gms, gnssEvidence)
+    private val location = LocationSource(ctx, model, gms, gnssEvidence, GnssSampler(ctx, lm, gnssEvidence) { gnssCallback != null })
     private val heading = HeadingSource(ctx, model, gms)
 
     // The flags overload exists from Android 13; older phones only have the int one.
@@ -213,8 +211,7 @@ internal class Sensors(
         val cb =
             object : GnssStatus.Callback() {
                 override fun onSatelliteStatusChanged(status: GnssStatus) {
-                    val used = (0 until status.satelliteCount).count { status.usedInFix(it) }
-                    gnssEvidence.onStatus(used, SystemClock.elapsedRealtime())
+                    gnssEvidence.onStatus(status.usedCount, SystemClock.elapsedRealtime())
                     if (!gnssThrottle.due(System.currentTimeMillis())) return
                     val sats =
                         (0 until status.satelliteCount).map { i ->
@@ -229,12 +226,7 @@ internal class Sensors(
                 }
             }
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                lm.registerGnssStatusCallback(ctx.mainExecutor, cb)
-            } else {
-                @Suppress("DEPRECATION") // the Handler overload is the only one before Android 11
-                lm.registerGnssStatusCallback(cb, Handler(Looper.getMainLooper()))
-            }
+            lm.registerStatus(ctx, cb)
             gnssCallback = cb
             gnssFailLogged = false
         }.onFailure {

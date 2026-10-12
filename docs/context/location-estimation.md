@@ -190,7 +190,9 @@ adversarial review I2). They are display only until the session's first GNSS fix
 (`Unusable`), not shown. So indoors in a zone, once GPS was seen, a fused fix tagged `network` leaves the pin stale instead of following
 Wi-Fi (re-review N6). A fused fix is sent as `network` when the GPS provider is off, or when a
 `GnssStatus` reported within the last 30 s with no satellite used in a fix (`GnssEvidence`); with GPS on and no `GnssStatus` data (it
-runs only in a zone with the map in front: its 1 Hz callback would wake the CPU through screen-off batching) fused is trusted. If a Play services request fails, the session falls back to the LocationManager plan until the next game open.
+runs continuously only in a zone with the map in front: its 1 Hz callback would wake the CPU through screen-off batching) fused is
+trusted. Off screen each Play services batch first waits for one status sample, at most 3 s (`GnssSampler`, `SampleGate`); a
+`gnss sample` diag line records whether a status came (`status`) and how long it waited, so a walk shows how often it works. If a Play services request fails, the session falls back to the LocationManager plan until the next game open.
 
 - Rate: in a zone, 1 s with the screen on and the app in front, otherwise 5 s batched up to 20 s (the chip still fixes every 5 s; the CPU
   wakes a quarter as often; 20 s keeps a late batch well under the 45 s gap cap below), high accuracy in both (`GpsPolicy.inZone`). Leaving a batched request (screen on, app to the front) flushes

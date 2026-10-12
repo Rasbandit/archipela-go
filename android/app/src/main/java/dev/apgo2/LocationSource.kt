@@ -30,6 +30,7 @@ internal class LocationSource(
     private val model: AppModel,
     gms: Lazy<Boolean>,
     private val gnssEvidence: GnssEvidence,
+    private val gnssSampler: GnssSampler,
 ) {
     private val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private var locationListener: LocationListener? = null
@@ -198,8 +199,11 @@ internal class LocationSource(
     private fun startGmsUpdates(rate: GpsPolicy.Rate): Boolean {
         val cb =
             object : LocationCallback() {
+                // Off screen a batch first waits for one satellite status, so Wi-Fi fixes tagged fused are told apart (I2).
                 override fun onLocationResult(result: LocationResult) =
-                    FixTime.oldestFirst(result.locations) { it.elapsedRealtimeNanos }.forEach(::deliverGms)
+                    gnssSampler.withEvidence {
+                        FixTime.oldestFirst(result.locations) { it.elapsedRealtimeNanos }.forEach(::deliverGms)
+                    }
             }
         // Set first: the failure check below compares against it.
         gmsCallback = cb
