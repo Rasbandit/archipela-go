@@ -192,7 +192,9 @@ Wi-Fi (re-review N6). A fused fix is sent as `network` when a
 `GnssStatus` reported within the last 30 s with no satellite used in a fix (`GnssEvidence`); with no `GnssStatus` data (it runs only
 in a zone) fused is trusted. If a Play services request fails, the session falls back to the LocationManager plan until the next game open.
 
-- Rate: in a zone, 1 s with the screen on, 5 s (batched up to 10 s) with it off, high accuracy in both (`GpsPolicy.inZone`), with no
+- Rate: in a zone, 1 s with the screen on and the app in front, otherwise 5 s batched up to 30 s (the chip still fixes every 5 s; the CPU
+  wakes a sixth as often), high accuracy in both (`GpsPolicy.inZone`). Leaving a batched request (screen on, app to the front) flushes
+  the batch first and swaps the request when the flush completes, 2 s timeout (`GpsPolicy.shouldFlush`, `LocationSource.flushThen`), with no
   distance filter: this replaces main's 5 s / 10 m in-zone rate (`PresencePolicy.ZONE_MOVE_M`), because the filter needs a steady
   stream (stationary hold, gaps, resets) and a standing player would otherwise look like a GPS gap. Idle 15 s / 20 m; outside zones
   main's 90 s / 50 m. No location while a game waits to learn whether you are home (`holding`). A screen on/off broadcast re-applies
