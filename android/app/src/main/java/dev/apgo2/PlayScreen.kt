@@ -398,11 +398,12 @@ private fun PlayMap(
     var focus by remember { mutableStateOf<MapFocus?>(null) }
     var focusNonce by remember { mutableIntStateOf(0) }
     var anchorPx by remember { mutableStateOf<Offset?>(null) }
-    // Where a trail or park was touched: its details show there instead of at its start (only while that quest stays selected).
+    // Where a trail, park or forager pickup was touched: its card shows there instead of at its start or first pickup (only while
+    // that quest stays selected).
     var touched by remember { mutableStateOf<Pair<Long, LatLng>?>(null) }
     val spot = touched?.takeIf { it.first == m.selected }?.second
     val at = spot ?: selected?.anchor?.let { LatLng(it.lat, it.lon) }
-    val pinPx = if (spot != null) 0f else MapMarkers.selectedQuestPinHeightPx()
+    val pinPx = popupClearance(spot != null, selected)
     // Forget the spot once its quest is closed or another is picked, so picking it again (from the list) opens at its start.
     LaunchedEffect(m.selected) { if (touched?.first != m.selected) touched = null }
     LaunchedEffect(m.selected, spot, bubblePx) {
@@ -443,6 +444,18 @@ private fun PlayMap(
         }
     }
 }
+
+// How far above its point a quest's popup must sit: clear of the selected pin, of a pickup's round token (centred on its spot), or
+// nothing for a spot on a trail or park.
+private fun popupClearance(
+    onSpot: Boolean,
+    q: QuestOut?,
+): Float =
+    when {
+        !onSpot -> MapMarkers.selectedQuestPinHeightPx()
+        q?.collect != null -> MapMarkers.ITEM_TOKEN_PX / 2f
+        else -> 0f
+    }
 
 // A quest with a pin gets a callout on it; one with no spot on the map (steps, squares, time away) gets the same card just above
 // the panel.

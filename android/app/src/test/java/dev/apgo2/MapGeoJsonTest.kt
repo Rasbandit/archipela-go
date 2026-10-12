@@ -138,6 +138,17 @@ class MapFeaturesTest {
         assertEquals(setOf(q.mapImageKey, item), listOf(q).pinImages)
     }
 
+    // Found on the phone: tapping one pickup lit up every pickup of its quest. Only the one the card is on is selected.
+    @Test fun onlyThePickupTheCardIsOnIsSelected() {
+        val items = listOf(CollectItemOut(geo(1.0, 1.0), false), CollectItemOut(geo(2.0, 2.0), false))
+        val q = quest(7, shape = "collect").copy(family = "courier", kindId = "forager", collect = CollectOut("acorns", 3u, 0u, 0u, items))
+        val sel = { at: LatLng? ->
+            listOf(q).itemFeatures(selected = 7, at = at).map { it.getJSONObject("properties").getBoolean(MapProp.SELECTED) }
+        }
+        assertEquals(listOf(false, true), sel(LatLng(2.0, 2.0)))
+        assertEquals("no card spot: the quest's pickups as before", listOf(true, true), sel(null))
+    }
+
     @Test fun aLockedForagersPickupsFadeAndAnotherQuestsAreNotSelected() {
         val q =
             quest(

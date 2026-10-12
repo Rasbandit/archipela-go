@@ -1265,11 +1265,14 @@ impl Game {
         }
     }
 
-    /// A forager's items on the map: its `forage` entry, or (not seeded yet) its placed points less the picked ones.
+    /// A forager's items on the map, nearest home first (the first is where its card opens from the list): its `forage` entry, or
+    /// (not seeded yet) its placed points less the picked ones.
     fn live_items(&self, a: &Assignment) -> Vec<Point> {
         let Target::Collect { pts, .. } = &a.target else { return Vec::new() };
         let f = self.forage.get(&a.location_id).cloned().unwrap_or_else(|| seed_forage(pts, self.collected.get(&a.location_id)));
-        f.items.iter().map(|i| i.p).collect()
+        let mut items: Vec<Point> = f.items.iter().map(|i| i.p).collect();
+        items.sort_by(|x, y| distance_m(self.home, *x).total_cmp(&distance_m(self.home, *y)));
+        items
     }
 
     /// The forager's `forage` entry, seeded on first use; `None` for any other quest.
@@ -3304,6 +3307,16 @@ mod tests {
         let back: Game = serde_json::from_value(old).unwrap();
         assert_eq!(live(&back), vec![pts[1], pts[3], pts[4], pts[5]]);
         assert_eq!((back.bag_size, back.collected[&2000].carried, back.collected[&2000].banked), (20, 1, 1));
+    }
+
+    #[test]
+    fn live_items_come_nearest_home_first() {
+        // Found on the phone: after a top-up the first item (where a card opened from the list sits) was any of them, often the
+        // farthest; nearest home first keeps it the next one to fetch.
+        let (mut g, _) = forager_game();
+        g.set_forage_pools(&[realm("r0", Mode::Walk)]);
+        let d: Vec<f64> = live(&g).iter().map(|p| distance_m(home(), *p)).collect();
+        assert!(d.windows(2).all(|w| w[0] <= w[1]), "{d:?}");
     }
 
     #[test]

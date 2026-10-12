@@ -102,11 +102,19 @@ internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems
 /** Every pin image the quest layer needs for these quests: each quest's, and each forager's item pin. */
 internal val List<QuestOut>.pinImages: Set<String> get() = flatMap { listOfNotNull(it.mapImageKey, it.itemImageKey) }.toSet()
 
-/** Pickups: each item a forager still needs found, carrying its quest's id (a tap selects the quest), faded while locked. */
-internal fun List<QuestOut>.itemFeatures(selected: Long?): List<JSONObject> =
+/**
+ * Pickups: each item a forager still needs found, carrying its quest's id (a tap selects the quest), faded while locked. Of the
+ * selected quest's pickups only the one its card is on ([at]) is selected; all of them when there is no card spot.
+ */
+internal fun List<QuestOut>.itemFeatures(
+    selected: Long?,
+    at: LatLng? = null,
+): List<JSONObject> =
     filter { it.state != HIDDEN }.mapNotNull { q -> q.itemImageKey?.let { q to it } }.flatMap { (q, image) ->
-        val props = { questProps(q, q.locationId == selected, image).put(MapProp.OPACITY, MapMarkers.itemOpacity(q.state)) }
-        q.openItems.map { GeoJson.pointFeature(it.at.lat, it.at.lon, props()) }
+        q.openItems.map {
+            val on = q.locationId == selected && (at == null || (it.at.lat == at.latitude && it.at.lon == at.longitude))
+            GeoJson.pointFeature(it.at.lat, it.at.lon, questProps(q, on, image).put(MapProp.OPACITY, MapMarkers.itemOpacity(q.state)))
+        }
     }
 
 /** The name of this find's pin image in the map style. */
