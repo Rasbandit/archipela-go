@@ -38,10 +38,18 @@ internal class PinFeed(
     private val headingThrottle = Throttle(HEADING_MIN_MS)
     private val rawHeadingThrottle = Throttle(RAW_HEADING_MS)
 
-    /** Ask the core where to draw the player now (after every fix, step batch and compass reading). */
+    /**
+     * Ask the core where to draw the player now (after every fix, step batch and compass reading). Off screen it is skipped (owed
+     * to the next foreground refresh); only a closed game still clears it.
+     */
     fun refresh() {
         val e = model.engine
-        pin = if (e.hasGame()) model.now().let { t -> e.position(t)?.let { MePins.from(it, pin, t) } } else null
+        if (!e.hasGame()) {
+            pin = null
+            return
+        }
+        if (!model.screen.draw()) return
+        pin = model.now().let { t -> e.position(t)?.let { MePins.from(it, pin, t) } }
     }
 
     /** A compass reading: a magnetic one corrected to true north with the declination here; sent at most twice a second. */

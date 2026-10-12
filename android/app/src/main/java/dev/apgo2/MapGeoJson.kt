@@ -12,6 +12,8 @@ import dev.apgo2.ui.openItems
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.geometry.LatLng
+import uniffi.apgo_ffi.CollectItemOut
+import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
 import kotlin.math.cos
@@ -153,6 +155,32 @@ internal fun List<QuestOut>.itemFeatures(
             GeoJson.pointFeature(it.at.lat, it.at.lon, questProps(q, on, image).put(MapProp.OPACITY, MapMarkers.itemOpacity(q.state)))
         }
     }
+
+/** What a quest's pins and pickups are drawn from (not its progress or text, which move with every fix). */
+internal data class QuestPinKey(
+    val id: Long,
+    val state: String,
+    val shape: String,
+    val anchor: GeoPoint?,
+    val anchorB: GeoPoint?,
+    val image: String,
+    val items: List<CollectItemOut>,
+)
+
+/** What a quest's trail or park outline is drawn from. */
+internal data class QuestLineKey(
+    val id: Long,
+    val state: String,
+    val shape: String,
+    val path: List<GeoPoint>,
+)
+
+/** Changes only when the quest pins or pickups on the map change: the map rebuilds those sources on a change of this. */
+internal val List<QuestOut>.pinKey: List<QuestPinKey>
+    get() = map { QuestPinKey(it.locationId, it.state, it.shape, it.anchor, it.anchorB, it.mapImageKey + it.itemImageKey, it.openItems) }
+
+/** Changes only when the trails and park outlines on the map change. */
+internal val List<QuestOut>.lineKey: List<QuestLineKey> get() = map { QuestLineKey(it.locationId, it.state, it.shape, it.path) }
 
 /** The name of this find's pin image in the map style. */
 internal val MapFind.mapImageKey: String get() = MarkerSpec.Find(kindId, family, mark).key

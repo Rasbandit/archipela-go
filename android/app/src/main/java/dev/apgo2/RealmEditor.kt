@@ -359,7 +359,7 @@ private fun EditorMap(
         emptyList(),
         emptyList(),
         if (s.polygon) m.draft.toList() else emptyList(),
-        m.mePin,
+        { m.mePin },
         null,
         null,
         null,

@@ -41,7 +41,8 @@ Win conditions: 12 goals, one or several, combined any / all / at least N.
 - `core/src/journal.rs`: one SQLite file `journal.db` (WAL, `synchronous=NORMAL`) in the app files dir; a fix's point and its events are one transaction
   (`Journal::batch`). `points` = every accepted GPS fix (no spatial index: the old `points_rt` R*Tree is dropped on open), flagged
   simulated or real; `events` = audit log (quests, checks, rewards, traps, rejected fixes throttled to 1/min, app foreground/background).
-- Trace = `Journal::segments`, split where two points are >2 min apart (phone off). Play map draws it (`trace` layer in `QuestMap.kt`).
+- Trace = `Journal::segments`, split where two points are >2 min apart (phone off). Play map draws it in two sources: `trace-old` (before this session,
+  set only when the journal reloads) and `trace` (this session, refreshed every 10 s).
 - GPS rate: `GpsPolicy.kt`/`PresencePolicy.kt`, in a zone = every 1 s with the screen on and the app in front, else 5 s batched up to 30 s (flushed when
   the screen comes back), high
   accuracy, NO distance filter (the filter needs a steady stream: stationary hold, gap and reset detection); far = 90 s once moved 50 m.
