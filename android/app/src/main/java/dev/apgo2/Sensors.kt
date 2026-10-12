@@ -29,15 +29,22 @@ private const val FAST_STEP_BATCH_US = 2_000_000
 
 /** How the step counter batches for a presence state; `null` is off. */
 internal object StepRate {
-    /** [inZone]: in a zone with location on, where the filter wants the cadence. */
+    /**
+     * [inZone]: in a zone with location on, where the filter wants the cadence. [leaving]: home Wi-Fi or the car's Bluetooth dropped
+     * and the debounce that confirms it still runs.
+     */
     fun batchUs(
         state: PresenceState,
         inZone: Boolean,
+        leaving: Boolean = false,
     ): Int? =
         when {
-            // Nothing counts with no game open, at home or in the car; the core takes the first reading after counting resumes (or
-            // a game opens) as the new baseline.
-            state == PresenceState.Stopped || state == PresenceState.AtHome || state == PresenceState.InCar -> null
+            // Nothing counts with no game open.
+            state == PresenceState.Stopped -> null
+
+            // At home or in the car nothing counts either, except while leaving: the first reading is the core's leave mark, so the
+            // steps walked until leaving is confirmed are credited then (backfill).
+            state == PresenceState.AtHome || state == PresenceState.InCar -> if (leaving) STEP_BATCH_US else null
 
             inZone -> FAST_STEP_BATCH_US
 

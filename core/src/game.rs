@@ -244,6 +244,9 @@ const HOME_RADIUS_M: f64 = 100.0;
 /// The most one unbroken stretch of time away can credit: a missed event (app killed, a wake-up the phone slept through) never
 /// credits more. A real outing keeps counting: a wake-up is scheduled by then at the latest.
 const AWAY_MAX_STRETCH_MS: i64 = 2 * 3_600_000;
+/// How long a leave mark stays good: past the 45 s debounce that confirms leaving, with room for late step batches. An older one
+/// is from a Wi-Fi blip, and crediting from it would count steps walked indoors.
+const LEAVE_MARK_MAX_MS: i64 = 120_000;
 
 fn yes() -> bool {
     true
@@ -348,6 +351,10 @@ pub struct Game {
     /// The last accepted position, kept across counting pauses (unlike `last_fix`): where traps are placed (adversarial re-review N5).
     #[serde(skip)]
     last_accepted: Option<Point>,
+    /// The first step reading (total, ms) while counting is off: the phone starts the counter when home Wi-Fi or the car drops,
+    /// before leaving is confirmed, so the steps walked meanwhile are credited once it is ([`LEAVE_MARK_MAX_MS`]).
+    #[serde(skip)]
+    leave_mark: Option<(i64, i64)>,
     /// The location filter: raw fixes in, estimates out. Never saved (a restart starts fresh).
     #[serde(skip)]
     locator: Locator,
@@ -558,6 +565,7 @@ impl Game {
             trackers: BTreeMap::new(),
             last_fix: None,
             last_accepted: None,
+            leave_mark: None,
             unlocked_at: BTreeMap::new(),
             unseen_since_good: false,
             locator: Locator::default(),
@@ -872,7 +880,7 @@ impl Game {
     pub fn on_steps(&mut self, total: i64, t_ms: i64, cadence: Option<f64>) -> Vec<Event> {
         let bridged = self.locator.on_steps(total, t_ms, cadence);
         if !self.counting {
-            self.counters.steps_last = Some(total);
+            self.note_leave_steps(total, t_ms);
             return Vec::new();
         }
         self.credit_steps(total);
@@ -904,15 +912,23 @@ impl Game {
             return;
         }
         self.counting = on;
-        // Whatever the player did while it was off must not be compared with what they do next. The step counter is off at home and
-        // in the car, so the first reading after counting resumes is the new baseline (indoor steps are never credited).
+        // Whatever the player did while it was off must not be compared with what they do next. Steps resume from the leave mark
+        // when it is fresh (the walk out while leaving was confirmed); else the first reading after this is the new baseline.
         self.last_fix = None;
-        self.counters.steps_last = None;
+        let mark = self.leave_mark.take();
+        self.counters.steps_last = mark.filter(|&(_, at)| on && t_ms.saturating_sub(at) <= LEAVE_MARK_MAX_MS).map(|(total, _)| total);
         self.odometer.clear();
         self.locator.reset();
         if !on {
             // A dwell or away timer started before a pause must not finish on the first fix after it (progress is kept).
             self.trackers.values_mut().for_each(Tracker::pause);
+        }
+    }
+
+    // A step reading while counting is off: the first one of a fresh stretch is the leave mark; a stale one is replaced.
+    fn note_leave_steps(&mut self, total: i64, t_ms: i64) {
+        if self.leave_mark.is_none_or(|(_, at)| t_ms.saturating_sub(at) > LEAVE_MARK_MAX_MS) {
+            self.leave_mark = Some((total, t_ms));
         }
     }
 
@@ -1158,7 +1174,7 @@ impl Game {
     pub fn on_estimate(&mut self, est: &Estimate, steps_total: Option<i64>) -> Vec<Event> {
         if !self.counting {
             if let Some(t) = steps_total {
-                self.counters.steps_last = Some(t);
+                self.note_leave_steps(t, est.t_ms);
             }
             return Vec::new();
         }
@@ -2765,9 +2781,33 @@ mod tests {
         assert!(g.on_steps(5_000, 2, None).is_empty(), "4,000 steps at home");
         assert_eq!(g.counters.progress.get("1:step_up").copied().unwrap_or(0.0), 0.0);
         g.set_counting(true, 0);
-        assert!(g.on_steps(5_100, 3, None).is_empty(), "the first reading after resuming is the new baseline");
+        assert!(g.on_steps(5_100, 3, None).is_empty(), "only the 100 steps since the reading taken while leaving");
+        assert_eq!(g.counters.progress["1:step_up"], 100.0);
+    }
+
+    #[test]
+    fn steps_walked_while_leaving_are_backfilled_once_leaving_is_confirmed() {
+        // Home Wi-Fi drops at 100 s: the phone starts the step counter, but counting waits for the 45 s debounce.
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.on_steps(1_000, 0, None);
+        g.set_counting(false, 10_000);
+        assert!(g.on_steps(5_000, 100_000, None).is_empty(), "the reading at the door is the leave mark");
+        assert!(g.on_steps(5_060, 130_000, None).is_empty());
+        assert_eq!(g.counters.progress.get("1:step_up").copied().unwrap_or(0.0), 0.0, "nothing counts before it is confirmed");
+        g.set_counting(true, 145_000);
+        assert!(g.on_steps(5_100, 150_000, None).is_empty());
+        assert_eq!(g.counters.progress["1:step_up"], 100.0, "every step since the door, the 45 s included");
+    }
+
+    #[test]
+    fn an_old_leave_mark_from_a_wifi_blip_credits_nothing() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.set_counting(false, 0);
+        assert!(g.on_steps(5_000, 1_000, None).is_empty(), "Wi-Fi blipped: one reading, then the counter stopped again");
+        g.set_counting(true, 4 * 3_600_000);
+        assert!(g.on_steps(9_000, 4 * 3_600_000 + 5_000, None).is_empty(), "hours later the mark is stale: this is the baseline");
         assert_eq!(g.counters.progress.get("1:step_up").copied().unwrap_or(0.0), 0.0);
-        assert!(g.on_steps(5_200, 4, None).is_empty(), "only the 100 steps since counting resumed");
+        assert!(g.on_steps(9_100, 4 * 3_600_000 + 10_000, None).is_empty());
         assert_eq!(g.counters.progress["1:step_up"], 100.0);
     }
 
