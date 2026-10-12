@@ -731,8 +731,9 @@ pub struct AwayReportOut {
 
 /// Quests this close to a fix get a line in the log saying whether they count.
 const NEAR_MISS_RADIUS_M: f64 = 100.0;
-/// Longest the open game goes unsaved while the player moves without events.
-const SAVE_INTERVAL_MS: i64 = 30_000;
+/// Longest the open game goes unsaved while the player moves without lasting events (each save rewrites and syncs the whole file;
+/// the app also saves when it leaves the screen).
+const SAVE_INTERVAL_MS: i64 = 90_000;
 /// The drawn trace drops fixes within this of the last kept one (standing still), in metres.
 const TRACE_MIN_STEP_M: f64 = 8.0;
 /// The drawn trace smooths out wobble smaller than this, in metres.
@@ -1996,7 +1997,7 @@ impl Engine {
             if est.is_none() {
                 self.set_proximity(self.zone_distance_m(raw.point()));
             }
-            self.save_if_due(g, t_ms, !ev.is_empty());
+            self.save_if_due(g, t_ms, ev.iter().any(Event::saves_at_once));
             let at = est.map(|e| (e.lat, e.lon));
             let entries = g.journal_events(&ev, t_ms, at);
             let near = est.map(|e| g.explain_near(&e, NEAR_MISS_RADIUS_M)).unwrap_or_default();
@@ -2102,7 +2103,7 @@ impl Engine {
     pub fn on_steps(&self, total: i64, t_ms: i64, cadence: Option<f64>) -> Vec<EventOut> {
         let Some((game_id, ev, entries)) = self.with_game(|g| {
             let ev = g.on_steps(total, t_ms, cadence);
-            self.save_if_due(g, t_ms, !ev.is_empty());
+            self.save_if_due(g, t_ms, ev.iter().any(Event::saves_at_once));
             let entries = g.journal_events(&ev, t_ms, None);
             (g.id.clone(), ev, entries)
         }) else {
@@ -2208,7 +2209,7 @@ impl Engine {
     pub fn tick(&self, t_ms: i64) -> Vec<EventOut> {
         let Some((id, entries, ev)) = self.with_game(|g| {
             let ev = g.tick(t_ms);
-            self.save_if_due(g, t_ms, !ev.is_empty());
+            self.save_if_due(g, t_ms, ev.iter().any(Event::saves_at_once));
             (g.id.clone(), g.journal_events(&ev, t_ms, None), ev)
         }) else {
             return Vec::new();

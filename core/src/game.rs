@@ -200,6 +200,15 @@ pub enum Event {
     },
 }
 
+impl Event {
+    /// Whether this event is lasting progress the game must be saved for at once (a kill would lose it). The others wait for the
+    /// periodic save: a reveal comes back on the next walk past, a trap is re-sent by the server from the saved item index.
+    #[must_use]
+    pub fn saves_at_once(&self) -> bool {
+        !matches!(self, Self::Discovered { .. } | Self::Trap { .. } | Self::Info { .. })
+    }
+}
+
 /// A quest the player is close to, with the reason it does or does not count at this moment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NearMiss {
@@ -1637,6 +1646,23 @@ mod tests {
     use crate::realm::Shape;
     use crate::scan::build_atlas;
     use crate::solo::{generate, SoloOptions};
+
+    #[test]
+    fn only_lasting_progress_saves_the_game_at_once() {
+        let at_once = [
+            Event::QuestDone { location_id: 1, name: "q".into() },
+            Event::SendCheck { location_id: 1 },
+            Event::Reward { location_id: 1, item: "i".into() },
+            Event::ZoneUnlocked { zone: 2 },
+            Event::ShuffleRequested,
+            Event::GoalAchieved { label: "g".into() },
+        ];
+        assert!(at_once.iter().all(Event::saves_at_once));
+        // A reveal comes back on the next walk past, a trap is re-sent by the server from the saved item index, a note is only a note:
+        // the periodic save picks them up.
+        let later = [Event::Discovered { location_id: 1 }, Event::Trap { item: "t".into(), message: "m".into() }, Event::Info { text: "i".into() }];
+        assert!(!later.iter().any(Event::saves_at_once));
+    }
 
     fn home() -> Point {
         Point::new(40.0, -111.0)
