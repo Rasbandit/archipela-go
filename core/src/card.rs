@@ -213,7 +213,8 @@ pub fn place_row(kind_id: &str, place: &str, place_type: Option<&str>, linked: b
     // An unnamed place's quest is named after its kind (see `assign`), so that name is no place name.
     let name = (kind.is_none_or(|k| k.name != place) && !place.is_empty()).then(|| place.to_string());
     let quoted = name.is_some() && TITLED_KINDS.contains(&kind_id);
-    Some(PlaceRow { name, kind: place_type.map(str::to_string), quoted })
+    // Nothing to say (an unnamed place of no known type): no row rather than an empty one.
+    (name.is_some() || place_type.is_some()).then(|| PlaceRow { name, kind: place_type.map(str::to_string), quoted })
 }
 
 #[cfg(test)]
@@ -429,5 +430,6 @@ mod tests {
         assert_eq!(row("step_up", "Anywhere", None, false), None, "no place");
         assert_eq!(row("the_big_one", "Liberty Park", Some("Park"), true).and_then(|r| r.name).as_deref(), Some("Liberty Park"), "a linked boss has a place");
         assert_eq!(row("the_big_one", "Around home", None, false), None);
+        assert_eq!(row("hydrant_hunter", "Hydrant Hunter", None, true), None, "nothing to say: no empty row");
     }
 }

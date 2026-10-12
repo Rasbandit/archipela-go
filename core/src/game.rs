@@ -643,9 +643,13 @@ impl Game {
             let Some(atlas) = self.zone_realms.get(i).and_then(|r| atlases.iter().find(|x| &x.realm_id == r)) else { continue };
             let Some(id) = a.feature_id.clone().or_else(|| place_of(a, atlas, catalog)) else { continue };
             let Some(f) = atlas.features.iter().find(|f| f.id == id) else { continue };
-            (a.place_type, a.has_about) = crate::poi_details::place_facts(f);
-            a.feature_id = Some(id);
-            linked += 1;
+            let facts = crate::poi_details::place_facts(f);
+            // Count only real changes: a place of no known type stays typeless, and must not cause a save on every build.
+            if a.feature_id.as_deref() != Some(id.as_str()) || (a.place_type.clone(), a.has_about) != facts {
+                (a.place_type, a.has_about) = facts;
+                a.feature_id = Some(id);
+                linked += 1;
+            }
         }
         linked
     }
@@ -1721,6 +1725,18 @@ mod tests {
             assert_eq!((a.feature_id.as_deref(), a.place_type.as_deref(), a.has_about), (Some("n5"), Some("Artwork"), true), "quest {i}");
         }
         assert_eq!(g.relink_places(&[&atlas], &cat), 0, "nothing left to fill");
+    }
+
+    #[test]
+    fn relink_does_not_count_a_place_with_no_type_again_and_again() {
+        let cat = Catalog::builtin();
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let spot = destination(home(), 0.0, 300.0);
+        let odd = crate::scan::Feature { id: "n6".into(), point: spot, name: None, geometry: vec![], tags: BTreeMap::new() };
+        let atlas = build_atlas("r0", 0, vec![odd], vec![], &cat);
+        let a = &mut g.assignments[0];
+        (a.feature_id, a.place_type) = (Some("n6".into()), None);
+        assert_eq!(g.relink_places(&[&atlas], &cat), 0, "nothing changed, so nothing to save");
     }
 
     #[test]

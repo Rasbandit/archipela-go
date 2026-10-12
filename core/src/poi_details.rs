@@ -34,8 +34,26 @@ pub struct PoiDetails {
     pub osm_url: Option<String>,
 }
 
-/// Tag keys whose value says what a place is, most telling first.
-const TYPE_KEYS: [&str; 8] = ["amenity", "leisure", "tourism", "shop", "historic", "natural", "man_made", "highway"];
+/// Tag keys that say what a place is, most telling first; covers every key the quest catalog matches places on.
+const TYPE_KEYS: [&str; 17] = [
+    "amenity",
+    "leisure",
+    "tourism",
+    "shop",
+    "historic",
+    "natural",
+    "man_made",
+    "highway",
+    "waterway",
+    "emergency",
+    "attraction",
+    "craft",
+    "railway",
+    "landuse",
+    "place",
+    "boundary",
+    "route",
+];
 
 /// Hiking difficulty, easiest first (OpenStreetMap `sac_scale`), with how it reads.
 pub(crate) const SAC_SCALE: [(&str, &str); 6] = [
@@ -230,7 +248,7 @@ pub fn place_facts(f: &Feature) -> (Option<String>, bool) {
 mod tests {
     use super::*;
     use crate::geo::{destination, Point};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     fn feat(id: &str, tags: &[(&str, &str)], geometry: Vec<Point>) -> Feature {
         let tags: BTreeMap<String, String> = tags.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect();
@@ -274,6 +292,17 @@ mod tests {
         assert_eq!(details(&feat("n1", &[("amenity", "ice_cream")], vec![])).type_label.as_deref(), Some("Ice cream"));
         assert_eq!(details(&feat("n1", &[("historic", "yes"), ("tourism", "artwork")], vec![])).type_label.as_deref(), Some("Artwork"));
         assert_eq!(details(&feat("n1", &[("historic", "yes")], vec![])).type_label, None);
+    }
+
+    #[test]
+    fn every_key_the_catalog_matches_on_gives_a_type() {
+        // A quest on a hydrant, a stream or a railway station must say what the place is (found on the phone: hydrants had none).
+        let cat = crate::catalog::Catalog::builtin();
+        let keys: BTreeSet<&str> = cat.kinds.iter().flat_map(|k| k.any_of.iter().filter_map(|g| g.first())).map(|c| c.key.as_str()).collect();
+        for key in keys {
+            assert!(details(&feat("n1", &[(key, "some_thing")], vec![])).type_label.is_some(), "no type for {key}");
+        }
+        assert_eq!(details(&feat("n1", &[("emergency", "fire_hydrant")], vec![])).type_label.as_deref(), Some("Fire hydrant"));
     }
 
     #[test]
