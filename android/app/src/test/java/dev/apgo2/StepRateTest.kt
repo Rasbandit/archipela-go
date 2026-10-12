@@ -42,6 +42,14 @@ class StepRateTest {
         assertEquals("outside zones: whenever the phone wakes", false, StepRate.wakeUp(PresenceState.OutsideZones, false, false, false))
     }
 
+    @Test fun leavingIsOnlyThePlaceThePlayerIsAtGoingAway() {
+        assertEquals(true, StepRate.leaving(PresenceState.AtHome, homePending = true, carPending = false))
+        assertEquals(true, StepRate.leaving(PresenceState.InCar, homePending = false, carPending = true))
+        assertEquals("a car connecting at home is arriving", false, StepRate.leaving(PresenceState.AtHome, false, carPending = true))
+        assertEquals("home Wi-Fi seen from the car", false, StepRate.leaving(PresenceState.InCar, homePending = true, carPending = false))
+        assertEquals("walking up to home: arriving", false, StepRate.leaving(PresenceState.InZone, homePending = true, carPending = true))
+    }
+
     @Test fun outsideTheZonesStepsCountEveryTenSeconds() {
         assertEquals(10_000_000, StepRate.batchUs(PresenceState.OutsideZones, inZone = false))
         assertEquals("in a zone without location: no cadence wanted", 10_000_000, StepRate.batchUs(PresenceState.InZone, inZone = false))

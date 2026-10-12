@@ -204,7 +204,7 @@ internal class PresenceController(
             model.sensors.stopHeading()
         }
         // Home or car signal gone but not yet confirmed: count steps from the door (backfilled once it is).
-        val leaving = homeDebounce.pending || carDebounce.pending
+        val leaving = StepRate.leaving(decision.state, homeDebounce.pending, carDebounce.pending)
         val onScreen = screenOn && appVisible
         model.sensors.setStepBatch(
             StepRate.batchUs(decision.state, inZone, leaving, onScreen),

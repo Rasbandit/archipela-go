@@ -56,6 +56,16 @@ internal object StepRate {
         }
 
     /**
+     * Whether the player is leaving: the place they are at (home, car) has lost its signal and the debounce that confirms it still
+     * runs. Only that place counts: a car connecting at home, or home Wi-Fi seen from the car, is arriving.
+     */
+    fun leaving(
+        state: PresenceState,
+        homePending: Boolean,
+        carPending: Boolean,
+    ): Boolean = (state == PresenceState.AtHome && homePending) || (state == PresenceState.InCar && carPending)
+
+    /**
      * Whether to use the wake-up step counter: where its readings must arrive on time even with the screen off (the gap bridge in a
      * zone, the leave mark while leaving). Elsewhere a batch can wait for the next time the phone wakes.
      */
