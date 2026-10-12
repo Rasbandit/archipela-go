@@ -100,18 +100,25 @@ internal class LocationSource(
         }
         val l = locationListener
         val p = managerProvider
-        val viaGms = gmsCallback != null
-        val viaManager = l != null && p != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         val started =
-            (viaGms || viaManager) &&
-                runCatching {
-                    if (viaGms) {
+            runCatching {
+                when {
+                    gmsCallback != null -> {
                         fusedLocation.flushLocations().addOnCompleteListener(mainExecutor) { done() }
-                    } else if (l != null && p != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        true
+                    }
+
+                    l != null && p != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
                         onFlushed = done
                         lm.requestFlush(p, l, FLUSH_REQUEST)
+                        true
                     }
-                }.onFailure { Diag.warn(TAG, "location flush failed", "error" to it.toString()) }.isSuccess
+
+                    else -> {
+                        false
+                    }
+                }
+            }.onFailure { Diag.warn(TAG, "location flush failed", "error" to it.toString()) }.getOrDefault(false)
         if (!started) return false
         flushing = token
         afterFlush = next
@@ -206,8 +213,10 @@ internal class LocationSource(
                         gmsLocationFailed = true
                         // The Play services cold start may never come: let the network one run once.
                         coldStartDone = false
-                        unregister()
-                        startLocation(rate)
+                        // The latest rate asked for (a flush of this failed request waits for it), not the one that failed.
+                        val wanted = afterFlush ?: rate
+                        cancelFlush()
+                        register(wanted)
                     }
                 }
             fusedLocation.lastLocation.addOnSuccessListener(mainExecutor) { loc ->
@@ -296,16 +305,21 @@ internal class LocationSource(
 
     /** Stop location: listener, any pending cold-start fix, and the once-per-session cold-start mark. */
     fun stopLocation() {
-        flushing = null // a flush in flight no longer starts its rate
-        afterFlush = null
-        onFlushed = null
-        flushTimeout.removeCallbacksAndMessages(null)
+        cancelFlush()
         unregister()
         coldStartCancel?.cancel()
         coldStartCancel = null
         gmsColdStartCancel?.cancel()
         gmsColdStartCancel = null
         coldStartDone = false
+    }
+
+    // A flush in flight no longer starts its rate.
+    private fun cancelFlush() {
+        flushing = null
+        afterFlush = null
+        onFlushed = null
+        flushTimeout.removeCallbacksAndMessages(null)
     }
 
     // Remove the listener only (a rate change re-registers; a pending cold-start fix stays wanted).
