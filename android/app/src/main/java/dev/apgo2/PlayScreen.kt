@@ -3,6 +3,7 @@ package dev.apgo2
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -41,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -182,11 +184,14 @@ private fun GameView(
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         GameHeader(m, hud)
         // The map is the top of the screen. Under it the panel is shown (goal, summary, then progress in a scrolling part) or
-        // hidden (only the goal and summary stay); its grip snaps between the two.
+        // hidden (only the goal, summary and any danger stay); its grip snaps between the two.
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             val bodyHeight = maxHeight * BODY_SHARE
             var shown by rememberSaveable { mutableStateOf(true) }
             var topPx by remember { mutableIntStateOf(0) }
+            // Kept here, not in the panel, which is left out while hidden or under another tab: coming back finds it as it was (#122),
+            // and saved like [shown], so a rotation keeps it too.
+            val panel = rememberSaveable(saver = PanelState.Saver) { PanelState() }
             // How open the panel's lower part is: it follows the finger during a drag and eases to 1 or 0 on a tap or a release.
             val open = remember { Animatable(if (shown) 1f else 0f) }
             // How much of the map the panel covers right now. The map follows it step by step (during a drag too), keeping the
@@ -197,7 +202,9 @@ private fun GameView(
                 remember(bodyHeight, density) { { GRIP_DP + (topPx / density).toInt() + (bodyHeight.value * open.value).toInt() } }
             // The map fills the whole area and never resizes; the panel slides over its bottom (and is left out while hidden).
             PlayMap(m, hud, onShow, coverDp, Modifier.fillMaxSize())
-            if (onShow) PlaySheet(m, hud, bodyHeight, open, shown, { shown = it }, { topPx = it }, Modifier.align(Alignment.BottomCenter))
+            if (onShow) {
+                PlaySheet(m, hud, panel, bodyHeight, open, shown, { shown = it }, { topPx = it }, Modifier.align(Alignment.BottomCenter))
+            }
         }
     }
 }
@@ -208,6 +215,7 @@ private fun GameView(
 private fun PlaySheet(
     m: AppModel,
     hud: HudOut,
+    panel: PanelState,
     bodyHeight: Dp,
     open: Animatable<Float, AnimationVector1D>,
     shown: Boolean,
@@ -243,7 +251,7 @@ private fun PlaySheet(
         )
         PanelTop(hud, shown, Modifier.onSizeChanged { onTopHeight(it.height) })
         val bodyOn by remember { derivedStateOf { open.value > 0f } }
-        if (bodyOn) PanelBody(m, hud, bodyHeight) { open.value }
+        if (bodyOn) PanelBody(m, panel, bodyHeight) { open.value }
     }
 }
 
@@ -252,7 +260,7 @@ private fun PlaySheet(
 @Composable
 private fun PanelBody(
     m: AppModel,
-    hud: HudOut,
+    panel: PanelState,
     height: Dp,
     open: () -> Float,
 ) {
@@ -265,12 +273,12 @@ private fun PanelBody(
     Box(Modifier.fillMaxWidth().then(cut).clipToBounds()) {
         GamePanel(
             m,
-            hud,
+            panel,
             Modifier
                 .fillMaxWidth()
                 .wrapContentHeight(Alignment.Top, unbounded = true)
                 .height(height)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(panel.scroll)
                 .padding(horizontal = 8.dp),
         )
     }
@@ -339,7 +347,7 @@ private fun Modifier.overhang(
     layout(p.width, t) { p.place(0, -up) }
 }
 
-// The part of the panel that never hides: the goal (its lines too when the panel is shown) and the summary line.
+// The part of the panel that never hides: the goal (its lines too when the panel is shown), the summary line and any danger.
 @Composable
 private fun PanelTop(
     hud: HudOut,
@@ -349,6 +357,8 @@ private fun PanelTop(
     Column(modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         GoalsBlock(hud, withLines = shown)
         Text(summaryLine(hud), fontSize = 11.sp)
+        // Traps and a blocked zone stay in sight while the panel is hidden (#120).
+        hud.danger?.let { FeedbackText(it, Tone.Danger) }
     }
 }
 
@@ -485,16 +495,16 @@ private fun BoxScope.QuestPopup(
     }
 }
 
-// Progress, goals, the numbers so far, zones, traps, the list of places and the latest messages.
+// Progress, goals, the numbers so far, zones, the list of places and the latest messages.
 @Composable
 private fun GamePanel(
     m: AppModel,
-    hud: HudOut,
+    panel: PanelState,
     modifier: Modifier = Modifier,
 ) {
     val layout = remember(m.quests) { PlayLayout.split(m.quests) }
-    var showPlaces by remember { mutableStateOf(false) }
-    var allProgress by remember { mutableStateOf(false) }
+    var showPlaces by panel.showPlaces
+    var allProgress by panel.allProgress
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (m.chains.isNotEmpty() || layout.progress.isNotEmpty()) {
             ProgressSection(m, layout, allProgress) { allProgress = !allProgress }
@@ -507,9 +517,6 @@ private fun GamePanel(
             )
         }
         ZonesRow(m.zones)
-        (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let {
-            FeedbackText(it.joinToString("  ·  "), Tone.Danger)
-        }
         m.bag?.takeIf { it.over > 0u }?.let { FeedbackText("Backpack: ${it.load}", Tone.Warning) }
         TextButton(onClick = { showPlaces = !showPlaces }) {
             Text("${if (showPlaces) "Hide" else "Show"} places on the map (${layout.places.size})", fontSize = 12.sp)
@@ -669,5 +676,24 @@ private fun SavedGameRow(
             Button(onClick = { m.library.openGame(g.id) }) { Text("Open", fontSize = 12.sp) }
             OutlinedButton(onClick = { m.library.deleteGame(g.id) }) { Text("Delete", fontSize = 12.sp) }
         }
+    }
+}
+
+// What the panel's lower part keeps across being left out (hidden, or another tab on top): where it was scrolled, and its toggles.
+private class PanelState(
+    scrolled: Int = 0,
+    places: Boolean = false,
+    all: Boolean = false,
+) {
+    val scroll = ScrollState(scrolled)
+    val showPlaces = mutableStateOf(places)
+    val allProgress = mutableStateOf(all)
+
+    companion object {
+        val Saver =
+            listSaver<PanelState, Any>(
+                save = { listOf(it.scroll.value, it.showPlaces.value, it.allProgress.value) },
+                restore = { PanelState(it[0] as Int, it[1] as Boolean, it[2] as Boolean) },
+            )
     }
 }
