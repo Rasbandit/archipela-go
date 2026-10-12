@@ -1931,7 +1931,7 @@ mod tests {
         assert!(at_once.iter().all(Event::saves_at_once));
         // A reveal comes back on the next walk past, a trap is re-sent by the server from the saved item index: the periodic save
         // picks them up.
-        let later = [Event::Discovered { location_id: 1 }, Event::Trap { item: "t".into(), message: "m".into() }];
+        let later = [Event::Discovered { location_id: 1 }, Event::Trap { item: "t".into(), message: "m".into(), alert: true }];
         assert!(!later.iter().any(Event::saves_at_once));
     }
 
