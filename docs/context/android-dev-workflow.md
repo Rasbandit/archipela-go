@@ -14,7 +14,8 @@ Generated `uniffi/` is excluded. Needs a JDK: `scripts/java_home.sh` finds it (`
 
 ## Daily loop (about 8 s from edit to running app)
 
-`just android-run` = `android-core` (cargo-ndk arm64 + UniFFI Kotlin bindings) -> `android-build` (Gradle) -> `android-install` (adb, also grants
+`just android-run` = `android-core phone` (cargo-ndk arm64 in the `phone` profile: optimised dev, unstripped, incremental; the phone
+never runs an opt-level 0 core, which costs ~4.5x the CPU per fix) + UniFFI Kotlin bindings -> `android-build` (Gradle) -> `android-install` (adb, also grants
 location) -> `android-start`. Also: `just android-logs`, `just android-shot`, `scripts/android_tap.sh "<label>"` (tap a button by its text via
 uiautomator, no coordinates needed). Rust-only logic is faster to iterate on desktop: `cd core && cargo test` and `cargo run --example gen_zone`.
 `APGO_ABIS="arm64-v8a x86_64"` also builds for an emulator.
