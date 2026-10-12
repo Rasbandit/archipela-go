@@ -291,6 +291,9 @@ internal object ApgoPalette {
             else -> if (dark) todoDark else questTodo
         }
 
+    /** A backpack slot past the bag size (#142): the in-progress amber, readable on both themes (ContrastTest). */
+    fun overload(dark: Boolean): Color = if (dark) progressDark else progressLight
+
     /** The icon on a quest badge filled with [quest]: navy on the light amber and greys, white on the rest. */
     fun badgeInk(state: String): Color = inkOn(quest(state))
 

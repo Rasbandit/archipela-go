@@ -456,7 +456,7 @@ private fun BoxScope.QuestPopup(
     onBubbleSize: (Int) -> Unit,
 ) {
     val details: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
-        QuestCard(q, loadAbout = m.engine::about) { m.selected = null }
+        QuestCard(q, m.bag, loadAbout = m.engine::about) { m.selected = null }
     }
     if (q.anchor == null) {
         MapOverlayCard(Modifier.align(Alignment.BottomCenter).above(coverDp), content = details)
@@ -495,6 +495,7 @@ private fun GamePanel(
         (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let {
             FeedbackText(it.joinToString("  ·  "), Tone.Danger)
         }
+        m.bag?.takeIf { it.over > 0u }?.let { FeedbackText("Backpack: ${it.load}", Tone.Warning) }
         TextButton(onClick = { showPlaces = !showPlaces }) {
             Text("${if (showPlaces) "Hide" else "Show"} places on the map (${layout.places.size})", fontSize = 12.sp)
         }

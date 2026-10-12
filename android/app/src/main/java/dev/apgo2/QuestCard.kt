@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,9 +38,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.LinkAnnotation
@@ -59,6 +66,7 @@ import dev.apgo2.ui.Tone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.apgo_ffi.AboutOut
+import uniffi.apgo_ffi.BagOut
 import uniffi.apgo_ffi.PlaceOut
 import uniffi.apgo_ffi.ProgressOut
 import uniffi.apgo_ffi.QuestOut
@@ -71,6 +79,7 @@ private const val LOG_TAG = "apgo.QuestCard"
 @Composable
 internal fun ColumnScope.QuestCard(
     q: QuestOut,
+    bag: BagOut?,
     loadAbout: (Long) -> AboutOut?,
     onClose: () -> Unit,
 ) {
@@ -88,6 +97,7 @@ internal fun ColumnScope.QuestCard(
                 )
             }
             q.placeRow?.let { PlaceRow(it) }
+            if (q.collect != null && q.state != "done") bag?.let { BackpackRow(it) }
             q.progressBlock?.let { ProgressBlock(it, ApgoPalette.questOnCard(q.state, isSystemInDarkTheme())) }
             if (q.hasAbout) AboutFold(q.locationId, loadAbout)
             q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
@@ -181,6 +191,61 @@ private fun PlaceRow(p: PlaceOut) {
         },
         fontSize = 14.sp,
     )
+}
+
+// The shared backpack (#142): "Backpack · N" and how heavy it is, then one slot per bag space with each carried item's icon; free
+// slots dashed, items past the bag size amber. Read as one item.
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BackpackRow(bag: BagOut) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val carried = bag.items.size
+    val size = bag.size.toInt()
+    Column(
+        Modifier.clearAndSetSemantics { contentDescription = "Backpack, $carried items, ${bag.load}" },
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(Modifier.fillMaxWidth()) {
+            Text("Backpack · $carried", fontSize = 12.sp, color = muted, modifier = Modifier.weight(1f))
+            Text(
+                bag.load,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (bag.over > 0u) ApgoPalette.tone(Tone.Warning) else Color.Unspecified,
+            )
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            repeat(maxOf(size, carried)) { i -> BagSlot(bag.items.getOrNull(i), overflow = i >= size) }
+        }
+    }
+}
+
+@Composable
+private fun BagSlot(
+    theme: String?,
+    overflow: Boolean,
+) {
+    val fill = if (overflow) ApgoPalette.overload(isSystemInDarkTheme()) else MaterialTheme.colorScheme.surfaceVariant
+    val outline = MaterialTheme.colorScheme.outline
+    val shape =
+        if (theme == null) {
+            Modifier.drawBehind {
+                val dash = 3.dp.toPx()
+                drawCircle(outline, style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash))))
+            }
+        } else {
+            Modifier.background(fill, CircleShape)
+        }
+    Box(Modifier.size(22.dp).then(shape), contentAlignment = Alignment.Center) {
+        theme?.let {
+            Icon(
+                ApgoIcons.collectible(it),
+                contentDescription = null,
+                tint = if (overflow) ApgoPalette.inkOn(fill) else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
 }
 
 // A labelled progress bar ("Time here 1:12 of 3:00"), or the two named steps of a courier or round trip.
