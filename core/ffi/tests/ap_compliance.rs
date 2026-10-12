@@ -301,3 +301,88 @@ fn the_connection_is_compressed_so_the_server_never_warns() {
     let warned: Vec<_> = seen.iter().filter(|e| matches!(e, ApEvent::Print { text } if text.contains("compressed"))).collect();
     assert!(warned.is_empty(), "the server saw an uncompressed connection: {warned:?}");
 }
+
+// A TCP proxy to the compliance server that can be frozen: it then passes nothing either way but keeps both sockets open, as a
+// dead network (or a hung server) looks to the client, and the server never gets what the client sent.
+struct Proxy {
+    port: u16,
+    frozen: Arc<std::sync::atomic::AtomicBool>,
+    // Both sockets, shut down when the proxy is dropped so the server sees the client leave (a frozen client it still holds would
+    // stall it until its ping timeout, into the next test).
+    sockets: Arc<Mutex<Vec<std::net::TcpStream>>>,
+}
+
+// Copy `from` to `to` until `frozen`, then hold both open and pass nothing more.
+fn pipe(mut from: std::net::TcpStream, mut to: std::net::TcpStream, frozen: Arc<std::sync::atomic::AtomicBool>) {
+    use std::io::{Read, Write};
+    use std::sync::atomic::Ordering;
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 16 * 1024];
+        while !frozen.load(Ordering::SeqCst) {
+            match from.read(&mut buf) {
+                Ok(0) | Err(_) => return,
+                Ok(n) if !frozen.load(Ordering::SeqCst) && to.write_all(&buf[..n]).is_ok() => {}
+                Ok(_) => break,
+            }
+        }
+        std::thread::park(); // frozen: keep the sockets, read nothing
+        drop((from, to));
+    });
+}
+
+impl Proxy {
+    fn start() -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let frozen = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop = frozen.clone();
+        let sockets = Arc::new(Mutex::new(Vec::new()));
+        let held = sockets.clone();
+        std::thread::spawn(move || {
+            let (client, _) = listener.accept().unwrap();
+            let server = std::net::TcpStream::connect(("127.0.0.1", PORT)).unwrap();
+            held.lock().unwrap().extend([client.try_clone().unwrap(), server.try_clone().unwrap()]);
+            pipe(client.try_clone().unwrap(), server.try_clone().unwrap(), stop.clone());
+            pipe(server, client, stop);
+        });
+        Self { port, frozen, sockets }
+    }
+
+    fn freeze(&self) {
+        self.frozen.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Drop for Proxy {
+    fn drop(&mut self) {
+        for s in self.sockets.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter() {
+            let _ = s.shutdown(std::net::Shutdown::Both);
+        }
+    }
+}
+
+/// Robustness: a send to a server that stopped reading (a hung server, a dead network) fills the socket and would block, holding
+/// the session (the app's whole Archipelago loop) until the OS gave up on the connection many minutes later. It fails within
+/// seconds instead, and the session reports disconnected, so the app reconnects.
+#[test]
+#[ignore = "needs the pinned Archipelago server: just test-ap"]
+fn a_send_to_a_server_that_stopped_reading_fails_in_seconds_and_disconnects() {
+    let _server = server();
+    let proxy = Proxy::start();
+    let s = connect_to(&format!("ws://127.0.0.1:{}", proxy.port), SLOT);
+    proxy.freeze();
+    // Every location in a shuffled order compresses poorly: tens of KB per message, so a few hundred fill the socket buffers.
+    let ids = location_ids(&s);
+    let many: Vec<i64> = (0..120_000_usize).map(|i| ids[(i * 7 + i / 3 + i * i % 11) % ids.len()]).collect();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let sender = s.clone();
+    let t = Instant::now();
+    std::thread::spawn(move || {
+        let failed = (0..5_000).any(|_| sender.send_checks(many.clone()).is_err());
+        let _ = tx.send(failed);
+    });
+    let failed = rx.recv_timeout(Duration::from_secs(60)).expect("a send blocked on the stopped server for 60 s");
+    assert!(failed, "the socket never filled: send more");
+    assert!(t.elapsed() < Duration::from_secs(45), "took {:?}", t.elapsed());
+    drain_until(&s, 5, |s, _| s.status().starts_with("disconnected"));
+}

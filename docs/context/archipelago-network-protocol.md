@@ -88,6 +88,7 @@ its own `.ap/compliance` on :38291), one test per rule; the pre-push hook runs i
 | Reconnect after an app restart (client guide) | a game saves its address and slot (`Engine::ap_saved_server`); with no session, opening it connects there and retries like a drop | `a_restarted_app_reconnects_from_the_saved_address_and_gets_its_items` |
 | Change the port of saved connection info (client guide) | Play's Server button saves a new address (`Engine::set_ap_address`) and reconnects; seed and slot stay | `a_room_moved_to_another_port_is_the_same_game` |
 | Per-message compression (protocol: uncompressed is deprecated) | soketto permessage-deflate in the vendored client; the server's "does not support compressed" Print never arrives | `the_connection_is_compressed_so_the_server_never_warns` |
+| A dead network never blocks a send (robustness) | sends give up after 10 s and end the connection, so the app reconnects | `a_send_to_a_server_that_stopped_reading_fails_in_seconds_and_disconnects` (a frozen TCP proxy) |
 | A refused first connect is not a loop | auto-reconnect only after a session was connected | `a_wrong_slot_is_refused_and_never_connected` |
 | Server pings every 20 s (websockets defaults; `CommonClient` sends none) | the app sleeps in the socket; 60 s silence = dead | `the_server_pings_a_quiet_connection_within_twenty_five_seconds` |
 | Servers that do not ping | a `Get` probe before reconnecting | `a_probe_is_answered` |

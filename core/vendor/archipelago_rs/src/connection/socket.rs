@@ -383,8 +383,12 @@ impl<S: DeserializeOwned + 'static> Socket<S> {
         pump(&mut self.receiving, &mut self.messages, &mut Context::from_waker(Waker::noop()));
     }
 
-    /// Sends [message] to the server.
+    /// Sends [message] to the server, waiting at most [SEND_TIMEOUT] for it to go out. A send that fails or times out may have left
+    /// half a frame on the wire, so the connection ends: the next update reports it and the host reconnects.
     pub(crate) fn send(&mut self, message: ClientMessage) -> Result<(), Error> {
+        if self.receiving.is_none() {
+            return Err(WsError::ConnectionClosed.into());
+        }
         let text = serde_json::to_string(&[&message]).map_err(Error::Serialize)?;
         debug!("<-- {text}");
         let Self { sender, receiving, messages, .. } = self;
@@ -393,16 +397,30 @@ impl<S: DeserializeOwned + 'static> Socket<S> {
             sender.flush().await
         });
         // The receiver may hold the writer (a pong half written): keep it going until the send is through.
-        smol::block_on(poll_fn(|cx| match sent.as_mut().poll(cx) {
-            Poll::Ready(result) => Poll::Ready(result),
+        let sending = poll_fn(|cx| match sent.as_mut().poll(cx) {
+            Poll::Ready(result) => Poll::Ready(result.map_err(WsError::from)),
             Poll::Pending => {
                 pump(receiving, messages, cx);
                 Poll::Pending
             }
-        }))
-        .map_err(|e| Error::WebSocket(e.into()))
+        });
+        let deadline = async {
+            smol::Timer::after(SEND_TIMEOUT).await;
+            Err(WsError::Io(io::Error::new(io::ErrorKind::TimedOut, "the server took no data for the send timeout")))
+        };
+        let result = smol::block_on(smol::future::or(sending, deadline));
+        if let Err(err) = &result {
+            debug!("<-- [error] {err}: closing the connection");
+            self.receiving = None;
+            self.messages.push_back(Err(WsError::Io(io::Error::other(format!("send failed: {err}"))).into()));
+        }
+        result.map_err(Error::WebSocket)
     }
 }
+
+/// How long a send may wait for the server to take its data: past that the network or server is dead (a quiet live connection
+/// takes a frame at once), and blocking longer would hold the connection until the OS gives up minutes later.
+const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Polls `receiving` until it has to wait, decoding each message into `messages`. Any WebSocket error ends the connection.
 fn pump<S: DeserializeOwned + 'static>(
