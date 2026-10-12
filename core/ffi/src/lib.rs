@@ -352,6 +352,17 @@ impl ApSession {
         let client = conn.client_mut().ok_or_else(|| CoreError::Failed { detail: "not connected".into() })?;
         client.mark_checked([location_id]).map_err(|e| CoreError::Failed { detail: e.to_string() })
     }
+
+    /// Send many checks in one `LocationChecks` packet (on connect, everything finished so far: the server ignores repeats).
+    ///
+    /// # Errors
+    /// `Failed` when not connected or the send fails.
+    #[allow(clippy::significant_drop_tightening)] // the client borrows from the connection guard until the result is built
+    pub fn send_checks(&self, location_ids: Vec<i64>) -> Result<(), CoreError> {
+        let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let client = conn.client_mut().ok_or_else(|| CoreError::Failed { detail: "not connected".into() })?;
+        client.mark_checked(location_ids).map_err(|e| CoreError::Failed { detail: e.to_string() })
+    }
 }
 
 /// How long the host waits between Archipelago polls (see `apgo_core::ap_poll`): fast right after the server said something,

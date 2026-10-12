@@ -745,6 +745,15 @@ pub struct AwayReportOut {
     pub events: Vec<AuditEventOut>,
 }
 
+/// What to tell the Archipelago server on (re)connect ([`Engine::server_report`]).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ServerReportOut {
+    /// Every finished location id, ascending.
+    pub checks: Vec<i64>,
+    /// Whether the goal was reached.
+    pub goal: bool,
+}
+
 /// Quests this close to a fix get a line in the log saying whether they count.
 const NEAR_MISS_RADIUS_M: f64 = 100.0;
 /// Longest the open game goes unsaved while the player moves without lasting events (each save rewrites and syncs the whole file;
@@ -2216,6 +2225,13 @@ impl Engine {
         });
     }
 
+    /// What the open game tells the Archipelago server on every (re)connect: every finished location and whether the goal was
+    /// reached. The protocol asks clients to send checks made while offline on connection, and the server ignores repeats, so this
+    /// is all of them, every time (`None` with no game open).
+    pub fn server_report(&self) -> Option<ServerReportOut> {
+        self.with_game(|g| ServerReportOut { checks: g.done.iter().copied().collect(), goal: g.goal_reported })
+    }
+
     /// Messages the core queued for the diagnostics log since the last call (journal failures and the like).
     pub fn take_diag(&self) -> Vec<String> {
         std::mem::take(&mut *self.diag.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
@@ -2718,6 +2734,22 @@ mod tests {
             e.dir.clone()
         };
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn the_server_report_lists_every_finished_location_and_the_goal() {
+        let e = engine_with_game("server-report");
+        let r = e.server_report().unwrap();
+        assert!(r.checks.is_empty() && !r.goal, "nothing done yet");
+        e.with_game(|g| {
+            g.done.insert(7);
+            g.done.insert(3);
+            g.goal_reported = true;
+        });
+        let r = e.server_report().unwrap();
+        assert_eq!((r.checks, r.goal), (vec![3, 7], true), "all of them, every time: checks made offline reach the server on connect");
+        e.close_game();
+        assert!(e.server_report().is_none(), "no open game: nothing to report");
     }
 
     #[test]

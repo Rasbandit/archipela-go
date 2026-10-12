@@ -223,12 +223,30 @@ internal class ApController(
         }
     }
 
+    // First sync after every (re)connect: the protocol asks clients to send checks made while offline on connection, and the
+    // server ignores repeats, so send everything finished (one packet) and the goal if it was reached.
+    private suspend fun reportProgress(s: ApSession) {
+        val report = model.engine.serverReport() ?: return
+        withContext(Dispatchers.IO) {
+            if (report.checks.isNotEmpty()) {
+                runCatching {
+                    s.sendChecks(
+                        report.checks,
+                    )
+                }.onFailure { Diag.warn("ap", "re-sending checks failed", "error" to it.toString()) }
+            }
+            if (report.goal) runCatching { s.sendGoal() }.onFailure { Diag.warn("ap", "re-sending goal failed", "error" to it.toString()) }
+        }
+        Diag.info("ap", "progress sent", "checks" to report.checks.size, "goal" to report.goal)
+    }
+
     private suspend fun syncGame(s: ApSession) {
         val items = withContext(Dispatchers.IO) { runCatching { s.receivedItems().map { it.name } }.getOrDefault(emptyList()) }
         if (session !== s) return // reconnected meanwhile: the old server's items and checks are not this game's
         if (!syncedChecked && slotJson != null) {
             model.engine.markChecked(s.checkedLocationIds(), model.now())
             syncedChecked = true
+            reportProgress(s)
         }
         val pos = model.acceptedHere?.let { GeoPoint(it.latitude, it.longitude) }
         model.handle(model.engine.syncItems(items, model.now(), pos))
