@@ -288,6 +288,7 @@ mod tests {
                 feature_id: None,
                 place_type: None,
                 has_about: false,
+                base_kind: None,
                 tier: 2,
                 effort_min: 10.0,
                 target: Target::Steps { n: 1 },

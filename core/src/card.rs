@@ -23,7 +23,7 @@ pub const TITLED_KINDS: [&str; 3] = ["gallery_walls", "mural_mural", "remember_w
 pub fn line_share_phrase(coverage: f64) -> Option<&'static str> {
     const SHARES: [(f64, &str); 6] =
         [(0.25, "a quarter of"), (1.0 / 3.0, "a third of"), (0.5, "half"), (2.0 / 3.0, "two thirds of"), (0.75, "three quarters of"), (1.0, "the whole")];
-    SHARES.iter().find(|(f, _)| (coverage - f).abs() < 0.005).map(|(_, p)| *p)
+    SHARES.iter().find(|(f, _)| (coverage - f).abs() < 1e-6).map(|(_, p)| *p)
 }
 
 /// "1 hour", "1 h 30 min", "45 min".
@@ -47,20 +47,21 @@ fn compass_word(deg: f64) -> &'static str {
 /// The card text of quest `a` (with `home` for direction words).
 #[must_use]
 pub fn card_text(a: &Assignment, home: Point, units: UnitSystem) -> CardText {
+    // A boss is worded by the kind it was made from ("Ride", "Sit"), when the save kept it.
+    let kind = a.base_kind.as_deref().unwrap_or(&a.kind_id);
     let within = |r: f64| format!("Within {}", distance_rounded(r, units, Round::Down));
     let (headline, detail) = match &a.target {
-        Target::Point { p, r } if a.kind_id == "compass_rose" => (
+        Target::Point { p, r } if kind == "compass_rose" => (
             format!("Head {}", compass_word(bearing_deg(home, *p))),
             format!("{} out, then {}", distance(distance_m(home, *p), units), within(*r).to_lowercase()),
         ),
-        Target::Point { r, .. } if a.kind_id == "street_smarts" || a.fallback => ("Get here".into(), format!("{} of the pin", within(*r))),
+        Target::Point { r, .. } if kind == "street_smarts" || a.fallback => ("Get here".into(), format!("{} of the pin", within(*r))),
         Target::Point { r, .. } => ("Get here".into(), within(*r)),
-        Target::Dwell { r, minutes, .. } => (
-            format!("{} {minutes:.0} min", if SIT_KINDS.contains(&a.kind_id.as_str()) { "Sit" } else { "Stay" }),
-            format!("{} · leaving pauses the timer", within(*r)),
-        ),
+        Target::Dwell { r, minutes, .. } => {
+            (format!("{} {minutes:.0} min", if SIT_KINDS.contains(&kind) { "Sit" } else { "Stay" }), format!("{} · leaving pauses the timer", within(*r)))
+        }
         Target::DwellArea { minutes, .. } => (format!("Hang out {minutes:.0} min"), "Anywhere inside the outline".into()),
-        Target::Line { pts, coverage, .. } => line_text(&a.kind_id, polyline_len_m(pts), *coverage, units),
+        Target::Line { pts, coverage, .. } => line_text(kind, polyline_len_m(pts), *coverage, units),
         Target::Courier { time_limit_min, .. } => ("Deliver the package".into(), format!("Pick up at A, drop at B in {time_limit_min:.0} min")),
         Target::RoundTrip { .. } => ("Out and back".into(), "Touch the far point, then come home".into()),
         Target::Cells { .. } => ("Explore somewhere new".into(), "Walk where you haven't been yet".into()),
@@ -151,10 +152,12 @@ pub fn card_progress(q: &crate::game::QuestView, now_ms: i64, units: UnitSystem)
         Target::Dwell { minutes, .. } => bar("Time here", format!("{} of {}", clock(minutes * f), clock(*minutes)), None),
         Target::DwellArea { minutes, .. } => bar("Time inside", format!("{} of {}", clock(minutes * f), clock(*minutes)), None),
         Target::Line { pts, coverage, .. } => {
-            let want = polyline_len_m(pts) * coverage;
-            let target = distance(want, units);
+            let len = polyline_len_m(pts);
+            // Stairs say "all the stairs" (their coverage is GPS slack), so their bar counts against the whole flight.
+            let of = if q.kind_id == "stairmaster" { len } else { len * coverage };
+            let target = distance(of, units);
             let (num, unit) = target.rsplit_once(' ').unwrap_or((target.as_str(), ""));
-            bar("Traveled", format!("{} of {num} {unit}", amount_like(want * f, unit, units)), None)
+            bar("Traveled", format!("{} of {num} {unit}", amount_like(len * coverage * f, unit, units)), None)
         }
         Target::Steps { n } => bar("Steps", format!("{} of {}", thousands(crate::num::round_u64(f64::from(*n) * f)), thousands(u64::from(*n))), None),
         Target::Away { minutes } => bar("Time away", format!("{} of {minutes:.0} min", crate::num::round_u64(minutes * f)), None),
@@ -188,13 +191,22 @@ fn clock(minutes: f64) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
+/// "1.4", or "2" for a whole number, as the shared formatter writes it.
+fn one_decimal(x: f64) -> String {
+    let s = format!("{x:.1}");
+    s.strip_suffix(".0").map_or_else(|| s.clone(), str::to_string)
+}
+
 /// `m` metres as a bare number in `unit` ("mi", "ft", "km", "m"), rounded the way the shared formatter rounds that unit.
 fn amount_like(m: f64, unit: &str, units: UnitSystem) -> String {
     match unit {
-        "mi" => format!("{:.1}", m / 1609.344),
-        "km" => format!("{:.1}", m / 1000.0),
+        "mi" => one_decimal(m / 1609.344),
+        "km" => one_decimal(m / 1000.0),
         "ft" => (crate::num::round_u64(m / 0.3048 / 10.0) * 10).to_string(),
-        "m" => (crate::num::round_u64(m / 10.0) * 10).to_string(),
+        "m" => {
+            let step: u32 = if m < 100.0 { 5 } else { 10 };
+            (crate::num::round_u64(m / f64::from(step)) * u64::from(step)).to_string()
+        }
         _ => distance(m, units),
     }
 }
@@ -250,6 +262,7 @@ mod tests {
             feature_id: None,
             place_type: None,
             has_about: false,
+            base_kind: None,
             tier: 2,
             effort_min: 10.0,
             target,
@@ -291,6 +304,21 @@ mod tests {
     #[test]
     fn a_share_that_is_not_a_friendly_fraction_is_stated_exactly() {
         assert_eq!(text(&quest("trail_boss", line(4506.0, 0.37))).0, "Walk 37% of the trail");
+        // Close to a third is still not a third: never understate the rule.
+        assert_eq!(text(&quest("trail_boss", line(4506.0, 0.338))).0, "Walk 34% of the trail");
+    }
+
+    #[test]
+    fn a_boss_is_worded_by_the_kind_it_was_made_from() {
+        let boss = |base: &str, t: Target| {
+            let mut a = quest("the_big_one", t);
+            a.base_kind = Some(base.into());
+            text(&a).0
+        };
+        assert_eq!(boss("pedal_pusher", line(4506.0, 0.5)), "Ride half the path");
+        assert_eq!(boss("follow_the_flow", line(4506.0, 0.5)), "Follow half the river");
+        assert_eq!(boss("stairmaster", line(60.0, 0.8)), "Climb all the stairs");
+        assert_eq!(boss("bench_warmer", Target::Dwell { p: home(), r: 40.0, minutes: 3.0 }), "Sit 3 min");
     }
 
     #[test]
@@ -373,6 +401,22 @@ mod tests {
         let p = prog(&view(line(4506.0, 0.5), InProgress, 0.4));
         assert_eq!((p.label.as_str(), p.value.as_str()), ("Traveled", "0.6 of 1.4 mi"));
         assert_eq!(prog(&view(line(200.0, 0.5), InProgress, 0.5)).value, "160 of 330 ft");
+    }
+
+    #[test]
+    fn traveled_amounts_round_like_the_shared_formatter() {
+        // A whole number of miles has no ".0", like the target beside it.
+        assert_eq!(prog(&view(line(4.0 * 1609.344, 0.5), InProgress, 0.5)).value, "1 of 2 mi");
+        // Under 100 m the formatter counts in 5 m steps, so the amount does too.
+        let p = card_progress(&view(line(90.0, 0.5), InProgress, 35.0 / 45.0), 1_000_000, UnitSystem::Metric).unwrap();
+        assert_eq!(p.value, "35 of 45 m");
+    }
+
+    #[test]
+    fn stairs_count_against_the_whole_flight() {
+        let mut q = view(line(60.0, 0.8), InProgress, 0.5);
+        q.kind_id = "stairmaster".into();
+        assert_eq!(prog(&q).value, "80 of 200 ft", "the card says all the stairs, so the bar counts all of them");
     }
 
     #[test]

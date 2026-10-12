@@ -174,7 +174,7 @@ pub fn about(f: &Feature, units: crate::units::UnitSystem) -> Option<About> {
         crate::units::UnitSystem::Imperial => format!("{} ft", thousands(crate::num::round_u64(m / 0.3048))),
         crate::units::UnitSystem::Metric => format!("{} m", thousands(crate::num::round_u64(m))),
     };
-    let number = |v: &str| v.split_whitespace().next().and_then(|n| n.replace(',', ".").parse::<f64>().ok());
+    let number = |v: &str| v.split_whitespace().next().and_then(osm_number);
     let kind = ["artwork_type", "memorial", "historic"].iter().filter_map(|k| tag(k)).find(|v| *v != "yes").map(human);
     let entry = [
         (tag("fee") == Some("yes")).then(|| "Fee".to_string()),
@@ -188,7 +188,7 @@ pub fn about(f: &Feature, units: crate::units::UnitSystem) -> Option<About> {
     let candidates: [(&str, Option<String>); 16] = [
         ("Kind", kind.filter(|k| type_label.as_deref() != Some(k.to_lowercase().as_str()))),
         ("Artist", tag("artist_name").map(str::to_string)),
-        ("Made", tag("start_date").map(|d| d.chars().take(4).collect())),
+        ("Made", tag("start_date").and_then(made)),
         ("Faith", tag("denomination").or_else(|| tag("religion")).map(human)),
         ("Food", tag("cuisine").map(human)),
         ("Species", tag("species:en").or_else(|| tag("species")).or_else(|| tag("genus")).map(str::to_string)),
@@ -196,7 +196,7 @@ pub fn about(f: &Feature, units: crate::units::UnitSystem) -> Option<About> {
         ("Surface", tag("surface").map(human)),
         ("Difficulty", tag("sac_scale").map(|v| SAC_SCALE.iter().find(|(k, _)| *k == v).map_or_else(|| humanize(v), |(_, l)| (*l).to_string()))),
         ("Elevation", tag("ele").and_then(number).map(feet)),
-        ("Height", tag("height").and_then(number).map(|m| crate::units::distance(m, units))),
+        ("Height", tag("height").and_then(height_m).map(|m| crate::units::distance(m, units))),
         (
             "Lighting",
             tag("lit")
@@ -217,6 +217,41 @@ pub fn about(f: &Feature, units: crate::units::UnitSystem) -> Option<About> {
     let description = tag("description").map(str::to_string);
     let wikipedia_url = tag("wikipedia").and_then(wikipedia_url);
     (!rows.is_empty() || description.is_some() || wikipedia_url.is_some()).then_some(About { description, rows, wikipedia_url })
+}
+
+/// A number as mappers write it: "1900", "1900.5", "1,900" (a comma before three digits groups thousands), "1900,5" (else a
+/// decimal comma).
+fn osm_number(v: &str) -> Option<f64> {
+    let grouped = v.split(',').skip(1).all(|g| g.len() == 3 && g.bytes().all(|b| b.is_ascii_digit())) && !v.contains('.');
+    if grouped { v.replace(',', "") } else { v.replace(',', ".") }.parse().ok()
+}
+
+/// A `height` tag in metres: "12" and "12 m" are metres, "15 ft" and "50'" feet.
+fn height_m(v: &str) -> Option<f64> {
+    let v = v.trim();
+    let feet = |n: &str| osm_number(n.trim()).map(|x| x * 0.3048);
+    if let Some(n) = v.strip_suffix("ft").or_else(|| v.strip_suffix('\'')) {
+        return feet(n);
+    }
+    osm_number(v.strip_suffix('m').unwrap_or(v).trim())
+}
+
+/// The year a `start_date` names: "1890" from "1890-05-01", "c. 1890" from "~1890", "Before 1900" from "before 1900".
+fn made(v: &str) -> Option<String> {
+    let at = v.find(|c: char| c.is_ascii_digit())?;
+    let year: String = v[at..].chars().take_while(char::is_ascii_digit).collect();
+    if year.len() != 4 {
+        return None;
+    }
+    let lead = v[..at].trim();
+    Some(match lead {
+        "" => year,
+        "~" | "c." | "ca." | "circa" => format!("c. {year}"),
+        _ => {
+            let mut c = lead.chars();
+            c.next().map_or_else(String::new, |f| f.to_uppercase().chain(c).collect::<String>()) + " " + &year
+        }
+    })
 }
 
 /// "6,234" from 6234.
@@ -434,6 +469,19 @@ mod tests {
                 ("Entry".into(), "Fee · Private access · Wheelchair accessible".into()),
             ]
         );
+    }
+
+    #[test]
+    fn heights_dates_and_elevations_read_the_way_mappers_write_them() {
+        let one = |k: &str, v: &str| sheet(&[("tourism", "artwork"), (k, v)]).into_iter().map(|(_, v)| v).next().unwrap();
+        assert_eq!(one("height", "40 ft"), "40 ft"); // shown through the shared formatter, which counts feet in tens
+        assert_eq!(one("height", "50'"), "50 ft");
+        assert_eq!(one("height", "12"), "40 ft", "a bare height is metres");
+        assert_eq!(one("start_date", "1890-05-01"), "1890");
+        assert_eq!(one("start_date", "~1890"), "c. 1890");
+        assert_eq!(one("start_date", "before 1900"), "Before 1900");
+        assert_eq!(one("ele", "1,900"), "6,234 ft", "a comma before three digits groups thousands");
+        assert_eq!(one("ele", "1900,5"), "6,235 ft", "otherwise it is a decimal comma");
     }
 
     #[test]
