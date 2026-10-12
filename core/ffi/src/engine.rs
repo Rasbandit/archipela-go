@@ -486,14 +486,30 @@ pub struct CollectOut {
     pub carried: u32,
     /// Brought home so far.
     pub banked: u32,
-    /// Every item, in the quest's order.
+    /// The items still on the map (picked ones are gone; new ones appear as the map tops up).
     pub items: Vec<CollectItemOut>,
 }
 
-fn collect_out(t: &Target, c: Option<&Collected>) -> Option<CollectOut> {
-    let Target::Collect { pts, need, theme, .. } = t else { return None };
+/// The shared backpack: what every forager carries (#142).
+#[derive(Debug, uniffi::Record)]
+pub struct BagOut {
+    /// Items it holds before steps slow down.
+    pub size: u32,
+    /// Each carried item's theme ("acorns"), for its icon, grouped by quest.
+    pub items: Vec<String>,
+    /// Items carried past `size`.
+    pub over: u32,
+    /// How much a step counts now (1 when not over).
+    pub step_factor: f32,
+    /// Empty, Light, Full or "Heavy · steps −N%".
+    pub load: String,
+}
+
+fn collect_out(t: &Target, c: Option<&Collected>, live: &[Point]) -> Option<CollectOut> {
+    let Target::Collect { need, theme, .. } = t else { return None };
     let c = c.cloned().unwrap_or_default();
-    let items = pts.iter().enumerate().map(|(i, p)| CollectItemOut { at: gp(*p), picked: u16::try_from(i).is_ok_and(|i| c.picked.contains(&i)) }).collect();
+    // `picked` stays in the record for the map's filters; live items are never picked.
+    let items = live.iter().map(|p| CollectItemOut { at: gp(*p), picked: false }).collect();
     Some(CollectOut { theme: theme.clone(), need: *need, carried: c.carried, banked: c.banked, items })
 }
 
@@ -1159,9 +1175,9 @@ impl Engine {
     }
 
     /// The current scans of `zone_realms` (each realm once), restricted to their shapes.
-    fn zone_atlases(&self, zone_realms: &[String]) -> Vec<Atlas> {
+    fn zone_realm_atlases(&self, zone_realms: &[String]) -> Vec<(Realm, Atlas)> {
         let store = self.store();
-        zone_realms.iter().collect::<BTreeSet<_>>().into_iter().filter_map(|id| store.get(id)).filter_map(|r| self.zoned_atlas(&r)).collect()
+        zone_realms.iter().collect::<BTreeSet<_>>().into_iter().filter_map(|id| store.get(id)).filter_map(|r| self.zoned_atlas(&r).map(|a| (r, a))).collect()
     }
 
     /// The open game's id and zone realms, if it plays in `realm_id` (any open game when `None`).
@@ -1177,7 +1193,8 @@ impl Engine {
 
     /// Swap built streets into the open game if it is still `game_id` over `zone_realms` and nothing newer went in; true when they did.
     /// The zone shapes are read again then too, so an outline edit moves in-zone, proximity and the filter's mode (final review M2).
-    fn swap_streets(&self, game_id: &str, zone_realms: &[String], streets: Streets, generation: u64, atlases: &[&Atlas]) -> bool {
+    fn swap_streets(&self, game_id: &str, zone_realms: &[String], streets: Streets, generation: u64, realms: &[(Realm, Atlas)]) -> bool {
+        let atlases: Vec<&Atlas> = realms.iter().map(|(_, a)| a).collect();
         let shapes = self.realm_shapes(zone_realms); // read before the lock: no file reads while fixes wait
         let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(g) = slot.as_mut().filter(|g| g.id == game_id && g.zone_realms == zone_realms) else { return false };
@@ -1185,7 +1202,9 @@ impl Engine {
             return false;
         }
         // A game saved before quests kept their place gets its places back from the same scans, once (then it is saved linked).
-        if g.relink_places(atlases, &self.catalog) > 0 {
+        // Forager items appear on the same scans' streets (#142): the first build fills each forager, later ones refresh its pool.
+        g.set_forage_pools(realms);
+        if g.relink_places(&atlases, &self.catalog) > 0 {
             if let Err(e) = g.save(&self.dir) {
                 self.note(format!("could not save game {}: {e}", g.id));
             }
@@ -1428,12 +1447,12 @@ impl Engine {
         let (game_id, zone_realms) = self.streets_target(realm_id.as_deref())?;
         let generation = self.next_streets_gen();
         let started = std::time::Instant::now();
-        let atlases = self.zone_atlases(&zone_realms);
-        let atlases: Vec<&Atlas> = atlases.iter().collect();
+        let realms = self.zone_realm_atlases(&zone_realms);
+        let atlases: Vec<&Atlas> = realms.iter().map(|(_, a)| a).collect();
         let streets = Game::build_streets(&atlases);
         let build_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
         let (segments, degraded) = streets.1.as_ref().map_or((0, false), |g| (count_u32(g.segment_count()), g.is_degraded()));
-        self.swap_streets(&game_id, &zone_realms, streets, generation, &atlases).then_some(StreetsBuiltOut { build_ms, segments, degraded })
+        self.swap_streets(&game_id, &zone_realms, streets, generation, &realms).then_some(StreetsBuiltOut { build_ms, segments, degraded })
     }
 
     /// Delete a realm with its scan and marks.
@@ -1832,7 +1851,7 @@ impl Engine {
                     });
                     let has_about = q.has_about;
                     let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target, units);
-                    let collect = collect_out(&q.target, q.collected.as_ref());
+                    let collect = collect_out(&q.target, q.collected.as_ref(), &q.live_items);
                     let anchor = pin_at(collect.as_ref(), q.state, anchor);
                     QuestOut {
                         location_id: q.location_id,
@@ -1876,6 +1895,26 @@ impl Engine {
                 .collect()
         })
         .unwrap_or_default()
+    }
+
+    /// The shared backpack of the open game; `None` with no game open.
+    pub fn bag(&self) -> Option<BagOut> {
+        self.with_game(|g| {
+            let items = g
+                .assignments
+                .iter()
+                .filter(|a| !g.done.contains(&a.location_id))
+                .filter_map(|a| match &a.target {
+                    Target::Collect { theme, .. } => g.collected.get(&a.location_id).map(|c| (theme, c.carried)),
+                    _ => None,
+                })
+                .flat_map(|(theme, n)| std::iter::repeat_n(theme.clone(), usize::try_from(n).unwrap_or(0)))
+                .collect();
+            let carried = g.carried_total();
+            #[allow(clippy::cast_possible_truncation)] // a factor between 0.5 and 1
+            let step_factor = g.step_factor() as f32;
+            BagOut { size: g.bag_size, items, over: carried.saturating_sub(g.bag_size), step_factor, load: apgo_core::forage::load_text(carried, g.bag_size) }
+        })
     }
 
     /// The about sheet of quest `location_id`'s place. Reads the realm's saved scan, so call it off the UI thread. `None` with no
@@ -2413,6 +2452,54 @@ mod tests {
         assert_eq!((ids(old).as_deref(), ids(kept).as_deref()), (Some("n77"), Some("w1")), "linked once and saved; a linked quest is left alone");
     }
 
+    /// Turns the first `n` quests of the test game into foragers (need 3, one placed item each) carrying `carried[i]` of `themes[i]`.
+    fn with_foragers(e: &TestEngine, themes: &[&str], carried: &[u32]) -> Vec<i64> {
+        e.with_game(|g| {
+            themes
+                .iter()
+                .zip(carried)
+                .enumerate()
+                .map(|(i, (theme, n))| {
+                    let a = &mut g.assignments[i];
+                    a.kind_id = "forager".into();
+                    a.target = Target::Collect {
+                        pts: vec![destination(home(), 0.0, 400.0 + 100.0 * f64::from(u32::try_from(i).unwrap()))],
+                        need: 3,
+                        r: 25.0,
+                        theme: (*theme).into(),
+                    };
+                    g.collected.insert(a.location_id, Collected { carried: *n, ..Default::default() });
+                    a.location_id
+                })
+                .collect()
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn the_bag_holds_what_every_forager_carries() {
+        let e = engine_with_game("bag");
+        assert!(e.bag().is_some_and(|b| b.items.is_empty() && b.load == "Empty" && b.size == 20));
+        with_foragers(&e, &["acorns", "diamonds"], &[2, 1]);
+        let b = e.bag().unwrap();
+        assert_eq!((b.items, b.over, b.load.as_str()), (vec!["acorns".to_string(), "acorns".into(), "diamonds".into()], 0, "Light"));
+        with_foragers(&e, &["acorns", "diamonds"], &[20, 2]);
+        let b = e.bag().unwrap();
+        assert_eq!((b.over, b.load.as_str()), (2, "Heavy · steps −10%"));
+        assert!((b.step_factor - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_forager_shows_its_live_items_and_the_streets_build_fills_it() {
+        let e = engine_with_game("forage");
+        let id = with_foragers(&e, &["acorns"], &[0])[0];
+        let items = |e: &TestEngine| e.quests(0).into_iter().find(|q| q.location_id == id).unwrap().collect.unwrap().items;
+        assert_eq!(items(&e).len(), 1, "the placed item until a build gives it a pool");
+        assert!(items(&e).iter().all(|i| !i.picked), "only items still out there are listed");
+        e.refresh_streets(None).unwrap();
+        assert_eq!(items(&e).len(), 9, "3 x need");
+    }
+
     #[test]
     fn about_reads_the_quest_place_from_the_realm_scan_and_is_none_once_it_is_gone() {
         let e = engine_with_game("about");
@@ -2694,10 +2781,10 @@ mod tests {
         // Two rebuilds finishing out of order: the older generation is dropped.
         let (older_gen, newer_gen) = (e.next_streets_gen(), e.next_streets_gen());
         let (id, zones) = e.streets_target(Some("r0")).unwrap();
-        let older = Game::build_streets(&e.zone_atlases(&zones).iter().collect::<Vec<_>>());
+        let older = Game::build_streets(&e.zone_realm_atlases(&zones).iter().map(|(_, a)| a).collect::<Vec<_>>());
         atlas.ways = apgo_core::loc::bench::grid_ways(corner, 6, 100.0);
         e.store().save_atlas(&atlas).unwrap(); // a rescan in between
-        let newer = Game::build_streets(&e.zone_atlases(&zones).iter().collect::<Vec<_>>());
+        let newer = Game::build_streets(&e.zone_realm_atlases(&zones).iter().map(|(_, a)| a).collect::<Vec<_>>());
         assert!(e.swap_streets(&id, &zones, newer, newer_gen, &[]));
         assert!(!e.swap_streets(&id, &zones, older, older_gen, &[]), "the older build finished last but is not swapped in");
         assert_eq!(graph(&e), Some(2 * 6 * 5));
@@ -2888,12 +2975,11 @@ mod tests {
         let (a, b) = (Point::new(40.0, -111.0), Point::new(40.01, -111.0));
         let t = Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() };
         let c = Collected { picked: BTreeSet::from([0]), carried: 1, banked: 0 };
-        let out = collect_out(&t, Some(&c)).expect("a forager has items");
+        let out = collect_out(&t, Some(&c), &[b]).expect("a forager has items");
         assert_eq!((out.theme.as_str(), out.need, out.carried, out.banked), ("shells", 1, 1, 0));
-        assert_eq!(out.items.iter().map(|i| i.picked).collect::<Vec<_>>(), [true, false]);
-        assert!((out.items[1].at.lat - 40.01).abs() < 1e-12);
-        assert_eq!(collect_out(&t, None).unwrap().items.iter().filter(|i| i.picked).count(), 0, "nothing picked yet");
-        assert!(collect_out(&Target::Point { p: a, r: 40.0 }, None).is_none());
+        assert_eq!(out.items.iter().map(|i| i.picked).collect::<Vec<_>>(), [false], "only the items still on the map (#142)");
+        assert!((out.items[0].at.lat - 40.01).abs() < 1e-12);
+        assert!(collect_out(&Target::Point { p: a, r: 40.0 }, None, &[]).is_none());
         assert_eq!(first_open(&out).map(|p| p.lat), Some(40.01), "the pin to open is the first item still out there");
     }
 
@@ -2901,7 +2987,7 @@ mod tests {
     fn a_done_forager_keeps_its_anchor_and_an_unfinished_one_sits_on_its_first_open_item() {
         let (a, b) = (Point::new(40.0, -111.0), Point::new(40.01, -111.0));
         let t = Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() };
-        let c = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }));
+        let c = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }), &[b]);
         let lat = |s| pin_at(c.as_ref(), s, Some(a)).map(|p| p.lat);
         assert_eq!(lat(QuestState::Done), Some(40.0), "a done forager stays in the places list like any done quest");
         assert_eq!(lat(QuestState::InProgress), Some(40.01));
