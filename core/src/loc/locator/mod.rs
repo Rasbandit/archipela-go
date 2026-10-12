@@ -110,6 +110,8 @@ pub struct Locator {
     /// The cloud's newest step batch when it last re-anchored the filter: without a step since, the filter goes on from its own state
     /// (review round 3, minor 4).
     reanchored_step_ms: Option<i64>,
+    /// Blurry fixes in a row during the bridge: `bridge_end_blurry_fixes` of them end it (#126).
+    bridge_blurry: usize,
     /// Fixes still to be taken (Used or Soft) after a bridge re-anchor before an estimate may count: the cloud's prior is no evidence
     /// (adversarial review C1).
     reanchor_warmup: u32,
@@ -175,6 +177,7 @@ impl Locator {
             turn_check: None,
             bridge_step_az: None,
             reanchored_step_ms: None,
+            bridge_blurry: 0,
             reanchor_warmup: 0,
             reanchor_floor_m2: None,
             bridge_pause_owed: false,
@@ -276,9 +279,11 @@ impl Locator {
         self.reloc_speed = None;
         self.restarted = false;
         let e = self.filter_fix(f);
-        if e.accepted || matches!(e.verdict, Verdict::Used | Verdict::Soft) {
-            // GPS is back (review I2: a gated or blurry fix leaves the cloud running). A fix taken after a re-anchor ends it too, though
-            // it does not count yet: re-anchoring again on the next steps would throw the fix away (adversarial review C1).
+        self.bridge_blurry = if self.bridge.is_some() && e.verdict == Verdict::Blurry { self.bridge_blurry + 1 } else { 0 };
+        if e.accepted || matches!(e.verdict, Verdict::Used | Verdict::Soft) || self.bridge_blurry >= self.params.bridge_end_blurry_fixes {
+            // GPS is back (review I2: a gated or a lone blurry fix leaves the cloud running; a run of blurry ones ends it for the display,
+            // #126). A fix taken after a re-anchor ends it too, though it does not count yet: re-anchoring again on the next steps would
+            // throw the fix away (adversarial review C1).
             self.bridge_pause_owed |= self.bridge.is_some() && !matches!(e.verdict, Verdict::Reset | Verdict::Relocated);
             self.end_bridge();
         }
