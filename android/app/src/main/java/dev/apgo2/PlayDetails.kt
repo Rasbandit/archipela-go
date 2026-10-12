@@ -24,6 +24,7 @@ import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.ChainBar
 import dev.apgo2.ui.ChainFormat
 import dev.apgo2.ui.CollectFormat
+import dev.apgo2.ui.Tone
 import uniffi.apgo_ffi.ChainOut
 import uniffi.apgo_ffi.QuestOut
 
@@ -41,7 +42,7 @@ internal fun ProgressRow(
             Icon(
                 ApgoIcons.forKind(q.kindId, q.family),
                 contentDescription = null,
-                tint = ApgoPalette.quest(q.state),
+                tint = ApgoPalette.questOnCard(q.state),
                 modifier = Modifier.size(16.dp),
             )
             Text(q.name, fontSize = 13.sp, maxLines = 1)
@@ -88,7 +89,7 @@ internal fun ChainRow(
         ChainBar(ChainFormat.fill(c.counter, c.total, marks, ticks), ticks, c.marks.map { it.reached })
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (ChainFormat.done(c)) {
-                Icon(ApgoIcons.Check, contentDescription = "Done", tint = ApgoPalette.quest("done"), modifier = Modifier.size(12.dp))
+                Icon(ApgoIcons.Check, contentDescription = "Done", tint = ApgoPalette.questOnCard("done"), modifier = Modifier.size(12.dp))
             }
             Text(ChainFormat.next(c), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -119,11 +120,11 @@ internal fun ColumnScope.ChainDetails(
             Icon(
                 if (mk.reached) ApgoIcons.Check else ApgoIcons.Locked,
                 contentDescription = null,
-                tint = if (mk.reached) ApgoPalette.questDone else ApgoPalette.muted,
+                tint = if (mk.reached) ApgoPalette.tone(Tone.Success) else ApgoPalette.tone(Tone.Muted),
                 modifier = Modifier.size(14.dp),
             )
             Text("${i + 1}.  ${ChainFormat.amount(c.unit, mk.at)}", fontSize = 12.sp, modifier = Modifier.weight(1f))
-            mk.reward?.let { Text(it, fontSize = 11.sp, color = ApgoPalette.success) }
+            mk.reward?.let { Text(it, fontSize = 11.sp, color = ApgoPalette.tone(Tone.Success)) }
         }
     }
     Text(ChainFormat.next(c), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

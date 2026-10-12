@@ -274,7 +274,7 @@ internal fun ConfirmDelete(
         onDismissRequest = onDismiss,
         title = { Text("Delete ${r.name}?") },
         text = { Text("Its finds and your favorites and bans go with it. Games already started keep their quests.") },
-        confirmButton = { TextButton(onClick = { onConfirm(r) }) { Text("Delete", color = ApgoPalette.danger) } },
+        confirmButton = { TextButton(onClick = { onConfirm(r) }) { Text("Delete", color = ApgoPalette.tone(Tone.Danger)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

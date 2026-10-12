@@ -190,7 +190,7 @@ internal fun FeedbackText(
     modifier: Modifier = Modifier,
     size: TextUnit = 12.sp,
 ) {
-    val color = ApgoPalette.tone(tone, androidx.compose.foundation.isSystemInDarkTheme())
+    val color = ApgoPalette.tone(tone)
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (tone == Tone.Warning ||
             tone == Tone.Danger

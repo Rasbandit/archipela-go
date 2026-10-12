@@ -1,7 +1,10 @@
 package dev.apgo2.ui
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 
@@ -265,6 +268,16 @@ internal object ApgoPalette {
             Tone.Danger -> if (dark) dangerDark else dangerLight
             Tone.Muted -> if (dark) mutedDark else mutedLight
         }
+
+    /** [tone] for the current theme. */
+    @Composable
+    @ReadOnlyComposable
+    fun tone(t: Tone): Color = tone(t, isSystemInDarkTheme())
+
+    /** [questOnCard] for the current theme. */
+    @Composable
+    @ReadOnlyComposable
+    fun questOnCard(state: String): Color = questOnCard(state, isSystemInDarkTheme())
 
     /** A quest state's colour for a bar or text on a card (see [quest] for the map). */
     fun questOnCard(

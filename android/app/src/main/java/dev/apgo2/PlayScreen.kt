@@ -556,7 +556,7 @@ private fun GoalLine(g: GoalLineOut) {
         Icon(
             if (g.achieved) ApgoIcons.Check else ApgoIcons.Play,
             contentDescription = if (g.achieved) "Done" else "Not done",
-            tint = if (g.achieved) ApgoPalette.success else ApgoPalette.muted,
+            tint = ApgoPalette.tone(if (g.achieved) Tone.Success else Tone.Muted),
             modifier = Modifier.size(14.dp),
         )
         Column(Modifier.weight(1f)) {
@@ -581,7 +581,7 @@ private fun ZonesRow(zones: List<ZoneOut>) {
 
 @Composable
 private fun ZoneChip(z: ZoneOut) {
-    val tint = if (z.unlocked) ApgoPalette.success else ApgoPalette.muted
+    val tint = ApgoPalette.tone(if (z.unlocked) Tone.Success else Tone.Muted)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         Icon(ApgoIcons.mode(z.mode), contentDescription = null, tint = tint, modifier = Modifier.size(13.dp))
         Text("Z${z.id}", fontSize = 11.sp, color = tint)
@@ -616,7 +616,7 @@ private fun PlacesList(
                 Icon(
                     ApgoIcons.forKind(q.kindId, q.family),
                     contentDescription = null,
-                    tint = ApgoPalette.quest(q.state),
+                    tint = ApgoPalette.questOnCard(q.state),
                     modifier = Modifier.size(20.dp),
                 )
                 Column(Modifier.weight(1f)) {
