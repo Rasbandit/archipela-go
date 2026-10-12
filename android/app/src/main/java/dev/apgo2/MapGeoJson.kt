@@ -14,6 +14,7 @@ import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
 import kotlin.math.cos
+import kotlin.math.pow
 
 private const val MIN_POLYGON_POINTS = 3
 private const val BANNED_OPACITY = 0.55
@@ -102,6 +103,10 @@ internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems
 /** Every pin image the quest layer needs for these quests: each quest's, and each forager's item pin. */
 internal val List<QuestOut>.pinImages: Set<String> get() = flatMap { listOfNotNull(it.mapImageKey, it.itemImageKey) }.toSet()
 
+/** The forager's pickup nearest [to] (a tap the map reports at tile precision); null for a quest with none. */
+internal fun QuestOut.nearestItem(to: LatLng): LatLng? =
+    openItems.minByOrNull { (it.at.lat - to.latitude).pow(2) + (it.at.lon - to.longitude).pow(2) }?.let { LatLng(it.at.lat, it.at.lon) }
+
 /**
  * Pickups: each item a forager still needs found, carrying its quest's id (a tap selects the quest), faded while locked. Of the
  * selected quest's pickups only the one its card is on ([at]) is selected; all of them when there is no card spot.
@@ -111,8 +116,9 @@ internal fun List<QuestOut>.itemFeatures(
     at: LatLng? = null,
 ): List<JSONObject> =
     filter { it.state != HIDDEN }.mapNotNull { q -> q.itemImageKey?.let { q to it } }.flatMap { (q, image) ->
+        val pick = at?.takeIf { q.locationId == selected }?.let { q.nearestItem(it) }
         q.openItems.map {
-            val on = q.locationId == selected && (at == null || (it.at.lat == at.latitude && it.at.lon == at.longitude))
+            val on = q.locationId == selected && (pick == null || (it.at.lat == pick.latitude && it.at.lon == pick.longitude))
             GeoJson.pointFeature(it.at.lat, it.at.lon, questProps(q, on, image).put(MapProp.OPACITY, MapMarkers.itemOpacity(q.state)))
         }
     }

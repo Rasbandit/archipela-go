@@ -146,6 +146,9 @@ class MapFeaturesTest {
             listOf(q).itemFeatures(selected = 7, at = at).map { it.getJSONObject("properties").getBoolean(MapProp.SELECTED) }
         }
         assertEquals(listOf(false, true), sel(LatLng(2.0, 2.0)))
+        // Found on the phone: the map reports a tapped pickup at tile precision, never its exact spot; the nearest one is the one.
+        assertEquals(listOf(false, true), sel(LatLng(2.0000003, 1.9999998)))
+        assertEquals(LatLng(2.0, 2.0), q.nearestItem(LatLng(1.9, 2.1)))
         assertEquals("no card spot: the quest's pickups as before", listOf(true, true), sel(null))
     }
 

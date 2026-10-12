@@ -425,7 +425,9 @@ private fun PlayMap(
             // With a popup open, a tap inside a park (not on its outline) closes it, so there is always somewhere to tap away.
             parkAt = { at -> if (m.selected != null) null else m.engine.parkAt(at.latitude, at.longitude, m.now()) },
             onQuestClick = { id, spotAt ->
-                touched = spotAt?.let { id to it }
+                // A pickup snaps to its exact spot (the map reports taps at tile precision), so the card and highlight agree.
+                val q = quests.firstOrNull { it.locationId == id }
+                touched = spotAt?.let { id to (q?.takeIf { it.collect != null }?.nearestItem(spotAt) ?: spotAt) }
                 m.selected = id
             },
             home = m.home?.let { LatLng(it.lat, it.lon) },
