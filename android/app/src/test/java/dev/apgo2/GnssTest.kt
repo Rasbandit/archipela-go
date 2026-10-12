@@ -41,6 +41,16 @@ class GnssTest {
         assertTrue("the next batch starts a new sample", gate.request { ran += 3 })
     }
 
+    @Test fun aBatchSkipsTheSampleOnlyWhenNothingIsHeld() {
+        val gate = SampleGate()
+        assertTrue("map in front, nothing held: count at once", gate.bypass(continuous = true))
+        assertFalse("off screen: sample first", gate.bypass(continuous = false))
+        gate.request {}
+        assertFalse("a batch is held: newer fixes wait behind it, even with the map back in front", gate.bypass(continuous = true))
+        gate.complete()
+        assertTrue(gate.bypass(continuous = true))
+    }
+
     @Test fun carrierFrequenciesMapToBands() {
         assertEquals("L1", GnssBands.of(1_575.42e6f)) // GPS L1, Galileo E1
         assertEquals("L1", GnssBands.of(1_561.098e6f)) // BeiDou B1

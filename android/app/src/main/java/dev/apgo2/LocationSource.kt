@@ -200,10 +200,10 @@ internal class LocationSource(
         val cb =
             object : LocationCallback() {
                 // Off screen a batch first waits for one satellite status, so Wi-Fi fixes tagged fused are told apart (I2).
-                override fun onLocationResult(result: LocationResult) =
-                    gnssSampler.withEvidence {
-                        FixTime.oldestFirst(result.locations) { it.elapsedRealtimeNanos }.forEach(::deliverGms)
-                    }
+                override fun onLocationResult(result: LocationResult) {
+                    val deliver = { FixTime.oldestFirst(result.locations) { it.elapsedRealtimeNanos }.forEach(::deliverGms) }
+                    if (GpsPolicy.samplesSatellites(rate)) gnssSampler.withEvidence(deliver) else gnssSampler.afterHeld(deliver)
+                }
             }
         // Set first: the failure check below compares against it.
         gmsCallback = cb
@@ -310,6 +310,7 @@ internal class LocationSource(
 
     /** Stop location: listener, any pending cold-start fix, and the once-per-session cold-start mark. */
     fun stopLocation() {
+        gnssSampler.release()
         cancelFlush()
         unregister()
         coldStartCancel?.cancel()

@@ -85,6 +85,12 @@ internal object GpsPolicy {
         }
 
     /**
+     * Whether a batch of [running] waits for one satellite status before it is counted ([GnssSampler]): only batched GNSS requests,
+     * where the chip runs but the full status callback does not. Elsewhere the chip is off and no status would come.
+     */
+    fun samplesSatellites(running: Rate?): Boolean = running != null && running.highAccuracy && running.maxDelayMs > 0
+
+    /**
      * Whether to flush the running request's batch before replacing it with [next]: only a batched request holds fixes back, and only
      * a new request replaces it. Stopping needs none: a stop follows arriving home or in the car, which settles only after a 45 s
      * debounce (presence/PresencePolicy.kt Debouncer), so every fix taken before arriving was delivered (batches are 20 s at most).

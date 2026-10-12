@@ -84,6 +84,14 @@ class GpsPolicyTest {
         assertTrue(off.intervalMs + off.maxDelayMs < 60_000L)
     }
 
+    @Test fun onlyBatchedGnssRequestsWaitForASatelliteSample() {
+        // Elsewhere the chip is off (balanced power) and no status would come: a wait would only delay the fix.
+        assertTrue(GpsPolicy.samplesSatellites(GpsPolicy.inZone(onScreen = false)))
+        assertFalse("1 s with the map in front: the full callback runs", GpsPolicy.samplesSatellites(GpsPolicy.inZone(onScreen = true)))
+        assertFalse("idle marker", GpsPolicy.samplesSatellites(GpsPolicy.IDLE))
+        assertFalse("nothing running", GpsPolicy.samplesSatellites(null))
+    }
+
     @Test fun screenOffBatchesNeverLookLikeAGpsGap() {
         // The core bridges a gap (and re-anchors, so nothing counts for a while) once the newest fix is older than
         // min(2.5 x spacing, 45 s) (params.rs bridge_after_max_ms). Batches were seen handed over 8 s late (walk test 2026-10-10):

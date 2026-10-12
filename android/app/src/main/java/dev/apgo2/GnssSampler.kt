@@ -36,6 +36,12 @@ internal fun LocationManager.registerStatus(
 internal class SampleGate {
     private val waiting = mutableListOf<() -> Unit>()
 
+    /**
+     * Whether a batch may be counted at once: only with the full status callback running ([continuous]) and no older batch held,
+     * which it must not overtake (the core would take its older fixes as current).
+     */
+    fun bypass(continuous: Boolean): Boolean = continuous && waiting.isEmpty()
+
     /** Queue [onDone]; true when this request should start a sample (none is in flight). */
     fun request(onDone: () -> Unit): Boolean {
         waiting += onDone
@@ -52,8 +58,9 @@ internal class SampleGate {
 
 /**
  * Off screen the satellite-status callback does not run (its 1 Hz reports would keep the CPU awake through batching), so a fused
- * Wi-Fi fix could pass as GPS (adversarial review I2). Instead each GPS batch, when it arrives, waits for one status (at most
- * [SAMPLE_MAX_MS]) before it is counted; [continuous] says the full callback runs (map in front) and nothing need wait.
+ * Wi-Fi fix could pass as GPS (adversarial review I2). Instead each batched in-zone GPS batch ([GpsPolicy.samplesSatellites]) waits
+ * for one status (at most [SAMPLE_MAX_MS]) before it is counted; [continuous] says the full callback runs (map in front). The timeout
+ * is not a wake-up alarm: with the CPU asleep it ends at the next wake, within about 5 s in a zone (the wake-up compass and steps).
  */
 internal class GnssSampler(
     private val ctx: Context,
@@ -70,7 +77,7 @@ internal class GnssSampler(
 
     /** Run [then] once the satellite evidence is fresh: at once while the full callback runs, else after one sample. */
     fun withEvidence(then: () -> Unit) {
-        if (continuous()) return then()
+        if (gate.bypass(continuous())) return then()
         if (!gate.request(then)) return
         sampling = true
         startedMs = SystemClock.elapsedRealtime()
@@ -78,7 +85,7 @@ internal class GnssSampler(
             object : GnssStatus.Callback() {
                 override fun onSatelliteStatusChanged(status: GnssStatus) {
                     evidence.onStatus(status.usedCount, SystemClock.elapsedRealtime())
-                    end(got = true)
+                    if (callback === this) end(got = true) // a late report of an ended sample must not end the next one
                 }
             }
         if (runCatching { lm.registerStatus(ctx, cb) }.isSuccess) {
@@ -89,11 +96,20 @@ internal class GnssSampler(
         }
     }
 
+    /** Run [then] at once, or after a held batch if one is waiting (a rate change must not let newer fixes overtake it). */
+    fun afterHeld(then: () -> Unit) {
+        if (sampling) gate.request(then) else then()
+    }
+
+    /** Location stopped: count any held batch now (its fixes were taken before the stop) and stop listening. */
+    fun release() = end(got = false)
+
     // A status arrived ([got]) or the wait timed out: stop listening and count the waiting batches (with no status, fused is trusted).
     private fun end(got: Boolean) {
         if (!sampling) return
         sampling = false
-        callback?.let { lm.unregisterGnssStatusCallback(it) }
+        // Never left holding batches: a failed unregister must not keep every later fix waiting.
+        callback?.let { cb -> runCatching { lm.unregisterGnssStatusCallback(cb) } }
         callback = null
         main.removeCallbacks(timeout)
         Diag.info("gnss", "sample", "status" to got, "waited_ms" to SystemClock.elapsedRealtime() - startedMs)
