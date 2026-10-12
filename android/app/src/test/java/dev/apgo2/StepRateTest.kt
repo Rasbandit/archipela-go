@@ -15,10 +15,10 @@ class StepRateTest {
         assertEquals(2_000_000, StepRate.batchUs(PresenceState.InZone, inZone = true))
     }
 
-    @Test fun atHomeOrInTheCarStepsOnlyKeepTheBaseline() {
-        // Not off: the baseline from just before leaving keeps steps taken indoors from being credited.
-        assertEquals(60_000_000, StepRate.batchUs(PresenceState.AtHome, inZone = false))
-        assertEquals(60_000_000, StepRate.batchUs(PresenceState.InCar, inZone = false))
+    @Test fun atHomeOrInTheCarTheStepCounterIsOff() {
+        // Nothing counts there, and the core takes the first reading after counting resumes as the new baseline.
+        assertNull(StepRate.batchUs(PresenceState.AtHome, inZone = false))
+        assertNull(StepRate.batchUs(PresenceState.InCar, inZone = false))
     }
 
     @Test fun outsideTheZonesStepsCountEveryTenSeconds() {

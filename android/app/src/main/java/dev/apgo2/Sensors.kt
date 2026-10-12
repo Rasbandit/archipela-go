@@ -26,7 +26,6 @@ internal const val FUSED_SOURCE = "fused"
 // How long the step counter may hold readings back before delivering them (microseconds).
 private const val STEP_BATCH_US = 10_000_000
 private const val FAST_STEP_BATCH_US = 2_000_000
-private const val IDLE_STEP_BATCH_US = 60_000_000
 
 /** How the step counter batches for a presence state; `null` is off. */
 internal object StepRate {
@@ -36,13 +35,11 @@ internal object StepRate {
         inZone: Boolean,
     ): Int? =
         when {
-            // Steps count only with a game open, and opening one resets the baseline.
-            state == PresenceState.Stopped -> null
+            // Nothing counts with no game open, at home or in the car; the core takes the first reading after counting resumes (or
+            // a game opens) as the new baseline.
+            state == PresenceState.Stopped || state == PresenceState.AtHome || state == PresenceState.InCar -> null
 
             inZone -> FAST_STEP_BATCH_US
-
-            // Counting is off, but the baseline from just before leaving keeps indoor steps from being credited: slow, not off.
-            state == PresenceState.AtHome || state == PresenceState.InCar -> IDLE_STEP_BATCH_US
 
             else -> STEP_BATCH_US
         }

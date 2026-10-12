@@ -904,8 +904,10 @@ impl Game {
             return;
         }
         self.counting = on;
-        // Whatever the player did while it was off must not be compared with what they do next.
+        // Whatever the player did while it was off must not be compared with what they do next. The step counter is off at home and
+        // in the car, so the first reading after counting resumes is the new baseline (indoor steps are never credited).
         self.last_fix = None;
+        self.counters.steps_last = None;
         self.odometer.clear();
         self.locator.reset();
         if !on {
@@ -2763,7 +2765,22 @@ mod tests {
         assert!(g.on_steps(5_000, 2, None).is_empty(), "4,000 steps at home");
         assert_eq!(g.counters.progress.get("1:step_up").copied().unwrap_or(0.0), 0.0);
         g.set_counting(true, 0);
-        assert!(g.on_steps(5_100, 3, None).is_empty(), "only the 100 steps since counting resumed");
+        assert!(g.on_steps(5_100, 3, None).is_empty(), "the first reading after resuming is the new baseline");
+        assert_eq!(g.counters.progress.get("1:step_up").copied().unwrap_or(0.0), 0.0);
+        assert!(g.on_steps(5_200, 4, None).is_empty(), "only the 100 steps since counting resumed");
+        assert_eq!(g.counters.progress["1:step_up"], 100.0);
+    }
+
+    #[test]
+    fn steps_walked_while_the_counter_was_off_at_home_are_not_credited() {
+        // At home and in the car the phone stops the step counter: no reading at all while counting is off.
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.on_steps(1_000, 1, None);
+        g.set_counting(false, 0);
+        g.set_counting(true, 0);
+        assert!(g.on_steps(5_000, 2, None).is_empty(), "4,000 steps indoors are a baseline, not progress");
+        assert_eq!(g.counters.progress.get("1:step_up").copied().unwrap_or(0.0), 0.0);
+        assert!(g.on_steps(5_100, 3, None).is_empty());
         assert_eq!(g.counters.progress["1:step_up"], 100.0);
     }
 

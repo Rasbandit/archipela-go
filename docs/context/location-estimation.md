@@ -201,8 +201,8 @@ runs only in a zone with the map in front: its 1 Hz callback would wake the CPU 
   the decision.
 - Compass: 5 Hz on screen, 1 Hz off. Play services' Fused Orientation Provider only while the map is on screen (it delivers only in
   the foreground); rotation vector otherwise. Readings go to `on_heading` with `error_deg` from the fused provider.
-- Steps: `TYPE_STEP_COUNTER` only, 2 s batches in a zone, 10 s outside zones, 60 s at home or in the car (counting off, but the
-  baseline from just before leaving must be fresh), off with no game open (`StepRate`); event time sent so cadence is known.
+- Steps: `TYPE_STEP_COUNTER` only, 2 s batches in a zone, 10 s outside zones, off with no game open, at home or in the car
+  (`StepRate`; the core takes the first reading after counting resumes as the baseline, so indoor steps are never credited); event time sent so cadence is known.
 - Step calibration: loaded from preferences `stepcal` on game open and on a solo or Archipelago start, saved on close, background and
   every 5th heartbeat (heartbeats come with fixes, at most one a minute: no timer wakes the phone); a calibration with no samples is never saved over a stored one.
 - Network fixes (LocationManager `network`, or fused without satellites) count double sigma and never count for quests; after the
