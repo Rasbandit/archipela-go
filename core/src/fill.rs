@@ -13,15 +13,20 @@ const WALKABLE: &str = "^(residential|living_street|pedestrian|footway|path|cycl
 /// lead onto private property or through a business, and are rarely tagged `access=private`.
 #[must_use]
 pub fn streets_query_in(filter: &str) -> String {
-    format!(
-        "[out:json][timeout:40];\nway({filter})[\"highway\"~\"{WALKABLE}\"][\"access\"!~\"^(private|no)$\"][\"service\"!~\"^(driveway|drive-through)$\"];\nout geom qt;"
-    )
+    format!("[out:json][timeout:40];\n{}\nout geom qt;", streets_statement(filter))
 }
 
-/// Overpass query for walkable streets in `zone`.
+fn streets_statement(filter: &str) -> String {
+    format!("way({filter})[\"highway\"~\"{WALKABLE}\"][\"access\"!~\"^(private|no)$\"][\"service\"!~\"^(driveway|drive-through)$\"];")
+}
+
+/// Overpass query for walkable streets in `zone` (a zone needing several filters asks for their union).
 #[must_use]
 pub fn streets_query(zone: &Zone) -> String {
-    streets_query_in(&zone.overpass_filter())
+    match zone.overpass_filters().as_slice() {
+        [one] => streets_query_in(one),
+        many => format!("[out:json][timeout:40];\n(\n{}\n);\nout geom qt;", many.iter().map(|f| streets_statement(f)).collect::<Vec<_>>().join("\n")),
+    }
 }
 
 /// Points every `spacing_m` along each street/path polyline, kept only inside the zone.
@@ -219,6 +224,20 @@ mod tests {
         let q = streets_query_in("around:1000,40,-111");
         assert!(q.contains(r#"["service"!~"^(driveway|drive-through)$"]"#), "{q}");
         assert!(q.contains(r#"["access"!~"^(private|no)$"]"#), "{q}");
+    }
+
+    #[test]
+    fn a_realm_across_lon_180_asks_for_the_streets_of_both_halves_in_one_query() {
+        let fiji = Zone::Polygon(vec![Point::new(-17.1, 179.9), Point::new(-17.1, -179.9), Point::new(-16.9, -179.9), Point::new(-16.9, 179.9)]);
+        let q = streets_query(&fiji);
+        assert_eq!(q.matches("way(poly:").count(), 2, "{q}");
+        assert!(q.contains("\n(\n") && q.contains("\n);\nout geom qt;"), "one union, one output: {q}");
+    }
+
+    #[test]
+    fn a_zone_away_from_lon_180_asks_the_same_streets_query_as_before() {
+        let zone = Zone::Circle { center: Point::new(40.0, -111.0), radius_m: 1000.0 };
+        assert_eq!(streets_query(&zone), streets_query_in("around:1000,40,-111"));
     }
 
     #[test]
