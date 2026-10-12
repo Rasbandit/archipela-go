@@ -25,4 +25,10 @@ internal object PlayLayout {
             places = rest.sortedBy { STATE_ORDER.indexOf(it.state) },
         )
     }
+
+    /** Active traps and why checks are blocked, as one line (each once); null when there is neither. */
+    fun danger(
+        traps: List<String>,
+        blocked: String?,
+    ): String? = (traps + listOfNotNull(blocked)).distinct().takeIf { it.isNotEmpty() }?.joinToString("  ·  ")
 }
