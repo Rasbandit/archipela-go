@@ -18,4 +18,12 @@ class BaseMapTest {
         assertFalse(BaseMap.hides("water_name"))
         assertFalse("a layer with no source layer (the background) stays", BaseMap.hides(null))
     }
+
+    @Test fun buildingsAreDrawnFlatNot3d() {
+        assertTrue("3D extrusions cost GPU every frame at street zoom", BaseMap.hidesType("fill-extrusion"))
+        assertFalse(BaseMap.hidesType("fill"))
+        assertTrue("the flat footprint carries on where 3D took over", BaseMap.flatBuildings("fill", "building"))
+        assertFalse(BaseMap.flatBuildings("fill", "park"))
+        assertFalse(BaseMap.flatBuildings("fill-extrusion", "building"))
+    }
 }
