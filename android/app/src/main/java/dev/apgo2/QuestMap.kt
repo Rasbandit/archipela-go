@@ -49,7 +49,6 @@ import dev.apgo2.ui.MarkerSpec
 import dev.apgo2.ui.circleRing
 import kotlinx.coroutines.delay
 import org.json.JSONObject
-import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdate
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -246,7 +245,7 @@ private class MapHolder(
     var meDrawn: MePin? = null
 
     init {
-        MapLibre.getInstance(context)
+        MapStyle.init(context)
         // No MapLibre logo or "i" button: the map shows its data credit itself (see MapCredit).
         val options = MapLibreMapOptions.createFromAttributes(context).logoEnabled(false).attributionEnabled(false)
         start?.let {

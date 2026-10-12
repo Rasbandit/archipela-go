@@ -1,12 +1,15 @@
 package dev.apgo2
 
+import android.content.Context
 import androidx.compose.ui.graphics.Color
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.hex
 import dev.apgo2.ui.renderMarker
+import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.Style
+import org.maplibre.android.offline.OfflineManager
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillLayer
@@ -158,6 +161,10 @@ internal object MapSource {
 /** The base map and the sources and layers drawn over it. */
 internal object MapStyle {
     const val URL = "https://tiles.openfreemap.org/styles/liberty"
+
+    // MapLibre's ambient tile cache defaults to 50 MB; a walk's worth of zooms over a few zones outgrows it and refetches over the radio.
+    private const val TILE_CACHE_BYTES = 200L * 1024 * 1024
+    private var initialized = false
 
     /**
      * The map data's credit, always on show over the map (OpenStreetMap's licence asks that it be seen without a tap; MapLibre's
@@ -529,4 +536,19 @@ internal object MapStyle {
         image: String,
         size: Float,
     ) = SymbolLayer(id, source).withProperties(iconImage(image), iconSize(size), iconAllowOverlap(true), iconIgnorePlacement(true))
+
+    /** Start MapLibre (once per process) with the larger tile cache. Call before creating any map view. */
+    fun init(context: Context) {
+        MapLibre.getInstance(context)
+        if (initialized) return
+        initialized = true
+        OfflineManager.getInstance(context).setMaximumAmbientCacheSize(
+            TILE_CACHE_BYTES,
+            object : OfflineManager.FileSourceCallback {
+                override fun onSuccess() = Unit
+
+                override fun onError(message: String) = Diag.warn("map", "tile cache size not set", "error" to message)
+            },
+        )
+    }
 }
