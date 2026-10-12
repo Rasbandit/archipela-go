@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import dev.apgo2.ui.ChoiceChips
 import dev.apgo2.ui.Help
 import dev.apgo2.ui.LabelWithHelp
+import dev.apgo2.ui.SwitchRow
 import uniffi.apgo_ffi.UnitChoice
 
 private val UNIT_OPTIONS = listOf(UnitChoice.AUTO, UnitChoice.METRIC, UnitChoice.IMPERIAL)
@@ -38,5 +39,6 @@ internal fun SettingsScreen(
         Text("Settings", style = MaterialTheme.typography.titleLarge)
         LabelWithHelp("Distance units", Help.units)
         ChoiceChips(UNIT_OPTIONS, m.units.choice, m.units::choose, ::unitLabel)
+        SwitchRow("Trap alerts", Help.trapAlerts, m.trapSettings.on, m.trapSettings::set)
     }
 }

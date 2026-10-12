@@ -101,6 +101,25 @@ impl Engine {
         Ok(())
     }
 
+    /// Whether a trap alerts the player with a loud notification and buzz (on until the player turns it off).
+    pub fn trap_alerts(&self) -> bool {
+        self.trap_alerts.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Save the trap alerts switch, keeping every other setting.
+    ///
+    /// # Errors
+    /// Returns an error if the settings file cannot be written.
+    pub fn set_trap_alerts(&self, on: bool) -> Result<(), CoreError> {
+        Settings::update(self.dir(), |s| {
+            s.trap_alerts = on;
+            true
+        })
+        .map_err(|detail| CoreError::Failed { detail })?;
+        self.trap_alerts.store(on, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
     /// Tell the core the phone's region (an ISO 3166 code such as "US"), which `Auto` units follow.
     pub fn set_region(&self, country: String) {
         self.refresh_units(Some(country));

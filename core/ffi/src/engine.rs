@@ -636,6 +636,8 @@ pub enum EventOut {
         item: String,
         /// What the trap does, for the player.
         message: String,
+        /// Whether to alert the player with a loud notification and buzz: trap alerts are on and no Silence Trap mutes them.
+        alert: bool,
     },
     /// The player asked to reshuffle the quests.
     ShuffleRequested,
@@ -667,13 +669,14 @@ fn danger_line(traps: &[String], blocked: Option<String>) -> Option<String> {
     (!all.is_empty()).then(|| all.join("  ·  "))
 }
 
-fn ev_out(e: Event) -> EventOut {
+/// `e` for the app; a trap alerts only while `alerts` (the player's trap alerts setting) is on.
+fn ev_out(e: Event, alerts: bool) -> EventOut {
     match e {
         Event::QuestDone { location_id, name } => EventOut::QuestDone { location_id, name },
         Event::SendCheck { location_id } => EventOut::SendCheck { location_id },
         Event::Reward { location_id, item } => EventOut::Reward { location_id, item },
         Event::ZoneUnlocked { zone } => EventOut::ZoneUnlocked { zone },
-        Event::Trap { item, message } => EventOut::Trap { item, message },
+        Event::Trap { item, message, alert } => EventOut::Trap { item, message, alert: alert && alerts },
         Event::ShuffleRequested => EventOut::ShuffleRequested,
         Event::Discovered { location_id } => EventOut::Discovered { location_id },
         Event::GoalAchieved { label } => EventOut::GoalAchieved { label },
@@ -1004,6 +1007,8 @@ pub struct Engine {
     region: Mutex<String>,
     /// The units text is written in, worked out from the unit setting and `region` whenever either changes.
     units: Mutex<UnitSystem>,
+    /// The trap alerts setting, kept in memory so a trap never reads the settings file (saved by `set_trap_alerts`).
+    pub(crate) trap_alerts: std::sync::atomic::AtomicBool,
     /// The last journal point written, for the 5 s / 5 m throttle.
     last_journal: Mutex<Option<TrackPoint>>,
     /// The last street-build generation handed out (see [`Game::set_streets`]).
@@ -1128,6 +1133,12 @@ impl Engine {
 
     fn cache(&self) -> PathBuf {
         self.dir.join("http-cache")
+    }
+
+    /// `ev` for the app, with each trap's alert following the player's trap alerts setting.
+    fn events_out(&self, ev: Vec<Event>) -> Vec<EventOut> {
+        let alerts = self.trap_alerts.load(std::sync::atomic::Ordering::Relaxed);
+        ev.into_iter().map(|e| ev_out(e, alerts)).collect()
     }
 
     /// Run `f` on the journal if there is one; failures are reported and never interrupt play.
@@ -1375,6 +1386,7 @@ impl Engine {
             fix_spacing_hint: Mutex::new(None),
             last_proximity: Mutex::new(None),
             units: Mutex::new(resolve_units(Settings::load(&dir).units, "")),
+            trap_alerts: std::sync::atomic::AtomicBool::new(Settings::load(&dir).trap_alerts),
             region: Mutex::new(String::new()),
             last_journal: Mutex::new(None),
             streets_gen: AtomicU64::default(),
@@ -2055,7 +2067,7 @@ impl Engine {
             }
             entries.iter().try_for_each(|e| j.log(&game_id, e))
         });
-        ev.into_iter().map(ev_out).collect()
+        self.events_out(ev)
     }
 
     /// The fix spacing the phone now asks for: interval plus batching delay, ms (`None`: unknown). Call it on every location
@@ -2131,7 +2143,7 @@ impl Engine {
             return Vec::new();
         };
         self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&game_id, e)));
-        ev.into_iter().map(ev_out).collect()
+        self.events_out(ev)
     }
 
     /// The phone joined home Wi-Fi: every forager quest banks what it carries (see `Game::bank_at_home`). Safe to call again.
@@ -2145,7 +2157,7 @@ impl Engine {
             return Vec::new();
         };
         self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&game_id, e)));
-        ev.into_iter().map(ev_out).collect()
+        self.events_out(ev)
     }
 
     /// Archipelago: pass the full received-item name list; new items trigger unlocks/traps.
@@ -2163,7 +2175,7 @@ impl Engine {
             return Vec::new();
         };
         self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&game_id, e)));
-        ev.into_iter().map(ev_out).collect()
+        self.events_out(ev)
     }
 
     /// Record locations the server already has as checked.
@@ -2236,7 +2248,7 @@ impl Engine {
             return Vec::new();
         };
         self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&id, e)));
-        ev.into_iter().map(ev_out).collect()
+        self.events_out(ev)
     }
 
     /// Record a presence change ("Home Wi-Fi connected, paused") in the activity log.
@@ -2954,6 +2966,17 @@ mod tests {
         assert_eq!(fix_mode(&zones, Some(bike), walk), Some(Mode::Bike), "later: the last estimate, never the raw fix");
         assert_eq!(fix_mode(&zones, Some(destination(walk, 0.0, 5_000.0)), walk), Some(Mode::Bike), "between zones: fastest");
         assert_eq!(fix_mode(&[], None, walk), None);
+    }
+
+    #[test]
+    fn a_trap_alerts_only_while_trap_alerts_are_on() {
+        let e = engine_with_game("trap-alert");
+        let alert = |ev: Vec<EventOut>| ev.into_iter().find_map(|x| if let EventOut::Trap { alert, .. } = x { Some(alert) } else { None });
+        assert!(e.trap_alerts(), "on by default");
+        assert_eq!(alert(e.sync_items(vec!["Slow Trap".into()], 0, None)), Some(true));
+        e.set_trap_alerts(false).unwrap();
+        assert!(!e.trap_alerts());
+        assert_eq!(alert(e.sync_items(vec!["Slow Trap".into(), "Fog Of War Trap".into()], 10, None)), Some(false));
     }
 
     #[test]

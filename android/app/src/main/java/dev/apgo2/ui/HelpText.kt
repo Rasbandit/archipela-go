@@ -181,6 +181,13 @@ internal object Help {
         )
 
     // ---- settings
+    val trapAlerts =
+        HelpTopic(
+            "Trap alerts",
+            "When a trap hits you, the phone shows a loud alert and buzzes hard, so you notice even with the phone in a pocket. " +
+                "A Silence Trap mutes them while it lasts. You can tune the Traps channel in the phone's notification settings.",
+        )
+
     val units =
         HelpTopic(
             "Distance units",
