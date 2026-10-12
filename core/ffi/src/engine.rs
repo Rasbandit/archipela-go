@@ -488,6 +488,8 @@ pub struct CollectOut {
     pub banked: u32,
     /// The items still on the map (picked ones are gone; new ones appear as the map tops up).
     pub items: Vec<CollectItemOut>,
+    /// Whether the map draws these items instead of the quest's pin (see `collect_out`).
+    pub on_map: bool,
 }
 
 /// The shared backpack: what every forager carries (#142).
@@ -505,12 +507,22 @@ pub struct BagOut {
     pub load: String,
 }
 
-fn collect_out(t: &Target, c: Option<&Collected>, live: &[Point]) -> Option<CollectOut> {
+/// A forager's items and counts as the app shows them in `state`; `None` for other quests. The map draws the items instead of the pin
+/// (`on_map`) while it is unfinished, not fogged and items are still out there; a done one, or one with every item picked (its pin
+/// then sits at `pin_at`), is drawn like any quest.
+fn collect_out(t: &Target, c: Option<&Collected>, live: &[Point], state: QuestState) -> Option<CollectOut> {
     let Target::Collect { need, theme, .. } = t else { return None };
     let c = c.cloned().unwrap_or_default();
     // `picked` stays in the record for the map's filters; live items are never picked.
     let items = live.iter().map(|p| CollectItemOut { at: gp(*p), picked: false }).collect();
-    Some(CollectOut { theme: theme.clone(), need: *need, carried: c.carried, banked: c.banked, items })
+    Some(CollectOut {
+        theme: theme.clone(),
+        need: *need,
+        carried: c.carried,
+        banked: c.banked,
+        items,
+        on_map: !matches!(state, QuestState::Done | QuestState::Hidden) && !live.is_empty(),
+    })
 }
 
 /// The first item still out there, where the quest's pin and popup sit.
@@ -1852,7 +1864,7 @@ impl Engine {
                     });
                     let has_about = q.has_about;
                     let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target, units);
-                    let collect = collect_out(&q.target, q.collected.as_ref(), &q.live_items);
+                    let collect = collect_out(&q.target, q.collected.as_ref(), &q.live_items, q.state);
                     let anchor = pin_at(collect.as_ref(), q.state, anchor, g.home);
                     QuestOut {
                         location_id: q.location_id,
@@ -2976,11 +2988,11 @@ mod tests {
         let (a, b) = (Point::new(40.0, -111.0), Point::new(40.01, -111.0));
         let t = Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() };
         let c = Collected { picked: BTreeSet::from([0]), carried: 1, banked: 0 };
-        let out = collect_out(&t, Some(&c), &[b]).expect("a forager has items");
+        let out = collect_out(&t, Some(&c), &[b], QuestState::InProgress).expect("a forager has items");
         assert_eq!((out.theme.as_str(), out.need, out.carried, out.banked), ("shells", 1, 1, 0));
         assert_eq!(out.items.iter().map(|i| i.picked).collect::<Vec<_>>(), [false], "only the items still on the map (#142)");
         assert!((out.items[0].at.lat - 40.01).abs() < 1e-12);
-        assert!(collect_out(&Target::Point { p: a, r: 40.0 }, None, &[]).is_none());
+        assert!(collect_out(&Target::Point { p: a, r: 40.0 }, None, &[], QuestState::InProgress).is_none());
         assert_eq!(first_open(&out).map(|p| p.lat), Some(40.01), "the pin to open is the first item still out there");
     }
 
@@ -2988,7 +3000,7 @@ mod tests {
     fn a_done_forager_keeps_its_anchor_and_an_unfinished_one_sits_on_its_first_open_item() {
         let (a, b) = (Point::new(40.0, -111.0), Point::new(40.01, -111.0));
         let t = Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() };
-        let c = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }), &[b]);
+        let c = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }), &[b], QuestState::InProgress);
         let lat = |s| pin_at(c.as_ref(), s, Some(a), b).map(|p| p.lat);
         assert_eq!(lat(QuestState::Done), Some(40.0), "a done forager stays in the places list like any done quest");
         assert_eq!(lat(QuestState::InProgress), Some(40.01));
@@ -2996,12 +3008,23 @@ mod tests {
     }
 
     #[test]
+    fn only_an_unfinished_forager_with_items_out_there_draws_them_instead_of_a_pin() {
+        let a = Point::new(40.0, -111.0);
+        let t = Target::Collect { pts: vec![a], need: 1, r: 25.0, theme: "shells".into() };
+        let on_map = |live: &[Point], s| collect_out(&t, None, live, s).is_some_and(|c| c.on_map);
+        assert!(on_map(&[a], QuestState::InProgress));
+        assert!(!on_map(&[a], QuestState::Done), "a done forager is drawn like any done quest");
+        assert!(!on_map(&[], QuestState::InProgress), "every item picked: its pin shows");
+        assert!(!on_map(&[a], QuestState::Hidden), "a fogged forager shows nothing");
+    }
+
+    #[test]
     fn a_forager_with_every_item_picked_and_some_carried_sits_at_home() {
         let (a, home) = (Point::new(40.01, -111.0), Point::new(40.0, -111.0));
         let t = Target::Collect { pts: vec![a], need: 2, r: 25.0, theme: "shells".into() };
-        let carrying = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 1, banked: 0 }), &[]);
+        let carrying = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 1, banked: 0 }), &[], QuestState::InProgress);
         assert_eq!(pin_at(carrying.as_ref(), QuestState::InProgress, Some(a), home).map(|p| p.lat), Some(40.0), "bring them home");
-        let waiting = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }), &[]);
+        let waiting = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }), &[], QuestState::InProgress);
         assert_eq!(pin_at(waiting.as_ref(), QuestState::InProgress, Some(a), home).map(|p| p.lat), Some(40.01), "nothing carried: its anchor");
     }
 }

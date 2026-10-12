@@ -92,6 +92,9 @@ internal class GameLibrary(
             r.onFailure { Diag.error("streets", "street graph build failed", it, "realm" to realmId) }
             r.getOrNull()?.let {
                 Diag.info("streets", "street graph built", "ms" to it.buildMs, "segments" to it.segments, "degraded" to it.degraded)
+                // The build fills new foragers and gives top-ups their pools: show them and schedule the next top-up now,
+                // not on the next fix.
+                withContext(Dispatchers.Main) { model.refreshPlay(withTrace = false) }
             }
         }
     }

@@ -447,15 +447,15 @@ private fun PlayMap(
     }
 }
 
-// How far above its point a quest's popup must sit: clear of the selected pin, of a pickup's round token (centred on its spot), or
-// nothing for a spot on a trail or park.
+// How far above its point a quest's popup must sit: clear of a forager's selected pickup (a round token centred on its spot, opened
+// from a tap or the list alike), of the selected pin, or nothing for a spot on a trail or park.
 private fun popupClearance(
     onSpot: Boolean,
     q: QuestOut?,
 ): Float =
     when {
+        q?.showsItems == true -> MapMarkers.ITEM_TOKEN_PX * MapMarkers.SELECTED_GROWTH / 2f
         !onSpot -> MapMarkers.selectedQuestPinHeightPx()
-        q?.collect != null -> MapMarkers.ITEM_TOKEN_PX / 2f
         else -> 0f
     }
 

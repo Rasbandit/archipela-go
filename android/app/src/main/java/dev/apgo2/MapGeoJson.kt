@@ -20,7 +20,6 @@ import kotlin.math.pow
 private const val MIN_POLYGON_POINTS = 3
 private const val BANNED_OPACITY = 0.55
 private const val HIDDEN = "hidden"
-private const val DONE = "done"
 
 /** The names of the properties that map features carry and the style reads. */
 internal object MapProp {
@@ -95,8 +94,8 @@ internal object GeoJson {
 /** The name of this quest's pin image in the map style. */
 internal val QuestOut.mapImageKey: String get() = MarkerSpec.Quest(kindId, family, state, MapMarkers.pips(difficulty, boss)).key
 
-// A forager still under way shows its items on the map instead of one pin; a done one is drawn like any done quest.
-private val QuestOut.showsItems: Boolean get() = collect != null && state != DONE
+// A forager still under way shows its items on the map instead of one pin; the core decides (see `collect_out`).
+internal val QuestOut.showsItems: Boolean get() = collect?.onMap == true
 
 /** The name of the pin image of this forager quest's items (null for other quests and done foragers). */
 internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems }?.let { MarkerSpec.Item(it.theme).key }

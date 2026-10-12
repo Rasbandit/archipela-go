@@ -102,7 +102,7 @@ class QuestCardA11yTest {
             kindId = "forager",
             headline = "Collect 5 acorns",
             cardDetail = "Bring them home to bank",
-            collect = CollectOut("acorns", 5u, 18u, 1u, emptyList()),
+            collect = CollectOut("acorns", 5u, 18u, 1u, emptyList(), onMap = false),
             progressBlock = ProgressOut("Banked", "1 of 5 acorns", 0.2f, "Carrying 18", emptyList(), 0u),
         )
 

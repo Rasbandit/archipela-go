@@ -19,6 +19,7 @@ class CollectFormatTest {
         carried = carried.toUInt(),
         banked = banked.toUInt(),
         items = picked.mapIndexed { i, p -> CollectItemOut(at = GeoPoint(lat = i.toDouble(), lon = 0.0), picked = p) },
+        onMap = false,
     )
 
     private fun quest(collect: CollectOut?) =
