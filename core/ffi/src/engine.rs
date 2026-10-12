@@ -1022,6 +1022,8 @@ pub struct Engine {
     last_journal: Mutex<Option<TrackPoint>>,
     /// The last street-build generation handed out (see [`Game::set_streets`]).
     streets_gen: AtomicU64,
+    /// Bumped by every realm save or delete, so a street swap that read the realm files before an edit does not undo it.
+    realm_edits: AtomicU64,
     /// Stop flags of the scans running now (see [`Engine::cancel_scan`]).
     scans: ScanRegistry,
     /// Held while a finished scan saves and while a realm is deleted, so a delete can never land between a scan's last check
@@ -1206,8 +1208,24 @@ impl Engine {
     /// Swap built streets into the open game if it is still `game_id` over `zone_realms` and nothing newer went in; true when they did.
     /// The zone shapes are read again then too, so an outline edit moves in-zone, proximity and the filter's mode (final review M2).
     fn swap_streets(&self, game_id: &str, zone_realms: &[String], streets: Streets, generation: u64, realms: &[(Realm, Atlas)]) -> bool {
-        let atlases: Vec<&Atlas> = realms.iter().map(|(_, a)| a).collect();
+        let edits = self.realm_edits.load(std::sync::atomic::Ordering::SeqCst);
         let saved = self.zone_realm_files(zone_realms); // read before the lock: no file reads while fixes wait
+        self.swap_streets_from(game_id, zone_realms, streets, generation, realms, saved, edits)
+    }
+
+    /// [`Self::swap_streets`] with the zone realm files as read (`saved`) when the realm edit count was `edits`.
+    #[allow(clippy::too_many_arguments)] // split out so a test can land an edit between the file read and the lock
+    fn swap_streets_from(
+        &self,
+        game_id: &str,
+        zone_realms: &[String],
+        streets: Streets,
+        generation: u64,
+        realms: &[(Realm, Atlas)],
+        saved: Vec<Option<Realm>>,
+        edits: u64,
+    ) -> bool {
+        let atlases: Vec<&Atlas> = realms.iter().map(|(_, a)| a).collect();
         let mut slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(g) = slot.as_mut().filter(|g| g.id == game_id && g.zone_realms == zone_realms) else { return false };
         if !g.set_streets(streets, generation) {
@@ -1222,8 +1240,11 @@ impl Engine {
             }
         }
         // Set while the game lock is held, so a game installed meanwhile cannot get these shapes (lock order: game, then zones).
-        let zones = zone_cache_of(g, saved);
-        self.set_zones(slot, zones);
+        // A realm edit since the files were read already set fresher zones (refresh_zones_of): keep those.
+        if self.realm_edits.load(std::sync::atomic::Ordering::SeqCst) == edits {
+            let zones = zone_cache_of(g, saved);
+            self.set_zones(slot, zones);
+        }
         true
     }
 
@@ -1262,6 +1283,7 @@ impl Engine {
     /// Realm `id` was redrawn or deleted: when it is a zone of the open game, in-zone checks use what is saved now, not what was
     /// saved when the game was opened.
     fn refresh_zones_of(&self, id: &str) {
+        self.realm_edits.fetch_add(1, std::sync::atomic::Ordering::SeqCst); // before the lock: a swap holding it sees the edit
         let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(zones) = slot.as_ref().filter(|g| g.zone_realms.iter().any(|r| r == id)).map(|g| zone_cache_of(g, self.zone_realm_files(&g.zone_realms)))
         else {
@@ -1393,6 +1415,7 @@ impl Engine {
             region: Mutex::new(String::new()),
             last_journal: Mutex::new(None),
             streets_gen: AtomicU64::default(),
+            realm_edits: AtomicU64::default(),
             scans: ScanRegistry::default(),
             store_write: Mutex::new(()),
             dir,
@@ -2695,6 +2718,20 @@ mod tests {
             e.dir.clone()
         };
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn a_rename_during_a_street_swap_is_not_undone() {
+        let e = engine_with_game("rename-race");
+        let (id, zones) = e.streets_target(Some("r0")).unwrap();
+        let streets = Game::build_streets(&e.zone_realm_atlases(&zones).iter().map(|(_, a)| a).collect::<Vec<_>>());
+        let generation = e.next_streets_gen();
+        // The swap reads the realm files, then a rename lands before it takes the game lock.
+        let edits = e.realm_edits.load(std::sync::atomic::Ordering::SeqCst);
+        let stale = e.zone_realm_files(&zones);
+        e.save_realm("r0".into(), "North".into(), None, Some(circle(home(), 2000.0)), vec![], false).unwrap();
+        assert!(e.swap_streets_from(&id, &zones, streets, generation, &[], stale, edits));
+        assert_eq!(e.zones().into_iter().map(|z| z.realm_name).collect::<Vec<_>>(), ["North"], "the rename stays");
     }
 
     #[test]
