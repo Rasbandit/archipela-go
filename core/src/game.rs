@@ -206,11 +206,12 @@ pub enum Event {
 }
 
 impl Event {
-    /// Whether this event is lasting progress the game must be saved for at once (a kill would lose it). The others wait for the
-    /// periodic save: a reveal comes back on the next walk past, a trap is re-sent by the server from the saved item index.
+    /// Whether this event is lasting progress the game must be saved for at once (a kill would lose it), including a trap ending
+    /// (told as Info). The others wait for the periodic save: a reveal comes back on the next walk past, a trap is re-sent by the
+    /// server from the saved item index.
     #[must_use]
     pub fn saves_at_once(&self) -> bool {
-        !matches!(self, Self::Discovered { .. } | Self::Trap { .. } | Self::Info { .. })
+        !matches!(self, Self::Discovered { .. } | Self::Trap { .. })
     }
 }
 
@@ -1853,11 +1854,13 @@ mod tests {
             Event::ZoneUnlocked { zone: 2 },
             Event::ShuffleRequested,
             Event::GoalAchieved { label: "g".into() },
+            // A trap ending on a fix (thawed out, detour done, toll paid) is told as Info: lost, the player would redo it.
+            Event::Info { text: "You thawed out.".into() },
         ];
         assert!(at_once.iter().all(Event::saves_at_once));
-        // A reveal comes back on the next walk past, a trap is re-sent by the server from the saved item index, a note is only a note:
-        // the periodic save picks them up.
-        let later = [Event::Discovered { location_id: 1 }, Event::Trap { item: "t".into(), message: "m".into() }, Event::Info { text: "i".into() }];
+        // A reveal comes back on the next walk past, a trap is re-sent by the server from the saved item index: the periodic save
+        // picks them up.
+        let later = [Event::Discovered { location_id: 1 }, Event::Trap { item: "t".into(), message: "m".into() }];
         assert!(!later.iter().any(Event::saves_at_once));
     }
 
