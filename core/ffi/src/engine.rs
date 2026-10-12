@@ -518,10 +518,11 @@ fn first_open(c: &CollectOut) -> Option<Point> {
     c.items.iter().find(|i| !i.picked).map(|i| pt(&i.at))
 }
 
-/// Where a quest's pin and popup sit: an unfinished forager's first item still out there, otherwise its own anchor.
-fn pin_at(collect: Option<&CollectOut>, state: QuestState, anchor: Option<Point>) -> Option<Point> {
+/// Where a quest's pin and popup sit: an unfinished forager's first item still out there, or `home` once every item is picked and some
+/// are still carried (bring them home); otherwise its own anchor.
+fn pin_at(collect: Option<&CollectOut>, state: QuestState, anchor: Option<Point>, home: Point) -> Option<Point> {
     match collect {
-        Some(c) if state != QuestState::Done => first_open(c).or(anchor),
+        Some(c) if state != QuestState::Done => first_open(c).or_else(|| (c.carried > 0).then_some(home)).or(anchor),
         _ => anchor,
     }
 }
@@ -1852,7 +1853,7 @@ impl Engine {
                     let has_about = q.has_about;
                     let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target, units);
                     let collect = collect_out(&q.target, q.collected.as_ref(), &q.live_items);
-                    let anchor = pin_at(collect.as_ref(), q.state, anchor);
+                    let anchor = pin_at(collect.as_ref(), q.state, anchor, g.home);
                     QuestOut {
                         location_id: q.location_id,
                         zone: q.zone,
@@ -2988,9 +2989,19 @@ mod tests {
         let (a, b) = (Point::new(40.0, -111.0), Point::new(40.01, -111.0));
         let t = Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() };
         let c = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }), &[b]);
-        let lat = |s| pin_at(c.as_ref(), s, Some(a)).map(|p| p.lat);
+        let lat = |s| pin_at(c.as_ref(), s, Some(a), b).map(|p| p.lat);
         assert_eq!(lat(QuestState::Done), Some(40.0), "a done forager stays in the places list like any done quest");
         assert_eq!(lat(QuestState::InProgress), Some(40.01));
-        assert_eq!(pin_at(None, QuestState::Done, Some(b)).map(|p| p.lat), Some(40.01), "other quests keep their anchor");
+        assert_eq!(pin_at(None, QuestState::Done, Some(b), a).map(|p| p.lat), Some(40.01), "other quests keep their anchor");
+    }
+
+    #[test]
+    fn a_forager_with_every_item_picked_and_some_carried_sits_at_home() {
+        let (a, home) = (Point::new(40.01, -111.0), Point::new(40.0, -111.0));
+        let t = Target::Collect { pts: vec![a], need: 2, r: 25.0, theme: "shells".into() };
+        let carrying = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 1, banked: 0 }), &[]);
+        assert_eq!(pin_at(carrying.as_ref(), QuestState::InProgress, Some(a), home).map(|p| p.lat), Some(40.0), "bring them home");
+        let waiting = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }), &[]);
+        assert_eq!(pin_at(waiting.as_ref(), QuestState::InProgress, Some(a), home).map(|p| p.lat), Some(40.01), "nothing carried: its anchor");
     }
 }

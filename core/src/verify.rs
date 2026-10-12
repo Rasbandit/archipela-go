@@ -181,6 +181,12 @@ impl Tracker {
         t
     }
 
+    /// What the tracker checks fixes against.
+    #[cfg(test)]
+    pub(crate) fn target(&self) -> &Target {
+        &self.target
+    }
+
     /// The progress of a collect quest (`None` for any other quest).
     #[must_use]
     pub fn collected(&self) -> Option<&Collected> {
