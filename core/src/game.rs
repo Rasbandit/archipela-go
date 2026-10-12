@@ -10,10 +10,13 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
-use crate::assign::{assign, place_of, replace_unpicked, zone_paths, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx};
+use crate::assign::{
+    assign, forage_pool, place_of, replace_unpicked, zone_paths, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx, ITEM_SPACING_M,
+};
 use crate::catalog::{Catalog, Mode};
 use crate::chain::{self, is_chain_target, Chain, ChainUnit};
 use crate::fog::{anchor, reveal_radius, Fog};
+use crate::forage::{Forage, BAG_SIZE, LIVE_PER_NEED, RESPAWN_MS};
 use crate::geo::{distance_m, Point};
 use crate::goal::{evaluate, evaluate_each, GoalCtx, GoalStatus};
 use crate::journal::JournalEvent;
@@ -28,7 +31,7 @@ use crate::slot::GoalSpec;
 use crate::slot::SlotData;
 use crate::traps::Traps;
 use crate::units::{distance, distance_rounded, speed_kmh, Round, UnitSystem};
-use crate::verify::{collect_progress, Collected, Fix, Status, Tracker};
+use crate::verify::{collect_progress, Collected, Fix, Status, Tracker, MAX_ACCURACY_M};
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -107,6 +110,8 @@ pub struct QuestView {
     pub collected: Option<Collected>,
     /// A courier quest's pick-up time while the package is carried (for the time left to deliver).
     pub picked_at_ms: Option<i64>,
+    /// A forager quest's items still on the map (empty for other quests and once it is done).
+    pub live_items: Vec<Point>,
 }
 
 /// One milestone of a chain, as the UI shows it.
@@ -313,6 +318,17 @@ pub struct Game {
     /// Forager quests: location id -> items picked, carried and banked. Kept across restarts and Shuffle traps.
     #[serde(default)]
     pub collected: BTreeMap<i64, Collected>,
+    /// Forager quests: location id -> the items still on the map and when they top up (#142). Seeded from the quest's placed points
+    /// (less the picked ones) the first time it is needed, so old saves load.
+    #[serde(default)]
+    pub forage: BTreeMap<i64, Forage>,
+    /// How many items the shared backpack holds before steps slow down.
+    #[serde(default = "default_bag_size")]
+    pub bag_size: u32,
+    /// Forager quests: location id -> the street points new items may appear on, from the last streets build (not saved: the next
+    /// build fills it again; until then top-ups wait).
+    #[serde(skip)]
+    pub forage_pools: BTreeMap<i64, Vec<Point>>,
     /// Progress of each started quest (a courier pickup, a dwell's best stretch, coverage); missing in old saves. Loaded
     /// trackers are detached until `reattach_trackers`, and an entry that cannot be read is dropped, never the whole save.
     #[serde(default, deserialize_with = "lenient_trackers")]
@@ -440,6 +456,24 @@ fn trap_pool(zones: &[ZoneCtx<'_>]) -> Vec<Point> {
     pool
 }
 
+fn default_bag_size() -> u32 {
+    BAG_SIZE
+}
+
+/// A forager's live items from its placed points, less those `c` has picked (their ids are the placed indexes).
+fn seed_forage(pts: &[Point], c: Option<&Collected>) -> Forage {
+    let mut f = Forage::seed(pts);
+    if let Some(c) = c {
+        f.items.retain(|i| u16::try_from(i.id).map_or(true, |i| !c.picked.contains(&i)));
+    }
+    f
+}
+
+/// A repeatable random source for one top-up of quest `id` at `t_ms`.
+fn forage_rng(id: i64, t_ms: i64) -> StdRng {
+    StdRng::seed_from_u64(u64::from_ne_bytes((id.wrapping_mul(0x9E37_79B9) ^ t_ms).to_ne_bytes()))
+}
+
 fn zone_ctx<'a>(slot: &SlotData, zone_realms: &[String], realms: &'a [(Realm, Atlas)]) -> Result<Vec<ZoneCtx<'a>>, String> {
     let mut out = Vec::new();
     for (i, z) in slot.zones.iter().enumerate() {
@@ -508,6 +542,9 @@ impl Game {
             allow_parking: n.allow_parking,
             counters: Counters { cells_counted: true, ..Counters::default() },
             collected: BTreeMap::new(),
+            forage: BTreeMap::new(),
+            bag_size: BAG_SIZE,
+            forage_pools: BTreeMap::new(),
             trackers: BTreeMap::new(),
             last_fix: None,
             last_accepted: None,
@@ -628,6 +665,7 @@ impl Game {
                     chain_id: member.map(|(id, _)| id),
                     collected: self.collected.get(&a.location_id).cloned(),
                     picked_at_ms: self.trackers.get(&a.location_id).and_then(Tracker::picked_at),
+                    live_items: if done { Vec::new() } else { self.live_items(a) },
                 }
             })
             .collect()
@@ -736,7 +774,11 @@ impl Game {
     fn update_tracker(&mut self, id: i64, fix: &Fix, steps_total: Option<i64>) -> Option<Status> {
         if !self.trackers.contains_key(&id) {
             let a = self.assignments.iter().find(|a| a.location_id == id)?;
-            let target = self.adjusted(&a.target);
+            let target = match self.adjusted(&a.target) {
+                // Game picks forager items (they live in `forage`); the tracker only banks at home and reports progress.
+                Target::Collect { need, r, theme, .. } => Target::Collect { pts: Vec::new(), need, r, theme },
+                t => t,
+            };
             let t = match self.collected.get(&id) {
                 Some(c) => Tracker::with_collected(target, self.home, c.clone()),
                 None => Tracker::new(target, self.home),
@@ -797,8 +839,10 @@ impl Game {
         if gained == 0 {
             return;
         }
+        // An overloaded backpack slows the count (#142): steps are the only thing it slows.
+        let counted = i64_to_f64(gained) * self.step_factor();
         for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Steps) {
-            *self.counters.progress.entry(c.id).or_insert(0.0) += i64_to_f64(gained);
+            *self.counters.progress.entry(c.id).or_insert(0.0) += counted;
         }
     }
 
@@ -822,6 +866,7 @@ impl Game {
             return Vec::new();
         }
         self.credit_steps(total);
+        self.top_up_due(t_ms);
         let mut ev = bridged.map(|b| self.on_estimate(&b, None)).unwrap_or_default();
         ev.extend(self.complete_reached(t_ms, self.last_pos()));
         ev
@@ -1014,11 +1059,19 @@ impl Game {
         });
         // A dwell the player is standing in finishes then too, with no more fixes needed (not after a dropped fix: they may have left).
         let dwell = if self.unseen_since_good { None } else { self.trackers.values().filter_map(Tracker::due_ms).min() };
-        away.into_iter().chain(dwell).min()
+        // A top-up only counts when it can run (the streets build gave its pool): else the wake-up would find nothing to do, again and again.
+        let respawn = self
+            .forage
+            .iter()
+            .filter(|(id, _)| !self.done.contains(id) && self.forage_pools.get(id).is_some_and(|p| !p.is_empty()))
+            .filter_map(|(_, f)| f.next_spawn_ms)
+            .min();
+        away.into_iter().chain(dwell).chain(respawn).min()
     }
 
     /// A scheduled wake-up (see [`Self::next_due_ms`]): settle time away, finish dwells still running, complete what fell due.
     pub fn tick(&mut self, t_ms: i64) -> Vec<Event> {
+        self.top_up_due(t_ms);
         self.settle_away(t_ms);
         let mut ev = Vec::new();
         if self.counting && !self.checks_blocked() && !self.unseen_since_good {
@@ -1105,6 +1158,7 @@ impl Game {
     /// What an estimate does once counting is on and its distance (`moved`) is added: see [`Self::on_estimate`].
     fn check(&mut self, est: &Estimate, steps_total: Option<i64>, moved: f64) -> Vec<Event> {
         let mut ev = Vec::new();
+        self.top_up_due(est.t_ms);
         if let Some(total) = steps_total {
             self.credit_steps(total);
         }
@@ -1152,6 +1206,7 @@ impl Game {
                 if !speed_ok(mode, kmh) {
                     continue;
                 }
+                self.pick_forage(id, &fix);
                 if self.update_tracker(id, &fix, steps_total) == Some(Status::Done) {
                     finished.push(id);
                 }
@@ -1179,12 +1234,150 @@ impl Game {
         self.credit_cells(self.fog.cells.len() - cells_before);
     }
 
+    /// Items carried in the shared backpack: what every open forager carries.
+    #[must_use]
+    pub fn carried_total(&self) -> u32 {
+        self.assignments
+            .iter()
+            .filter(|a| matches!(a.target, Target::Collect { .. }) && !self.done.contains(&a.location_id))
+            .filter_map(|a| self.collected.get(&a.location_id))
+            .map(|c| c.carried)
+            .sum()
+    }
+
+    /// How much a step counts now: less while the backpack holds more than `bag_size` (see [`crate::forage::step_factor`]).
+    #[must_use]
+    pub fn step_factor(&self) -> f64 {
+        crate::forage::step_factor(self.carried_total().saturating_sub(self.bag_size))
+    }
+
+    /// How quests of this game are placed (re-placing them, forager pools).
+    fn assign_params(&self, seed: u64) -> AssignParams {
+        AssignParams {
+            home: self.home,
+            minutes_per_tier: f64::from(self.slot.minutes_per_tier),
+            min_distance_m: f64::from(self.slot.min_distance_m),
+            seed,
+            surface: self.surface,
+            avoid_stairs: self.avoid_stairs,
+            allow_parking: self.allow_parking,
+            allow_progressive: false,
+        }
+    }
+
+    /// A forager's items on the map, nearest home first (the first is where its card opens from the list): its `forage` entry, or
+    /// (not seeded yet) its placed points less the picked ones.
+    fn live_items(&self, a: &Assignment) -> Vec<Point> {
+        let Target::Collect { pts, .. } = &a.target else { return Vec::new() };
+        let f = self.forage.get(&a.location_id).cloned().unwrap_or_else(|| seed_forage(pts, self.collected.get(&a.location_id)));
+        let mut items: Vec<Point> = f.items.iter().map(|i| i.p).collect();
+        items.sort_by(|x, y| distance_m(self.home, *x).total_cmp(&distance_m(self.home, *y)));
+        items
+    }
+
+    /// The forager's `forage` entry, seeded on first use; `None` for any other quest.
+    fn forage_entry(&mut self, id: i64) -> Option<&mut Forage> {
+        if !self.forage.contains_key(&id) {
+            let a = self.assignments.iter().find(|a| a.location_id == id)?;
+            let Target::Collect { pts, .. } = &a.target else { return None };
+            let f = seed_forage(pts, self.collected.get(&id));
+            self.forage.insert(id, f);
+        }
+        self.forage.get_mut(&id)
+    }
+
+    /// Picks up the forager's items within reach of `fix` into what it carries (never refused, whatever the bag holds).
+    fn pick_forage(&mut self, id: i64, fix: &Fix) {
+        let Some((r, placed)) = self.assignments.iter().find(|a| a.location_id == id).and_then(|a| match &a.target {
+            Target::Collect { r, pts, .. } => Some((*r, pts.len())),
+            _ => None,
+        }) else {
+            return;
+        };
+        if fix.accuracy_m > MAX_ACCURACY_M {
+            return;
+        }
+        let Some(f) = self.forage_entry(id) else { return };
+        let before: Vec<u32> = f.items.iter().map(|i| i.id).collect();
+        let n = f.pick(fix.point(), r, fix.t_ms);
+        if n == 0 {
+            return;
+        }
+        let left: BTreeSet<u32> = f.items.iter().map(|i| i.id).collect();
+        let c = self.collected.entry(id).or_default();
+        c.carried += n;
+        // Placed items keep their index in `picked`: the Shuffle trap moves only the unpicked ones.
+        c.picked.extend(before.into_iter().filter(|i| !left.contains(i) && (*i as usize) < placed).filter_map(|i| u16::try_from(i).ok()));
+        self.trackers.remove(&id); // rebuilt from `collected` on this fix
+    }
+
+    /// Tops up every open forager whose time has come, from its pool; one that cannot fill tries again a respawn later.
+    fn top_up_due(&mut self, now_ms: i64) {
+        let pools = std::mem::take(&mut self.forage_pools);
+        for (id, want) in self.forager_wants() {
+            let Some(pool) = pools.get(&id).filter(|p| !p.is_empty()) else { continue };
+            let Some(f) = self.forage_entry(id) else { continue };
+            if f.due(now_ms) {
+                f.top_up(want, pool, ITEM_SPACING_M, &mut forage_rng(id, now_ms));
+                if f.next_spawn_ms.is_some() {
+                    f.next_spawn_ms = Some(now_ms + RESPAWN_MS);
+                }
+            }
+        }
+        self.forage_pools = pools;
+    }
+
+    /// Open foragers and how many items each keeps on the map.
+    fn forager_wants(&self) -> Vec<(i64, usize)> {
+        self.assignments
+            .iter()
+            .filter(|a| !self.done.contains(&a.location_id))
+            .filter_map(|a| match &a.target {
+                Target::Collect { need, .. } => Some((a.location_id, usize::try_from(need.saturating_mul(LIVE_PER_NEED)).unwrap_or(usize::MAX))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Where each forager's new items may appear, from the zones' current scans (the streets build calls it), and the first fill to its
+    /// live size for a forager not yet filled.
+    pub fn set_forage_pools(&mut self, realms: &[(Realm, Atlas)]) {
+        let Ok(zones) = zone_ctx(&self.slot, &self.zone_realms, realms) else { return };
+        let params = self.assign_params(0);
+        let mut pools = BTreeMap::new();
+        for a in &self.assignments {
+            let Target::Collect { r, .. } = &a.target else { continue };
+            if let Some(z) = zones.iter().find(|z| z.zone == a.zone) {
+                pools.insert(a.location_id, forage_pool(z, &params, a.tier, *r));
+            }
+        }
+        self.forage_pools = pools;
+        self.fill_unfilled();
+    }
+
+    /// Fills each open forager not filled yet (new, loaded, or moved by a Shuffle trap) to its live size from its pool, once.
+    fn fill_unfilled(&mut self) {
+        let pools = std::mem::take(&mut self.forage_pools);
+        for (id, want) in self.forager_wants() {
+            let Some(pool) = pools.get(&id) else { continue };
+            let Some(f) = self.forage_entry(id) else { continue };
+            if !f.filled {
+                f.top_up(want, pool, ITEM_SPACING_M, &mut forage_rng(id, 0));
+                f.filled = true;
+            }
+        }
+        self.forage_pools = pools;
+    }
+
     fn complete(&mut self, id: i64, now_ms: i64, pos: Option<Point>) -> Vec<Event> {
         let mut ev = Vec::new();
         if !self.done.insert(id) {
             return ev;
         }
         self.trackers.remove(&id);
+        if let Some(f) = self.forage.get_mut(&id) {
+            f.clear(); // a done forager's items leave the map and never come back
+        }
         self.stats.quest_days.insert(now_ms / DAY_MS);
         let name = self.assignments.iter().find(|a| a.location_id == id).map(|a| a.quest_name.clone()).unwrap_or_default();
         ev.push(Event::QuestDone { location_id: id, name });
@@ -1317,16 +1510,7 @@ impl Game {
             .filter(|i| !self.done.contains(i) && !self.assignments.iter().any(|a| a.location_id == *i && is_chain_target(&a.target)))
             .collect();
         let zones = zone_ctx(&self.slot, &self.zone_realms, realms)?;
-        let params = AssignParams {
-            home: self.home,
-            minutes_per_tier: f64::from(self.slot.minutes_per_tier),
-            min_distance_m: f64::from(self.slot.min_distance_m),
-            seed,
-            surface: self.surface,
-            avoid_stairs: self.avoid_stairs,
-            allow_parking: self.allow_parking,
-            allow_progressive: false,
-        };
+        let params = self.assign_params(seed);
         // A forager keeps its kind, counts and picked items: only what is still out there moves (and stays put if the zone has no room).
         let (foragers, todo): (Vec<i64>, Vec<i64>) =
             todo.into_iter().partition(|i| self.assignments.iter().any(|a| a.location_id == *i && matches!(a.target, Target::Collect { .. })));
@@ -1338,16 +1522,29 @@ impl Game {
             let Some(z) = zones.iter().find(|z| z.zone == a.zone) else { continue };
             let (_, index) = zone_paths(z, &params);
             if let Some(t) = replace_unpicked(&a.target, &picked, z, &index, &params, a.tier, &mut rng) {
+                // Seeded again from the moved points (less the picked ones), keeping when it tops up; filled below when it has a pool.
+                let clock = self.forage.remove(&id).and_then(|f| f.next_spawn_ms);
+                let mut f = seed_forage(
+                    match &t {
+                        Target::Collect { pts, .. } => pts,
+                        _ => &[],
+                    },
+                    self.collected.get(&id),
+                );
+                f.next_spawn_ms = clock;
+                self.forage.insert(id, f);
                 a.target = t;
                 self.trackers.remove(&id); // rebuilt from `collected` on the next fix
                 moved += 1;
             }
         }
+        self.fill_unfilled();
         let fresh = assign(&slots_in(&self.slot, Some(&todo)), &zones, catalog, &params);
         let n = fresh.len();
         for a in fresh {
             self.trackers.remove(&a.location_id);
             self.collected.remove(&a.location_id); // a different quest must not inherit the old counts
+            self.forage.remove(&a.location_id);
             self.fog.discovered.remove(&a.location_id);
             if let Some(slot) = self.assignments.iter_mut().find(|x| x.location_id == a.location_id) {
                 *slot = a;
@@ -3041,6 +3238,158 @@ mod tests {
 
     fn carried_banked(g: &Game) -> (u32, u32) {
         g.collected.get(&2000).map_or((0, 0), |c| (c.carried, c.banked))
+    }
+
+    fn live(g: &Game) -> Vec<Point> {
+        g.quest_views(0).into_iter().find(|v| v.location_id == 2000).unwrap().live_items
+    }
+
+    /// A step chain (one mark at 5000) and a forager carrying `carried` items, with the step baseline set.
+    fn loaded_walker(carried: u32) -> Game {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 5000 }]);
+        let forager = Target::Collect { pts: vec![destination(home(), 0.0, 500.0)], need: 3, r: 25.0, theme: "acorns".into() };
+        g.assignments.push(chain::tests_support::member(2000, 1, "forager", forager));
+        g.collected.insert(2000, Collected { carried, ..Collected::default() });
+        g.on_steps(10_000, 1, None);
+        g
+    }
+
+    fn steps_counted(g: &Game) -> f64 {
+        g.counters.progress.values().sum()
+    }
+
+    #[test]
+    fn overloaded_steps_count_less() {
+        let mut g = loaded_walker(22); // bag 20: 2 over
+        assert!((g.step_factor() - 0.9).abs() < 1e-12);
+        g.on_steps(11_000, 2, None);
+        assert!((steps_counted(&g) - 900.0).abs() < 1e-9, "{}", steps_counted(&g));
+        let mut light = loaded_walker(20);
+        light.on_steps(11_000, 2, None);
+        assert!((steps_counted(&light) - 1000.0).abs() < 1e-9, "a full bag is not over");
+    }
+
+    #[test]
+    fn banking_lifts_the_step_penalty() {
+        let mut g = loaded_walker(40);
+        g.set_counting(false, 0);
+        g.bank_at_home(5);
+        g.set_counting(true, 0);
+        g.on_steps(10_000, 6, None); // counting resumes from here
+        g.on_steps(11_000, 7, None);
+        assert!((g.step_factor() - 1.0).abs() < 1e-12);
+        assert!((steps_counted(&g) - 1000.0).abs() < 1e-9, "{}", steps_counted(&g));
+    }
+
+    #[test]
+    fn a_done_forager_carries_nothing_into_the_bag() {
+        let mut g = loaded_walker(30);
+        g.done.insert(2000);
+        assert_eq!(g.carried_total(), 0);
+    }
+
+    #[test]
+    fn picking_on_a_fix_removes_live_items_and_carries_them() {
+        let (mut g, pts) = forager_game();
+        assert_eq!(live(&g), pts, "before any pool: the placed items");
+        g.on_estimate(&fixat(pts[0], 600), None);
+        assert_eq!((live(&g), carried_banked(&g)), (pts[1..].to_vec(), (1, 0)));
+        assert_eq!(g.collected[&2000].picked, BTreeSet::from([0]), "a placed item is still recorded by index (the shuffle trap keeps it)");
+    }
+
+    #[test]
+    fn old_saves_seed_live_items_from_the_unpicked_points() {
+        let (mut g, pts) = forager_game();
+        g.collected.insert(2000, Collected { picked: BTreeSet::from([0, 2]), carried: 1, banked: 1 });
+        let mut old = serde_json::to_value(&g).unwrap();
+        old.as_object_mut().unwrap().remove("forage");
+        old.as_object_mut().unwrap().remove("bag_size");
+        let back: Game = serde_json::from_value(old).unwrap();
+        assert_eq!(live(&back), vec![pts[1], pts[3], pts[4], pts[5]]);
+        assert_eq!((back.bag_size, back.collected[&2000].carried, back.collected[&2000].banked), (20, 1, 1));
+    }
+
+    #[test]
+    fn live_items_come_nearest_home_first() {
+        // Found on the phone: after a top-up the first item (where a card opened from the list sits) was any of them, often the
+        // farthest; nearest home first keeps it the next one to fetch.
+        let (mut g, _) = forager_game();
+        g.set_forage_pools(&[realm("r0", Mode::Walk)]);
+        let d: Vec<f64> = live(&g).iter().map(|p| distance_m(home(), *p)).collect();
+        assert!(d.windows(2).all(|w| w[0] <= w[1]), "{d:?}");
+    }
+
+    #[test]
+    fn the_first_pools_fill_a_forager_to_three_times_its_need_once() {
+        let (mut g, _) = forager_game();
+        g.set_forage_pools(&[realm("r0", Mode::Walk)]);
+        assert_eq!(live(&g).len(), 9, "3 x need 3");
+        let first = live(&g)[0];
+        g.on_estimate(&fixat(first, 600), None);
+        g.set_forage_pools(&[realm("r0", Mode::Walk)]);
+        assert_eq!(live(&g).len(), 8, "a second build (app opened again) does not skip the wait");
+    }
+
+    #[test]
+    fn a_due_top_up_waits_for_the_pools() {
+        let (mut g, _) = forager_game();
+        g.set_forage_pools(&[realm("r0", Mode::Walk)]);
+        let first = live(&g)[0];
+        g.on_estimate(&fixat(first, 600), None);
+        let due = 600_000 + RESPAWN_MS; // fixat takes seconds
+        g.tick(due - 1);
+        assert_eq!(live(&g).len(), 8, "not yet");
+        g.forage_pools.clear(); // reopened: the streets build has not run yet
+        g.tick(due);
+        assert_eq!(live(&g).len(), 8, "no pool: waits");
+        assert_eq!(g.next_due_ms(due), None, "and asks for no wake-up it cannot use");
+        g.set_forage_pools(&[realm("r0", Mode::Walk)]);
+        g.tick(due + 1);
+        assert_eq!(live(&g).len(), 9);
+    }
+
+    #[test]
+    fn next_due_ms_includes_the_respawn() {
+        let (mut g, _) = forager_game();
+        g.set_forage_pools(&[realm("r0", Mode::Walk)]);
+        assert_eq!(g.next_due_ms(0), None, "full: nothing due");
+        let first = live(&g)[0];
+        g.on_estimate(&fixat(first, 600), None);
+        assert_eq!(g.next_due_ms(600_000), Some(600_000 + RESPAWN_MS));
+    }
+
+    #[test]
+    fn a_shuffle_trap_keeps_the_respawn_clock_and_refills_from_the_pool() {
+        let (mut g, _) = forager_game();
+        let realms = vec![realm("r0", Mode::Walk)];
+        g.set_forage_pools(&realms);
+        let first = live(&g)[0];
+        g.on_estimate(&fixat(first, 600), None);
+        let due = g.forage[&2000].next_spawn_ms;
+        assert_eq!(g.reroll(&[2000], &realms, 9, &Catalog::builtin()).unwrap(), 1);
+        assert_eq!(live(&g).len(), 9, "with a pool, the moved forager is full again at once");
+        // Without a pool (the build has not run): the clock survives, so the top-up still comes when it was due.
+        let (mut g, _) = forager_game();
+        g.set_forage_pools(&realms);
+        let first = live(&g)[0];
+        g.on_estimate(&fixat(first, 600), None);
+        g.forage_pools.clear();
+        g.reroll(&[2000], &realms, 9, &Catalog::builtin()).unwrap();
+        assert_eq!(g.forage.get(&2000).and_then(|f| f.next_spawn_ms), due);
+    }
+
+    #[test]
+    fn a_done_forager_clears_its_items_and_never_respawns() {
+        let (mut g, pts) = forager_game();
+        for (i, p) in pts.iter().take(3).enumerate() {
+            g.on_estimate(&fixat(*p, 600 * (i64::try_from(i).unwrap() + 1)), None);
+        }
+        g.set_forage_pools(&[realm("r0", Mode::Walk)]);
+        assert_eq!(done_ids(&g.on_estimate(&fixat(home(), 3000), None)), vec![2000]);
+        assert!(live(&g).is_empty());
+        assert_eq!(g.next_due_ms(3000), None);
+        g.tick(3000 + RESPAWN_MS);
+        assert!(live(&g).is_empty(), "never respawns");
     }
 
     #[test]

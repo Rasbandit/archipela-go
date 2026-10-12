@@ -445,6 +445,8 @@ private class MapHolder(
         // A pin wins over a trail, a trail over the park it may cross; then a tap anywhere inside a park picks it (asked of the
         // caller: an open park's fill is not drawn, so the map cannot find it).
         val pin = onQuest?.let { featureId(m, near, MapStyle.QUEST_LAYERS)?.toLongOrNull() }
+        // A forager's pickup: its card opens on the pickup touched, not on the quest's first one.
+        val pickup = pin?.let { itemAt(m, near, it, at) }
         val shape =
             onQuest?.takeIf { pin == null }?.let {
                 featureId(m, near, MapStyle.QUEST_LINE_LAYERS)?.toLongOrNull() ?: inputs.parkAt.value?.invoke(ll)
@@ -452,7 +454,7 @@ private class MapHolder(
         when {
             find != null -> onFind(find)
 
-            pin != null -> onQuest(pin, null)
+            pin != null -> onQuest(pin, pickup)
 
             shape != null -> onQuest(shape, ll)
 
@@ -460,6 +462,27 @@ private class MapHolder(
             else -> inputs.onClick.value(ll)
         }
         return true
+    }
+
+    private fun itemAt(
+        m: MapLibreMap,
+        area: RectF,
+        quest: Long,
+        finger: PointF,
+    ): LatLng? {
+        val hits =
+            m.queryRenderedFeatures(area, *MapStyle.ITEM_LAYERS).mapNotNull { f ->
+                val p = f.geometry() as? Point
+                val id = f.getStringProperty(MapProp.ID)
+                if (p == null || id == null) {
+                    null
+                } else {
+                    val ll = LatLng(p.latitude(), p.longitude())
+                    val s = m.projection.toScreenLocation(ll)
+                    TappedPickup(id, ll, Offset(s.x, s.y))
+                }
+            }
+        return nearestPickup(hits, quest, Offset(finger.x, finger.y))
     }
 
     private fun featureId(
@@ -577,7 +600,7 @@ internal fun QuestMap(
     val holder = remember { MapHolder(context, density, inputs, MapStart.center(listOfNotNull(circle?.first) + points, lastPlace)) }
     MapLifecycle(holder.view, onShow)
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
-    SyncContent(holder, quests, realms, selected, finds, trace)
+    SyncContent(holder, quests, realms, selected, anchor, finds, trace)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
     SyncPins(holder, thaw, waypoint, home, me)
     MapCamera(holder, inputs, overlaysFollowed, fit, focus, anchor)
@@ -673,13 +696,14 @@ private fun MapLifecycle(
     }
 }
 
-// The realms, finds, quests and your trace.
+// The realms, finds, quests and your trace. [anchor] is where the selected quest's card is (the pickup it shows, for a forager).
 @Composable
 private fun SyncContent(
     holder: MapHolder,
     quests: List<QuestOut>,
     realms: List<RealmOut>,
     selected: Long?,
+    anchor: LatLng?,
     finds: List<MapFind>,
     trace: List<List<LatLng>>,
 ) {
@@ -691,12 +715,12 @@ private fun SyncContent(
         holder.show(MapSource.FINDS, rest)
         holder.show(MapSource.FIND_SEL, picked)
     }
-    LaunchedEffect(style, quests, selected) {
+    LaunchedEffect(style, quests, selected, anchor) {
         style?.let { st -> quests.pinImages.forEach { holder.ensureImage(st, it) } }
         val (rest, picked) = MapFeatures.splitSelected(MapFeatures.quests(quests, selected))
         holder.show(MapSource.QUESTS, rest)
         holder.show(MapSource.QUEST_SEL, picked)
-        holder.show(MapSource.ITEMS, quests.itemFeatures(selected))
+        holder.show(MapSource.ITEMS, quests.itemFeatures(selected, anchor))
         holder.show(MapSource.LINES, MapFeatures.lines(quests))
         holder.show(MapSource.AREAS, MapFeatures.areas(quests))
     }

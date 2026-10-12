@@ -377,6 +377,7 @@ mod tests {
             chain_id: None,
             collected: None,
             picked_at_ms: None,
+            live_items: vec![],
         }
     }
     fn prog(q: &crate::game::QuestView) -> Progress {

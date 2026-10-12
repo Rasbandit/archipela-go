@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -170,15 +171,18 @@ internal fun MapBubble(
             }
         },
     ) {
-        Card(Modifier.onSizeChanged(onSize), elevation = CardDefaults.cardElevation(6.dp)) {
+        Card(Modifier.onSizeChanged(onSize).testTag(MAP_BUBBLE_TAG), elevation = CardDefaults.cardElevation(6.dp)) {
             Column(
-                Modifier.padding(start = 12.dp, top = 8.dp, bottom = 10.dp, end = 4.dp),
+                Modifier.padding(start = 12.dp, top = 8.dp, bottom = 10.dp, end = 12.dp), // even sides: content may run full width
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 content = content,
             )
         }
     }
 }
+
+/** Test tag of a [MapBubble]'s card, for layout tests. */
+internal const val MAP_BUBBLE_TAG = "map-bubble"
 
 internal enum class Tone { Warning, Danger, Success, Muted }
 

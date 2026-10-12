@@ -56,6 +56,15 @@ class ContrastTest {
             }
         }
 
+    @Test fun overloadSlotsStandOutAndTheirIconsRead() {
+        passes(GRAPHIC, "overload slot") { ApgoPalette.overload(it) }
+        themes.forEach { (dark, _) ->
+            val fill = ApgoPalette.overload(dark)
+            val r = Contrast.ratio(ApgoPalette.inkOn(fill), fill)
+            assertTrue("icon on an overload slot (dark=$dark): %.2f".format(r), r >= GRAPHIC)
+        }
+    }
+
     @Test fun theBadgeIconStandsOutOnEveryStateColour() =
         states.forEach { st ->
             val r = Contrast.ratio(ApgoPalette.badgeInk(st), ApgoPalette.quest(st))

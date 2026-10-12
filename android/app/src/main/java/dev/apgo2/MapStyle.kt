@@ -172,7 +172,8 @@ internal object MapStyle {
     val FIND_LAYERS = arrayOf("finds-layer", "finds-sel")
 
     /** The layers a tap on a quest pin is looked up in. */
-    val QUEST_LAYERS = arrayOf("quests-pins", "quests-pins-sel", "items-tokens", "items-dots")
+    val ITEM_LAYERS = arrayOf("items-tokens", "items-dots")
+    val QUEST_LAYERS = arrayOf("quests-pins", "quests-pins-sel") + ITEM_LAYERS
 
     /** Then the quests' trails and park outlines (both carry their quest's id). */
     val QUEST_LINE_LAYERS = arrayOf("route-line", "route-casing", "park-line")

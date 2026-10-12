@@ -398,11 +398,12 @@ private fun PlayMap(
     var focus by remember { mutableStateOf<MapFocus?>(null) }
     var focusNonce by remember { mutableIntStateOf(0) }
     var anchorPx by remember { mutableStateOf<Offset?>(null) }
-    // Where a trail or park was touched: its details show there instead of at its start (only while that quest stays selected).
+    // Where a trail, park or forager pickup was touched: its card shows there instead of at its start or first pickup (only while
+    // that quest stays selected).
     var touched by remember { mutableStateOf<Pair<Long, LatLng>?>(null) }
-    val spot = touched?.takeIf { it.first == m.selected }?.second
+    val spot = cardSpot(touched, selected)
     val at = spot ?: selected?.anchor?.let { LatLng(it.lat, it.lon) }
-    val pinPx = if (spot != null) 0f else MapMarkers.selectedQuestPinHeightPx()
+    val pinPx = popupClearance(spot != null, selected)
     // Forget the spot once its quest is closed or another is picked, so picking it again (from the list) opens at its start.
     LaunchedEffect(m.selected) { if (touched?.first != m.selected) touched = null }
     LaunchedEffect(m.selected, spot, bubblePx) {
@@ -424,7 +425,9 @@ private fun PlayMap(
             // With a popup open, a tap inside a park (not on its outline) closes it, so there is always somewhere to tap away.
             parkAt = { at -> if (m.selected != null) null else m.engine.parkAt(at.latitude, at.longitude, m.now()) },
             onQuestClick = { id, spotAt ->
-                touched = spotAt?.let { id to it }
+                // A pickup snaps to its exact spot (the map reports taps at tile precision), so the card and highlight agree.
+                val q = quests.firstOrNull { it.locationId == id }
+                touched = spotAt?.let { id to (q?.takeIf { it.collect != null }?.nearestItem(spotAt) ?: spotAt) }
                 m.selected = id
             },
             home = m.home?.let { LatLng(it.lat, it.lon) },
@@ -444,6 +447,18 @@ private fun PlayMap(
     }
 }
 
+// How far above its point a quest's popup must sit: clear of the selected pin, of a pickup's round token (centred on its spot), or
+// nothing for a spot on a trail or park.
+private fun popupClearance(
+    onSpot: Boolean,
+    q: QuestOut?,
+): Float =
+    when {
+        !onSpot -> MapMarkers.selectedQuestPinHeightPx()
+        q?.collect != null -> MapMarkers.ITEM_TOKEN_PX / 2f
+        else -> 0f
+    }
+
 // A quest with a pin gets a callout on it; one with no spot on the map (steps, squares, time away) gets the same card just above
 // the panel.
 @Composable
@@ -456,7 +471,7 @@ private fun BoxScope.QuestPopup(
     onBubbleSize: (Int) -> Unit,
 ) {
     val details: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
-        QuestCard(q, loadAbout = m.engine::about) { m.selected = null }
+        QuestCard(q, m.bag, loadAbout = m.engine::about) { m.selected = null }
     }
     if (q.anchor == null) {
         MapOverlayCard(Modifier.align(Alignment.BottomCenter).above(coverDp), content = details)
@@ -495,6 +510,7 @@ private fun GamePanel(
         (hud.traps + listOfNotNull(hud.blocked)).distinct().takeIf { it.isNotEmpty() }?.let {
             FeedbackText(it.joinToString("  ·  "), Tone.Danger)
         }
+        m.bag?.takeIf { it.over > 0u }?.let { FeedbackText("Backpack: ${it.load}", Tone.Warning) }
         TextButton(onClick = { showPlaces = !showPlaces }) {
             Text("${if (showPlaces) "Hide" else "Show"} places on the map (${layout.places.size})", fontSize = 12.sp)
         }

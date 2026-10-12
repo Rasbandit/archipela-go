@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import androidx.compose.ui.geometry.Offset
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
@@ -14,6 +15,7 @@ import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
 import kotlin.math.cos
+import kotlin.math.pow
 
 private const val MIN_POLYGON_POINTS = 3
 private const val BANNED_OPACITY = 0.55
@@ -102,11 +104,54 @@ internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems
 /** Every pin image the quest layer needs for these quests: each quest's, and each forager's item pin. */
 internal val List<QuestOut>.pinImages: Set<String> get() = flatMap { listOfNotNull(it.mapImageKey, it.itemImageKey) }.toSet()
 
-/** Pickups: each item a forager still needs found, carrying its quest's id (a tap selects the quest), faded while locked. */
-internal fun List<QuestOut>.itemFeatures(selected: Long?): List<JSONObject> =
+/** A pickup under a tap: its quest's id, where it lies, and where it is on screen. */
+internal data class TappedPickup(
+    val questId: String,
+    val at: LatLng,
+    val screen: Offset,
+)
+
+/** The pickup a tap on quest [quest] means: one of that quest's, the nearest [finger] (the map lists hits by draw order). */
+internal fun nearestPickup(
+    hits: List<TappedPickup>,
+    quest: Long,
+    finger: Offset,
+): LatLng? = hits.filter { it.questId == quest.toString() }.minByOrNull { (it.screen - finger).getDistanceSquared() }?.at
+
+/** Where [q]'s card sits when it was opened by a touch at [touched]: that spot while it is still there; null to use its anchor. */
+internal fun cardSpot(
+    touched: Pair<Long, LatLng>?,
+    q: QuestOut?,
+): LatLng? {
+    val spot = touched?.takeIf { q != null && it.first == q.locationId }?.second ?: return null
+    // A forager's spot is one of its pickups: once picked up or moved by a trap, the card goes back to the quest's anchor.
+    return if (q?.collect ==
+        null
+    ) {
+        spot
+    } else {
+        q.openItems.firstOrNull { it.at.lat == spot.latitude && it.at.lon == spot.longitude }?.let { spot }
+    }
+}
+
+/** The forager's pickup nearest [to] (a tap the map reports at tile precision); null for a quest with none. */
+internal fun QuestOut.nearestItem(to: LatLng): LatLng? =
+    openItems.minByOrNull { (it.at.lat - to.latitude).pow(2) + (it.at.lon - to.longitude).pow(2) }?.let { LatLng(it.at.lat, it.at.lon) }
+
+/**
+ * Pickups: each item a forager still needs found, carrying its quest's id (a tap selects the quest), faded while locked. Of the
+ * selected quest's pickups only the one its card is on ([at]) is selected; all of them when there is no card spot.
+ */
+internal fun List<QuestOut>.itemFeatures(
+    selected: Long?,
+    at: LatLng? = null,
+): List<JSONObject> =
     filter { it.state != HIDDEN }.mapNotNull { q -> q.itemImageKey?.let { q to it } }.flatMap { (q, image) ->
-        val props = { questProps(q, q.locationId == selected, image).put(MapProp.OPACITY, MapMarkers.itemOpacity(q.state)) }
-        q.openItems.map { GeoJson.pointFeature(it.at.lat, it.at.lon, props()) }
+        val pick = at?.takeIf { q.locationId == selected }?.let { q.nearestItem(it) }
+        q.openItems.map {
+            val on = q.locationId == selected && (pick == null || (it.at.lat == pick.latitude && it.at.lon == pick.longitude))
+            GeoJson.pointFeature(it.at.lat, it.at.lon, questProps(q, on, image).put(MapProp.OPACITY, MapMarkers.itemOpacity(q.state)))
+        }
     }
 
 /** The name of this find's pin image in the map style. */

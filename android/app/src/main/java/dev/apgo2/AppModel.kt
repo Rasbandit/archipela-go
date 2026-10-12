@@ -13,6 +13,7 @@ import dev.apgo2.presence.PresenceSettings
 import kotlinx.coroutines.CoroutineScope
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.AuditEventOut
+import uniffi.apgo_ffi.BagOut
 import uniffi.apgo_ffi.ChainOut
 import uniffi.apgo_ffi.Engine
 import uniffi.apgo_ffi.EventOut
@@ -122,6 +123,7 @@ internal class AppModel(
     var quests by mutableStateOf<List<QuestOut>>(emptyList())
     var zones by mutableStateOf<List<ZoneOut>>(emptyList())
     var hud by mutableStateOf<HudOut?>(null)
+    var bag by mutableStateOf<BagOut?>(null)
 
     /** Where you have been in this game: one line per unbroken stretch of GPS. */
     var trace by mutableStateOf<List<List<LatLng>>>(emptyList())
@@ -213,6 +215,7 @@ internal class AppModel(
             zones = engine.zones()
             chains = engine.chains(now())
             hud = engine.hud(now())
+            bag = engine.bag()
             if (withTrace) {
                 // This session's lines follow the streets where the match is confident (broken where the filter restarted far away);
                 // the engine sends only what changed (Task 19b). The journal draws everything before them, reloaded only when the
@@ -230,6 +233,7 @@ internal class AppModel(
             chains = emptyList()
             selectedChain = null
             hud = null
+            bag = null
             sessionTrace.clear()
             olderTrace = emptyList()
             trace = emptyList()

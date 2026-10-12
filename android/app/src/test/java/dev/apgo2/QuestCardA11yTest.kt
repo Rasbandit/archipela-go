@@ -3,12 +3,17 @@ package dev.apgo2
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -22,7 +27,10 @@ import com.github.takahirom.roborazzi.RoborazziATFAccessibilityChecker
 import com.github.takahirom.roborazzi.RoborazziRule
 import com.google.android.apps.common.testing.accessibility.framework.AccessibilityCheckPreset
 import dev.apgo2.ui.ApgoTheme
+import dev.apgo2.ui.MAP_BUBBLE_TAG
+import dev.apgo2.ui.MapBubble
 import dev.apgo2.ui.MapOverlayCard
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.ExpectedException
@@ -31,6 +39,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import uniffi.apgo_ffi.AboutOut
 import uniffi.apgo_ffi.AboutRowOut
+import uniffi.apgo_ffi.BagOut
+import uniffi.apgo_ffi.CollectOut
 import uniffi.apgo_ffi.PlaceOut
 import uniffi.apgo_ffi.ProgressOut
 import uniffi.apgo_ffi.QuestOut
@@ -68,6 +78,9 @@ class QuestCardA11yTest {
                 ),
         )
 
+    // A forager carrying 22 items (2 past the bag of 20): the backpack row with amber overflow slots, then the Banked block.
+    private val heavyBag = BagOut(20u, List(18) { "acorns" } + List(4) { "diamonds" }, 2u, 0.9f, "Heavy · steps −10%")
+
     private val about =
         AboutOut(
             description = "A bronze man offering his umbrella.",
@@ -75,11 +88,23 @@ class QuestCardA11yTest {
             wikipediaUrl = "https://en.wikipedia.org/wiki/Allow_Me",
         )
 
-    private fun show(q: QuestOut) {
+    private fun show(
+        q: QuestOut,
+        bag: BagOut? = null,
+    ) {
         compose.setContent {
-            ApgoTheme { MapOverlayCard { QuestCard(q, loadAbout = { about }) {} } }
+            ApgoTheme { MapOverlayCard { QuestCard(q, bag, loadAbout = { about }) {} } }
         }
     }
+
+    private fun foragerQuest(state: String) =
+        quest(state).copy(
+            kindId = "forager",
+            headline = "Collect 5 acorns",
+            cardDetail = "Bring them home to bank",
+            collect = CollectOut("acorns", 5u, 18u, 1u, emptyList()),
+            progressBlock = ProgressOut("Banked", "1 of 5 acorns", 0.2f, "Carrying 18", emptyList(), 0u),
+        )
 
     private fun placeQuest(state: String) =
         quest(state).copy(
@@ -142,6 +167,35 @@ class QuestCardA11yTest {
     @Config(qualifiers = "+night")
     @Test
     fun doneWithRewardDark() = show(dwellQuest("done"))
+
+    @Test fun heavyBackpackLight() = show(foragerQuest("progress"), heavyBag)
+
+    @Config(qualifiers = "+night")
+    @Test
+    fun heavyBackpackDark() = show(foragerQuest("progress"), heavyBag)
+
+    // Found on the phone: the callout padded 12dp on the left but 4dp on the right, so full-width rows ran into the edge.
+    @Test fun theCalloutPadsBothSidesAlike() {
+        compose.setContent {
+            ApgoTheme {
+                Box(Modifier.fillMaxSize()) {
+                    MapBubble(
+                        Offset(540f, 1800f),
+                        0f,
+                        onSize = {},
+                    ) { QuestCard(foragerQuest("progress"), heavyBag, loadAbout = { null }) {} }
+                }
+            }
+        }
+        val card = compose.onNodeWithTag(MAP_BUBBLE_TAG).getUnclippedBoundsInRoot()
+        val row = compose.onNode(hasContentDescription("Backpack, 22 items, Heavy · steps −10%")).getUnclippedBoundsInRoot()
+        assertEquals((row.left - card.left).value, (card.right - row.right).value, 0.5f)
+    }
+
+    @Test fun theBackpackReadsAsOneItem() {
+        show(foragerQuest("progress"), heavyBag)
+        compose.onNode(hasContentDescription("Backpack, 22 items, Heavy · steps −10%")).assertExists()
+    }
 
     @Test fun courierStepsLight() = show(courierQuest("progress"))
 

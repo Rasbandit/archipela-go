@@ -78,6 +78,9 @@ widgets or write colours themselves.
   quests that measure progress, even at zero) or the two-step tracker for courier and round trip; then "About this place ▾"
   only when the map knows more, folding out facts and a Wikipedia link. No OpenStreetMap link, no ⓘ button, no invisible
   units ("squares", "blocks").
+- **Backpack row** (forager cards, above the Banked block): `Backpack · N` and the load word (amber "Heavy · steps −N%" when
+  over), then one 22dp slot per bag space in a wrapping row: the carried item's icon, dashed when free, `ApgoPalette.overload`
+  amber past the bag size. No divider, no "+" slot. Read as one item ("Backpack, 22 items, Heavy · steps −10%").
 - A pattern used twice becomes a component in `Components.kt`. Selected chips are a solid `primary` fill because the Material default
   (`secondaryContainer`) blended into the card behind it.
 - Map layers read the palette once when the style loads, so map colours are not theme-reactive on purpose (the basemap is light).

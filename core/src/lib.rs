@@ -9,6 +9,7 @@ pub mod chain;
 pub mod effort;
 pub mod fill;
 pub mod fog;
+pub mod forage;
 pub mod game;
 pub mod geo;
 pub mod goal;
