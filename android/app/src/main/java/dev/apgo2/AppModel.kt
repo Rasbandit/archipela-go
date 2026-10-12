@@ -305,6 +305,8 @@ internal class AppModel(
         engine.logAppState(false, now())
         noteJournal()
         screen.hide()
+        presence.appVisible = false
+        presence.applyLocation() // another app in front: the batched in-zone rate, and no idle marker rate
         Diag.info("lifecycle", "background")
         diag.drainCore()
     }
@@ -320,6 +322,9 @@ internal class AppModel(
     /** Back on screen: log it, and how long the app was away; draw once what changed while off screen. */
     fun onForeground() {
         val owed = screen.show()
+        // Set here, not from composition: Compose draws no frame while the activity is stopped, so an effect could not see it.
+        presence.appVisible = true
+        presence.applyLocation()
         val left = engine.lastBackgroundMs()
         val t = now()
         engine.logAppState(true, t)

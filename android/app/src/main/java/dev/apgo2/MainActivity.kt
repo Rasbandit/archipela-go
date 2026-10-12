@@ -41,34 +41,30 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainContent(model: AppModel) {
     val perms = rememberPermissionState()
-    val visible = rememberScreenVisible(model, perms)
+    LifecycleHooks(model, perms)
     RequestPermissions(perms, model.setup.visible)
     BackgroundLocationPrompt(perms, model.setup.visible)
-    TrackingEffects(model, perms, visible)
+    TrackingEffects(model, perms)
     AppRoot(model, backgroundPromptUp = perms.shouldExplainBackground(model.setup.visible))
 }
 
-// Whether the app is on screen. Also tells the model when it leaves and returns, and re-reads the permissions that are granted on a
-// system settings page.
+// Tells the model when the app leaves the screen and returns, and re-reads the permissions that are granted on a system settings page.
 @Composable
-private fun rememberScreenVisible(
+private fun LifecycleHooks(
     model: AppModel,
     perms: PermissionState,
-): Boolean {
+) {
     val owner = LocalLifecycleOwner.current
-    var visible by remember { mutableStateOf(true) }
     DisposableEffect(owner) {
         val observer =
             LifecycleEventObserver { _, event ->
                 when (event) {
                     Lifecycle.Event.ON_START -> {
-                        visible = true
                         perms.refresh()
                         model.onForeground()
                     }
 
                     Lifecycle.Event.ON_STOP -> {
-                        visible = false
                         model.onBackground()
                     }
 
@@ -78,7 +74,6 @@ private fun rememberScreenVisible(
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
-    return visible
 }
 
 // Starts and stops what runs while the game is played: step counter, location, Wi-Fi/Bluetooth monitor, the tracking service and
@@ -87,14 +82,13 @@ private fun rememberScreenVisible(
 private fun TrackingEffects(
     model: AppModel,
     perms: PermissionState,
-    visible: Boolean,
 ) {
     val context = LocalContext.current
     LaunchedEffect(perms.steps) { if (perms.steps) model.sensors.startSteps() }
     // The presence decision picks the rate: precise in a zone, coarse outside, off at home or in the car. Stopped
     // (no game) keeps the map marker while the app is on screen.
-    LaunchedEffect(perms.location, model.hud != null, visible, model.presence.decision) {
-        model.presence.appVisible = visible
+    // Visibility is applied by the lifecycle (AppModel.onForeground/onBackground), which runs while the activity is stopped too.
+    LaunchedEffect(perms.location, model.hud != null, model.presence.decision) {
         model.presence.locationPermitted = perms.location
         if (perms.location) model.presence.applyLocation() else model.sensors.stopLocation()
     }

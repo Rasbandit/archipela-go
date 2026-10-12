@@ -6,8 +6,7 @@ package dev.apgo2
  * activity's first start shows it. Not thread-safe: call it from the UI thread.
  */
 internal class ScreenGate {
-    var visible = false
-        private set
+    private var visible = false
     private var owed = false
 
     /** Whether to redraw now; off screen it notes that a redraw is owed instead. */
