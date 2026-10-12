@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import androidx.compose.ui.geometry.Offset
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MarkerSpec
@@ -150,6 +151,25 @@ class MapFeaturesTest {
         assertEquals(listOf(false, true), sel(LatLng(2.0000003, 1.9999998)))
         assertEquals(LatLng(2.0, 2.0), q.nearestItem(LatLng(1.9, 2.1)))
         assertEquals("no card spot: the quest's pickups as before", listOf(true, true), sel(null))
+    }
+
+    // Review of the tap fix: a tap takes only the tapped quest's pickup, the one nearest the finger (not the topmost drawn).
+    @Test fun aTapTakesTheTappedQuestsPickupNearestTheFinger() {
+        val mine = { id: String, x: Float -> TappedPickup(id, LatLng(x.toDouble(), 0.0), Offset(x, 0f)) }
+        val hits = listOf(mine("8", 1f), mine("7", 30f), mine("7", 5f))
+        assertEquals(LatLng(5.0, 0.0), nearestPickup(hits, quest = 7, finger = Offset(0f, 0f)))
+        assertNull("another quest's pickup under a pin is not this pin's spot", nearestPickup(hits, quest = 9, finger = Offset(0f, 0f)))
+    }
+
+    // Review of the tap fix: once the pickup the card is on is picked up or moved, the card goes back to the quest's own anchor.
+    @Test fun theCardSpotFollowsThePickupAndLetsGoWhenItIsGone() {
+        val items = listOf(CollectItemOut(geo(1.0, 1.0), false), CollectItemOut(geo(2.0, 2.0), false))
+        val q = quest(7, shape = "collect").copy(kindId = "forager", collect = CollectOut("acorns", 3u, 0u, 0u, items))
+        assertEquals(LatLng(2.0, 2.0), cardSpot(7L to LatLng(2.0, 2.0), q))
+        assertNull("picked up: no spot", cardSpot(7L to LatLng(3.0, 3.0), q))
+        assertNull("another quest's spot", cardSpot(8L to LatLng(2.0, 2.0), q))
+        val trail = quest(9, shape = "line")
+        assertEquals("a trail keeps the spot touched", LatLng(4.0, 4.0), cardSpot(9L to LatLng(4.0, 4.0), trail))
     }
 
     @Test fun aLockedForagersPickupsFadeAndAnotherQuestsAreNotSelected() {

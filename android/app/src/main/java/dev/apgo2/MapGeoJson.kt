@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import androidx.compose.ui.geometry.Offset
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
@@ -102,6 +103,36 @@ internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems
 
 /** Every pin image the quest layer needs for these quests: each quest's, and each forager's item pin. */
 internal val List<QuestOut>.pinImages: Set<String> get() = flatMap { listOfNotNull(it.mapImageKey, it.itemImageKey) }.toSet()
+
+/** A pickup under a tap: its quest's id, where it lies, and where it is on screen. */
+internal data class TappedPickup(
+    val questId: String,
+    val at: LatLng,
+    val screen: Offset,
+)
+
+/** The pickup a tap on quest [quest] means: one of that quest's, the nearest [finger] (the map lists hits by draw order). */
+internal fun nearestPickup(
+    hits: List<TappedPickup>,
+    quest: Long,
+    finger: Offset,
+): LatLng? = hits.filter { it.questId == quest.toString() }.minByOrNull { (it.screen - finger).getDistanceSquared() }?.at
+
+/** Where [q]'s card sits when it was opened by a touch at [touched]: that spot while it is still there; null to use its anchor. */
+internal fun cardSpot(
+    touched: Pair<Long, LatLng>?,
+    q: QuestOut?,
+): LatLng? {
+    val spot = touched?.takeIf { q != null && it.first == q.locationId }?.second ?: return null
+    // A forager's spot is one of its pickups: once picked up or moved by a trap, the card goes back to the quest's anchor.
+    return if (q?.collect ==
+        null
+    ) {
+        spot
+    } else {
+        q.openItems.firstOrNull { it.at.lat == spot.latitude && it.at.lon == spot.longitude }?.let { spot }
+    }
+}
 
 /** The forager's pickup nearest [to] (a tap the map reports at tile precision); null for a quest with none. */
 internal fun QuestOut.nearestItem(to: LatLng): LatLng? =

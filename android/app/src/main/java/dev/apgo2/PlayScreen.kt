@@ -401,7 +401,7 @@ private fun PlayMap(
     // Where a trail, park or forager pickup was touched: its card shows there instead of at its start or first pickup (only while
     // that quest stays selected).
     var touched by remember { mutableStateOf<Pair<Long, LatLng>?>(null) }
-    val spot = touched?.takeIf { it.first == m.selected }?.second
+    val spot = cardSpot(touched, selected)
     val at = spot ?: selected?.anchor?.let { LatLng(it.lat, it.lon) }
     val pinPx = popupClearance(spot != null, selected)
     // Forget the spot once its quest is closed or another is picked, so picking it again (from the list) opens at its start.

@@ -446,7 +446,7 @@ private class MapHolder(
         // caller: an open park's fill is not drawn, so the map cannot find it).
         val pin = onQuest?.let { featureId(m, near, MapStyle.QUEST_LAYERS)?.toLongOrNull() }
         // A forager's pickup: its card opens on the pickup touched, not on the quest's first one.
-        val pickup = pin?.let { itemAt(m, near) }
+        val pickup = pin?.let { itemAt(m, near, it, at) }
         val shape =
             onQuest?.takeIf { pin == null }?.let {
                 featureId(m, near, MapStyle.QUEST_LINE_LAYERS)?.toLongOrNull() ?: inputs.parkAt.value?.invoke(ll)
@@ -467,9 +467,23 @@ private class MapHolder(
     private fun itemAt(
         m: MapLibreMap,
         area: RectF,
-    ): LatLng? =
-        (m.queryRenderedFeatures(area, *MapStyle.ITEM_LAYERS).firstOrNull()?.geometry() as? Point)
-            ?.let { LatLng(it.latitude(), it.longitude()) }
+        quest: Long,
+        finger: PointF,
+    ): LatLng? {
+        val hits =
+            m.queryRenderedFeatures(area, *MapStyle.ITEM_LAYERS).mapNotNull { f ->
+                val p = f.geometry() as? Point
+                val id = f.getStringProperty(MapProp.ID)
+                if (p == null || id == null) {
+                    null
+                } else {
+                    val ll = LatLng(p.latitude(), p.longitude())
+                    val s = m.projection.toScreenLocation(ll)
+                    TappedPickup(id, ll, Offset(s.x, s.y))
+                }
+            }
+        return nearestPickup(hits, quest, Offset(finger.x, finger.y))
+    }
 
     private fun featureId(
         m: MapLibreMap,
