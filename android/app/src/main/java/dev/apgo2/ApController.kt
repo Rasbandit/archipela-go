@@ -31,6 +31,9 @@ private const val LAN_HINT_AFTER_MS = 10_000L
 // The longest a quiet, connected session sleeps before looking again (a safety net: the server's own pings wake it sooner).
 private const val AP_IDLE_WAIT_MS = 60_000
 
+// How long a probe after a silent wait may take to be answered before the connection counts as dead.
+private const val AP_PROBE_WAIT_MS = 15_000
+
 // The core's ApSession.status() while connected.
 private const val CONNECTED = "connected"
 
@@ -151,12 +154,26 @@ internal class ApController(
             // A session closed by a reconnect meanwhile throws; that is a wake like any other (the loop then ends).
             val woke = slept && withContext(Dispatchers.IO) { runCatching { s.waitForData(AP_IDLE_WAIT_MS.toUInt()) }.getOrDefault(true) }
             if (active || woke) lastDataMs = SystemClock.elapsedRealtime()
-            if (ApWait.dead(slept, woke)) {
+            if (ApWait.dead(slept, woke) && !probeAnswered(s)) {
                 Diag.warn("ap", "silent connection: reconnecting", "waited_ms" to AP_IDLE_WAIT_MS)
                 return reconnectFrom(s)
             }
             delay(poll.nextDelayMs(active || woke).toLong()) // at least the short wait: a closed socket stays readable
         }
+    }
+
+    // After a whole silent wait: ask the server something it always answers. A live connection on a server that does not ping
+    // wakes and stays (no reconnect, which would announce a leave and join to the room); a dead one stays silent.
+    private suspend fun probeAnswered(s: ApSession): Boolean {
+        val answered =
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    s.probe()
+                    s.waitForData(AP_PROBE_WAIT_MS.toUInt())
+                }.getOrDefault(false)
+            }
+        if (answered) lastDataMs = SystemClock.elapsedRealtime()
+        return answered
     }
 
     // A new session to the same server, unless the player connected elsewhere meanwhile; it replaces [s]'s loop.

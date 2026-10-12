@@ -285,6 +285,20 @@ impl ApSession {
         wait_ready(ready, timeout_ms)
     }
 
+    /// Ask the server something it always answers (a `Get` of an unused key; it replies `Retrieved`), so a silent but live
+    /// connection wakes [`Self::wait_for_data`] and a dead one stays silent. Used before reconnecting after a whole silent wait, for
+    /// servers that do not ping.
+    ///
+    /// # Errors
+    /// `Failed` when not connected.
+    #[allow(clippy::significant_drop_tightening)] // the client borrows from the connection guard until the request is sent
+    pub fn probe(&self) -> Result<(), CoreError> {
+        let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let client = conn.client_mut().ok_or_else(|| CoreError::Failed { detail: "not connected".into() })?;
+        drop(client.get(["_apgo_probe"])); // the answer is only a wake-up; nobody reads it
+        Ok(())
+    }
+
     /// `connecting`, `connected`, or `disconnected: <reason>`.
     pub fn status(&self) -> String {
         let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
