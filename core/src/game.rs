@@ -17,7 +17,7 @@ use crate::catalog::{Catalog, Mode};
 use crate::chain::{self, is_chain_target, Chain, ChainUnit};
 use crate::fog::{anchor, reveal_radius, Fog};
 use crate::forage::{Forage, BAG_SIZE, LIVE_PER_NEED, RESPAWN_MS};
-use crate::geo::{distance_m, Point};
+use crate::geo::{densify, distance_m, Point};
 use crate::goal::{evaluate, evaluate_each, GoalCtx, GoalStatus};
 use crate::journal::JournalEvent;
 use crate::loc::calib::StepCal;
@@ -338,6 +338,9 @@ pub struct Game {
     /// The last accepted position, kept across counting pauses (unlike `last_fix`): where traps are placed (adversarial re-review N5).
     #[serde(skip)]
     last_accepted: Option<Point>,
+    /// Where the player was last seen: the last accepted or bridged (from steps) estimate. New forager items keep clear of it.
+    #[serde(skip)]
+    last_seen: Option<Point>,
     /// The location filter: raw fixes in, estimates out. Never saved (a restart starts fresh).
     #[serde(skip)]
     locator: Locator,
@@ -548,6 +551,7 @@ impl Game {
             trackers: BTreeMap::new(),
             last_fix: None,
             last_accepted: None,
+            last_seen: None,
             unlocked_at: BTreeMap::new(),
             unseen_since_good: false,
             locator: Locator::default(),
@@ -871,7 +875,7 @@ impl Game {
         }
         self.credit_steps(total);
         if bridged.is_none() {
-            self.top_up_due(t_ms, self.last_accepted); // a bridged estimate tops up below, clear of where the steps put the player
+            self.top_up_due(t_ms, self.last_seen); // a bridged estimate tops up below, clear of where the steps put the player
         }
         let mut ev = bridged.map(|b| self.on_estimate(&b, None)).unwrap_or_default();
         ev.extend(self.complete_reached(t_ms, self.last_pos()));
@@ -1078,7 +1082,7 @@ impl Game {
 
     /// A scheduled wake-up (see [`Self::next_due_ms`]): settle time away, finish dwells still running, complete what fell due.
     pub fn tick(&mut self, t_ms: i64) -> Vec<Event> {
-        self.top_up_due(t_ms, self.last_accepted);
+        self.top_up_due(t_ms, self.last_seen);
         self.settle_away(t_ms);
         let mut ev = Vec::new();
         if self.counting && !self.checks_blocked() && !self.unseen_since_good {
@@ -1166,8 +1170,10 @@ impl Game {
     fn check(&mut self, est: &Estimate, steps_total: Option<i64>, moved: f64) -> Vec<Event> {
         let mut ev = Vec::new();
         // Where the player is: this estimate when it counts (or is bridged from steps), else the last one that did.
-        let here = if est.accepted || est.source == Source::Bridged { Some(est.point()) } else { self.last_accepted };
-        self.top_up_due(est.t_ms, here);
+        if est.accepted || est.source == Source::Bridged {
+            self.last_seen = Some(est.point());
+        }
+        self.top_up_due(est.t_ms, self.last_seen);
         if let Some(total) = steps_total {
             self.credit_steps(total);
         }
@@ -1356,7 +1362,8 @@ impl Game {
             .flat_map(|a| match &a.target {
                 Target::Collect { .. } => self.live_items(a),
                 Target::Courier { a, b, .. } => vec![*a, *b],
-                Target::Line { pts, .. } => pts.clone(),
+                // Points along the route close enough together that keeping clear of each keeps clear of the line between them.
+                Target::Line { pts, .. } => densify(pts, ITEM_SPACING_M / 4.0),
                 t => anchor(t).into_iter().collect(),
             })
             .chain(here)
@@ -1395,7 +1402,7 @@ impl Game {
     /// with its `salt` (see [`Forage::salt`]).
     fn fill_unfilled(&mut self) {
         let pools = std::mem::take(&mut self.forage_pools);
-        let here = self.last_accepted;
+        let here = self.last_seen;
         for (id, want, r) in self.forager_wants() {
             let Some(pool) = pools.get(&id) else { continue };
             let Some(salt) = self.forage_entry(id).filter(|f| !f.filled).map(|f| f.salt) else { continue };
@@ -3545,6 +3552,19 @@ mod tests {
     }
 
     #[test]
+    fn a_top_up_keeps_clear_of_a_trail_between_its_corners() {
+        let (start, end) = (destination(home(), 180.0, 700.0), destination(home(), 180.0, 1700.0));
+        let on_the_way = destination(destination(home(), 180.0, 1200.0), 90.0, 20.0);
+        let free = destination(home(), 270.0, 700.0);
+        let (mut g, _) = due_forager(vec![on_the_way, free]);
+        let trail = Target::Line { pts: vec![start, end], corridor_m: 20.0, coverage: 0.8 };
+        g.assignments.push(chain::tests_support::member(2002, 1, "trail", trail));
+        g.tick(RESPAWN_MS);
+        assert!(!live(&g).contains(&on_the_way), "an item 20 m off the trail, 500 m from either corner");
+        assert!(live(&g).contains(&free));
+    }
+
+    #[test]
     fn a_top_up_keeps_out_of_pick_range_even_past_the_item_spacing() {
         let here = destination(home(), 90.0, 700.0);
         let (mut g, _) = due_forager(vec![destination(here, 0.0, 70.0)]);
@@ -3587,6 +3607,32 @@ mod tests {
             }
         }
         let pos = topped_at.expect("topped up while bridged");
+        let nearest = g.forage[&9000].items.iter().map(|i| distance_m(i.p, pos)).fold(f64::INFINITY, f64::min);
+        assert!(nearest >= ITEM_SPACING_M, "an item {nearest} m from the bridged player");
+    }
+
+    #[test]
+    fn a_scheduled_top_up_in_a_bridged_gap_keeps_clear_of_where_the_steps_put_the_player() {
+        let (mut g, id, p0) = start_near_a_quest();
+        let course = crate::geo::bearing_deg(p0, target_of(&g, id));
+        let at = |s: i64| destination(p0, course, 1.4 * i64_to_f64(s));
+        let mut steps = 10_000.0_f64;
+        for s in 1..=30 {
+            g.on_fix(&raw(at(s), 1000 + s, 4.0), Some(round_i64(steps)));
+            steps += 1.93;
+        }
+        let due = 1200 * 1000;
+        g.assignments.push(chain::tests_support::member(9000, 1, "forager", Target::Collect { pts: Vec::new(), need: 3, r: 25.0, theme: "acorns".into() }));
+        g.forage.insert(9000, Forage { next_spawn_ms: Some(due), filled: true, ..Forage::default() });
+        g.forage_pools.insert(9000, (0..15).map(|i| destination(p0, course, 30.0 * f64::from(i))).collect());
+        for s in 31..=199 {
+            steps += 1.93;
+            g.on_steps(round_i64(steps), (1000 + s) * 1000, None);
+        }
+        let pos = g.position(1_199_000).filter(|d| d.source == crate::loc::DisplaySource::Bridged).map(|d| Point::new(d.lat, d.lon));
+        let pos = pos.expect("bridged before the wake-up");
+        g.tick(due); // the wake-up scheduled for the respawn comes before the next step batch
+        assert!(!g.forage[&9000].items.is_empty(), "topped up");
         let nearest = g.forage[&9000].items.iter().map(|i| distance_m(i.p, pos)).fold(f64::INFINITY, f64::min);
         assert!(nearest >= ITEM_SPACING_M, "an item {nearest} m from the bridged player");
     }
