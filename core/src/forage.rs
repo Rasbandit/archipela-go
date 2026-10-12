@@ -35,6 +35,9 @@ pub struct Forage {
     /// Whether the quest was filled to its live size once (the first streets build after it was placed or loaded).
     #[serde(default)]
     pub filled: bool,
+    /// Varies the spots the next fill draws (a Shuffle trap's seed), so a refill does not bring back the ones the first fill chose.
+    #[serde(default)]
+    pub salt: u64,
 }
 
 impl Forage {
@@ -42,7 +45,7 @@ impl Forage {
     #[must_use]
     pub fn seed(pts: &[Point]) -> Self {
         let items: Vec<Item> = (0u32..).zip(pts).map(|(id, p)| Item { id, p: *p }).collect();
-        Self { next_id: crate::num::count_u32(items.len()), items, next_spawn_ms: None, filled: false }
+        Self { next_id: crate::num::count_u32(items.len()), items, ..Self::default() }
     }
 
     /// Picks up every item within `r` of `at` at `t_ms`; returns how many. Never refused, whatever the bag holds.
