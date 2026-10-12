@@ -260,6 +260,7 @@ impl Locator {
         self.turn_check = None;
         self.bridge_step_az = None;
         self.reanchored_step_ms = None;
+        self.bridge_blurry = 0;
         self.reanchor_warmup = 0;
         self.reanchor_floor_m2 = None;
         self.bridge_pause_owed = false; // a restart pauses the trackers itself
@@ -280,7 +281,7 @@ impl Locator {
         self.restarted = false;
         let e = self.filter_fix(f);
         self.bridge_blurry = if self.bridge.is_some() && e.verdict == Verdict::Blurry { self.bridge_blurry + 1 } else { 0 };
-        if e.accepted || matches!(e.verdict, Verdict::Used | Verdict::Soft) || self.bridge_blurry >= self.params.bridge_end_blurry_fixes {
+        if e.accepted || matches!(e.verdict, Verdict::Used | Verdict::Soft) || self.bridge_blurry >= self.params.bridge_end_blurry_fixes.max(1) {
             // GPS is back (review I2: a gated or a lone blurry fix leaves the cloud running; a run of blurry ones ends it for the display,
             // #126). A fix taken after a re-anchor ends it too, though it does not count yet: re-anchoring again on the next steps would
             // throw the fix away (adversarial review C1).

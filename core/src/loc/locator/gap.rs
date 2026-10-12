@@ -53,8 +53,8 @@ impl Locator {
     /// A step counter reading. Steps coming in end a stationary hold at once. In a Walk or Run zone, once the last accepted fix is
     /// `bridge_after_ms` old and steps keep coming, the gap is bridged (Task 22): each step batch moves the particle cloud by `steps x
     /// L(cadence) x k` and returns a bridged estimate (display, fog and Cartographer squares only, `accepted = false`). The bridge ends at
-    /// the next accepted fix, or `bridge_max_ms` after the last one (then the filter starts afresh and the last bridged pin stays, aging
-    /// by the display rules). After `bridge_no_steps_ms` without steps it pauses, and the next steps carry the same cloud on.
+    /// the next accepted fix, after `bridge_end_blurry_fixes` Blurry fixes in a row, or `bridge_max_ms` after the last one (then the
+    /// filter starts afresh and the last bridged pin stays, aging by the display rules). After `bridge_no_steps_ms` without steps it pauses, and the next steps carry the same cloud on.
     pub fn on_steps(&mut self, total: i64, t_ms: i64, cadence: Option<f64>) -> Option<Estimate> {
         let before = self.steps.latest();
         self.steps.push(total, t_ms);
@@ -339,7 +339,7 @@ impl Locator {
         self.imm = Some(Imm::with_prior(frame.to_enu(mean), cov, vel, mu, b.last_step_ms, self.mode, &self.params));
     }
 
-    /// An accepted fix ends the bridge; the bridged pin is kept but [`Self::last`] is newer.
+    /// A taken fix, or a run of Blurry ones, ends the bridge; the bridged pin is kept but [`Self::last`] is newer.
     pub(super) fn end_bridge(&mut self) {
         self.bridge = None;
         self.bridge_paused = false;
@@ -790,6 +790,15 @@ mod tests {
         assert!(shown.source != DisplaySource::Bridged && distance_m(Point::new(shown.lat, shown.lon), on_street(1.4 * 61.0)) < 60.0, "{shown:?}");
         let counted = (62..70).map(|t| walking_fix(&mut l, t, &fix(on_street(1.4 * i64_to_f64(t)), t, 4.0))).find(|e| e.accepted).unwrap();
         assert!(l.resumed_after_bridge(), "the coarse stretch was not seen well enough to dwell: {counted:?}");
+    }
+
+    #[test]
+    fn a_zero_blurry_run_setting_still_leaves_the_cloud_on_a_gated_fix() {
+        let mut l = Locator::new(LocParams { bridge_end_blurry_fixes: 0, ..LocParams::default() });
+        l.set_graph(grid());
+        walk_into_a_gap(&mut l, 40, 56, |_| 90.0);
+        assert_eq!(walking_fix(&mut l, 56, &multipath(56)).verdict, Verdict::Gated);
+        assert!(l.bridging(), "review I2: a gated fix never ends the bridge");
     }
 
     #[test]
