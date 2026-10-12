@@ -86,7 +86,8 @@ internal object GpsPolicy {
 
     /**
      * Whether to flush the running request's batch before replacing it with [next]: only a batched request holds fixes back, and only
-     * a new request replaces it. Stopping needs none: a stop follows a decision that stops counting, so the core ignores those fixes.
+     * a new request replaces it. Stopping needs none: a stop follows arriving home or in the car, which settles only after a 45 s
+     * debounce (presence/PresencePolicy.kt Debouncer), so every fix taken before arriving was delivered (batches are 20 s at most).
      */
     fun shouldFlush(
         running: Rate?,
