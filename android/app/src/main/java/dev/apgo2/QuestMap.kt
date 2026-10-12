@@ -695,12 +695,18 @@ private fun SyncContent(
         holder.show(MapSource.FINDS, rest)
         holder.show(MapSource.FIND_SEL, picked)
     }
-    LaunchedEffect(style, quests, selected) {
+    // Keyed on what the map draws, not the whole list: progress text moves with every fix and must not rebuild the GeoJSON. The
+    // selected pin is a data split (its own unclustered source keeps it out of cluster counts), so a selection rebuilds the pins.
+    val pinKey = remember(quests) { quests.pinKey }
+    val lineKey = remember(quests) { quests.lineKey }
+    LaunchedEffect(style, pinKey, selected) {
         style?.let { st -> quests.pinImages.forEach { holder.ensureImage(st, it) } }
         val (rest, picked) = MapFeatures.splitSelected(MapFeatures.quests(quests, selected))
         holder.show(MapSource.QUESTS, rest)
         holder.show(MapSource.QUEST_SEL, picked)
         holder.show(MapSource.ITEMS, quests.itemFeatures(selected))
+    }
+    LaunchedEffect(style, lineKey) {
         holder.show(MapSource.LINES, MapFeatures.lines(quests))
         holder.show(MapSource.AREAS, MapFeatures.areas(quests))
     }
