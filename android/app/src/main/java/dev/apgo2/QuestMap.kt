@@ -101,6 +101,7 @@ private const val ME_ACCURACY_ALPHA = 0.15f
 
 // The player's pin bitmap is drawn at this factor at every zoom (as the old badge was).
 private const val ME_ICON_SCALE = 0.75f
+private const val ME_ANIMATION_FPS = 20
 
 /** A find drawn on the map: an icon pin for its quest kind, coloured by the player's mark ("none" | "favorite" | "banned"). */
 internal data class MapFind(
@@ -240,6 +241,9 @@ private class MapHolder(
 
     // The player pin's look as last applied (see showMe).
     var meSpec: MarkerSpec.Me? = null
+
+    /** The pin the location component shows, to skip updates too small to see ([MePins.meaningfullyDiffers]). */
+    var meDrawn: MePin? = null
 
     init {
         MapLibre.getInstance(context)
@@ -845,10 +849,14 @@ private fun MapHolder.showMe(pin: MePin?) {
                 .build()
         lc.activateLocationComponent(opts)
         lc.renderMode = RenderMode.NORMAL
+        // Its glide and circle animate at this rate (the pin moves about once a second), not at the display's 60-120 Hz.
+        lc.setMaxAnimationFps(ME_ANIMATION_FPS)
         meSpec = first
+        meDrawn = null
     }
     if (pin == null) {
         lc.isLocationComponentEnabled = false
+        meDrawn = null
         return
     }
     if (pin.spec != meSpec) {
@@ -856,6 +864,10 @@ private fun MapHolder.showMe(pin: MePin?) {
         meSpec = pin.spec
     }
     // Enabling again would replay the last location without animation: only when it is off.
-    if (!lc.isLocationComponentEnabled) lc.isLocationComponentEnabled = true
-    lc.forceLocationUpdate(listOf(pin.toLocation(System.currentTimeMillis())), true)
+    val wasOff = !lc.isLocationComponentEnabled
+    if (wasOff) lc.isLocationComponentEnabled = true
+    if (wasOff || MePins.meaningfullyDiffers(meDrawn, pin)) {
+        lc.forceLocationUpdate(listOf(pin.toLocation(System.currentTimeMillis())), true)
+        meDrawn = pin
+    }
 }
