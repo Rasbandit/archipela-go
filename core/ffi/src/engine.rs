@@ -488,6 +488,8 @@ pub struct CollectOut {
     pub banked: u32,
     /// The items still on the map (picked ones are gone; new ones appear as the map tops up).
     pub items: Vec<CollectItemOut>,
+    /// Whether the map draws these items instead of the quest's pin (see `collect_out`).
+    pub on_map: bool,
 }
 
 /// The shared backpack: what every forager carries (#142).
@@ -505,12 +507,22 @@ pub struct BagOut {
     pub load: String,
 }
 
-fn collect_out(t: &Target, c: Option<&Collected>, live: &[Point]) -> Option<CollectOut> {
+/// A forager's items and counts as the app shows them in `state`; `None` for other quests. The map draws the items instead of the pin
+/// (`on_map`) while it is unfinished, not fogged and items are still out there; a done one, or one with every item picked (its pin
+/// then sits at `pin_at`), is drawn like any quest.
+fn collect_out(t: &Target, c: Option<&Collected>, live: &[Point], state: QuestState) -> Option<CollectOut> {
     let Target::Collect { need, theme, .. } = t else { return None };
     let c = c.cloned().unwrap_or_default();
     // `picked` stays in the record for the map's filters; live items are never picked.
     let items = live.iter().map(|p| CollectItemOut { at: gp(*p), picked: false }).collect();
-    Some(CollectOut { theme: theme.clone(), need: *need, carried: c.carried, banked: c.banked, items })
+    Some(CollectOut {
+        theme: theme.clone(),
+        need: *need,
+        carried: c.carried,
+        banked: c.banked,
+        items,
+        on_map: !matches!(state, QuestState::Done | QuestState::Hidden) && !live.is_empty(),
+    })
 }
 
 /// The first item still out there, where the quest's pin and popup sit.
@@ -518,10 +530,11 @@ fn first_open(c: &CollectOut) -> Option<Point> {
     c.items.iter().find(|i| !i.picked).map(|i| pt(&i.at))
 }
 
-/// Where a quest's pin and popup sit: an unfinished forager's first item still out there, otherwise its own anchor.
-fn pin_at(collect: Option<&CollectOut>, state: QuestState, anchor: Option<Point>) -> Option<Point> {
+/// Where a quest's pin and popup sit: an unfinished forager's first item still out there, or `home` once every item is picked and some
+/// are still carried (bring them home); otherwise its own anchor.
+fn pin_at(collect: Option<&CollectOut>, state: QuestState, anchor: Option<Point>, home: Point) -> Option<Point> {
     match collect {
-        Some(c) if state != QuestState::Done => first_open(c).or(anchor),
+        Some(c) if state != QuestState::Done => first_open(c).or_else(|| (c.carried > 0).then_some(home)).or(anchor),
         _ => anchor,
     }
 }
@@ -576,6 +589,8 @@ pub struct HudOut {
     pub waypoint: Option<GeoPoint>,
     /// Why checks are blocked right now (a trap), if they are.
     pub blocked: Option<String>,
+    /// The active traps and the block as one line, each once, for the part of the Play panel that never hides; `None` with neither.
+    pub danger: Option<String>,
     /// Distance travelled so far, in kilometres.
     pub distance_km: f64,
     /// Days in a row on which a quest was completed.
@@ -639,6 +654,17 @@ pub enum EventOut {
         /// The message.
         text: String,
     },
+}
+
+/// `traps` and `blocked` as one line, each once; `None` when there is neither.
+fn danger_line(traps: &[String], blocked: Option<String>) -> Option<String> {
+    let mut all: Vec<String> = Vec::new();
+    for t in traps.iter().cloned().chain(blocked) {
+        if !all.contains(&t) {
+            all.push(t);
+        }
+    }
+    (!all.is_empty()).then(|| all.join("  ·  "))
 }
 
 fn ev_out(e: Event) -> EventOut {
@@ -715,34 +741,6 @@ pub struct AuditEventOut {
     pub detail: String,
     /// Where the player was when it happened, if known.
     pub at: Option<GeoPoint>,
-}
-
-/// How many events of one kind happened.
-#[derive(Debug, uniffi::Record)]
-pub struct KindCountOut {
-    /// Machine name of the event kind.
-    pub kind: String,
-    /// Number of events of that kind.
-    pub count: u32,
-}
-
-/// "While you were out": everything recorded between two moments.
-#[derive(Debug, uniffi::Record)]
-pub struct AwayReportOut {
-    /// Start of the period, in Unix milliseconds.
-    pub from_ms: i64,
-    /// End of the period, in Unix milliseconds.
-    pub to_ms: i64,
-    /// Number of GPS points recorded.
-    pub points: u32,
-    /// How many of those points came from the dev simulator.
-    pub simulated_points: u32,
-    /// Distance travelled in the period, in metres.
-    pub distance_m: f64,
-    /// Number of events of each kind.
-    pub counts: Vec<KindCountOut>,
-    /// The events themselves, oldest first.
-    pub events: Vec<AuditEventOut>,
 }
 
 /// What to tell the Archipelago server on (re)connect ([`Engine::server_report`]).
@@ -1896,8 +1894,8 @@ impl Engine {
                     });
                     let has_about = q.has_about;
                     let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target, units);
-                    let collect = collect_out(&q.target, q.collected.as_ref(), &q.live_items);
-                    let anchor = pin_at(collect.as_ref(), q.state, anchor);
+                    let collect = collect_out(&q.target, q.collected.as_ref(), &q.live_items, q.state);
+                    let anchor = pin_at(collect.as_ref(), q.state, anchor, g.home);
                     QuestOut {
                         location_id: q.location_id,
                         zone: q.zone,
@@ -2037,6 +2035,7 @@ impl Engine {
                 keys: count_u32(g.items.iter().filter(|i| *i == "Progressive Zone Key").count()),
                 tools,
                 letters: letters.into_iter().collect(),
+                danger: danger_line(&g.trap_labels(), g.blocked_reason()),
                 traps: g.trap_labels(),
                 thaw: g.traps.thaw_point().map(gp),
                 waypoint: g.traps.waypoint().map(gp),
@@ -2352,28 +2351,6 @@ impl Engine {
         }
     }
 
-    /// Everything that happened in the open game between two moments.
-    pub fn away_report(&self, from_ms: i64, to_ms: i64) -> Option<AwayReportOut> {
-        let id = self.game_id()?;
-        let j = self.journal.as_ref()?.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let s = j.summary(&id, from_ms, to_ms).ok()?;
-        let events = j.events_since(&id, from_ms).ok()?;
-        drop(j);
-        Some(AwayReportOut {
-            from_ms,
-            to_ms,
-            points: s.points,
-            simulated_points: s.simulated_points,
-            distance_m: s.distance_m,
-            counts: s.by_kind.into_iter().map(|(kind, count)| KindCountOut { kind, count }).collect(),
-            events: events
-                .into_iter()
-                .filter(|e| e.t_ms <= to_ms)
-                .map(|e| AuditEventOut { t_ms: e.t_ms, kind: e.kind, detail: e.detail, at: e.at.map(|(lat, lon)| GeoPoint { lat, lon }) })
-                .collect(),
-        })
-    }
-
     /// Reroll unfinished quests (all if `ids` is empty). Returns how many were re-placed.
     ///
     /// # Errors
@@ -2615,6 +2592,15 @@ mod tests {
         });
         let q = e.quests(0).into_iter().find(|q| q.location_id == id).unwrap();
         assert_eq!(q.headline, "Sit 6 min");
+    }
+
+    #[test]
+    fn the_danger_line_joins_traps_and_the_block_once_and_is_absent_with_neither() {
+        let s = |v: &[&str]| v.iter().map(|t| (*t).to_string()).collect::<Vec<_>>();
+        assert_eq!(danger_line(&[], None), None);
+        assert_eq!(danger_line(&s(&["Frozen!"]), None).as_deref(), Some("Frozen!"));
+        assert_eq!(danger_line(&s(&["Frozen!", "Leashed"]), Some("Frozen!".into())).as_deref(), Some("Frozen!  ·  Leashed"));
+        assert_eq!(danger_line(&[], Some("Zone 2 locked".into())).as_deref(), Some("Zone 2 locked"));
     }
 
     #[test]
@@ -3077,11 +3063,11 @@ mod tests {
         let (a, b) = (Point::new(40.0, -111.0), Point::new(40.01, -111.0));
         let t = Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() };
         let c = Collected { picked: BTreeSet::from([0]), carried: 1, banked: 0 };
-        let out = collect_out(&t, Some(&c), &[b]).expect("a forager has items");
+        let out = collect_out(&t, Some(&c), &[b], QuestState::InProgress).expect("a forager has items");
         assert_eq!((out.theme.as_str(), out.need, out.carried, out.banked), ("shells", 1, 1, 0));
         assert_eq!(out.items.iter().map(|i| i.picked).collect::<Vec<_>>(), [false], "only the items still on the map (#142)");
         assert!((out.items[0].at.lat - 40.01).abs() < 1e-12);
-        assert!(collect_out(&Target::Point { p: a, r: 40.0 }, None, &[]).is_none());
+        assert!(collect_out(&Target::Point { p: a, r: 40.0 }, None, &[], QuestState::InProgress).is_none());
         assert_eq!(first_open(&out).map(|p| p.lat), Some(40.01), "the pin to open is the first item still out there");
     }
 
@@ -3089,10 +3075,31 @@ mod tests {
     fn a_done_forager_keeps_its_anchor_and_an_unfinished_one_sits_on_its_first_open_item() {
         let (a, b) = (Point::new(40.0, -111.0), Point::new(40.01, -111.0));
         let t = Target::Collect { pts: vec![a, b], need: 1, r: 25.0, theme: "shells".into() };
-        let c = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }), &[b]);
-        let lat = |s| pin_at(c.as_ref(), s, Some(a)).map(|p| p.lat);
+        let c = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }), &[b], QuestState::InProgress);
+        let lat = |s| pin_at(c.as_ref(), s, Some(a), b).map(|p| p.lat);
         assert_eq!(lat(QuestState::Done), Some(40.0), "a done forager stays in the places list like any done quest");
         assert_eq!(lat(QuestState::InProgress), Some(40.01));
-        assert_eq!(pin_at(None, QuestState::Done, Some(b)).map(|p| p.lat), Some(40.01), "other quests keep their anchor");
+        assert_eq!(pin_at(None, QuestState::Done, Some(b), a).map(|p| p.lat), Some(40.01), "other quests keep their anchor");
+    }
+
+    #[test]
+    fn only_an_unfinished_forager_with_items_out_there_draws_them_instead_of_a_pin() {
+        let a = Point::new(40.0, -111.0);
+        let t = Target::Collect { pts: vec![a], need: 1, r: 25.0, theme: "shells".into() };
+        let on_map = |live: &[Point], s| collect_out(&t, None, live, s).is_some_and(|c| c.on_map);
+        assert!(on_map(&[a], QuestState::InProgress));
+        assert!(!on_map(&[a], QuestState::Done), "a done forager is drawn like any done quest");
+        assert!(!on_map(&[], QuestState::InProgress), "every item picked: its pin shows");
+        assert!(!on_map(&[a], QuestState::Hidden), "a fogged forager shows nothing");
+    }
+
+    #[test]
+    fn a_forager_with_every_item_picked_and_some_carried_sits_at_home() {
+        let (a, home) = (Point::new(40.01, -111.0), Point::new(40.0, -111.0));
+        let t = Target::Collect { pts: vec![a], need: 2, r: 25.0, theme: "shells".into() };
+        let carrying = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 1, banked: 0 }), &[], QuestState::InProgress);
+        assert_eq!(pin_at(carrying.as_ref(), QuestState::InProgress, Some(a), home).map(|p| p.lat), Some(40.0), "bring them home");
+        let waiting = collect_out(&t, Some(&Collected { picked: BTreeSet::from([0]), carried: 0, banked: 1 }), &[], QuestState::InProgress);
+        assert_eq!(pin_at(waiting.as_ref(), QuestState::InProgress, Some(a), home).map(|p| p.lat), Some(40.01), "nothing carried: its anchor");
     }
 }

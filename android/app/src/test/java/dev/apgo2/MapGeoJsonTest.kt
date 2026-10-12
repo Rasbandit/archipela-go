@@ -125,7 +125,11 @@ class MapFeaturesTest {
 
     @Test fun aForagerShowsOnePickupPerItemStillOutThereAndNoQuestPin() {
         val items = listOf(CollectItemOut(geo(1.0, 1.0), false), CollectItemOut(geo(2.0, 2.0), true), CollectItemOut(geo(3.0, 3.0), false))
-        val q = quest(7, shape = "collect").copy(family = "courier", kindId = "forager", collect = CollectOut("acorns", 3u, 1u, 0u, items))
+        val q =
+            quest(
+                7,
+                shape = "collect",
+            ).copy(family = "courier", kindId = "forager", collect = CollectOut("acorns", 3u, 1u, 0u, items, onMap = true))
         assertTrue("pickups are not quest pins", MapFeatures.quests(listOf(q), selected = 7).isEmpty())
         val pickups = listOf(q).itemFeatures(selected = 7)
         assertEquals("picked items disappear", 2, pickups.size)
@@ -142,7 +146,11 @@ class MapFeaturesTest {
     // Found on the phone: tapping one pickup lit up every pickup of its quest. Only the one the card is on is selected.
     @Test fun onlyThePickupTheCardIsOnIsSelected() {
         val items = listOf(CollectItemOut(geo(1.0, 1.0), false), CollectItemOut(geo(2.0, 2.0), false))
-        val q = quest(7, shape = "collect").copy(family = "courier", kindId = "forager", collect = CollectOut("acorns", 3u, 0u, 0u, items))
+        val q =
+            quest(
+                7,
+                shape = "collect",
+            ).copy(family = "courier", kindId = "forager", collect = CollectOut("acorns", 3u, 0u, 0u, items, onMap = true))
         val sel = { at: LatLng? ->
             listOf(q).itemFeatures(selected = 7, at = at).map { it.getJSONObject("properties").getBoolean(MapProp.SELECTED) }
         }
@@ -164,7 +172,7 @@ class MapFeaturesTest {
     // Review of the tap fix: once the pickup the card is on is picked up or moved, the card goes back to the quest's own anchor.
     @Test fun theCardSpotFollowsThePickupAndLetsGoWhenItIsGone() {
         val items = listOf(CollectItemOut(geo(1.0, 1.0), false), CollectItemOut(geo(2.0, 2.0), false))
-        val q = quest(7, shape = "collect").copy(kindId = "forager", collect = CollectOut("acorns", 3u, 0u, 0u, items))
+        val q = quest(7, shape = "collect").copy(kindId = "forager", collect = CollectOut("acorns", 3u, 0u, 0u, items, onMap = true))
         assertEquals(LatLng(2.0, 2.0), cardSpot(7L to LatLng(2.0, 2.0), q))
         assertNull("picked up: no spot", cardSpot(7L to LatLng(3.0, 3.0), q))
         assertNull("another quest's spot", cardSpot(8L to LatLng(2.0, 2.0), q))
@@ -178,15 +186,25 @@ class MapFeaturesTest {
                 9,
                 shape = "collect",
                 state = "locked",
-            ).copy(collect = CollectOut("shells", 1u, 0u, 0u, listOf(CollectItemOut(geo(1.0, 1.0), false))))
+            ).copy(collect = CollectOut("shells", 1u, 0u, 0u, listOf(CollectItemOut(geo(1.0, 1.0), false)), onMap = true))
         val props = listOf(q).itemFeatures(selected = 7).single().getJSONObject("properties")
         assertEquals(MapMarkers.itemOpacity("locked"), props.getDouble(MapProp.OPACITY), 0.0)
         assertFalse(props.getBoolean(MapProp.SELECTED))
     }
 
+    // #78: with every item picked the quest vanished from the map; its pin now shows where the core puts it (home while carrying).
+    @Test fun aForagerWithEveryItemPickedShowsItsPin() {
+        val home = geo(5.0, 5.0)
+        val q = quest(9, shape = "collect", anchor = home).copy(collect = CollectOut("acorns", 3u, 2u, 0u, emptyList(), onMap = false))
+        val pins = MapFeatures.quests(listOf(q), selected = null)
+        assertEquals(listOf(q.mapImageKey), pins.map { it.getJSONObject("properties").getString(MapProp.IMAGE) })
+        assertEquals(5.0, pins[0].getJSONObject("geometry").getJSONArray("coordinates").getDouble(1), 0.0)
+        assertTrue(listOf(q).itemFeatures(selected = null).isEmpty())
+    }
+
     @Test fun aDoneForagerShowsNoPickupsLikeAnyDoneQuest() {
         val items = listOf(CollectItemOut(geo(3.0, 3.0), false), CollectItemOut(geo(4.0, 4.0), true))
-        val q = quest(8, shape = "collect", state = "done").copy(collect = CollectOut("acorns", 1u, 0u, 1u, items))
+        val q = quest(8, shape = "collect", state = "done").copy(collect = CollectOut("acorns", 1u, 0u, 1u, items, onMap = false))
         val pins = MapFeatures.quests(listOf(q), selected = null)
         assertEquals("only its own done pin", listOf(q.mapImageKey), pins.map { it.getJSONObject("properties").getString(MapProp.IMAGE) })
         assertTrue(listOf(q).itemFeatures(selected = null).isEmpty())

@@ -35,6 +35,9 @@ pub struct Forage {
     /// Whether the quest was filled to its live size once (the first streets build after it was placed or loaded).
     #[serde(default)]
     pub filled: bool,
+    /// Varies the spots the next fill draws (a Shuffle trap's seed), so a refill does not bring back the ones the first fill chose.
+    #[serde(default)]
+    pub salt: u64,
 }
 
 impl Forage {
@@ -42,7 +45,7 @@ impl Forage {
     #[must_use]
     pub fn seed(pts: &[Point]) -> Self {
         let items: Vec<Item> = (0u32..).zip(pts).map(|(id, p)| Item { id, p: *p }).collect();
-        Self { next_id: crate::num::count_u32(items.len()), items, next_spawn_ms: None, filled: false }
+        Self { next_id: crate::num::count_u32(items.len()), items, ..Self::default() }
     }
 
     /// Picks up every item within `r` of `at` at `t_ms`; returns how many. Never refused, whatever the bag holds.
@@ -62,9 +65,9 @@ impl Forage {
         self.next_spawn_ms.is_some_and(|t| t <= now_ms)
     }
 
-    /// Adds items from `pool` (at least `spacing_m` from every live item and each other) until there are `want`; returns how many it
-    /// added. Clears the due time once full, so a short pool tries again on the next event.
-    pub fn top_up(&mut self, want: usize, pool: &[Point], spacing_m: f64, rng: &mut StdRng) -> usize {
+    /// Adds items from `pool` (at least `spacing_m` from every live item, each other and every point of `avoid`) until there are `want`;
+    /// returns how many it added. Clears the due time once full, so a short pool tries again on the next event.
+    pub fn top_up(&mut self, want: usize, pool: &[Point], avoid: &[Point], spacing_m: f64, rng: &mut StdRng) -> usize {
         let mut order: Vec<Point> = pool.to_vec();
         order.shuffle(rng);
         let mut added = 0;
@@ -72,7 +75,7 @@ impl Forage {
             if self.items.len() >= want {
                 break;
             }
-            if self.items.iter().all(|i| distance_m(i.p, p) >= spacing_m) {
+            if self.items.iter().map(|i| i.p).chain(avoid.iter().copied()).all(|q| distance_m(q, p) >= spacing_m) {
                 self.items.push(Item { id: self.next_id, p });
                 self.next_id += 1;
                 added += 1;
@@ -151,7 +154,7 @@ mod tests {
         let mut f = Forage::seed(&[home()]);
         f.next_spawn_ms = Some(0);
         let pool: Vec<Point> = (1..40).map(|i| east(f64::from(i) * 30.0)).collect();
-        let added = f.top_up(6, &pool, 60.0, &mut StdRng::seed_from_u64(1));
+        let added = f.top_up(6, &pool, &[], 60.0, &mut StdRng::seed_from_u64(1));
         assert_eq!((added, f.items.len(), f.next_spawn_ms), (5, 6, None));
         assert!(f.items.iter().all(|a| f.items.iter().all(|b| a.id == b.id || distance_m(a.p, b.p) >= 60.0)));
         assert_eq!((f.items.iter().map(|i| i.id).max(), f.next_id), (Some(5), 6));
@@ -160,8 +163,15 @@ mod tests {
     #[test]
     fn a_short_pool_tops_up_what_it_can_and_stays_due() {
         let mut f = Forage { next_spawn_ms: Some(0), ..Forage::default() };
-        assert_eq!(f.top_up(6, &[home(), east(100.0)], 60.0, &mut StdRng::seed_from_u64(1)), 2);
+        assert_eq!(f.top_up(6, &[home(), east(100.0)], &[], 60.0, &mut StdRng::seed_from_u64(1)), 2);
         assert_eq!(f.next_spawn_ms, Some(0), "not full: try again next time");
+    }
+
+    #[test]
+    fn top_up_keeps_clear_of_the_points_to_avoid() {
+        let mut f = Forage { next_spawn_ms: Some(0), ..Forage::default() };
+        assert_eq!(f.top_up(6, &[east(100.0), east(500.0)], &[east(130.0)], 60.0, &mut StdRng::seed_from_u64(1)), 1);
+        assert_eq!(f.items[0].p, east(500.0));
     }
 
     #[test]

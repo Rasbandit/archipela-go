@@ -78,8 +78,16 @@ class QuestMapKeyTest {
 
     @Test fun aPickedItemRedrawsThePickups() {
         val items = listOf(CollectItemOut(GeoPoint(1.0, 1.0), false), CollectItemOut(GeoPoint(2.0, 2.0), false))
-        val forager = quest(shape = "collect").copy(collect = CollectOut("acorns", 2u, 0u, 0u, items))
+        val forager = quest(shape = "collect").copy(collect = CollectOut("acorns", 2u, 0u, 0u, items, onMap = true))
         val picked = forager.copy(collect = forager.collect?.copy(items = listOf(items[0], items[1].copy(picked = true)), carried = 1u))
         assertNotEquals(listOf(forager).pinKey, listOf(picked).pinKey)
+    }
+
+    @Test fun itemsLeavingTheMapRedrawThePins() {
+        // A fogged forager's items are hidden (onMap false) and its pin shows instead: the key must see it.
+        val items = listOf(CollectItemOut(GeoPoint(1.0, 1.0), false))
+        val shown = quest(shape = "collect").copy(collect = CollectOut("acorns", 1u, 0u, 0u, items, onMap = true))
+        val hidden = shown.copy(collect = shown.collect?.copy(onMap = false))
+        assertNotEquals(listOf(shown).pinKey, listOf(hidden).pinKey)
     }
 }

@@ -1,13 +1,11 @@
 //! On-device journal in SQLite: every accepted GPS fix (the trace) and an audit log of what happened while you were out.
 //! One file for all games; rows carry the game id. A fix's point and its events are written in one transaction (`Journal::batch`).
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use rusqlite::Connection;
 
 use crate::game::Event;
-use crate::geo::{distance_m, Point};
 
 /// One recorded GPS fix.
 #[derive(Debug, Clone, PartialEq)]
@@ -90,23 +88,6 @@ pub mod kind {
     pub const PRESENCE: &str = "presence";
     /// Close to a quest that did not count; the detail says why.
     pub const NEAR_MISS: &str = "near_miss";
-}
-
-/// What happened between two moments: the "while you were out" report.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Summary {
-    /// Start of the period, in Unix milliseconds.
-    pub from_ms: i64,
-    /// End of the period, in Unix milliseconds.
-    pub to_ms: i64,
-    /// Number of GPS points recorded.
-    pub points: u32,
-    /// How many of those points came from the dev simulator.
-    pub simulated_points: u32,
-    /// Distance travelled, in metres.
-    pub distance_m: f64,
-    /// Number of events by kind.
-    pub by_kind: BTreeMap<String, u32>,
 }
 
 /// The on-device SQLite journal of GPS fixes and events.
@@ -249,21 +230,6 @@ impl Journal {
         self.revision.get()
     }
 
-    /// Events of a game with `t_ms >= since_ms`, oldest first.
-    ///
-    /// # Errors
-    /// Returns any SQLite error.
-    pub fn events_since(&self, game: &str, since_ms: i64) -> rusqlite::Result<Vec<JournalEvent>> {
-        self.events_between(game, since_ms, i64::MAX)
-    }
-
-    fn events_between(&self, game: &str, from_ms: i64, to_ms: i64) -> rusqlite::Result<Vec<JournalEvent>> {
-        self.conn
-            .prepare_cached("SELECT t_ms, kind, detail, lat, lon FROM events WHERE game = ?1 AND t_ms BETWEEN ?2 AND ?3 ORDER BY t_ms, id")?
-            .query_map((game, from_ms, to_ms), Self::event_row)?
-            .collect()
-    }
-
     /// The newest `limit` events of a game, newest first (the activity view).
     ///
     /// # Errors
@@ -286,28 +252,6 @@ impl Journal {
     /// Returns any SQLite error.
     pub fn last_of_kind(&self, game: &str, kind: &str) -> rusqlite::Result<Option<i64>> {
         self.conn.query_row("SELECT MAX(t_ms) FROM events WHERE game = ?1 AND kind = ?2", (game, kind), |r| r.get(0))
-    }
-
-    /// Count points, distance and events of `game` between `from_ms` and `to_ms`.
-    ///
-    /// # Errors
-    /// Returns any SQLite error.
-    pub fn summary(&self, game: &str, from_ms: i64, to_ms: i64) -> rusqlite::Result<Summary> {
-        let mut s = Summary { from_ms, to_ms, ..Summary::default() };
-        let mut prev: Option<TrackPoint> = None;
-        for p in self.track(game, from_ms, to_ms)? {
-            s.points += 1;
-            s.simulated_points += u32::from(p.simulated);
-            // Same rule as the live distance counter: a long gap is not walked.
-            if let Some(l) = prev.as_ref().filter(|l| p.t_ms - l.t_ms <= DEFAULT_MAX_GAP_MS) {
-                s.distance_m += distance_m(Point::new(l.lat, l.lon), Point::new(p.lat, p.lon));
-            }
-            prev = Some(p);
-        }
-        for e in self.events_between(game, from_ms, to_ms)? {
-            *s.by_kind.entry(e.kind).or_default() += 1;
-        }
-        Ok(s)
     }
 
     /// Delete all points and events of `game`.
@@ -382,43 +326,16 @@ mod tests {
     }
 
     #[test]
-    fn events_since_are_ordered_scoped_and_roundtrip() {
+    fn logged_events_roundtrip_with_and_without_a_place() {
         let j = Journal::open_memory().unwrap();
         j.log("g", &ev(300, kind::QUEST_DONE)).unwrap();
         j.log("g", &ev(100, kind::APP_BACKGROUND)).unwrap();
         j.log("g", &JournalEvent { t_ms: 200, kind: kind::INFO.into(), detail: "x".into(), at: None }).unwrap();
         j.log("other", &ev(250, kind::TRAP)).unwrap();
-        let got = j.events_since("g", 150).unwrap();
-        assert_eq!(got.iter().map(|e| e.t_ms).collect::<Vec<_>>(), vec![200, 300]);
-        assert_eq!(got[0].at, None);
-        assert_eq!(got[1], ev(300, kind::QUEST_DONE));
-    }
-
-    #[test]
-    fn summary_counts_points_distance_and_kinds() {
-        let j = Journal::open_memory().unwrap();
-        // ~111 m north per 0.001 degree latitude.
-        j.add_point("g", &pt(0, 40.000, -111.0)).unwrap();
-        j.add_point("g", &pt(10_000, 40.001, -111.0)).unwrap();
-        j.add_point("g", &TrackPoint { simulated: true, ..pt(20_000, 40.002, -111.0) }).unwrap();
-        j.log("g", &ev(5, kind::QUEST_DONE)).unwrap();
-        j.log("g", &ev(6, kind::QUEST_DONE)).unwrap();
-        j.log("g", &ev(7, kind::FIX_REJECTED)).unwrap();
-        j.log("g", &ev(99_999, kind::TRAP)).unwrap(); // out of range
-        let s = j.summary("g", 0, 30_000).unwrap();
-        assert_eq!((s.points, s.simulated_points), (3, 1));
-        assert!((s.distance_m - 222.0).abs() < 5.0, "got {}", s.distance_m);
-        assert_eq!(s.by_kind.get(kind::QUEST_DONE), Some(&2));
-        assert_eq!(s.by_kind.get(kind::FIX_REJECTED), Some(&1));
-        assert_eq!(s.by_kind.get(kind::TRAP), None);
-    }
-
-    #[test]
-    fn summary_ignores_jumps_across_gaps_for_distance() {
-        let j = Journal::open_memory().unwrap();
-        j.add_point("g", &pt(0, 40.0, -111.0)).unwrap();
-        j.add_point("g", &pt(10_000_000, 41.0, -111.0)).unwrap(); // hours later, 111 km away: not walked
-        assert!(j.summary("g", 0, i64::MAX).unwrap().distance_m < 1.0);
+        let got = j.recent_events("g", 2).unwrap();
+        assert_eq!(got.iter().map(|e| e.t_ms).collect::<Vec<_>>(), vec![300, 200]);
+        assert_eq!(got[1].at, None);
+        assert_eq!(got[0], ev(300, kind::QUEST_DONE));
     }
 
     #[test]
@@ -474,7 +391,7 @@ mod tests {
         j.log("a", &ev(1, kind::INFO)).unwrap();
         j.clear_game("a").unwrap();
         assert!(j.track("a", 0, 9).unwrap().is_empty());
-        assert!(j.events_since("a", 0).unwrap().is_empty());
+        assert!(j.recent_events("a", 9).unwrap().is_empty());
         assert_eq!(j.track("b", 0, 9).unwrap().len(), 1);
     }
 
@@ -516,14 +433,14 @@ mod tests {
             j.log("g", &ev(1, kind::INFO))
         })
         .unwrap();
-        assert_eq!((j.track("g", 0, 9).unwrap().len(), j.events_since("g", 0).unwrap().len()), (1, 1));
+        assert_eq!((j.track("g", 0, 9).unwrap().len(), j.recent_events("g", 9).unwrap().len()), (1, 1));
         let failed: rusqlite::Result<()> = j.batch(|j| {
             j.add_point("g", &pt(2, 40.0, -111.0))?;
             j.log("g", &ev(2, kind::INFO))?;
             Err(rusqlite::Error::InvalidQuery)
         });
         assert!(failed.is_err());
-        assert_eq!((j.track("g", 0, 9).unwrap().len(), j.events_since("g", 0).unwrap().len()), (1, 1), "the failed batch left nothing behind");
+        assert_eq!((j.track("g", 0, 9).unwrap().len(), j.recent_events("g", 9).unwrap().len()), (1, 1), "the failed batch left nothing behind");
     }
 
     #[test]

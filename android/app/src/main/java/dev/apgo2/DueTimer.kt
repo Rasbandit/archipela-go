@@ -11,8 +11,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * The one pending wake-up for when the next time-away mark falls due (the core works the moment out): time away needs no GPS fixes
- * or polling to finish a quest on time. Rescheduled after every refresh and presence change.
+ * The one pending wake-up for when something next falls due (a time-away mark, a dwell the player stands in, a forager top-up; the
+ * core works the moment out): none of them needs GPS fixes or polling to happen on time. Rescheduled after every refresh, presence
+ * change and street build.
  *
  * Two triggers for the same moment: a coroutine `delay`, exact while the phone is awake, and an idle-allowed alarm, which still fires
  * when Doze has the CPU asleep (the delay would wait for the next fix or maintenance window). Whichever comes first ticks; the
