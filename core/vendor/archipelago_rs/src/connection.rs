@@ -9,7 +9,7 @@ use crate::{Client, ConnectionOptions, Event, error::*};
 
 mod socket;
 
-pub use socket::Readiness;
+pub use socket::{Readiness, WsError};
 
 pub(crate) use socket::*;
 

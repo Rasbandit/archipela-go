@@ -33,18 +33,11 @@ license = "MIT"
 repository = "https://github.com/nex3/archipelago_rs"
 
 [features]
-default = [
-    "rustls",
-    "native-tls",
-]
-native-tls = [
-    "dep:native-tls",
-    "tungstenite/native-tls",
-]
+default = ["rustls"]
 rustls = [
     "dep:rustls",
     "dep:webpki-roots",
-    "tungstenite/__rustls-tls",
+    "dep:futures-rustls",
 ]
 
 [lib]
@@ -61,8 +54,15 @@ version = "2.11.0"
 [dependencies.log]
 version = "0.4.29"
 
-[dependencies.native-tls]
-version = "0.2.18"
+[dependencies.futures]
+version = "0.3.31"
+default-features = false
+features = ["std"]
+
+[dependencies.futures-rustls]
+version = "0.26.0"
+default-features = false
+features = ["tls12", "logging"]
 optional = true
 
 [dependencies.oneshot]
@@ -107,9 +107,9 @@ version = "2.0.18"
 [dependencies.try-specialize]
 version = "0.1.2"
 
-[dependencies.tungstenite]
-version = ">=0.28, <0.30.0"
-features = []
+[dependencies.soketto]
+version = "0.8.1"
+features = ["deflate"]
 
 [dependencies.ustr]
 version = "1.1.0"

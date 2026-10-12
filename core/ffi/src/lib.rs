@@ -523,3 +523,80 @@ mod ap_wait_tests {
         assert!(wait_ready(Some(ready), 5_000), "data sent: wakes");
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)] // test code: a failed step is a failed test
+mod ap_handshake_tests {
+    use super::ApSession;
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    fn cache() -> String {
+        std::env::temp_dir().join(format!("apgo-handshake-{}", std::process::id())).to_string_lossy().into_owned()
+    }
+
+    // Drain `s` until `done` or 5 s pass.
+    fn poll_until(s: &ApSession, mut done: impl FnMut(&ApSession) -> bool) {
+        let end = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < end {
+            let _ = s.poll();
+            if done(s) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("not done in 5 s; status {}", s.status());
+    }
+
+    #[test]
+    fn an_address_that_is_not_a_url_fails_at_once_without_the_network() {
+        for url in ["ws://h:port", "ws://h:99999", "ws://", "ws://:1", "wss://[]"] {
+            let s = ApSession::connect(url.into(), "Tester".into(), None, cache());
+            poll_until(&s, |s| s.status().starts_with("disconnected"));
+            assert!(s.status().contains("invalid URL"), "{url}: {}", s.status());
+        }
+    }
+
+    // The HTTP upgrade request a session sends to a TCP server at `url` (`{port}` is filled in).
+    fn upgrade_request(host: &str, url: &str) -> Option<String> {
+        let listener = TcpListener::bind((host, 0)).ok()?; // no IPv6 here: nothing to check
+        let url = url.replace("{port}", &listener.local_addr().unwrap().port().to_string());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let mut req = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !req.ends_with(b"\r\n\r\n") {
+                let n = peer.read(&mut buf).unwrap();
+                req.extend_from_slice(&buf[..n]);
+            }
+            tx.send(String::from_utf8(req).unwrap()).unwrap();
+            std::thread::sleep(Duration::from_millis(200)); // keep the socket open while the test reads
+        });
+        let s = ApSession::connect(url, "Tester".into(), None, cache());
+        let mut got = None;
+        poll_until(&s, |_| {
+            got = rx.try_recv().ok();
+            got.is_some()
+        });
+        got
+    }
+
+    #[test]
+    fn the_upgrade_asks_for_the_path_and_offers_compression() {
+        let req = upgrade_request("127.0.0.1", "ws://127.0.0.1:{port}/room?x=1").unwrap();
+        assert!(req.starts_with("GET /room?x=1 HTTP/1.1\r\n"), "{req}");
+        assert!(req.lines().any(|l| l.starts_with("Host: 127.0.0.1:")), "{req}");
+        let ext = req.lines().find(|l| l.to_ascii_lowercase().starts_with("sec-websocket-extensions:")).unwrap_or_default();
+        assert!(ext.contains("permessage-deflate"), "compression offered (Archipelago deprecates uncompressed connections): {req}");
+    }
+
+    #[test]
+    fn an_ipv6_address_keeps_its_port() {
+        if let Some(req) = upgrade_request("::1", "ws://[::1]:{port}") {
+            assert!(req.starts_with("GET / HTTP/1.1\r\n"), "{req}");
+        }
+    }
+}

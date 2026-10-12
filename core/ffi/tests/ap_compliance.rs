@@ -76,6 +76,17 @@ fn drain_until(s: &ApSession, secs: u64, mut done: impl FnMut(&ApSession, &[ApEv
     panic!("not done within {secs} s; status {}, events {seen:?}", s.status());
 }
 
+// Drain `s` the way the app does for `time`; every event seen is returned.
+fn drain_for(s: &ApSession, time: Duration) -> Vec<ApEvent> {
+    let end = Instant::now() + time;
+    let mut seen = s.poll();
+    while Instant::now() < end {
+        s.wait_for_data(100);
+        seen.extend(s.poll());
+    }
+    seen
+}
+
 // A connected session to the compliance server; `url` without a scheme makes the client try wss, then ws.
 fn connect_to(url: &str, slot: &str) -> Arc<ApSession> {
     let s = ApSession::connect(url.into(), slot.into(), None, cache_dir());
@@ -210,7 +221,7 @@ fn the_server_pings_a_quiet_connection_within_twenty_five_seconds() {
     assert!(t.elapsed() < Duration::from_secs(25));
     let events = s.poll();
     assert!(events.is_empty(), "a ping is no event: {events:?}");
-    assert_eq!(s.status(), "connected", "and the client answered it (tungstenite pongs while reading)");
+    assert_eq!(s.status(), "connected", "and the client answered it (soketto pongs while reading)");
 }
 
 /// For servers that do not ping: a probe (`Get`) is always answered, so a live but quiet connection wakes before the app would
@@ -276,4 +287,17 @@ fn a_room_moved_to_another_port_is_the_same_game() {
     host_on(MOVED_PORT, &["stop"]); // the next test serves on PORT again
     assert_eq!(same, id, "same seed and slot on the new port: the game keeps exchanging");
     checked.unwrap();
+}
+
+/// Network protocol: "Websocket connections should support per-message compression. Uncompressed connections are deprecated and
+/// may stop working in the future." The server warns every client that connects without permessage-deflate; ours never gets it.
+#[test]
+#[ignore = "needs the pinned Archipelago server: just test-ap"]
+fn the_connection_is_compressed_so_the_server_never_warns() {
+    let _server = server();
+    let s = ApSession::connect(format!("localhost:{PORT}"), SLOT.into(), None, cache_dir());
+    let mut seen = drain_until(&s, 30, |s, _| s.status() == "connected");
+    seen.extend(drain_for(&s, Duration::from_secs(2))); // the warning follows `Connected`
+    let warned: Vec<_> = seen.iter().filter(|e| matches!(e, ApEvent::Print { text } if text.contains("compressed"))).collect();
+    assert!(warned.is_empty(), "the server saw an uncompressed connection: {warned:?}");
 }
