@@ -318,7 +318,7 @@ internal fun FindBubble(
     MapBubble(at, MapMarkers.selectedFindPinHeightPx(), onSize) {
         BubbleHeader(f, onMark, onClose)
         f.kinds.take(MAX_BUBBLE_KINDS).forEach { k ->
-            Column(Modifier.padding(end = 8.dp)) {
+            Column {
                 Text(k.name, style = MaterialTheme.typography.labelLarge, color = ApgoPalette.kind(k.id, k.family))
                 Text("${k.blurb} ${k.how}", fontSize = 12.sp, lineHeight = 16.sp)
             }
@@ -332,7 +332,6 @@ internal fun FindBubble(
                 "Mapped as ${f.tags.joinToString(" · ")}",
                 fontSize = 10.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = 8.dp),
             )
         }
     }
