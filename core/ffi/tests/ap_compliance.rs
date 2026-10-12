@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 use apgo_ffi::{ApEvent, ApSession};
 
 const PORT: u16 = 38291;
+// Where the moved-room test serves the same seed (an archipelago.gg room that lost its port).
+const MOVED_PORT: u16 = 38292;
 const SLOT: &str = "Tester";
 
 fn root() -> PathBuf {
@@ -22,11 +24,16 @@ fn root() -> PathBuf {
 
 // Run scripts/ap_host.sh with the compliance folder and port.
 fn host(args: &[&str]) {
+    host_on(PORT, args);
+}
+
+// Run scripts/ap_host.sh with the compliance folder on `port`.
+fn host_on(port: u16, args: &[&str]) {
     let out = Command::new("bash")
         .arg(root().join("scripts/ap_host.sh"))
         .args(args)
         .env("APGO_AP_DIR", root().join(".ap/compliance"))
-        .env("APGO_AP_PORT", PORT.to_string())
+        .env("APGO_AP_PORT", port.to_string())
         .env("APGO_AP_NO_ADB", "1")
         // A goal must not release or collect the seed: the tests that need unchecked locations would find none left.
         .env("APGO_AP_SERVER_ARGS", "--release_mode disabled --collect_mode disabled")
@@ -94,6 +101,18 @@ fn unchecked(s: &ApSession, n: usize) -> Vec<i64> {
     ids
 }
 
+// Check one more location and wait until the server lists it and its item is in. The server sends the two packets
+// independently (`register_location_checks`), and in this one-player seed with no start inventory every checked location gives
+// Tester exactly one item. Waiting for "some items" instead races with items from earlier tests' checks.
+fn check_one(s: &ApSession) {
+    let id = unchecked(s, 1)[0];
+    s.send_checks(vec![id]).unwrap();
+    drain_until(s, 10, |s, _| {
+        let checked = s.checked_location_ids();
+        checked.contains(&id) && s.received_items().len() >= checked.len()
+    });
+}
+
 /// Hard requirement: "Handle both secure and unsecure websocket connections". An address without a scheme tries `wss://` first
 /// and falls back to `ws://` (as Archipelago's own client does), then completes the handshake (`RoomInfo`, `Connect`, `Connected`).
 #[test]
@@ -156,8 +175,7 @@ fn the_goal_status_update_is_accepted() {
 fn a_server_restart_drops_the_session_and_a_new_one_gets_every_item_again() {
     let _server = server();
     let s = connect();
-    s.send_checks(unchecked(&s, 1)).unwrap();
-    drain_until(&s, 10, |s, _| !s.received_items().is_empty());
+    check_one(&s);
     let had = s.received_items().len();
     host(&["stop"]);
     drain_until(&s, 15, |s, _| s.status().starts_with("disconnected"));
@@ -190,7 +208,8 @@ fn the_server_pings_a_quiet_connection_within_twenty_five_seconds() {
     let t = Instant::now();
     assert!(s.wait_for_data(25_000), "no data for 25 s: the server no longer pings, so 60 s of silence is not proof of a dead socket");
     assert!(t.elapsed() < Duration::from_secs(25));
-    assert_eq!(s.poll().len(), 0, "a ping is no event");
+    let events = s.poll();
+    assert!(events.is_empty(), "a ping is no event: {events:?}");
     assert_eq!(s.status(), "connected", "and the client answered it (tungstenite pongs while reading)");
 }
 
@@ -221,4 +240,40 @@ fn the_server_identity_is_seed_and_slot_and_survives_a_restart() {
     assert!(id.ends_with(&format!("/{SLOT}")) && id.len() > SLOT.len() + 1, "seed/slot: {id}");
     host(&["serve"]);
     assert_eq!(connect().server_identity(), Some(id), "same seed and slot after a restart: the game keeps its server");
+}
+
+/// Hard requirement: "Reconnect if the connection is unstable and lost while playing", across an app restart too. A game saves the
+/// address and slot it connected with (`Engine::ap_saved_server`); after the process dies, a new session from those alone (no
+/// player input) is the same seed and slot and gets every item again.
+#[test]
+#[ignore = "needs the pinned Archipelago server: just test-ap"]
+fn a_restarted_app_reconnects_from_the_saved_address_and_gets_its_items() {
+    let _server = server();
+    let (address, slot) = (format!("localhost:{PORT}"), SLOT);
+    let s = connect_to(&address, slot);
+    check_one(&s);
+    let (id, had) = (s.server_identity(), s.received_items().len());
+    drop(s); // the app is killed: nothing but the saved game is left
+    let resumed = connect_to(&address, slot);
+    drain_until(&resumed, 10, |s, _| s.received_items().len() >= had);
+    assert_eq!(resumed.server_identity(), id, "the same game on the server");
+    assert_eq!(resumed.received_items().len(), had, "every item again, none twice");
+}
+
+/// Hard requirement: "Be able to change the port for saved connection info" (rooms on archipelago.gg can lose their port). The
+/// same seed served on another port is the same seed and slot, so a game pointed at the new address carries on there.
+#[test]
+#[ignore = "needs the pinned Archipelago server: just test-ap"]
+fn a_room_moved_to_another_port_is_the_same_game() {
+    let _server = server();
+    let s = connect();
+    let id = s.server_identity();
+    host(&["stop"]);
+    host_on(MOVED_PORT, &["serve"]);
+    let moved = connect_to(&format!("localhost:{MOVED_PORT}"), SLOT);
+    let same = moved.server_identity();
+    let checked = moved.send_checks(unchecked(&moved, 1));
+    host_on(MOVED_PORT, &["stop"]); // the next test serves on PORT again
+    assert_eq!(same, id, "same seed and slot on the new port: the game keeps exchanging");
+    checked.unwrap();
 }
