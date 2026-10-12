@@ -1349,6 +1349,11 @@ impl Game {
             }
         }
         self.forage_pools = pools;
+        self.fill_unfilled();
+    }
+
+    /// Fills each open forager not filled yet (new, loaded, or moved by a Shuffle trap) to its live size from its pool, once.
+    fn fill_unfilled(&mut self) {
         let pools = std::mem::take(&mut self.forage_pools);
         for (id, want) in self.forager_wants() {
             let Some(pool) = pools.get(&id) else { continue };
@@ -1514,12 +1519,23 @@ impl Game {
             let Some(z) = zones.iter().find(|z| z.zone == a.zone) else { continue };
             let (_, index) = zone_paths(z, &params);
             if let Some(t) = replace_unpicked(&a.target, &picked, z, &index, &params, a.tier, &mut rng) {
+                // Seeded again from the moved points (less the picked ones), keeping when it tops up; filled below when it has a pool.
+                let clock = self.forage.remove(&id).and_then(|f| f.next_spawn_ms);
+                let mut f = seed_forage(
+                    match &t {
+                        Target::Collect { pts, .. } => pts,
+                        _ => &[],
+                    },
+                    self.collected.get(&id),
+                );
+                f.next_spawn_ms = clock;
+                self.forage.insert(id, f);
                 a.target = t;
-                self.forage.remove(&id); // seeded again from the moved points (less the picked ones), then filled by the next build
                 self.trackers.remove(&id); // rebuilt from `collected` on the next fix
                 moved += 1;
             }
         }
+        self.fill_unfilled();
         let fresh = assign(&slots_in(&self.slot, Some(&todo)), &zones, catalog, &params);
         let n = fresh.len();
         for a in fresh {
@@ -3327,6 +3343,26 @@ mod tests {
         let first = live(&g)[0];
         g.on_estimate(&fixat(first, 600), None);
         assert_eq!(g.next_due_ms(600_000), Some(600_000 + RESPAWN_MS));
+    }
+
+    #[test]
+    fn a_shuffle_trap_keeps_the_respawn_clock_and_refills_from_the_pool() {
+        let (mut g, _) = forager_game();
+        let realms = vec![realm("r0", Mode::Walk)];
+        g.set_forage_pools(&realms);
+        let first = live(&g)[0];
+        g.on_estimate(&fixat(first, 600), None);
+        let due = g.forage[&2000].next_spawn_ms;
+        assert_eq!(g.reroll(&[2000], &realms, 9, &Catalog::builtin()).unwrap(), 1);
+        assert_eq!(live(&g).len(), 9, "with a pool, the moved forager is full again at once");
+        // Without a pool (the build has not run): the clock survives, so the top-up still comes when it was due.
+        let (mut g, _) = forager_game();
+        g.set_forage_pools(&realms);
+        let first = live(&g)[0];
+        g.on_estimate(&fixat(first, 600), None);
+        g.forage_pools.clear();
+        g.reroll(&[2000], &realms, 9, &Catalog::builtin()).unwrap();
+        assert_eq!(g.forage.get(&2000).and_then(|f| f.next_spawn_ms), due);
     }
 
     #[test]
