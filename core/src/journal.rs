@@ -230,15 +230,6 @@ impl Journal {
         Ok(out)
     }
 
-    /// Points inside a lat/lon box (map viewport), time-ordered.
-    ///
-    /// # Errors
-    /// Returns any SQLite error.
-    pub fn points_in_box(&self, game: &str, min: (f64, f64), max: (f64, f64)) -> rusqlite::Result<Vec<TrackPoint>> {
-        let sql = format!("SELECT {POINT_COLS} FROM points WHERE game = ?1 AND lat BETWEEN ?2 AND ?3 AND lon BETWEEN ?4 AND ?5 ORDER BY t_ms, id");
-        self.conn.prepare_cached(&sql)?.query_map((game, min.0, max.0, min.1, max.1), point_row)?.collect()
-    }
-
     /// Append an event to the audit log of `game`.
     ///
     /// # Errors
@@ -391,16 +382,6 @@ mod tests {
     }
 
     #[test]
-    fn box_query_uses_game_and_bounds() {
-        let j = Journal::open_memory().unwrap();
-        j.add_point("g", &pt(1, 40.0, -111.0)).unwrap();
-        j.add_point("g", &pt(2, 40.5, -111.0)).unwrap();
-        j.add_point("other", &pt(3, 40.0, -111.0)).unwrap();
-        let hit = j.points_in_box("g", (39.9, -111.1), (40.1, -110.9)).unwrap();
-        assert_eq!(hit.iter().map(|p| p.t_ms).collect::<Vec<_>>(), vec![1]);
-    }
-
-    #[test]
     fn events_since_are_ordered_scoped_and_roundtrip() {
         let j = Journal::open_memory().unwrap();
         j.log("g", &ev(300, kind::QUEST_DONE)).unwrap();
@@ -493,7 +474,6 @@ mod tests {
         j.log("a", &ev(1, kind::INFO)).unwrap();
         j.clear_game("a").unwrap();
         assert!(j.track("a", 0, 9).unwrap().is_empty());
-        assert!(j.points_in_box("a", (0.0, -180.0), (90.0, 0.0)).unwrap().is_empty());
         assert!(j.events_since("a", 0).unwrap().is_empty());
         assert_eq!(j.track("b", 0, 9).unwrap().len(), 1);
     }
@@ -563,7 +543,7 @@ mod tests {
         let rt: i64 = j.conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'points_rt%'", [], |r| r.get(0)).unwrap();
         assert_eq!(rt, 0, "the R*Tree is gone");
         j.add_point("g", &pt(2, 40.0, -111.0)).unwrap();
-        assert_eq!(j.points_in_box("g", (39.9, -111.1), (40.1, -110.9)).unwrap().len(), 2, "the old points are still there");
+        assert_eq!(j.track("g", 0, 9).unwrap().len(), 2, "the old points are still there");
         drop(j);
         let _ = std::fs::remove_dir_all(&dir);
     }
