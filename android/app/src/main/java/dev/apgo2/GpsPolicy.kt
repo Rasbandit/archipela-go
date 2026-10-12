@@ -10,7 +10,7 @@ import com.google.android.gms.location.Priority
  *
  * The cadence policy (owner decision 2026-10-12, clean trace paths):
  * - In a zone while playing the interval is never slower than 5 s. The map in front (screen on and this app visible): 1 s.
- *   Screen off, or another app in front: 5 s, with hardware batching up to 30 s (every 5 s fix is kept, only delivered in bursts,
+ *   Screen off, or another app in front: 5 s, with hardware batching up to 20 s (every 5 s fix is kept, only delivered in bursts,
  *   so the path stays dense while the CPU sleeps). GNSS quality and no distance filter either way: the core's stationary hold and
  *   gap bridge need a steady stream.
  * - Outside every zone: the coarse rate (90 s, 50 m, balanced). At home or in the car: off.
@@ -59,7 +59,9 @@ internal object GpsPolicy {
     private const val NETWORK = "network"
     private const val ON_SCREEN_MS = 1_000L
     private const val OFF_SCREEN_MS = 5_000L
-    private const val OFF_SCREEN_BATCH_MS = 30_000L
+
+    // Kept well under the core's 45 s gap cap even when a batch arrives late (GpsPolicyTest.screenOffBatchesNeverLookLikeAGpsGap).
+    private const val OFF_SCREEN_BATCH_MS = 20_000L
     private const val COLD_START_MAX_AGE_MS = 120_000L
 
     // Providers that mean location is on (passive is always listed and only relays others' fixes).
@@ -73,7 +75,7 @@ internal object GpsPolicy {
 
     /**
      * In a zone while playing: every second while the map is [onScreen] (screen on and the app in front), else every 5 s batched up
-     * to 30 s; GNSS quality and no distance filter in both (see the class comment).
+     * to 20 s; GNSS quality and no distance filter in both (see the class comment).
      */
     fun inZone(onScreen: Boolean): Rate =
         if (onScreen) {

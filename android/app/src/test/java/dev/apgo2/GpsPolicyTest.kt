@@ -14,9 +14,9 @@ import org.junit.Test
 class GpsPolicyTest {
     private val inZone = Decision(PresenceState.InZone, GpsMode.Precise, counting = true)
 
-    @Test fun inAZoneOnlyTheMapInFrontGetsOneSecondEverythingElseFiveSecondsBatchedUpToThirty() {
+    @Test fun inAZoneOnlyTheMapInFrontGetsOneSecondEverythingElseFiveSecondsBatchedUpToTwenty() {
         val fast = GpsPolicy.Rate(1_000L, 0f, highAccuracy = true)
-        val slow = GpsPolicy.Rate(5_000L, 0f, highAccuracy = true, maxDelayMs = 30_000L)
+        val slow = GpsPolicy.Rate(5_000L, 0f, highAccuracy = true, maxDelayMs = 20_000L)
         assertEquals("screen on, app visible", fast, GpsPolicy.forDecision(inZone, appVisible = true, screenOn = true))
         assertEquals("screen on, other app in front", slow, GpsPolicy.forDecision(inZone, appVisible = false, screenOn = true))
         assertEquals("screen off, visible", slow, GpsPolicy.forDecision(inZone, appVisible = true, screenOn = false))
@@ -84,9 +84,17 @@ class GpsPolicyTest {
         assertTrue(off.intervalMs + off.maxDelayMs < 60_000L)
     }
 
+    @Test fun screenOffBatchesNeverLookLikeAGpsGap() {
+        // The core bridges a gap (and re-anchors, so nothing counts for a while) once the newest fix is older than
+        // min(2.5 x spacing, 45 s) (params.rs bridge_after_max_ms). Batches were seen handed over 8 s late (walk test 2026-10-10):
+        // the newest fix of a batch plus that lateness must stay at least 10 s under the cap.
+        val off = GpsPolicy.inZone(onScreen = false)
+        assertTrue(off.fixSpacingMs + 8_000L <= 45_000L - 10_000L)
+    }
+
     @Test fun theRequestCarriesIntervalBatchingAndQuality() {
         assertEquals(GpsPolicy.RequestSpec(1_000L, 1_000L, 0L, 0f, 100), GpsPolicy.request(GpsPolicy.inZone(onScreen = true)))
-        assertEquals(GpsPolicy.RequestSpec(5_000L, 5_000L, 30_000L, 0f, 100), GpsPolicy.request(GpsPolicy.inZone(onScreen = false)))
+        assertEquals(GpsPolicy.RequestSpec(5_000L, 5_000L, 20_000L, 0f, 100), GpsPolicy.request(GpsPolicy.inZone(onScreen = false)))
         assertEquals(102, GpsPolicy.request(GpsPolicy.IDLE).quality)
     }
 }
