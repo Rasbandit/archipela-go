@@ -730,34 +730,6 @@ pub struct AuditEventOut {
     pub at: Option<GeoPoint>,
 }
 
-/// How many events of one kind happened.
-#[derive(Debug, uniffi::Record)]
-pub struct KindCountOut {
-    /// Machine name of the event kind.
-    pub kind: String,
-    /// Number of events of that kind.
-    pub count: u32,
-}
-
-/// "While you were out": everything recorded between two moments.
-#[derive(Debug, uniffi::Record)]
-pub struct AwayReportOut {
-    /// Start of the period, in Unix milliseconds.
-    pub from_ms: i64,
-    /// End of the period, in Unix milliseconds.
-    pub to_ms: i64,
-    /// Number of GPS points recorded.
-    pub points: u32,
-    /// How many of those points came from the dev simulator.
-    pub simulated_points: u32,
-    /// Distance travelled in the period, in metres.
-    pub distance_m: f64,
-    /// Number of events of each kind.
-    pub counts: Vec<KindCountOut>,
-    /// The events themselves, oldest first.
-    pub events: Vec<AuditEventOut>,
-}
-
 /// Quests this close to a fix get a line in the log saying whether they count.
 const NEAR_MISS_RADIUS_M: f64 = 100.0;
 /// Longest the open game goes unsaved while the player moves without events.
@@ -2307,28 +2279,6 @@ impl Engine {
             },
             None => TraceDelta { reset: true, cursor: 0, from_ms: None, joins: false, append: vec![], tail: line(vec![]) },
         }
-    }
-
-    /// Everything that happened in the open game between two moments.
-    pub fn away_report(&self, from_ms: i64, to_ms: i64) -> Option<AwayReportOut> {
-        let id = self.game_id()?;
-        let j = self.journal.as_ref()?.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let s = j.summary(&id, from_ms, to_ms).ok()?;
-        let events = j.events_since(&id, from_ms).ok()?;
-        drop(j);
-        Some(AwayReportOut {
-            from_ms,
-            to_ms,
-            points: s.points,
-            simulated_points: s.simulated_points,
-            distance_m: s.distance_m,
-            counts: s.by_kind.into_iter().map(|(kind, count)| KindCountOut { kind, count }).collect(),
-            events: events
-                .into_iter()
-                .filter(|e| e.t_ms <= to_ms)
-                .map(|e| AuditEventOut { t_ms: e.t_ms, kind: e.kind, detail: e.detail, at: e.at.map(|(lat, lon)| GeoPoint { lat, lon }) })
-                .collect(),
-        })
     }
 
     /// Reroll unfinished quests (all if `ids` is empty). Returns how many were re-placed.
