@@ -508,14 +508,21 @@ pub struct BagOut {
 }
 
 /// A forager's items and counts as the app shows them in `state`; `None` for other quests. The map draws the items instead of the pin
-/// (`on_map`) while it is unfinished and items are still out there; a done one, or one with every item picked (its pin then sits at
-/// `pin_at`), is drawn like any quest.
+/// (`on_map`) while it is unfinished, not fogged and items are still out there; a done one, or one with every item picked (its pin
+/// then sits at `pin_at`), is drawn like any quest.
 fn collect_out(t: &Target, c: Option<&Collected>, live: &[Point], state: QuestState) -> Option<CollectOut> {
     let Target::Collect { need, theme, .. } = t else { return None };
     let c = c.cloned().unwrap_or_default();
     // `picked` stays in the record for the map's filters; live items are never picked.
     let items = live.iter().map(|p| CollectItemOut { at: gp(*p), picked: false }).collect();
-    Some(CollectOut { theme: theme.clone(), need: *need, carried: c.carried, banked: c.banked, items, on_map: state != QuestState::Done && !live.is_empty() })
+    Some(CollectOut {
+        theme: theme.clone(),
+        need: *need,
+        carried: c.carried,
+        banked: c.banked,
+        items,
+        on_map: !matches!(state, QuestState::Done | QuestState::Hidden) && !live.is_empty(),
+    })
 }
 
 /// The first item still out there, where the quest's pin and popup sit.
@@ -3008,6 +3015,7 @@ mod tests {
         assert!(on_map(&[a], QuestState::InProgress));
         assert!(!on_map(&[a], QuestState::Done), "a done forager is drawn like any done quest");
         assert!(!on_map(&[], QuestState::InProgress), "every item picked: its pin shows");
+        assert!(!on_map(&[a], QuestState::Hidden), "a fogged forager shows nothing");
     }
 
     #[test]
