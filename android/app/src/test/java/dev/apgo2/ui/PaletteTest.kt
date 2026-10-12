@@ -25,8 +25,8 @@ class PaletteTest {
     }
 
     @Test fun difficultyHasALightAndADarkToken() {
-        assertEquals(Color(0xFF2E7D32), ApgoPalette.difficulty("easy", dark = false))
-        assertEquals(Color(0xFFB26A00), ApgoPalette.difficulty("medium", dark = false))
+        assertEquals(Color(0xFF1B6E20), ApgoPalette.difficulty("easy", dark = false))
+        assertEquals(Color(0xFF8A5000), ApgoPalette.difficulty("medium", dark = false))
         assertEquals(Color(0xFF6A1B9A), ApgoPalette.difficulty("hard", dark = false))
         assertEquals(Color(0xFF8FD694), ApgoPalette.difficulty("easy", dark = true))
         assertEquals(Color(0xFFFFC76B), ApgoPalette.difficulty("medium", dark = true))

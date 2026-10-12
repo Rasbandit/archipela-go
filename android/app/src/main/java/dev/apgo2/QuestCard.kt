@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -32,11 +35,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,11 +85,12 @@ internal fun ColumnScope.QuestCard(
                 )
             }
             q.placeRow?.let { PlaceRow(it) }
-            q.progressBlock?.let { ProgressBlock(it, ApgoPalette.quest(q.state)) }
+            q.progressBlock?.let { ProgressBlock(it, ApgoPalette.questOnCard(q.state, isSystemInDarkTheme())) }
             if (q.hasAbout) AboutFold(engine, q.locationId)
             q.reward?.let { FeedbackText("Reward: $it", Tone.Success) }
         }
-        IconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopEnd).size(28.dp)) {
+        // A 48dp touch target, pulled into the corner so the icon sits tight top-right.
+        IconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopEnd).offset(x = 12.dp, y = (-12).dp)) {
             Icon(ApgoIcons.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
         }
     }
@@ -102,7 +111,7 @@ private fun CardHead(q: QuestOut) {
             Icon(
                 if (q.state == "done") ApgoIcons.Check else ApgoIcons.forKind(q.kindId, q.family),
                 contentDescription = null,
-                tint = if (q.state == "progress") ApgoPalette.navy else ApgoPalette.onPin,
+                tint = ApgoPalette.badgeInk(q.state),
                 modifier = Modifier.size(22.dp),
             )
         }
@@ -188,7 +197,8 @@ private fun ProgressBar(
     p: ProgressOut,
     color: Color,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    // Read as one item: "Time here, 1:12 of 3:00", then the bar's percentage.
+    Column(Modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth()) {
             Text(p.label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             Text(p.value, fontSize = 12.sp, fontWeight = FontWeight.Medium)
@@ -225,9 +235,20 @@ private fun StepDot(
         contentAlignment = Alignment.Center,
     ) {
         if (done) {
-            Icon(ApgoIcons.Check, contentDescription = "Done", tint = ApgoPalette.onPin, modifier = Modifier.size(12.dp))
+            Icon(ApgoIcons.Check, contentDescription = "Done", tint = ApgoPalette.inkOn(color), modifier = Modifier.size(12.dp))
         } else {
-            Text("${i + 1}", fontSize = 10.sp, color = if (at == i) ApgoPalette.navy else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "${i + 1}",
+                fontSize = 10.sp,
+                color =
+                    if (at ==
+                        i
+                    ) {
+                        ApgoPalette.inkOn(color)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
         }
     }
 }
@@ -247,13 +268,17 @@ private fun AboutFold(
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
-            Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 2.dp),
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clickable(role = Role.Button, onClickLabel = if (open) "Hide details" else "Show details") { open = !open }
+                .semantics { stateDescription = if (open) "Expanded" else "Collapsed" },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("About this place", fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             Icon(
                 ApgoIcons.Expand,
-                contentDescription = if (open) "Hide" else "Show",
+                contentDescription = null,
                 modifier = Modifier.size(16.dp).rotate(if (open) HALF_TURN else 0f),
             )
         }
@@ -264,7 +289,6 @@ private fun AboutFold(
 @Composable
 private fun AboutSheet(a: AboutOut) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val uri = LocalUriHandler.current
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         a.description?.let { Text(it, fontSize = 12.sp, color = muted) }
         a.rows.forEach { r ->
@@ -274,19 +298,16 @@ private fun AboutSheet(a: AboutOut) {
             }
         }
         a.wikipediaUrl?.let { url ->
-            Row(
-                Modifier.clickable { runCatching { uri.openUri(url) } },
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text("Read more on Wikipedia", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                Icon(
-                    ApgoIcons.External,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(12.dp),
-                )
-            }
+            // A real link: TalkBack announces it as one, and the platform opens it.
+            Text(
+                buildAnnotatedString {
+                    withLink(LinkAnnotation.Url(url, TextLinkStyles(SpanStyle(color = MaterialTheme.colorScheme.primary)))) {
+                        append("Read more on Wikipedia ↗")
+                    }
+                },
+                fontSize = 12.sp,
+                modifier = Modifier.heightIn(min = 48.dp).wrapContentHeight(),
+            )
         }
     }
 }

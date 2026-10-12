@@ -104,9 +104,25 @@ internal object ApgoPalette {
     val questLocked = Color(0xFF9E9E9E)
     val questHidden = Color(0xFFBDBDBD)
 
+    // Status text and quest-state bars drawn on a card or panel: a darker shade on light, a lighter one on dark, so each reads at
+    // WCAG 4.5:1 (text) or 3:1 (bars) on both themes (ContrastTest). The map keeps the plain state colours above.
+    private val successLight = Color(0xFF1B6E20)
+    private val successDark = Color(0xFF81C784)
+    private val warningLight = Color(0xFFA33A00)
+    private val warningDark = Color(0xFFFFB74D)
+    private val dangerLight = Color(0xFFB71C1C)
+    private val dangerDark = Color(0xFFFF8A80)
+    private val mutedLight = Color(0xFF2F4858)
+    private val mutedDark = Color(0xFFB8CCE0)
+    private val todoDark = Color(0xFF4FC3F7)
+    private val progressLight = Color(0xFFA35F00)
+    private val progressDark = Color(0xFFFFC76B)
+    private val lockedLight = Color(0xFF616161)
+    private val lockedDark = Color(0xFFBDBDBD)
+
     // Difficulty pill on the quest card: green, amber, purple, lighter on dark so they stay readable.
-    private val easy = Color(0xFF2E7D32)
-    private val medium = Color(0xFFB26A00)
+    private val easy = Color(0xFF1B6E20)
+    private val medium = Color(0xFF8A5000)
     private val hard = Color(0xFF6A1B9A)
     private val easyDark = Color(0xFF8FD694)
     private val mediumDark = Color(0xFFFFC76B)
@@ -238,6 +254,35 @@ internal object ApgoPalette {
             "hard" -> if (dark) hardDark else hard
             else -> if (dark) mediumDark else medium
         }
+
+    fun tone(
+        t: Tone,
+        dark: Boolean,
+    ): Color =
+        when (t) {
+            Tone.Success -> if (dark) successDark else successLight
+            Tone.Warning -> if (dark) warningDark else warningLight
+            Tone.Danger -> if (dark) dangerDark else dangerLight
+            Tone.Muted -> if (dark) mutedDark else mutedLight
+        }
+
+    /** A quest state's colour for a bar or text on a card (see [quest] for the map). */
+    fun questOnCard(
+        state: String,
+        dark: Boolean,
+    ): Color =
+        when (state) {
+            "done" -> if (dark) successDark else successLight
+            "progress" -> if (dark) progressDark else progressLight
+            "locked", "hidden" -> if (dark) lockedDark else lockedLight
+            else -> if (dark) todoDark else questTodo
+        }
+
+    /** The icon on a quest badge filled with [quest]: navy on the light amber and greys, white on the rest. */
+    fun badgeInk(state: String): Color = inkOn(quest(state))
+
+    /** Navy or white, whichever reads better on [fill]. */
+    fun inkOn(fill: Color): Color = if (Contrast.ratio(navy, fill) >= Contrast.ratio(onPin, fill)) navy else onPin
 
     fun quest(state: String): Color =
         when (state) {
