@@ -26,13 +26,21 @@ pub enum UnitChoice {
 }
 
 /// Every setting; a missing field reads as its default, so older files keep loading.
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     /// Distance units.
     pub units: UnitChoice,
     /// Where the player last was, so a map opened before the first fix starts there and not on the whole world.
     pub last_place: Option<Point>,
+    /// Whether a trap alerts the player with a loud notification and buzz (#160).
+    pub trap_alerts: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { units: UnitChoice::default(), last_place: None, trap_alerts: true }
+    }
 }
 
 impl Settings {
@@ -101,15 +109,24 @@ mod tests {
 
     #[test]
     fn missing_file_loads_defaults() {
-        assert_eq!(Settings::load(&tmp("missing")), Settings { units: UnitChoice::Auto, last_place: None });
+        assert_eq!(Settings::load(&tmp("missing")), Settings { units: UnitChoice::Auto, last_place: None, trap_alerts: true });
     }
 
     #[test]
     fn save_then_load_round_trips_and_creates_the_dir() {
         let dir = tmp("round-trip").join("nested");
-        let s = Settings { units: UnitChoice::Imperial, last_place: Some(Point { lat: 40.5, lon: -111.9 }) };
+        let s = Settings { units: UnitChoice::Imperial, last_place: Some(Point { lat: 40.5, lon: -111.9 }), trap_alerts: false };
         s.save(&dir).unwrap();
         assert_eq!(Settings::load(&dir), s);
+    }
+
+    #[test]
+    fn trap_alerts_are_on_by_default_and_for_files_from_before_the_switch() {
+        assert!(Settings::default().trap_alerts);
+        let dir = tmp("trap-alerts");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(FILE), r#"{"units":"metric"}"#).unwrap();
+        assert!(Settings::load(&dir).trap_alerts);
     }
 
     #[test]
@@ -134,7 +151,7 @@ mod tests {
     fn save_fails_when_the_dir_is_a_file() {
         let dir = tmp("blocked");
         std::fs::write(&dir, "a file").unwrap();
-        assert!(Settings { units: UnitChoice::Metric, last_place: None }.save(&dir).is_err());
+        assert!(Settings { units: UnitChoice::Metric, ..Settings::default() }.save(&dir).is_err());
         let _ = std::fs::remove_file(&dir);
     }
 
@@ -177,7 +194,7 @@ mod tests {
                     Settings::update(&dir, |st| st.remember_place(place)).unwrap();
                 });
             });
-            assert_eq!(Settings::load(&dir), Settings { units: UnitChoice::Imperial, last_place: Some(place) });
+            assert_eq!(Settings::load(&dir), Settings { units: UnitChoice::Imperial, last_place: Some(place), ..Settings::default() });
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

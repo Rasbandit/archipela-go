@@ -196,10 +196,10 @@ impl Traps {
         self.active.iter().any(|t| matches!(t, Trap::Fog { .. }))
     }
 
-    /// Whether a silence trap is active.
+    /// Whether a silence trap is active at `now_ms` (trap alerts are muted); its end counts even before a fix clears it.
     #[must_use]
-    pub fn silenced(&self) -> bool {
-        self.active.iter().any(|t| matches!(t, Trap::Silence { .. }))
+    pub fn silenced(&self, now_ms: i64) -> bool {
+        self.active.iter().any(|t| matches!(t, Trap::Silence { until_ms } if *until_ms > now_ms))
     }
 
     /// How much longer dwell quests take: 2 under a slow trap, otherwise 1.
@@ -307,7 +307,7 @@ mod tests {
         t.trigger("Fog Of War Trap", 0, None, home(), &PathIndex::new(&pool()), &mut rng());
         t.trigger("Silence Trap", 0, None, home(), &PathIndex::new(&pool()), &mut rng());
         assert_eq!(t.dwell_multiplier(), 2.0);
-        assert!(t.fog_active() && t.silenced());
+        assert!(t.fog_active() && t.silenced(0) && !t.silenced(15 * 60_000));
         t.tick(40 * 60_000, home(), 0.0);
         assert!(t.active.is_empty() && !t.fog_active() && t.dwell_multiplier() == 1.0);
     }
