@@ -176,6 +176,9 @@ internal class AppModel(
     val here: LatLng?
         get() = Here.pick(simPos, pins.pin?.fix?.let { LatLng(it.lat, it.lon) }, realLoc?.let { LatLng(it.latitude, it.longitude) })
 
+    /** The open game's quests as they are now: the drawn list on screen, read from the core off screen (where it is not reloaded). */
+    val questsNow: List<QuestOut> get() = if (screen.shown) quests else engine.quests(now())
+
     /** Where the player is for game logic: the simulator, else the open game's last accepted estimate (adversarial review M3). */
     val acceptedHere: LatLng?
         get() = Here.logic(simPos, engine.lastAcceptedPos()?.let { LatLng(it.lat, it.lon) })

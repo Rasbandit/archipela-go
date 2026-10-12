@@ -52,7 +52,7 @@ internal class FieldDiagnostics(
 
     /** Log quest progress each time it crosses a 10% step, so a quest that never moves shows up in the log. */
     fun logProgress() {
-        for (q in model.quests) {
+        for (q in model.questsNow) {
             if (q.state != "progress") {
                 progressBuckets.remove(q.locationId)
                 continue
@@ -112,7 +112,7 @@ internal class FieldDiagnostics(
 
     private fun gameFields(): Array<Pair<String, Any?>> =
         arrayOf(
-            "quests" to model.quests.size,
+            "quests" to model.questsNow.size,
             "done" to (model.hud?.done ?: 0),
             "presence" to model.presence.decision.state.name,
             "counting" to model.presence.decision.counting,

@@ -7,6 +7,9 @@ package dev.apgo2
  */
 internal class ScreenGate {
     private var visible = false
+
+    /** Whether the app is on screen (what the screen shows is current). */
+    val shown: Boolean get() = visible
     private var owed = false
 
     /** Whether to redraw now; off screen it notes that a redraw is owed instead. */

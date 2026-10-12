@@ -55,7 +55,8 @@ internal class PinFeed(
     /** A compass reading: a magnetic one corrected to true north with the declination here; sent at most twice a second. */
     fun onHeading(r: CompassReading) {
         if (!model.engine.hasGame() || !headingThrottle.due(r.eventMs)) return
-        val at = model.here ?: return
+        // The raw last fix first: it keeps up off screen, where the pin behind [AppModel.here] is not refreshed.
+        val at = model.realLoc?.let { LatLng(it.latitude, it.longitude) } ?: model.here ?: return
         val declination = if (r.trueNorth) 0.0 else declinationDeg(at, r.eventMs)
         val h = CompassReadings.headingIn(r, declination)
         val raw = RawLines.heading(h.azimuthDeg, h.accuracy, h.pitchDeg, h.rollDeg, h.tMs, h.errorDeg)
