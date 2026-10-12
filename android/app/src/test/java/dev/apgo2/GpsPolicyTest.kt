@@ -152,13 +152,13 @@ class GmsRequestTest {
         assertEquals(0f, r.minUpdateDistanceMeters)
     }
 
-    @Test fun screenOffInAZoneIsHighAccuracyEveryFiveSecondsBatchedUpToThirty() {
+    @Test fun screenOffInAZoneIsHighAccuracyEveryFiveSecondsBatchedUpToTwenty() {
         val r = GpsPolicy.gmsRequest(GpsPolicy.inZone(onScreen = false))
         assertEquals(Priority.PRIORITY_HIGH_ACCURACY, r.priority)
         assertEquals(5_000L, r.intervalMillis)
         assertEquals(5_000L, r.minUpdateIntervalMillis)
         assertTrue(r.isBatched)
-        assertEquals(30_000L, r.maxUpdateDelayMillis)
+        assertEquals(20_000L, r.maxUpdateDelayMillis)
     }
 
     @Test fun theIdleMarkerIsBalancedWithItsDistanceFilter() {
