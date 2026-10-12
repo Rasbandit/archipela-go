@@ -185,6 +185,8 @@ pub enum Event {
         item: String,
         /// What the trap does, for the player.
         message: String,
+        /// Whether to alert the player (a loud notification and buzz): not while an earlier Silence Trap is active.
+        alert: bool,
     },
     /// The player asked to reshuffle the quests.
     ShuffleRequested,
@@ -1540,8 +1542,9 @@ impl Game {
                 thin = PathIndex::new(&self.trap_pool);
                 &thin
             };
+            let alert = !self.traps.silenced(now_ms); // read first: a Silence Trap's own alert still fires
             if let Some(message) = self.traps.trigger(name, now_ms, pos, self.home, paths, &mut rng) {
-                ev.push(Event::Trap { item: name.to_string(), message });
+                ev.push(Event::Trap { item: name.to_string(), message, alert });
             }
             if name == "Shuffle Trap" {
                 ev.push(Event::ShuffleRequested);
@@ -1674,7 +1677,7 @@ impl Game {
                             j.detail = format!("{} sent to the server", a.quest_name);
                         }
                     }
-                    Event::Trap { item, message } => j.detail = format!("{item}: {message} ({})", crate::items::blurb(item, self.units)),
+                    Event::Trap { item, message, .. } => j.detail = format!("{item}: {message} ({})", crate::items::blurb(item, self.units)),
                     _ => {}
                 }
                 j
@@ -2615,6 +2618,16 @@ mod tests {
         let again = g.sync_items(&["Progressive Zone Key".into(), "Bike".into()], 70, None);
         assert!(again.is_empty(), "already-seen items trigger nothing");
         assert!(g.quest_views(0).iter().any(|v| v.zone == 2 && v.state == QuestState::Open));
+    }
+
+    #[test]
+    fn a_silence_trap_alerts_as_it_lands_then_mutes_the_alerts_of_later_traps_until_it_ends() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Archipelago, 4);
+        let alert = |ev: Vec<Event>| ev.into_iter().find_map(|e| if let Event::Trap { alert, .. } = e { Some(alert) } else { None });
+        assert_eq!(alert(g.receive_item("Fog Of War Trap", 0, Some(home()))), Some(true));
+        assert_eq!(alert(g.receive_item("Silence Trap", 10, Some(home()))), Some(true), "its own alert still fires");
+        assert_eq!(alert(g.receive_item("Slow Trap", 20, Some(home()))), Some(false));
+        assert_eq!(alert(g.receive_item("Freeze Trap", 10 + 15 * 60_000, Some(home()))), Some(true), "15 min later, with no fix between");
     }
 
     #[test]

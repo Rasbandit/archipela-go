@@ -17,7 +17,7 @@ pub fn blurb(item: &str, units: UnitSystem) -> String {
         "Take a Breather!" => "Filler: take a short breather, on your honor.",
         "Fog Of War Trap" => "Trap: quests are hidden on the map for 15 minutes (you can still complete them).",
         "Freeze Trap" => "Trap: no quest counts until you reach the glowing thaw point.",
-        "Silence Trap" => "Trap: notifications are muted for 15 minutes.",
+        "Silence Trap" => "Trap: trap alerts are muted for 15 minutes.",
         "Leash Trap" => return format!("Trap: quests only count within {} of home for 30 minutes.", distance_rounded(LEASH_M, units, Round::Down)),
         "Detour Trap" => "Trap: visit the marked waypoint before any quest counts.",
         "Toll Trap" => return format!("Trap: cover {} before any quest counts.", distance_rounded(TOLL_M, units, Round::Up)),
