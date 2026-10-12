@@ -6,7 +6,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use apgo_core::assign::SurfacePref;
-use apgo_core::assign::Target;
+use apgo_core::assign::{Assignment, Target};
+use apgo_core::card;
 use apgo_core::catalog::{Catalog, Kind, Mode};
 use apgo_core::chain::ChainUnit;
 use apgo_core::game::{Backend, Event, Game, NearMiss, NewGame, QuestState, Streets};
@@ -405,39 +406,64 @@ pub struct QuestOut {
     pub chain_id: Option<String>,
     /// A forager quest's items and counts; `None` for other quests.
     pub collect: Option<CollectOut>,
-    /// Whether the quest is on a real place whose details `Engine::poi_details` can show (the quest card's "About this place").
-    pub has_details: bool,
+    /// The card's one-line goal ("Get here", "Sit 5 min").
+    pub headline: String,
+    /// The card's measurements under the headline ("Within 130 ft"); `detail` stays the full goal text.
+    pub card_detail: String,
+    /// The card's place row, for quests on a real place.
+    pub place_row: Option<PlaceOut>,
+    /// The card's labelled progress block, for quests that measure progress.
+    pub progress_block: Option<ProgressOut>,
+    /// Whether `Engine::about` has an about sheet for the quest's place (the card's "About this place").
+    pub has_about: bool,
 }
 
-/// What the map knows about a quest's place, for its details card; each field is `None` when the map does not have it.
+/// A quest card's place row: the place's name (if it has one) and what it is.
 #[derive(Debug, uniffi::Record)]
-pub struct PoiDetailsOut {
-    /// Name of the place.
+pub struct PlaceOut {
+    /// Name of the place; `None` for an unnamed one.
     pub name: Option<String>,
-    /// What kind of place it is ("Cafe", "Trail").
-    pub type_label: Option<String>,
-    /// Street address.
-    pub address: Option<String>,
-    /// Opening hours, as OpenStreetMap writes them.
-    pub opening_hours: Option<String>,
-    /// Phone number.
-    pub phone: Option<String>,
-    /// Website (`http(s)` only).
-    pub website: Option<String>,
-    /// Wikipedia article address.
-    pub wikipedia_url: Option<String>,
+    /// What the place is ("Bench", "Artwork").
+    pub kind: Option<String>,
+    /// Whether the name is a title shown in quotes (an artwork's).
+    pub quoted: bool,
+}
+
+/// A quest card's progress block.
+#[derive(Debug, uniffi::Record)]
+pub struct ProgressOut {
+    /// What is measured ("Time here", "Traveled").
+    pub label: String,
+    /// How far along, in words ("1:12 of 3:00").
+    pub value: String,
+    /// How far along, from 0 to 1.
+    pub frac: f32,
+    /// A line under the bar ("Carrying 2").
+    pub hint: Option<String>,
+    /// Named steps of a two-step quest; empty for others.
+    pub steps: Vec<String>,
+    /// Index of the current step.
+    pub step_at: u8,
+}
+
+/// One row of a place's about sheet.
+#[derive(Debug, uniffi::Record)]
+pub struct AboutRowOut {
+    /// Row label ("Artist").
+    pub label: String,
+    /// Row value.
+    pub value: String,
+}
+
+/// What the map knows about a quest's place, beyond its name and type.
+#[derive(Debug, uniffi::Record)]
+pub struct AboutOut {
     /// Free-text description.
     pub description: Option<String>,
-    /// Trail surface.
-    pub surface: Option<String>,
-    /// Trail length in the player's units.
-    pub length: Option<String>,
-    /// Whether the trail is lit: Yes, No or Partly.
-    pub lit: Option<String>,
-    /// Hiking difficulty.
-    pub difficulty: Option<String>,
-    /// The place on openstreetmap.org.
-    pub osm_url: Option<String>,
+    /// Labelled facts, in a fixed order.
+    pub rows: Vec<AboutRowOut>,
+    /// Wikipedia article address.
+    pub wikipedia_url: Option<String>,
 }
 
 /// One item of a forager quest.
@@ -1784,10 +1810,27 @@ impl Engine {
     pub fn quests(&self, now_ms: i64) -> Vec<QuestOut> {
         let units = self.unit_system();
         self.with_game(|g| {
+            let by_id: HashMap<i64, &Assignment> = g.assignments.iter().map(|a| (a.location_id, a)).collect();
             g.quest_views(now_ms)
                 .into_iter()
                 .map(|q| {
-                    let has_details = q.feature_id.is_some();
+                    // Worded from the view's target, which carries trap adjustments (a Slow trap doubles dwells).
+                    let card = by_id.get(&q.location_id).map(|a| card::card_text(&Assignment { target: q.target.clone(), ..(*a).clone() }, g.home, units));
+                    let (headline, card_detail) = card.map(|c| (c.headline, c.detail)).unwrap_or_default();
+                    let progress_block = card::card_progress(&q, now_ms, units).map(|p| ProgressOut {
+                        label: p.label,
+                        value: p.value,
+                        frac: p.frac,
+                        hint: p.hint,
+                        steps: p.steps,
+                        step_at: p.step_at,
+                    });
+                    let place_row = card::place_row(&q.kind_id, &q.place, q.place_type.as_deref(), q.feature_id.is_some(), &self.catalog).map(|r| PlaceOut {
+                        name: r.name,
+                        kind: r.kind,
+                        quoted: r.quoted,
+                    });
+                    let has_about = q.has_about;
                     let (shape, anchor, anchor_b, radius_m, path, detail) = describe(&q.target, units);
                     let collect = collect_out(&q.target, q.collected.as_ref());
                     let anchor = pin_at(collect.as_ref(), q.state, anchor);
@@ -1823,7 +1866,11 @@ impl Engine {
                         reward: q.reward,
                         chain_id: q.chain_id,
                         collect,
-                        has_details,
+                        headline,
+                        card_detail,
+                        place_row,
+                        progress_block,
+                        has_about,
                     }
                 })
                 .collect()
@@ -1831,29 +1878,18 @@ impl Engine {
         .unwrap_or_default()
     }
 
-    /// What the map knows about the place of quest `location_id`, for its details card. Reads the realm's saved scan, so call
-    /// it off the UI thread. `None` with no game open, for a quest with no real place, or when the place is gone from the
-    /// realm's current scan (rescanned).
-    pub fn poi_details(&self, location_id: i64) -> Option<PoiDetailsOut> {
+    /// The about sheet of quest `location_id`'s place. Reads the realm's saved scan, so call it off the UI thread. `None` with no
+    /// game open, for a quest with no real place, when the map knows nothing more, or when the place is gone from the realm's
+    /// current scan (rescanned).
+    pub fn about(&self, location_id: i64) -> Option<AboutOut> {
         let (realm_id, feature_id) = self.with_game(|g| g.quest_feature(location_id).map(|(r, f)| (r.to_owned(), f.to_owned())))??;
         let atlas = self.store().load_atlas(&realm_id)?; // read with the game lock released
         let f = atlas.features.iter().find(|f| f.id == feature_id)?;
-        let d = apgo_core::poi_details::details(f);
-        let units = self.unit_system();
-        Some(PoiDetailsOut {
-            name: d.name,
-            type_label: d.type_label,
-            address: d.address,
-            opening_hours: d.opening_hours,
-            phone: d.phone,
-            website: d.website,
-            wikipedia_url: d.wikipedia_url,
-            description: d.description,
-            surface: d.surface,
-            length: d.length_m.map(|m| distance(m, units)),
-            lit: d.lit,
-            difficulty: d.difficulty,
-            osm_url: d.osm_url,
+        let a = apgo_core::poi_details::about(f, self.unit_system())?;
+        Some(AboutOut {
+            description: a.description,
+            rows: a.rows.into_iter().map(|(label, value)| AboutRowOut { label, value }).collect(),
+            wikipedia_url: a.wikipedia_url,
         })
     }
 
@@ -2368,39 +2404,74 @@ mod tests {
             })
             .unwrap();
         e.open_game("g1".into()).unwrap();
-        assert!(!e.quests(0).into_iter().find(|q| q.location_id == old).unwrap().has_details, "not linked before the streets build");
+        let kind = |id: i64| e.quests(0).into_iter().find(|q| q.location_id == id).unwrap().place_row.and_then(|p| p.kind);
+        assert_eq!(kind(old), None, "not linked before the streets build");
         e.refresh_streets(None).unwrap();
-        let has = |id: i64| e.quests(0).into_iter().find(|q| q.location_id == id).unwrap().has_details;
-        assert!(has(old) && has(kept));
-        assert_eq!(e.poi_details(old).and_then(|d| d.type_label).as_deref(), Some("Bench"));
+        assert_eq!(kind(old).as_deref(), Some("Bench"), "the card names what the place is once linked");
         let saved = Game::load(&e.dir, "g1").unwrap();
         let ids = |id: i64| saved.assignments.iter().find(|a| a.location_id == id).unwrap().feature_id.clone();
         assert_eq!((ids(old).as_deref(), ids(kept).as_deref()), (Some("n77"), Some("w1")), "linked once and saved; a linked quest is left alone");
     }
 
     #[test]
-    fn poi_details_reads_the_quest_place_from_the_realm_scan_and_is_none_once_it_is_gone() {
-        let e = engine_with_game("poi-details");
+    fn about_reads_the_quest_place_from_the_realm_scan_and_is_none_once_it_is_gone() {
+        let e = engine_with_game("about");
         let id = e.quests(0)[0].location_id;
-        let has = |e: &TestEngine| e.quests(0).into_iter().find(|q| q.location_id == id).unwrap().has_details;
-        assert!(!has(&e), "a street quest has no place");
-        assert!(e.poi_details(id).is_none());
-        let cafe = Feature {
+        let quest = |e: &TestEngine| e.quests(0).into_iter().find(|q| q.location_id == id).unwrap();
+        assert!(!quest(&e).has_about, "a street quest has no place");
+        assert!(e.about(id).is_none());
+        let artwork = Feature {
             id: "n42".into(),
             point: home(),
-            name: Some("Bean There".into()),
-            tags: BTreeMap::from([("amenity".to_string(), "cafe".to_string()), ("name".to_string(), "Bean There".to_string())]),
+            name: Some("Allow Me".into()),
+            tags: BTreeMap::from([
+                ("tourism".to_string(), "artwork".to_string()),
+                ("artwork_type".to_string(), "statue".to_string()),
+                ("artist_name".to_string(), "J. Seward Johnson".to_string()),
+                ("wikipedia".to_string(), "en:Allow Me".to_string()),
+            ]),
             geometry: vec![],
         };
-        e.store().save_atlas(&build_atlas("r0", 0, vec![cafe], vec![], &e.catalog)).unwrap();
-        e.with_game(|g| g.assignments.iter_mut().find(|a| a.location_id == id).unwrap().feature_id = Some("n42".into()));
-        assert!(has(&e));
-        let d = e.poi_details(id).expect("the cafe's details");
-        assert_eq!((d.name.as_deref(), d.type_label.as_deref()), (Some("Bean There"), Some("Cafe")));
-        assert_eq!(d.osm_url.as_deref(), Some("https://www.openstreetmap.org/node/42"));
+        e.store().save_atlas(&build_atlas("r0", 0, vec![artwork], vec![], &e.catalog)).unwrap();
+        e.with_game(|g| {
+            let a = g.assignments.iter_mut().find(|a| a.location_id == id).unwrap();
+            (a.feature_id, a.place_type, a.has_about) = (Some("n42".into()), Some("Artwork".into()), true);
+        });
+        assert!(quest(&e).has_about);
+        let d = e.about(id).expect("the artwork's about sheet");
+        let rows: Vec<(&str, &str)> = d.rows.iter().map(|r| (r.label.as_str(), r.value.as_str())).collect();
+        assert_eq!(rows, [("Kind", "Statue"), ("Artist", "J. Seward Johnson")]);
+        assert_eq!(d.wikipedia_url.as_deref(), Some("https://en.wikipedia.org/wiki/Allow_Me"));
         e.store().save_atlas(&build_atlas("r0", 0, vec![], vec![], &e.catalog)).unwrap();
-        assert!(e.poi_details(id).is_none(), "rescanned without the cafe");
-        assert!(e.poi_details(-1).is_none(), "no such quest");
+        assert!(e.about(id).is_none(), "rescanned without the artwork");
+        assert!(e.about(-1).is_none(), "no such quest");
+    }
+
+    #[test]
+    fn quests_carry_the_card_headline_detail_and_progress() {
+        let e = engine_with_game("card");
+        let id = e
+            .with_game(|g| {
+                let a = &mut g.assignments[0];
+                (a.kind_id, a.place, a.feature_id) = ("street_smarts".into(), "Street Smarts".into(), None);
+                a.target = Target::Point { p: destination(home(), 0.0, 300.0), r: 40.0 };
+                a.location_id
+            })
+            .unwrap();
+        let q = e.quests(0).into_iter().find(|q| q.location_id == id).unwrap();
+        assert_eq!(q.headline, "Get here");
+        assert!(q.card_detail.starts_with("Within "), "{}", q.card_detail);
+        assert!(q.progress_block.is_none(), "reaching a point has no progress block");
+        assert!(q.place_row.is_none() && !q.has_about, "a street spot is no place");
+        // Under a Slow trap the headline says the time the tracker actually needs.
+        e.with_game(|g| {
+            let a = g.assignments.iter_mut().find(|a| a.location_id == id).unwrap();
+            a.target = Target::Dwell { p: destination(home(), 0.0, 300.0), r: 40.0, minutes: 3.0 };
+            a.kind_id = "bench_warmer".into();
+            g.traps.active.push(apgo_core::traps::Trap::Slow { until_ms: i64::MAX });
+        });
+        let q = e.quests(0).into_iter().find(|q| q.location_id == id).unwrap();
+        assert_eq!(q.headline, "Sit 6 min");
     }
 
     #[test]

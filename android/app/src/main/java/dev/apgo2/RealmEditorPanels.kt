@@ -54,6 +54,7 @@ import dev.apgo2.ui.MapOverlayCard
 import dev.apgo2.ui.MarkToggle
 import dev.apgo2.ui.RealmStatsBox
 import dev.apgo2.ui.ScanFigures
+import dev.apgo2.ui.Tone
 import dev.apgo2.ui.Units
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -150,8 +151,8 @@ private fun LazyListScope.headerItems(
         )
         s.current?.let { r ->
             TextButton(onClick = { s.confirmDelete = r }) {
-                Icon(ApgoIcons.Delete, contentDescription = null, tint = ApgoPalette.danger, modifier = Modifier.size(16.dp))
-                Text("  Delete realm", fontSize = 12.sp, color = ApgoPalette.danger)
+                Icon(ApgoIcons.Delete, contentDescription = null, tint = ApgoPalette.tone(Tone.Danger), modifier = Modifier.size(16.dp))
+                Text("  Delete realm", fontSize = 12.sp, color = ApgoPalette.tone(Tone.Danger))
             }
         }
     }
@@ -243,7 +244,7 @@ private fun FindRow(
             ApgoIcons.forKind(f.kindId, f.family),
             contentDescription = null,
             modifier = Modifier.padding(horizontal = 8.dp).size(22.dp),
-            tint = if (banned) ApgoPalette.muted else ApgoPalette.kind(f.kindId, f.family),
+            tint = if (banned) ApgoPalette.tone(Tone.Muted) else ApgoPalette.kind(f.kindId, f.family),
         )
         Column(Modifier.weight(1f).alpha(if (banned) BANNED_ALPHA else 1f)) {
             Text(

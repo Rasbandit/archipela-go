@@ -24,6 +24,16 @@ class PaletteTest {
         assertEquals(ApgoPalette.questTodo, ApgoPalette.quest(""))
     }
 
+    @Test fun difficultyHasALightAndADarkToken() {
+        assertEquals(Color(0xFF1B6E20), ApgoPalette.difficulty("easy", dark = false))
+        assertEquals(Color(0xFF8A5000), ApgoPalette.difficulty("medium", dark = false))
+        assertEquals(Color(0xFF6A1B9A), ApgoPalette.difficulty("hard", dark = false))
+        assertEquals(Color(0xFF8FD694), ApgoPalette.difficulty("easy", dark = true))
+        assertEquals(Color(0xFFFFC76B), ApgoPalette.difficulty("medium", dark = true))
+        assertEquals(Color(0xFFD6A6FF), ApgoPalette.difficulty("hard", dark = true))
+        assertEquals("unknown reads as medium", ApgoPalette.difficulty("medium", dark = false), ApgoPalette.difficulty("", dark = false))
+    }
+
     @Test fun questStateColoursAreDistinct() {
         val states = listOf("done", "progress", "locked", "hidden", "open")
         assertEquals(states.size, states.map { ApgoPalette.quest(it) }.toSet().size)

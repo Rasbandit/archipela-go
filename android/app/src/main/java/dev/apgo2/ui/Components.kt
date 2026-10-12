@@ -190,13 +190,7 @@ internal fun FeedbackText(
     modifier: Modifier = Modifier,
     size: TextUnit = 12.sp,
 ) {
-    val color =
-        when (tone) {
-            Tone.Warning -> ApgoPalette.warning
-            Tone.Danger -> ApgoPalette.danger
-            Tone.Success -> ApgoPalette.success
-            Tone.Muted -> ApgoPalette.muted
-        }
+    val color = ApgoPalette.tone(tone)
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (tone == Tone.Warning ||
             tone == Tone.Danger

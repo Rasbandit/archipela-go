@@ -47,7 +47,11 @@ class CollectFormatTest {
             reward = null,
             chainId = null,
             collect = collect,
-            hasDetails = false,
+            headline = "",
+            cardDetail = "",
+            placeRow = null,
+            progressBlock = null,
+            hasAbout = false,
         )
 
     @Test fun theRowSaysWhatIsCarriedAndBanked() {

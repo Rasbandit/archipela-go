@@ -34,8 +34,26 @@ pub struct PoiDetails {
     pub osm_url: Option<String>,
 }
 
-/// Tag keys whose value says what a place is, most telling first.
-const TYPE_KEYS: [&str; 8] = ["amenity", "leisure", "tourism", "shop", "historic", "natural", "man_made", "highway"];
+/// Tag keys that say what a place is, most telling first; covers every key the quest catalog matches places on.
+const TYPE_KEYS: [&str; 17] = [
+    "amenity",
+    "leisure",
+    "tourism",
+    "shop",
+    "historic",
+    "natural",
+    "man_made",
+    "highway",
+    "waterway",
+    "emergency",
+    "attraction",
+    "craft",
+    "railway",
+    "landuse",
+    "place",
+    "boundary",
+    "route",
+];
 
 /// Hiking difficulty, easiest first (OpenStreetMap `sac_scale`), with how it reads.
 pub(crate) const SAC_SCALE: [(&str, &str); 6] = [
@@ -135,11 +153,102 @@ fn humanize(v: &str) -> String {
     c.next().map_or_else(String::new, |first| first.to_uppercase().chain(c).collect())
 }
 
+/// "About this place": a short description, labelled facts in a fixed order (at most six) and a Wikipedia link.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct About {
+    /// Free-text description from the map.
+    pub description: Option<String>,
+    /// Labelled facts, in the fixed order: what it is, the ground, visiting, who and where.
+    pub rows: Vec<(String, String)>,
+    /// The Wikipedia article, when the place has one.
+    pub wikipedia_url: Option<String>,
+}
+
+/// The about sheet of `f`, in the player's units; `None` when the map knows nothing more than its name and type.
+#[must_use]
+pub fn about(f: &Feature, units: crate::units::UnitSystem) -> Option<About> {
+    let tag = |k: &str| f.tags.get(k).map(|v| v.trim()).filter(|v| !v.is_empty());
+    let human = |v: &str| humanize(v);
+    let type_label = details(f).type_label.map(|t| t.to_lowercase());
+    let feet = |m: f64| match units {
+        crate::units::UnitSystem::Imperial => format!("{} ft", thousands(crate::num::round_u64(m / 0.3048))),
+        crate::units::UnitSystem::Metric => format!("{} m", thousands(crate::num::round_u64(m))),
+    };
+    let number = |v: &str| v.split_whitespace().next().and_then(|n| n.replace(',', ".").parse::<f64>().ok());
+    let kind = ["artwork_type", "memorial", "historic"].iter().filter_map(|k| tag(k)).find(|v| *v != "yes").map(human);
+    let entry = [
+        (tag("fee") == Some("yes")).then(|| "Fee".to_string()),
+        tag("access").filter(|a| ["private", "no", "customers"].contains(a)).map(|a| format!("{} access", humanize(a))),
+        (tag("wheelchair") == Some("yes")).then(|| "Wheelchair accessible".to_string()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ");
+    let candidates: [(&str, Option<String>); 16] = [
+        ("Kind", kind.filter(|k| type_label.as_deref() != Some(k.to_lowercase().as_str()))),
+        ("Artist", tag("artist_name").map(str::to_string)),
+        ("Made", tag("start_date").map(|d| d.chars().take(4).collect())),
+        ("Faith", tag("denomination").or_else(|| tag("religion")).map(human)),
+        ("Food", tag("cuisine").map(human)),
+        ("Species", tag("species:en").or_else(|| tag("species")).or_else(|| tag("genus")).map(str::to_string)),
+        ("Material", tag("material").map(human)),
+        ("Surface", tag("surface").map(human)),
+        ("Difficulty", tag("sac_scale").map(|v| SAC_SCALE.iter().find(|(k, _)| *k == v).map_or_else(|| humanize(v), |(_, l)| (*l).to_string()))),
+        ("Elevation", tag("ele").and_then(number).map(feet)),
+        ("Height", tag("height").and_then(number).map(|m| crate::units::distance(m, units))),
+        (
+            "Lighting",
+            tag("lit")
+                .and_then(|v| match v {
+                    "yes" => Some("Lit at night"),
+                    "no" => Some("Not lit"),
+                    "partial" => Some("Partly lit"),
+                    _ => None,
+                })
+                .map(str::to_string),
+        ),
+        ("Hours", tag("opening_hours").map(str::to_string)),
+        ("Entry", (!entry.is_empty()).then_some(entry)),
+        ("Run by", tag("operator").map(str::to_string)),
+        ("Address", address(f)),
+    ];
+    let rows: Vec<(String, String)> = candidates.into_iter().filter_map(|(k, v)| v.map(|v| (k.to_string(), v))).take(6).collect();
+    let description = tag("description").map(str::to_string);
+    let wikipedia_url = tag("wikipedia").and_then(wikipedia_url);
+    (!rows.is_empty() || description.is_some() || wikipedia_url.is_some()).then_some(About { description, rows, wikipedia_url })
+}
+
+/// "6,234" from 6234.
+fn thousands(n: u64) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Whether `f` has an about sheet (the card shows "About this place" only then).
+#[must_use]
+pub fn has_about(f: &Feature) -> bool {
+    about(f, crate::units::UnitSystem::Metric).is_some()
+}
+
+/// What a quest keeps about its place: the type label and whether there is an about sheet.
+#[must_use]
+pub fn place_facts(f: &Feature) -> (Option<String>, bool) {
+    (details(f).type_label, has_about(f))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::geo::{destination, Point};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     fn feat(id: &str, tags: &[(&str, &str)], geometry: Vec<Point>) -> Feature {
         let tags: BTreeMap<String, String> = tags.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect();
@@ -183,6 +292,17 @@ mod tests {
         assert_eq!(details(&feat("n1", &[("amenity", "ice_cream")], vec![])).type_label.as_deref(), Some("Ice cream"));
         assert_eq!(details(&feat("n1", &[("historic", "yes"), ("tourism", "artwork")], vec![])).type_label.as_deref(), Some("Artwork"));
         assert_eq!(details(&feat("n1", &[("historic", "yes")], vec![])).type_label, None);
+    }
+
+    #[test]
+    fn every_key_the_catalog_matches_on_gives_a_type() {
+        // A quest on a hydrant, a stream or a railway station must say what the place is (found on the phone: hydrants had none).
+        let cat = crate::catalog::Catalog::builtin();
+        let keys: BTreeSet<&str> = cat.kinds.iter().flat_map(|k| k.any_of.iter().filter_map(|g| g.first())).map(|c| c.key.as_str()).collect();
+        for key in keys {
+            assert!(details(&feat("n1", &[(key, "some_thing")], vec![])).type_label.is_some(), "no type for {key}");
+        }
+        assert_eq!(details(&feat("n1", &[("emergency", "fire_hydrant")], vec![])).type_label.as_deref(), Some("Fire hydrant"));
     }
 
     #[test]
@@ -255,5 +375,77 @@ mod tests {
         assert_eq!(details(&feat("x9", &[], vec![])).osm_url, None);
         assert_eq!(details(&feat("n", &[], vec![])).osm_url, None);
         assert_eq!(details(&feat("n1a", &[], vec![])).osm_url, None);
+    }
+
+    fn sheet(tags: &[(&str, &str)]) -> Vec<(String, String)> {
+        about(&feat("n1", tags, vec![]), crate::units::UnitSystem::Imperial).map(|a| a.rows).unwrap_or_default()
+    }
+    fn labels(rows: &[(String, String)]) -> Vec<&str> {
+        rows.iter().map(|(k, _)| k.as_str()).collect()
+    }
+
+    #[test]
+    fn about_rows_come_in_a_fixed_order() {
+        let rows = sheet(&[
+            ("tourism", "artwork"),
+            ("artwork_type", "statue"),
+            ("artist_name", "J. Seward Johnson"),
+            ("start_date", "1983-05-01"),
+            ("material", "bronze"),
+            ("addr:street", "SW 6th Ave"),
+            ("addr:housenumber", "701"),
+        ]);
+        assert_eq!(
+            rows,
+            vec![
+                ("Kind".to_string(), "Statue".to_string()),
+                ("Artist".into(), "J. Seward Johnson".into()),
+                ("Made".into(), "1983".into()),
+                ("Material".into(), "Bronze".into()),
+                ("Address".into(), "701 SW 6th Ave".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn about_rows_are_capped_at_six_and_skip_a_kind_that_repeats_the_type() {
+        let rows = sheet(&[
+            ("historic", "memorial"),
+            ("memorial", "memorial"),
+            ("artist_name", "A"),
+            ("start_date", "1900"),
+            ("religion", "christian"),
+            ("cuisine", "pizza"),
+            ("species", "Quercus"),
+            ("material", "stone"),
+            ("surface", "gravel"),
+        ]);
+        assert_eq!(labels(&rows), ["Artist", "Made", "Faith", "Food", "Species", "Material"]);
+    }
+
+    #[test]
+    fn entry_joins_fee_access_and_wheelchair_and_heights_use_the_players_units() {
+        let rows = sheet(&[("natural", "peak"), ("ele", "1900"), ("fee", "yes"), ("access", "private"), ("wheelchair", "yes"), ("lit", "partial")]);
+        assert_eq!(
+            rows,
+            vec![
+                ("Elevation".to_string(), "6,234 ft".to_string()),
+                ("Lighting".into(), "Partly lit".into()),
+                ("Entry".into(), "Fee · Private access · Wheelchair accessible".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_bare_place_has_no_about_sheet_and_a_described_one_does() {
+        let bench = feat("n1", &[("amenity", "bench")], vec![]);
+        assert_eq!(about(&bench, crate::units::UnitSystem::Imperial), None);
+        assert!(!has_about(&bench));
+        let wiki = feat("n2", &[("tourism", "artwork"), ("wikipedia", "en:Allow Me")], vec![]);
+        let a = about(&wiki, crate::units::UnitSystem::Imperial).expect("a sheet");
+        assert_eq!(a.wikipedia_url.as_deref(), Some("https://en.wikipedia.org/wiki/Allow_Me"));
+        assert!(has_about(&wiki));
+        let described = feat("n3", &[("leisure", "park"), ("description", "Shady and quiet")], vec![]);
+        assert_eq!(about(&described, crate::units::UnitSystem::Imperial).and_then(|a| a.description).as_deref(), Some("Shady and quiet"));
     }
 }

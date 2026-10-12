@@ -58,7 +58,21 @@ widgets or write colours themselves.
   distance in Kotlin or with `"%.1f".format(...)`.
   Always a decimal point and Western digits. Dates and times stay localized.
 - JVM unit tests load the host build of the core (`jna.library.path` in `app/build.gradle.kts`), so tests can call FFI functions.
-- Compose text colours come from `MaterialTheme.colorScheme` roles or `FeedbackText(Tone.*)`.
+- Compose text colours come from `MaterialTheme.colorScheme` roles, `FeedbackText(Tone.*)` or `ApgoPalette.tone(Tone.*)`. Status
+  and quest-state colours drawn on a card or panel use the theme-aware `ApgoPalette.tone` / `questOnCard` (a darker shade on
+  light, a lighter one on dark); the plain `quest(state)` colours are for the map. `ContrastTest` checks every pair against
+  the real card and panel backgrounds: WCAG 4.5:1 for text, 3:1 for bars and icons. A new colour on a card gets a row there.
+- Touch targets are at least 48dp (a small icon keeps its look inside a full-size `IconButton`), except inline text links,
+  whose hit area is their line of text; fold-outs have a button role
+  and an expanded/collapsed state; links are `LinkAnnotation.Url`, so TalkBack announces them as links.
+- **Play quest card** (`QuestCard.kt`), top to bottom: a 40dp badge in the quest's **state** colour (never the quest type)
+  with the kind icon (`badgeInk` picks navy or white) and a check when done; beside it the headline on one line
+  (19sp, ellipsis) over the quest name; the close ✕ tight in the top-right corner; the meta row (difficulty pill, `~N min`,
+  mode) full width under the badge; the one-line detail; the place row (name in bold, quoted for artworks, then the type;
+  the type alone for unnamed places; no row when there is nothing to say); the labelled progress block (always shown on
+  quests that measure progress, even at zero) or the two-step tracker for courier and round trip; then "About this place ▾"
+  only when the map knows more, folding out facts and a Wikipedia link. No OpenStreetMap link, no ⓘ button, no invisible
+  units ("squares", "blocks").
 - A pattern used twice becomes a component in `Components.kt`. Selected chips are a solid `primary` fill because the Material default
   (`secondaryContainer`) blended into the card behind it.
 - Map layers read the palette once when the style loads, so map colours are not theme-reactive on purpose (the basemap is light).

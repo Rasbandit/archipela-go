@@ -163,6 +163,13 @@ pub struct Assignment {
     /// and for games saved before it was kept.
     #[serde(default)]
     pub feature_id: Option<String>,
+    /// What kind of place it is ("Bench", "Park", "Trail"), for the quest card's place row; `None` for quests with no real
+    /// place and for games saved before it was kept (until the relink fills it).
+    #[serde(default)]
+    pub place_type: Option<String>,
+    /// Whether the map knows more about the place (facts, a description or a Wikipedia article): the card's "About this place".
+    #[serde(default)]
+    pub has_about: bool,
     /// Effort tier, starting at 1.
     pub tier: u8,
     /// Expected effort in minutes.
@@ -769,6 +776,9 @@ fn one(
     if let Target::Collect { pts, .. } = &c.target {
         used_pts.extend(pts.iter().skip(1)); // the first is the anchor, pushed above
     }
+    // Only the chosen place is described: describing every candidate would be wasted work.
+    let (place_type, has_about) =
+        c.feature_id.as_ref().and_then(|id| z.atlas.features.iter().find(|f| &f.id == id)).map_or((None, false), crate::poi_details::place_facts);
     let (kind_id, quest_name) =
         if s.boss { ("the_big_one".to_string(), boss_title(&c.kind.name, &c.target)) } else { (c.kind.id.clone(), quest_title(&c.kind.name, &c.target)) };
     Assignment {
@@ -781,6 +791,8 @@ fn one(
         blurb: c.kind.blurb.clone(),
         place: c.place,
         feature_id: c.feature_id,
+        place_type,
+        has_about,
         tier: s.tier,
         effort_min: c.effort,
         target: c.target,
@@ -991,6 +1003,8 @@ mod tests {
             blurb: String::new(),
             place: place.into(),
             feature_id: None,
+            place_type: None,
+            has_about: false,
             tier: 3,
             effort_min: 20.0,
             target: Target::Line { pts, corridor_m: 25.0, coverage: 0.5 },
@@ -1057,6 +1071,18 @@ mod tests {
         let street = out.iter().find(|o| o.location_id == 2).unwrap();
         assert_eq!(street.feature_id, None);
         assert_eq!(place_of(street, &a, &cat), None, "a street spot is no place");
+    }
+
+    #[test]
+    fn quests_on_places_keep_what_the_place_is_and_whether_there_is_more_to_tell() {
+        let cat = Catalog::builtin();
+        let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
+        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let out = assign(&[slot(1, "dwell", 3, Mode::Walk), slot(2, "steps", 1, Mode::Walk)], &z, &cat, &params(3));
+        let bench = out.iter().find(|o| o.kind_id == "bench_warmer").expect("a bench quest");
+        assert_eq!((bench.place_type.as_deref(), bench.has_about), (Some("Bench"), false));
+        let steps = out.iter().find(|o| o.location_id == 2).unwrap();
+        assert_eq!((steps.place_type.as_deref(), steps.has_about), (None, false));
     }
 
     #[test]

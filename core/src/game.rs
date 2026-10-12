@@ -69,6 +69,10 @@ pub struct QuestView {
     pub place: String,
     /// Atlas id of the quest's place, if it has a real one (see `Game::quest_feature`).
     pub feature_id: Option<String>,
+    /// What the quest's place is ("Bench"), if it is on a real place.
+    pub place_type: Option<String>,
+    /// Whether the map knows more about the place (see `poi_details::about`).
+    pub has_about: bool,
     /// Quest family.
     pub family: String,
     /// The quest kind's id ("`bench_warmer`"), for choosing an icon.
@@ -101,6 +105,8 @@ pub struct QuestView {
     pub chain_id: Option<String>,
     /// A forager quest's items picked, carried and banked so far (`None` for other quests, or before anything was picked).
     pub collected: Option<Collected>,
+    /// A courier quest's pick-up time while the package is carried (for the time left to deliver).
+    pub picked_at_ms: Option<i64>,
 }
 
 /// One milestone of a chain, as the UI shows it.
@@ -602,6 +608,8 @@ impl Game {
                     name: a.quest_name.clone(),
                     place: a.place.clone(),
                     feature_id: a.feature_id.clone(),
+                    place_type: a.place_type.clone(),
+                    has_about: a.has_about,
                     family: a.family.clone(),
                     kind_id: a.kind_id.clone(),
                     difficulty,
@@ -611,31 +619,41 @@ impl Game {
                     state,
                     progress,
                     anchor: anchor(&a.target),
-                    target: a.target.clone(),
+                    // As the tracker counts it (a Slow trap doubles dwells), so the card shows the time actually needed.
+                    target: self.adjusted(&a.target),
                     fallback: a.fallback,
                     boss: a.boss,
                     blurb: a.blurb.clone(),
                     reward: if done { self.solo_rewards.get(&a.location_id).cloned() } else { None },
                     chain_id: member.map(|(id, _)| id),
                     collected: self.collected.get(&a.location_id).cloned(),
+                    picked_at_ms: self.trackers.get(&a.location_id).and_then(Tracker::picked_at),
                 }
             })
             .collect()
     }
 
-    /// Link quests saved before quests kept their place (`feature_id`) to the place in `atlases` (the game's zones as scanned) they
-    /// were made from (see [`place_of`]); returns how many it linked, so the caller saves the game. Quests already linked are left alone.
+    /// Keep each quest's place (`feature_id`, `place_type`, `has_about`) in step with `atlases` (the game's zones as scanned): link
+    /// quests saved before quests kept their place (see [`place_of`]) and refresh what a rescan changed. Returns how many quests
+    /// changed, so the caller saves the game only then.
     pub fn relink_places(&mut self, atlases: &[&Atlas], catalog: &Catalog) -> usize {
-        let mut linked = 0;
-        for a in self.assignments.iter_mut().filter(|a| a.feature_id.is_none()) {
+        let by_id: Vec<std::collections::HashMap<&str, &crate::scan::Feature>> =
+            atlases.iter().map(|x| x.features.iter().map(|f| (f.id.as_str(), f)).collect()).collect();
+        let mut changed = 0;
+        for a in &mut self.assignments {
             let Some(i) = self.slot.zones.iter().position(|z| z.id == a.zone) else { continue };
-            let Some(atlas) = self.zone_realms.get(i).and_then(|r| atlases.iter().find(|x| &x.realm_id == r)) else { continue };
-            if let Some(id) = place_of(a, atlas, catalog) {
+            let Some(k) = self.zone_realms.get(i).and_then(|r| atlases.iter().position(|x| &x.realm_id == r)) else { continue };
+            let Some(id) = a.feature_id.clone().or_else(|| place_of(a, atlases[k], catalog)) else { continue };
+            // A rescan can drop the place or its facts: then the quest keeps its type but has nothing more to show.
+            let facts = by_id[k].get(id.as_str()).map_or((a.place_type.clone(), false), |f| crate::poi_details::place_facts(f));
+            // Count only real changes, so a settled game is not saved on every build.
+            if a.feature_id.as_deref() != Some(id.as_str()) || (a.place_type.clone(), a.has_about) != facts {
+                (a.place_type, a.has_about) = facts;
                 a.feature_id = Some(id);
-                linked += 1;
+                changed += 1;
             }
         }
-        linked
+        changed
     }
 
     /// The realm and atlas feature id behind quest `location_id`, for its place details; `None` for a quest with no real place.
@@ -1679,6 +1697,81 @@ mod tests {
 
     fn raw(p: Point, t_s: i64, acc: f64) -> RawFix {
         RawFix::at(p.lat, p.lon, t_s * 1000, acc)
+    }
+
+    #[test]
+    fn relink_fills_the_place_type_for_old_and_already_linked_quests() {
+        let cat = Catalog::builtin();
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let spot = destination(home(), 0.0, 300.0);
+        let art = crate::scan::Feature {
+            id: "n5".into(),
+            point: spot,
+            name: Some("Allow Me".into()),
+            geometry: vec![],
+            tags: [("tourism", "artwork"), ("name", "Allow Me"), ("wikipedia", "en:Allow Me")]
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect(),
+        };
+        let atlas = build_atlas("r0", 0, vec![art], vec![], &cat);
+        // One quest saved before feature ids, one linked by an earlier build that did not keep the place type.
+        for (i, linked) in [(0, None), (1, Some("n5".to_string()))] {
+            let a = &mut g.assignments[i];
+            (a.kind_id, a.place, a.feature_id, a.place_type, a.has_about) = ("gallery_walls".into(), "Allow Me".into(), linked, None, false);
+            a.target = Target::Point { p: spot, r: 40.0 };
+        }
+        assert_eq!(g.relink_places(&[&atlas], &cat), 2);
+        for i in 0..2 {
+            let a = &g.assignments[i];
+            assert_eq!((a.feature_id.as_deref(), a.place_type.as_deref(), a.has_about), (Some("n5"), Some("Artwork"), true), "quest {i}");
+        }
+        assert_eq!(g.relink_places(&[&atlas], &cat), 0, "nothing left to fill");
+    }
+
+    #[test]
+    fn a_slow_trap_shows_the_doubled_dwell_on_the_card() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let id = g.assignments[0].location_id;
+        g.assignments[0].target = Target::Dwell { p: home(), r: 40.0, minutes: 3.0 };
+        let minutes = |g: &Game| match g.quest_views(0).into_iter().find(|q| q.location_id == id).unwrap().target {
+            Target::Dwell { minutes, .. } => minutes,
+            _ => unreachable!(),
+        };
+        assert!((minutes(&g) - 3.0).abs() < 1e-9);
+        g.traps.trigger("Slow Trap", 0, Some(g.home), g.home, &g.trap_paths(), &mut SeedableRng::seed_from_u64(1));
+        assert!((minutes(&g) - 6.0).abs() < 1e-9, "the card counts against the time the tracker needs");
+    }
+
+    #[test]
+    fn relink_refreshes_what_a_rescan_changed_about_a_linked_place() {
+        let cat = Catalog::builtin();
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let spot = destination(home(), 0.0, 300.0);
+        let tags = |t: &[(&str, &str)]| t.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect();
+        let a = &mut g.assignments[0];
+        (a.feature_id, a.place_type, a.has_about) = (Some("n5".into()), Some("Artwork".into()), true);
+        // Rescanned: the artwork lost its Wikipedia tag, so there is no more to tell.
+        let bare = crate::scan::Feature { id: "n5".into(), point: spot, name: None, geometry: vec![], tags: tags(&[("tourism", "artwork")]) };
+        assert_eq!(g.relink_places(&[&build_atlas("r0", 0, vec![bare], vec![], &cat)], &cat), 1);
+        assert!(!g.assignments[0].has_about);
+        // Rescanned again: the place is gone from the map; the quest keeps its type but has nothing to show.
+        g.assignments[0].has_about = true;
+        assert_eq!(g.relink_places(&[&build_atlas("r0", 0, vec![], vec![], &cat)], &cat), 1);
+        assert_eq!((g.assignments[0].place_type.as_deref(), g.assignments[0].has_about), (Some("Artwork"), false));
+        assert_eq!(g.relink_places(&[&build_atlas("r0", 0, vec![], vec![], &cat)], &cat), 0, "settled");
+    }
+
+    #[test]
+    fn relink_does_not_count_a_place_with_no_type_again_and_again() {
+        let cat = Catalog::builtin();
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let spot = destination(home(), 0.0, 300.0);
+        let odd = crate::scan::Feature { id: "n6".into(), point: spot, name: None, geometry: vec![], tags: BTreeMap::new() };
+        let atlas = build_atlas("r0", 0, vec![odd], vec![], &cat);
+        let a = &mut g.assignments[0];
+        (a.feature_id, a.place_type) = (Some("n6".into()), None);
+        assert_eq!(g.relink_places(&[&atlas], &cat), 0, "nothing changed, so nothing to save");
     }
 
     #[test]

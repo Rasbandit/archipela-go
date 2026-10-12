@@ -54,6 +54,7 @@ import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.IconLabel
 import dev.apgo2.ui.LabelWithHelp
 import dev.apgo2.ui.PLAY_MODES
+import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
 import uniffi.apgo_ffi.GoalPickIn
 import uniffi.apgo_ffi.RealmOut
@@ -413,7 +414,7 @@ private fun ZoneHeader(
         }
         IconButton(
             onClick = onRemove,
-        ) { Icon(ApgoIcons.Remove, contentDescription = "Remove zone ${index + 1}", tint = ApgoPalette.danger) }
+        ) { Icon(ApgoIcons.Remove, contentDescription = "Remove zone ${index + 1}", tint = ApgoPalette.tone(Tone.Danger)) }
     }
 }
 
