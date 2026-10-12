@@ -4,7 +4,8 @@
 #                                      generate a seed and host it on :38281 (+ adb reverse to the phone)
 #   scripts/ap_host.sh serve           host the last generated seed again on its save (a server restart; nothing regenerated)
 #   scripts/ap_host.sh stop | status | log
-# APGO_AP_DIR and APGO_AP_PORT move it (the compliance tests use their own); APGO_AP_NO_ADB=1 skips adb reverse.
+# APGO_AP_DIR and APGO_AP_PORT move it (the compliance tests use their own); APGO_AP_NO_ADB=1 skips adb reverse;
+# APGO_AP_SERVER_ARGS adds MultiServer options (the compliance tests turn release and collect off).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 dev="${APGO_AP_DIR:-$root/.ap/dev}"
@@ -28,7 +29,7 @@ PY
 serve() {
   data="$(find "$dev/out" -maxdepth 1 -name '*.archipelago' | sort | head -1)"
   [ -n "$data" ] || { echo "no generated seed in $dev/out: run start first"; exit 1; }
-  nohup bash -c "cd '$root/.ap' && PYTHONPATH=. '$py' - MultiServer.py '$data' --host 0.0.0.0 --port $port --savefile '$dev/save' <<'PY'
+  nohup bash -c "cd '$root/.ap' && PYTHONPATH=. '$py' - MultiServer.py '$data' --host 0.0.0.0 --port $port --savefile '$dev/save' ${APGO_AP_SERVER_ARGS:-} <<'PY'
 import runpy, sys
 import ModuleUpdate
 ModuleUpdate.update_ran = True

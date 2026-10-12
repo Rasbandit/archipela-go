@@ -28,6 +28,8 @@ fn host(args: &[&str]) {
         .env("APGO_AP_DIR", root().join(".ap/compliance"))
         .env("APGO_AP_PORT", PORT.to_string())
         .env("APGO_AP_NO_ADB", "1")
+        // A goal must not release or collect the seed: the tests that need unchecked locations would find none left.
+        .env("APGO_AP_SERVER_ARGS", "--release_mode disabled --collect_mode disabled")
         .output()
         .expect("scripts/ap_host.sh runs");
     assert!(out.status.success(), "ap_host.sh {args:?} failed:\n{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
@@ -88,7 +90,7 @@ fn location_ids(s: &ApSession) -> Vec<i64> {
 fn unchecked(s: &ApSession, n: usize) -> Vec<i64> {
     let done = s.checked_location_ids();
     let ids: Vec<i64> = location_ids(s).into_iter().filter(|id| !done.contains(id)).take(n).collect();
-    assert_eq!(ids.len(), n, "the seed has {n} unchecked locations left (rerun after `rm -rf .ap/compliance`)");
+    assert_eq!(ids.len(), n, "the seed has {n} unchecked locations left (each run generates a fresh one with 10 trips)");
     ids
 }
 

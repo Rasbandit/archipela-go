@@ -141,6 +141,9 @@ android-tap x y:
 test-ap: ap-present
     #!/usr/bin/env bash
     set -uo pipefail
+    # One run at a time across worktrees: they share the port, and a start stops whatever listens on it.
+    exec 9>"${TMPDIR:-/tmp}/apgo-test-ap.lock"
+    flock 9
     (cd core && cargo test -q -p apgo-ffi --test ap_compliance -- --ignored --test-threads=1)
     status=$?
     APGO_AP_DIR="$PWD/.ap/compliance" APGO_AP_PORT=38291 bash scripts/ap_host.sh stop >/dev/null

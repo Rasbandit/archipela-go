@@ -89,6 +89,11 @@ its own `.ap/compliance` on :38291), one test per rule; the pre-push hook runs i
 | Server pings every 20 s (websockets defaults; `CommonClient` sends none) | the app sleeps in the socket; 60 s silence = dead | `the_server_pings_a_quiet_connection_within_twenty_five_seconds` |
 | Servers that do not ping | a `Get` probe before reconnecting | `a_probe_is_answered` |
 
+Only the pre-push hook runs the suite (`ci.yml` maps the py, rust and android checks, not `test-ap`); `just test-ap` holds a lock, so
+parallel worktrees take turns on :38291. A game stores its server's `seed/slot` (`ApSession::server_identity`) and exchanges checks,
+goal and items only with that server (`Engine::ap_server_match`); games from before keep live sends but get no automatic re-send. An
+auto-reconnect that keeps being refused (the seed was regenerated, the slot is gone) retries every 5 min until the player connects.
+
 Not covered by a test: changing the port of a saved connection (UI), and per-message compression. The protocol doc says
 uncompressed connections are deprecated and may stop working; `tungstenite` has no permessage-deflate, so watch the server's
 release notes. The app also does not reconnect on its own after an app restart (connect from New Game).
