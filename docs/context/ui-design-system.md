@@ -81,6 +81,19 @@ widgets or write colours themselves.
 - A pattern used twice becomes a component in `Components.kt`. Selected chips are a solid `primary` fill because the Material default
   (`secondaryContainer`) blended into the card behind it.
 - Map layers read the palette once when the style loads, so map colours are not theme-reactive on purpose (the basemap is light).
+  OpenFreeMap's `dark` style was tried and rejected (2026-10): trails become dim dashes on black and parks, water and road colours vanish.
+
+## Map rendering cost (battery)
+
+- Off screen nothing is redrawn: fixes still drive the game, presence, the HUD and the due wake-up, but quests, zones, chains, the
+  trace and the pin are reloaded once on `ON_START` (`ScreenGate`).
+- GeoJSON sources are rebuilt only when what they draw changes: quest pins/pickups on `pinKey`, trails/parks on `lineKey`
+  (`MapGeoJson.kt`), not on progress text. The trace has two sources: `trace-old` (set when the journal reloads) and `trace` (this
+  session, every 10 s).
+- The player pin is read outside composition (`QuestMap(me = { ... })`, `snapshotFlow`), skips updates under 1 m / 5° / 2 m circle
+  (`MePins.meaningfullyDiffers`) and animates at 20 fps.
+- Base map: 3D building extrusions hidden, flat footprints kept at every zoom (`BaseMap.trim`); ambient tile cache 200 MB
+  (`MapStyle.init`, MapLibre's default is 50 MB).
 
 ## Vocabulary
 
