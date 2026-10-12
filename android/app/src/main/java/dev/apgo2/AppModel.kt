@@ -372,7 +372,7 @@ internal class AppModel(
                 }
 
                 is EventOut.SendCheck -> {
-                    report("ap_check", "check failed") { ap.session?.sendCheck(e.locationId) }
+                    if (ap.mayExchange()) report("ap_check", "check failed") { ap.session?.sendCheck(e.locationId) }
                 }
 
                 is EventOut.ShuffleRequested -> {
@@ -385,7 +385,7 @@ internal class AppModel(
     private fun onGoal(label: String) {
         say("GOAL ACHIEVED: $label")
         status = "You won! $label"
-        if (hud?.backend == "archipelago") report("ap_goal", "could not report goal") { ap.session?.sendGoal() }
+        if (hud?.backend == "archipelago" && ap.mayExchange()) report("ap_goal", "could not report goal") { ap.session?.sendGoal() }
     }
 
     // Run an Archipelago call; if it throws, log it and tell the player in the on-screen log.

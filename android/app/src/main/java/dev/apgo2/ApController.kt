@@ -19,6 +19,7 @@ import uniffi.apgo_ffi.ApPoll
 import uniffi.apgo_ffi.ApReconnect
 import uniffi.apgo_ffi.ApSession
 import uniffi.apgo_ffi.GeoPoint
+import uniffi.apgo_ffi.ServerMatch
 import uniffi.apgo_ffi.apNeedsSync
 import java.util.UUID
 import kotlin.random.Random
@@ -33,6 +34,12 @@ private const val AP_IDLE_WAIT_MS = 60_000
 
 // How long a probe after a silent wait may take to be answered before the connection counts as dead.
 private const val AP_PROBE_WAIT_MS = 15_000
+
+// The seed name of a game whose server is not known (started before games remembered theirs).
+private const val LEGACY_SERVER = "archipelago"
+
+// Told once while the open game belongs to another seed or slot than the connected server.
+private const val OTHER_SERVER = "This game was started on another Archipelago server: nothing is sent or received"
 
 // The core's ApSession.status() while connected.
 private const val CONNECTED = "connected"
@@ -104,6 +111,7 @@ internal class ApController(
 
     // One drain at a time (the loop and a foreground or game-open sync), and when the server last sent anything (elapsedRealtime).
     private val tickLock = Mutex()
+    private var warnedOtherServer = false
     private var lastDataMs = SystemClock.elapsedRealtime()
 
     // The game last synced with this session (its id), so a newly opened or started game syncs at once.
@@ -241,6 +249,8 @@ internal class ApController(
             model.status = "Connect first"
             return
         }
+        // The server's seed and slot: the game exchanges checks, goal and items only with that one (Engine.apServerMatch).
+        val server = session?.serverIdentity() ?: LEGACY_SERVER
         scope.launch {
             val seed = Random.nextLong().toULong() shr 1
             val r =
@@ -250,7 +260,7 @@ internal class ApController(
                             UUID.randomUUID().toString(),
                             name,
                             json,
-                            "archipelago",
+                            server,
                             zoneRealms,
                             seed,
                             model.surfacePref,
@@ -319,7 +329,7 @@ internal class ApController(
     // First sync after every (re)connect: the protocol asks clients to send checks made while offline on connection, and the
     // server ignores repeats, so send everything finished (one packet) and the goal if it was reached.
     private suspend fun reportProgress(s: ApSession) {
-        val report = model.engine.serverReport() ?: return
+        val report = s.serverIdentity()?.let { model.engine.serverReport(it) } ?: return // only to the game's own server
         withContext(Dispatchers.IO) {
             if (report.checks.isNotEmpty()) {
                 runCatching {
@@ -333,7 +343,22 @@ internal class ApController(
         Diag.info("ap", "progress sent", "checks" to report.checks.size, "goal" to report.goal)
     }
 
+    /**
+     * Whether the open game may exchange checks, goal and items with the connected server: not when it was started on another seed
+     * or slot (a game from before, or not yet connected, keeps exchanging as it always did).
+     */
+    fun mayExchange(): Boolean = session?.serverIdentity()?.let { model.engine.apServerMatch(it) != ServerMatch.OTHER } ?: true
+
     private suspend fun syncGame(s: ApSession) {
+        if (!mayExchange()) {
+            if (!warnedOtherServer) {
+                Diag.warn("ap", "open game belongs to another seed or slot: not synced")
+                model.status = OTHER_SERVER
+                warnedOtherServer = true
+            }
+            return
+        }
+        warnedOtherServer = false
         val items = withContext(Dispatchers.IO) { runCatching { s.receivedItems().map { it.name } }.getOrDefault(emptyList()) }
         if (session !== s) return // reconnected meanwhile: the old server's items and checks are not this game's
         if (!syncedChecked && slotJson != null) {

@@ -743,6 +743,20 @@ pub struct AuditEventOut {
     pub at: Option<GeoPoint>,
 }
 
+/// The seed name an Archipelago game was given before games remembered their server's `seed/slot`.
+const LEGACY_AP_SEED: &str = "archipelago";
+
+/// Whether the open game belongs to the connected Archipelago server ([`Engine::ap_server_match`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ServerMatch {
+    /// Started on this server's seed and slot.
+    Same,
+    /// Started on another seed or slot: exchange nothing.
+    Other,
+    /// Not known (a game from before, or none open).
+    Unknown,
+}
+
 /// What to tell the Archipelago server on (re)connect ([`Engine::server_report`]).
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ServerReportOut {
@@ -2224,11 +2238,26 @@ impl Engine {
         });
     }
 
-    /// What the open game tells the Archipelago server on every (re)connect: every finished location and whether the goal was
-    /// reached. The protocol asks clients to send checks made while offline on connection, and the server ignores repeats, so this
-    /// is all of them, every time (`None` with no game open).
-    pub fn server_report(&self) -> Option<ServerReportOut> {
-        self.with_game(|g| ServerReportOut { checks: g.done.iter().copied().collect(), goal: g.goal_reported })
+    /// Whether the open game belongs to the connected Archipelago server, `identity` being its `seed/slot`
+    /// (`ApSession::server_identity`, stored at the game's start): its checks, goal and items are only exchanged with that one.
+    /// A game started before games remembered their server (seed name `archipelago`), or no game open, is `Unknown`.
+    pub fn ap_server_match(&self, identity: String) -> ServerMatch {
+        self.with_game(|g| match g.seed_name.as_str() {
+            LEGACY_AP_SEED => ServerMatch::Unknown,
+            own if own == identity => ServerMatch::Same,
+            _ => ServerMatch::Other,
+        })
+        .unwrap_or(ServerMatch::Unknown)
+    }
+
+    /// What the open game tells the Archipelago server `identity` on every (re)connect: every finished location and whether the goal
+    /// was reached. The protocol asks clients to send checks made while offline on connection, and the server ignores repeats, so
+    /// this is all of them, every time. `None` unless the game belongs to that server ([`Self::ap_server_match`]): another seed's
+    /// server must never get them (a goal there could release its whole world).
+    pub fn server_report(&self, identity: String) -> Option<ServerReportOut> {
+        (self.ap_server_match(identity) == ServerMatch::Same)
+            .then(|| self.with_game(|g| ServerReportOut { checks: g.done.iter().copied().collect(), goal: g.goal_reported }))
+            .flatten()
     }
 
     /// Messages the core queued for the diagnostics log since the last call (journal failures and the like).
@@ -2724,18 +2753,35 @@ mod tests {
 
     #[test]
     fn the_server_report_lists_every_finished_location_and_the_goal() {
-        let e = engine_with_game("server-report");
-        let r = e.server_report().unwrap();
+        let e = engine_with_game("server-report"); // its seed name is "s"
+        let r = e.server_report("s".into()).unwrap();
         assert!(r.checks.is_empty() && !r.goal, "nothing done yet");
         e.with_game(|g| {
             g.done.insert(7);
             g.done.insert(3);
             g.goal_reported = true;
         });
-        let r = e.server_report().unwrap();
+        let r = e.server_report("s".into()).unwrap();
         assert_eq!((r.checks, r.goal), (vec![3, 7], true), "all of them, every time: checks made offline reach the server on connect");
         e.close_game();
-        assert!(e.server_report().is_none(), "no open game: nothing to report");
+        assert!(e.server_report("s".into()).is_none(), "no open game: nothing to report");
+    }
+
+    #[test]
+    fn a_game_only_reports_to_the_server_seed_and_slot_it_was_started_on() {
+        let e = engine_with_game("server-match");
+        e.with_game(|g| {
+            g.done.insert(3);
+            g.goal_reported = true;
+        });
+        assert_eq!(e.ap_server_match("s".into()), ServerMatch::Same);
+        assert_eq!(e.ap_server_match("other-seed/Tester".into()), ServerMatch::Other);
+        assert!(e.server_report("other-seed/Tester".into()).is_none(), "another seed's server never gets this game's checks or goal");
+        e.with_game(|g| g.seed_name = "archipelago".into()); // started before games remembered their server
+        assert_eq!(e.ap_server_match("s".into()), ServerMatch::Unknown);
+        assert!(e.server_report("s".into()).is_none(), "an unknown server gets no automatic re-send");
+        e.close_game();
+        assert_eq!(e.ap_server_match("s".into()), ServerMatch::Unknown, "no game open");
     }
 
     #[test]

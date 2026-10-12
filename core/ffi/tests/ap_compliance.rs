@@ -207,3 +207,16 @@ fn a_probe_is_answered() {
     s.probe().unwrap();
     assert!(s.wait_for_data(3_000), "the server answered the Get");
 }
+
+/// A game is stamped with its server's `seed/slot` and only exchanges checks, goal and items with that server (a goal sent to
+/// another seed could release that whole world). The identity names this seed and slot, and stays the same across a restart.
+#[test]
+#[ignore = "needs the pinned Archipelago server: just test-ap"]
+fn the_server_identity_is_seed_and_slot_and_survives_a_restart() {
+    let _server = server();
+    let s = connect();
+    let id = s.server_identity().expect("known once connected");
+    assert!(id.ends_with(&format!("/{SLOT}")) && id.len() > SLOT.len() + 1, "seed/slot: {id}");
+    host(&["serve"]);
+    assert_eq!(connect().server_identity(), Some(id), "same seed and slot after a restart: the game keeps its server");
+}

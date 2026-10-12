@@ -299,6 +299,13 @@ impl ApSession {
         Ok(())
     }
 
+    /// Which seed and slot this session is connected to (`seed/slot`), once connected: an Archipelago game stores it at its start
+    /// and exchanges checks, goal and items only with that server (`Engine::ap_server_match`).
+    pub fn server_identity(&self) -> Option<String> {
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        conn.client().map(|c| format!("{}/{}", c.seed_name(), c.this_player().name()))
+    }
+
     /// `connecting`, `connected`, or `disconnected: <reason>`.
     pub fn status(&self) -> String {
         let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
