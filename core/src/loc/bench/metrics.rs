@@ -66,10 +66,13 @@ pub fn interp(reference: &[TruthPoint], t_ms: i64) -> Point {
     Point::new(a.p.lat + (b.p.lat - a.p.lat) * f, a.p.lon + (b.p.lon - a.p.lon) * f)
 }
 
-/// RMS and 95th percentile of the distance from each shown position to the reference at the same time, metres.
+/// RMS and 95th percentile of the distance from each shown position to the reference at the same time, metres. Only shown positions
+/// inside the reference's time span count: a real walk's reference starts at its first good fix, and clamping earlier positions to
+/// it scores the walk since then as error (#178).
 #[must_use]
 pub fn position_error(reference: &[TruthPoint], shown: &[Shown]) -> (f64, f64) {
-    let e: Vec<f64> = shown.iter().map(|s| distance_m(s.p, interp(reference, s.t_ms))).collect();
+    let (Some(first), Some(last)) = (reference.first(), reference.last()) else { return (0.0, f64::NAN) };
+    let e: Vec<f64> = shown.iter().filter(|s| (first.t_ms..=last.t_ms).contains(&s.t_ms)).map(|s| distance_m(s.p, interp(reference, s.t_ms))).collect();
     let rms = (e.iter().map(|x| x * x).sum::<f64>() / count_f64(e.len().max(1))).sqrt();
     (rms, percentile(&e, 0.95))
 }
@@ -398,6 +401,19 @@ mod tests {
         assert!(rms < 1e-6 && p95 < 1e-6);
         assert_eq!(false_jumps(&r, &s), 0);
         assert_eq!(arrival_lag_s(&r, &s, r[80].p, 25.0), Some(0.0));
+    }
+
+    #[test]
+    fn shown_positions_outside_the_reference_span_are_not_scored() {
+        // A real walk's reference starts at its first good fix; a coarse cold-start fix 40 s earlier has no reference to compare with
+        // (issue #178: clamping it to the first reference point scored 40 s of walking as error).
+        let r: Vec<TruthPoint> = line(120, 1.4).into_iter().skip(40).collect();
+        let mut s = shown_from(&line(120, 1.4), 0);
+        s[0].p = destination(s[0].p, 0.0, 60.0);
+        let (rms, p95) = position_error(&r, &s);
+        assert!(rms < 1e-6 && p95 < 1e-6, "rms {rms} p95 {p95}");
+        let (rms, _) = position_error(&r, &s[..10]);
+        assert!(rms.abs() < 1e-9, "nothing in the span: no error, not NaN ({rms})");
     }
 
     #[test]
