@@ -124,6 +124,7 @@ All step bonuses add to one multiplier capped at 2.0x.
 
 ## Roadmap
 
+GitHub: tracking issue #192, steps #184-#191 (milestone "Progression beta"); parked ideas carry the `tabled` label.
 Each step is its own spec, plan and PRs. Order: 1, then 2, then (3, 4) and (5, 6) in parallel lanes, then 7 and 8 (the goals need the tools).
 
 | # | Sub-project | Scope | Depends on | Existing issues |
