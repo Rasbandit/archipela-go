@@ -174,7 +174,13 @@ fn main() {
         println!("matching: the atlases hold no streets");
     } else if opts.graph.is_some() {
         let m = matching_stats(&filtered);
-        println!("matching: {:.0} % matched, {:.1} segment changes/min, {:.0} % off-network", 100.0 * m.matched_share, m.switches_per_min, 100.0 * m.off_share);
+        println!(
+            "matching: {:.0} % matched, {:.1} segment changes/min, {:.0} % off-network, {:.1} pin jumps/min",
+            100.0 * m.matched_share,
+            m.switches_per_min,
+            100.0 * m.off_share,
+            m.pin_jumps_per_min
+        );
     }
     let cols: Vec<(&str, &[Shown])> = vec![("legacy", &legacy_shown), ("filter", &filtered.shown)];
     if let Some(p) = &a.geojson {
