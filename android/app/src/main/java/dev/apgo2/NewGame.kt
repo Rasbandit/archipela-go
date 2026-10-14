@@ -62,13 +62,14 @@ private const val MAX_ZONES = 6
 private const val MIN_DISTANCE_M = 150u
 private const val TRAP_RATE_PERCENT = 30u
 private const val REDUCTION_PERCENT = 8u
-private const val DEFAULT_RUN_SHARE = 20u
+private const val DEFAULT_RUN_SHARE = 20f
 private const val DEFAULT_TRIPS = 60f
 private const val DEFAULT_MINUTES_PER_TIER = 10f
 private const val DEFAULT_NEED = 2
 private const val BALANCED_PRESET = 1
 private val TRIPS_RANGE = 10f..300f
 private val MINUTES_RANGE = 5f..30f
+private val RUN_SHARE_RANGE = 1f..50f // the apworld's run_share
 
 private val FAMILIES = listOf("reach", "dwell", "landmark", "trail", "park", "water", "courier", "explore", "steps", "away")
 
@@ -116,6 +117,8 @@ private class NewGameForm {
     var minutesPerTier by mutableFloatStateOf(DEFAULT_MINUTES_PER_TIER)
     var fog by mutableStateOf(false)
     var trapsOn by mutableStateOf(true)
+    var runQuests by mutableStateOf(false)
+    var runShare by mutableFloatStateOf(DEFAULT_RUN_SHARE)
     var bonus by mutableStateOf(true)
     var url by mutableStateOf("localhost:38281")
     var slot by mutableStateOf("Tester")
@@ -147,8 +150,8 @@ private class NewGameForm {
             goalNeed = need.coerceIn(1, goals.size).toUInt(),
             numberOfTrips = trips.toInt().toUInt(),
             zoneCount = zones.size.toUInt(),
-            runQuests = false,
-            runShare = DEFAULT_RUN_SHARE,
+            runQuests = runQuests,
+            runShare = runShare.toInt().toUInt(),
             easyShare = mix.easy.toUInt(),
             mediumShare = mix.medium.toUInt(),
             hardShare = mix.hard.toUInt(),
@@ -240,6 +243,11 @@ private fun PlaySettings(
         ChoiceChips(MIXES.indices.toList(), form.preset, { form.preset = it }, { MIXES[it].label })
         LabelWithHelp("Minutes per difficulty tier: ${form.minutesPerTier.toInt()}", Help.minutesPerTier)
         Slider(form.minutesPerTier, { form.minutesPerTier = it }, valueRange = MINUTES_RANGE)
+        SwitchRow("Run quests", Help.runQuests, form.runQuests) { form.runQuests = it }
+        if (form.runQuests) {
+            LabelWithHelp("Share of runs: ${form.runShare.toInt()}%", Help.runQuests)
+            Slider(form.runShare, { form.runShare = it }, valueRange = RUN_SHARE_RANGE)
+        }
         SwitchRow("Fog of war", Help.fog, form.fog) { form.fog = it }
         SwitchRow("Traps", Help.traps, form.trapsOn) { form.trapsOn = it }
         SwitchRow("Bonus items", Help.bonus, form.bonus) { form.bonus = it }

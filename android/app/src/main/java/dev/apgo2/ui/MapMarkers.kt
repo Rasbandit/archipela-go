@@ -49,6 +49,19 @@ internal sealed interface MarkerSpec {
         override val key get() = "item|$theme"
     }
 
+    /** A quest's tool badge on its pin: the tool's icon on a small token, orange while [missing], navy once held. */
+    data class Tool(
+        val item: String,
+        val missing: Boolean,
+    ) : MarkerSpec {
+        override val key get() = "tool|$item|${if (missing) MISSING else HELD}"
+
+        companion object {
+            const val MISSING = "missing"
+            const val HELD = "held"
+        }
+    }
+
     /** The player on the map: the person pin, or an arrow when there is a heading; hollow while bridged, grey when stale. */
     data class Me(
         val heading: Boolean,
@@ -110,6 +123,9 @@ internal object MapMarkers {
     /** Pixel size of a pickup token's bitmap, drawn at size 1: about 40% as wide as a quest pin. */
     const val ITEM_TOKEN_PX = 64
 
+    /** Pixel size of a tool badge token, drawn at size 1: a corner mark on a quest pin. */
+    const val TOOL_TOKEN_PX = 72
+
     /** Pixel size of the player's pin bitmap. */
     const val ME_PIN_PX = 120
 
@@ -128,12 +144,20 @@ internal object MapMarkers {
             p[0] == "ring" -> parseRing(rest)
             p[0] == "quest" -> parseQuest(rest)
             p[0] == "item" -> if (rest.size == 1) MarkerSpec.Item(rest[0]) else null
+            p[0] == "tool" -> parseTool(rest)
             p.size != KEY_PARTS -> null
             p[0] == "pin" -> MarkerSpec.Find(rest[0], rest[1], rest[2])
             p[0] == "me" -> MarkerSpec.Me(rest[0] == "h", rest[1])
             else -> null
         }
     }
+
+    private fun parseTool(parts: List<String>): MarkerSpec.Tool? =
+        when (parts.getOrNull(1)) {
+            MarkerSpec.Tool.MISSING -> MarkerSpec.Tool(parts[0], missing = true)
+            MarkerSpec.Tool.HELD -> MarkerSpec.Tool(parts[0], missing = false)
+            else -> null
+        }?.takeIf { parts.size == 2 }
 
     private fun parseQuest(parts: List<String>): MarkerSpec.Quest? {
         val pips = parts.getOrNull(QUEST_PARTS - 1)?.toIntOrNull()
@@ -151,6 +175,9 @@ internal object MapMarkers {
             difficulty.equals("easy", ignoreCase = true) -> 1
             else -> 2
         }
+
+    /** A tool badge's colour: orange while the tool is missing, navy once held. */
+    fun toolFill(missing: Boolean): Color = if (missing) ApgoPalette.toolMissing else ApgoPalette.toolHeld
 
     /** A pickup's opacity: faded while its quest is locked, full otherwise. */
     fun itemOpacity(state: String): Double = if (state == STATE_LOCKED) LOCKED_ITEM_OPACITY else 1.0
@@ -234,6 +261,14 @@ internal object MapMarkers {
                     fill = ApgoPalette.pickup,
                     glyph = ApgoPalette.navy,
                     ring = ApgoPalette.navy,
+                )
+            }
+
+            is MarkerSpec.Tool -> {
+                renderPin(
+                    ApgoIcons.badge(spec.item),
+                    TOOL_TOKEN_PX,
+                    fill = toolFill(spec.missing),
                 )
             }
 

@@ -125,6 +125,18 @@ class MapFeaturesTest {
         hasAbout = false,
     )
 
+    @Test fun aBadgedQuestPinCarriesItsBadgeImageAndAnOpenOneNone() {
+        val shoes = listOf("Running Shoes")
+        val locked = quest(1, state = "locked").copy(mode = "run", needs = shoes, missing = shoes)
+        val held = quest(2).copy(mode = "run", needs = shoes)
+        val plain = quest(3)
+        val props = MapFeatures.quests(listOf(locked, held, plain), selected = null).map { it.getJSONObject("properties") }
+        assertEquals(MarkerSpec.Tool("Running Shoes", missing = true).key, props[0].getString(MapProp.BADGE))
+        assertEquals(MarkerSpec.Tool("Running Shoes", missing = false).key, props[1].getString(MapProp.BADGE))
+        assertFalse(props[2].has(MapProp.BADGE))
+        assertTrue("the map is given every badge image", MarkerSpec.Tool("Running Shoes", missing = true).key in listOf(locked).pinImages)
+    }
+
     @Test fun aForagerShowsOnePickupPerItemStillOutThereAndNoQuestPin() {
         val items = listOf(CollectItemOut(geo(1.0, 1.0), false), CollectItemOut(geo(2.0, 2.0), true), CollectItemOut(geo(3.0, 3.0), false))
         val q =

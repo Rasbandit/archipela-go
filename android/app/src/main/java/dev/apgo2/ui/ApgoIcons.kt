@@ -350,6 +350,9 @@ internal object ApgoIcons {
 
     fun mode(mode: String): ImageVector = if (mode == "run") Run else Walk
 
+    /** The icon of a badge (a tool item a quest needs); an unknown tool shows a lock. */
+    fun badge(item: String): ImageVector = if (item == "Running Shoes") Run else Locked
+
     /** A realm's icon, a map pin until one is picked. */
     fun realm(key: String?): ImageVector = realmIcons[key] ?: Lucide.MapPin
 }

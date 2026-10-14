@@ -39,6 +39,12 @@ class PaletteTest {
         assertEquals(states.size, states.map { ApgoPalette.quest(it) }.toSet().size)
     }
 
+    @Test fun aMissingToolStandsOutFromAHeldOneAndFromEveryQuestState() {
+        val states = listOf("done", "progress", "locked", "hidden", "open")
+        assertNotEquals(ApgoPalette.toolHeld, ApgoPalette.toolMissing)
+        assertTrue(states.none { ApgoPalette.quest(it) == ApgoPalette.toolMissing })
+    }
+
     @Test fun pickupsShareNoColourWithQuestStates() {
         val states = listOf("done", "progress", "locked", "hidden", "open")
         assertTrue(states.none { ApgoPalette.quest(it) == ApgoPalette.pickup })

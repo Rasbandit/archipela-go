@@ -28,6 +28,7 @@ import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.iconAnchor
 import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconOffset
 import org.maplibre.android.style.layers.PropertyFactory.iconOpacity
 import org.maplibre.android.style.layers.PropertyFactory.iconSize
 import org.maplibre.android.style.layers.PropertyFactory.lineCap
@@ -96,6 +97,12 @@ private const val GEOMETRY_POLYGON = "Polygon"
 private const val FULL_SIZE_ZOOM = 16f
 private const val SHRUNK_ZOOM = 13f
 private const val SHRUNK_FACTOR = 0.5f
+
+// A quest pin's tool badge sits on the head's top-right. Its draw size, then its centre from the pin's point in quest-pin pixels
+// (right, up); icon offsets are scaled by the badge's own size, so they are converted below and both shrink together when zoomed out.
+private const val TOOL_BADGE_SCALE = 0.6f
+private const val TOOL_BADGE_RIGHT_PX = 0.36f * MapMarkers.QUEST_PIN_PX
+private const val TOOL_BADGE_UP_PX = 1.12f * MapMarkers.QUEST_PIN_PX
 
 // Then, still too close, they collapse: pins nearer than this (map pixels) merge into a cluster. Clusters only form below
 // FULL_SIZE_ZOOM, so at street level every pin shows on its own, big.
@@ -318,6 +325,7 @@ internal object MapStyle {
                     iconAnchor(Property.ICON_ANCHOR_BOTTOM),
                     symbolSortKey(Expression.get(MapProp.SORT)),
                 ),
+                toolBadgeLayer(),
                 CircleLayer("quests-sel", MapSource.QUEST_SEL).withProperties(
                     circleRadius(QUEST_HALO_RADIUS),
                     circleColor(ApgoPalette.onMap.hex()),
@@ -332,6 +340,21 @@ internal object MapStyle {
                     iconIgnorePlacement(true),
                 ),
             )
+
+    // A badged quest's tool on its pin's corner, drawn by the renderer from the pin's own feature (no extra source, nothing recomputed).
+    private fun toolBadgeLayer(): SymbolLayer {
+        val toBadgePx = MapMarkers.QUEST_SCALE / TOOL_BADGE_SCALE
+        return SymbolLayer("quests-badges", MapSource.QUESTS)
+            .withFilter(Expression.all(notCluster(), Expression.has(MapProp.BADGE)))
+            .withProperties(
+                iconImage(Expression.get(MapProp.BADGE)),
+                iconSize(shrinkWhenZoomedOut(Expression.literal(TOOL_BADGE_SCALE))),
+                iconOffset(arrayOf(TOOL_BADGE_RIGHT_PX * toBadgePx, -TOOL_BADGE_UP_PX * toBadgePx)),
+                iconAllowOverlap(true),
+                iconIgnorePlacement(true),
+                symbolSortKey(Expression.get(MapProp.SORT)),
+            )
+    }
 
     // Pickups are background, so they draw under quest pins and never cluster. Zoomed out they are hidden, then small dots, and
     // only at street level the tokens (the selected quest's tokens show at any zoom). All by zoom expressions, on the GPU.

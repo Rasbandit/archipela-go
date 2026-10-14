@@ -19,6 +19,8 @@ class MapMarkersTest {
                 MarkerSpec.Item("shells"),
                 MarkerSpec.Me(heading = true, state = "bridged"),
                 MarkerSpec.Me(heading = false, state = "gps"),
+                MarkerSpec.Tool("Running Shoes", missing = true),
+                MarkerSpec.Tool("Running Shoes", missing = false),
             )
         specs.forEach { assertEquals(it, MapMarkers.parse(it.key)) }
         assertEquals("keys are distinct", specs.size, specs.map { it.key }.toSet().size)
@@ -29,6 +31,7 @@ class MapMarkersTest {
         assertNull(MapMarkers.parse("quest|only|two"))
         assertNull(MapMarkers.parse(""))
         assertNull("an item key is its theme alone", MapMarkers.parse("item|shells|open"))
+        assertNull("a tool is held or missing", MapMarkers.parse("tool|Running Shoes|maybe"))
     }
 
     @Test fun aPickupFadesWhileLockedInsteadOfTakingAQuestColour() {

@@ -87,6 +87,7 @@ internal fun ColumnScope.QuestCard(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             CardHead(q)
             MetaRow(q)
+            if (q.needs.isNotEmpty()) BadgeRow(q)
             if (q.cardDetail.isNotBlank()) {
                 Text(
                     q.cardDetail,
@@ -165,6 +166,16 @@ private fun MetaRow(q: QuestOut) {
         IconText(ApgoIcons.Clock, CardFormat.effort(q.effortMin), muted)
         IconText(ApgoIcons.mode(q.mode), q.mode, muted)
     }
+}
+
+// The quest's tool badges, each tool's icon and name (orange while still missing), then what it still needs.
+@Composable
+private fun ColumnScope.BadgeRow(q: QuestOut) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        q.needs.forEach { IconText(ApgoIcons.badge(it), it, if (it in q.missing) ApgoPalette.toolMissing else muted) }
+    }
+    CardFormat.badgeNote(q.missing)?.let { FeedbackText(it, Tone.Warning) }
 }
 
 @Composable
