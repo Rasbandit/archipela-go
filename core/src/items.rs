@@ -9,7 +9,7 @@ pub fn blurb(item: &str, units: UnitSystem) -> String {
     let text = match item {
         i if i.starts_with("Letter ") => "A letter for the Treasure Hunt goal: collect A, P, G and O, then claim the treasure.",
         "Progressive Zone Key" => "A key: collect enough of them to open the next zone.",
-        "Bike" | "Car" => "A travel tool: it unlocks the zone that needs it (ride a bike there).",
+        "Running Shoes" => "A travel tool: it unlocks the running zone that needs it.",
         "Progressive Effort Reduction" => "Meant to make quests easier (shorter effort). Not applied yet in this version.",
         "Progressive Scouting Distance" => "Lets the fog of war reveal quests from farther away.",
         "Progressive Collection Distance" => "Meant to widen how near you must get to collect. Not applied yet in this version.",
@@ -39,7 +39,7 @@ mod tests {
         for (item, needle) in [
             ("Letter P", "Treasure Hunt"),
             ("Progressive Zone Key", "zone"),
-            ("Bike", "bike"),
+            ("Running Shoes", "running zone"),
             ("Progressive Effort Reduction", "not applied"),
             ("Progressive Scouting Distance", "reveal"),
             ("Progressive Collection Distance", "not applied"),

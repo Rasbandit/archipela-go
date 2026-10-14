@@ -15,9 +15,7 @@
  ],
  "modes": [
   "walk",
-  "run",
-  "bike",
-  "drive"
+  "run"
  ],
  "kinds": [
   {
@@ -34,9 +32,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 0
   },
@@ -54,8 +50,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 0,
    "sector": true
@@ -83,9 +78,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -118,9 +111,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -150,9 +141,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -185,9 +174,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -215,9 +202,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -244,9 +229,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -300,8 +283,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -328,9 +310,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -358,9 +338,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -387,9 +365,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -416,9 +392,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -445,9 +419,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -474,9 +446,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -503,9 +473,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -552,8 +520,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -586,9 +553,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -621,9 +586,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -656,9 +619,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -685,9 +646,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -714,9 +673,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -743,8 +700,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -771,9 +727,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -800,9 +754,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -829,9 +781,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -866,9 +816,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -895,9 +843,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -924,9 +870,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -953,9 +897,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -983,9 +925,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1012,9 +952,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1041,9 +979,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1078,9 +1014,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1107,9 +1041,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1136,9 +1068,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1173,8 +1103,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -1217,9 +1146,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1246,9 +1173,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1277,9 +1202,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1308,9 +1231,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1337,9 +1258,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1366,36 +1285,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
-   ],
-   "min_features": 1
-  },
-  {
-   "id": "plug_in",
-   "name": "Plug In",
-   "family": "landmark",
-   "blurb": "Visit an EV charging station.",
-   "geom": "point",
-   "any_of": [
-    [
-     {
-      "key": "amenity",
-      "values": [
-       "charging_station"
-      ]
-     }
-    ]
-   ],
-   "require_name": false,
-   "verify": {
-    "type": "reach",
-    "radius_m": 40
-   },
-   "modes": [
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1423,9 +1313,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1507,9 +1395,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1537,9 +1423,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1566,9 +1450,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1596,8 +1478,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -1633,8 +1514,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -1662,8 +1542,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -1691,8 +1570,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -1720,8 +1598,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -1749,9 +1626,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 1
   },
@@ -1770,8 +1645,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 0
   },
@@ -1801,8 +1675,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -1994,44 +1867,6 @@
    "closed": true
   },
   {
-   "id": "pedal_pusher",
-   "name": "Pedal Pusher",
-   "family": "trail",
-   "blurb": "Ride a named cycle route.",
-   "geom": "line",
-   "any_of": [
-    [
-     {
-      "key": "highway",
-      "values": [
-       "cycleway"
-      ]
-     }
-    ],
-    [
-     {
-      "key": "route",
-      "values": [
-       "bicycle",
-       "mtb"
-      ]
-     }
-    ]
-   ],
-   "require_name": true,
-   "verify": {
-    "type": "follow_line",
-    "corridor_m": 25,
-    "coverage": 0.9,
-    "min_len_m": 1500,
-    "max_len_m": 40000
-   },
-   "modes": [
-    "bike"
-   ],
-   "min_features": 1
-  },
-  {
    "id": "ridge_runner",
    "name": "Ridge Runner",
    "family": "trail",
@@ -2118,8 +1953,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -2149,8 +1983,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 1
   },
@@ -2168,9 +2001,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 0
   },
@@ -2187,9 +2018,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 0
   },
@@ -2214,8 +2043,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 0
   },
@@ -2234,8 +2062,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike"
+    "run"
    ],
    "min_features": 0
   },
@@ -2271,9 +2098,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 0
   },
@@ -2290,9 +2115,7 @@
    },
    "modes": [
     "walk",
-    "run",
-    "bike",
-    "drive"
+    "run"
    ],
    "min_features": 0
   }

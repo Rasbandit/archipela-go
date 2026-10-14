@@ -82,9 +82,9 @@ mod tests {
 
     #[test]
     fn modes_and_lists_are_rendered_for_the_apworld() {
-        let o = SoloOptions { zone_modes: vec![Mode::Walk, Mode::Bike, Mode::Drive], goal: "treasure_hunt".into(), ..SoloOptions::default() };
+        let o = SoloOptions { zone_modes: vec![Mode::Walk, Mode::Run, Mode::Walk], goal: "treasure_hunt".into(), ..SoloOptions::default() };
         let y = build_yaml("Me", &o).unwrap();
-        assert!(y.contains("zone_modes: [walk, bike, drive]") && y.contains("goal_selection: [Treasure Hunt]") && y.contains("name: Me"));
+        assert!(y.contains("zone_modes: [walk, run, walk]") && y.contains("goal_selection: [Treasure Hunt]") && y.contains("name: Me"));
         assert!(y.contains("enable_effort_reductions: false"));
     }
 

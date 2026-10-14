@@ -75,7 +75,6 @@ pub fn sigma_a(p: &LocParams, mode: Mode, model: usize) -> f64 {
     match model {
         W if mode == Mode::Run => p.sigma_a_run,
         W => p.sigma_a_walk,
-        F if mode == Mode::Drive => p.sigma_a_drive,
         F => p.sigma_a_bike,
         _ => 0.0,
     }
@@ -403,14 +402,12 @@ pub fn needs_reset(last_accepted_ms: Option<i64>, t_ms: i64, pos_trace_m2: f64, 
     last_accepted_ms.is_none_or(|l| t_ms.saturating_sub(l) > p.reset_gap_ms) || pos_trace_m2 > p.reset_trace_m2
 }
 
-/// The speed above which quests of a mode stop counting (`Game::speed_ok`), m/s; Drive has none there, 150 km/h here.
+/// The speed above which quests of a mode stop counting (`Game::speed_ok`), m/s.
 #[must_use]
 pub fn mode_cap_mps(mode: Mode) -> f64 {
     let kmh = match mode {
         Mode::Walk => 12.0,
         Mode::Run => 25.0,
-        Mode::Bike => 50.0,
-        Mode::Drive => 150.0,
     };
     kmh / 3.6
 }
@@ -451,8 +448,6 @@ mod tests {
     fn one_second_of_pi_is_the_spec_table() {
         let p = transition(&params(), Mode::Walk, 1.0);
         assert!((p[S][S] - 0.95).abs() < 1e-12 && (p[W][F] - 0.01).abs() < 1e-12 && (p[F][W] - 0.08).abs() < 1e-12);
-        let b = transition(&params(), Mode::Bike, 1.0);
-        assert!((b[F][F] - 0.95).abs() < 1e-12 && (b[W][F] - 0.15).abs() < 1e-12);
     }
 
     #[test]
@@ -479,8 +474,8 @@ mod tests {
         let p = params();
         // Ruling T8-R9: the Walk default is 0.3 (inside the spec's 0.3 to 0.8), tuned on the layer 1 scenarios; the order stays.
         assert_eq!((sigma_a(&p, Mode::Walk, W), sigma_a(&p, Mode::Run, W)), (0.3, 1.0));
-        assert!(sigma_a(&p, Mode::Walk, W) < sigma_a(&p, Mode::Run, W) && sigma_a(&p, Mode::Bike, F) < sigma_a(&p, Mode::Drive, F));
-        assert_eq!((sigma_a(&p, Mode::Bike, F), sigma_a(&p, Mode::Drive, F)), (1.5, 3.0));
+        assert!(sigma_a(&p, Mode::Walk, W) < sigma_a(&p, Mode::Run, W));
+        assert_eq!((sigma_a(&p, Mode::Walk, F), sigma_a(&p, Mode::Run, F)), (1.5, 1.5), "the fast model is the same in every zone");
     }
 
     #[test]
@@ -547,8 +542,8 @@ mod tests {
         let zero = LocParams { mu0_slow: [0.0; 3], ..params() };
         let imm = Imm::new([0.0, 0.0], 3.0, 0, Mode::Walk, &zero);
         assert!(imm.mu.iter().all(|m| (m - 1.0 / 3.0).abs() < 1e-12), "{:?}", imm.mu);
-        let twice = LocParams { mu0_fast: [2.0, 1.0, 1.0], ..params() };
-        let imm = Imm::new([0.0, 0.0], 3.0, 0, Mode::Bike, &twice);
+        let twice = LocParams { mu0_slow: [2.0, 1.0, 1.0], ..params() };
+        let imm = Imm::new([0.0, 0.0], 3.0, 0, Mode::Run, &twice);
         assert!((imm.mu[S] - 0.5).abs() < 1e-12 && (imm.mu[W] - 0.25).abs() < 1e-12, "{:?}", imm.mu);
     }
 
@@ -733,8 +728,8 @@ mod tests {
     }
 
     #[test]
-    fn mode_caps_match_speed_ok_and_drive_gets_150_kmh() {
+    fn mode_caps_match_speed_ok() {
         let caps = Mode::ALL.map(|m| mode_cap_mps(m) * 3.6);
-        assert!(caps.iter().zip([12.0, 25.0, 50.0, 150.0]).all(|(a, b)| (a - b).abs() < 1e-9), "{caps:?}");
+        assert!(caps.iter().zip([12.0, 25.0]).all(|(a, b)| (a - b).abs() < 1e-9), "{caps:?}");
     }
 }

@@ -463,10 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn bike_zones_and_phones_without_steps_never_bridge() {
-        let mut bike = Locator::default();
-        bike.set_mode(Mode::Bike);
-        assert!(walk_into_a_gap(&mut bike, 40, 70, |_| 90.0).is_empty() && !bike.bridging());
+    fn phones_without_steps_never_bridge() {
         let mut fresh = Locator::default();
         assert!(fresh.on_steps(100, 0, None).is_none() && fresh.on_steps(200, 20_000, None).is_none(), "no filter, no bridge");
         let mut stepless = Locator::default();

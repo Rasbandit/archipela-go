@@ -240,26 +240,6 @@ fn a_real_relocation_is_believed_within_three_fixes() {
 }
 
 #[test]
-fn a_bike_arrives_within_two_seconds_and_holds_at_both_stops() {
-    let legs = vec![east(600.0, 5.0), Leg::Stop { secs: 30 }, east(600.0, 5.0), Leg::Stop { secs: 30 }, east(300.0, 5.0)];
-    let s = Scenario::walk(origin(), legs, 5.0);
-    let mut held = Vec::new();
-    for seed in 0..SEEDS {
-        let r = s.generate(seed);
-        let out = run_scenario(&r, &opts(Mode::Bike));
-        for d in [300.0, 600.0, 900.0, 1200.0] {
-            let Some(lag) = added_lag_s(&r, &out.shown, destination(origin(), 90.0, d), 25.0) else { continue };
-            assert!(lag <= 2.0, "seed {seed} at {d} m: {lag}");
-        }
-        let j = stationary_jitter(&r.truth, &out.shown).unwrap();
-        held.push(j.held_share);
-    }
-    // Ruling T8-R15: held at the stops, mean >= 0.7 and every seed >= 0.65 (hold_mu_s stays 0.8 for step-less walkers).
-    let (mean, min) = (held.iter().sum::<f64>() / held.len() as f64, held.iter().copied().fold(1.0, f64::min));
-    assert!(mean >= 0.7 && min >= 0.65, "held mean {mean:.2} min {min:.2}: {held:?}");
-}
-
-#[test]
 fn balanced_quality_fixes_never_complete_an_off_route_target_and_arrive_within_twenty_seconds_p90() {
     let mut s = Scenario::walk(origin(), vec![east(600.0, 1.4)], 25.0);
     s.acc_spread_m = 15.0;
@@ -331,32 +311,6 @@ fn timing_of_on_fix() {
 }
 
 #[test]
-fn a_bike_with_a_quiet_step_counter_stops_and_leaves_without_losing_distance() {
-    // Ruling T8-R18: a cyclist's phone has a step counter that stays quiet. That must not freeze the hold at the stops (the quiet-counter
-    // suppression is for Walk/Run zones): each departure is followed, the odometer is within 10 % of the truth path and no more than 3
-    // fixes are gated in a row.
-    let legs = vec![east(600.0, 5.0), Leg::Stop { secs: 30 }, east(600.0, 5.0), Leg::Stop { secs: 30 }, east(300.0, 5.0)];
-    let s = Scenario::walk(origin(), legs, 5.0);
-    for seed in 0..SEEDS {
-        let mut r = s.generate(seed);
-        let end = r.truth.last().unwrap().t_ms;
-        r.steps = (s.t0_ms..=end).step_by(2_000).map(|t| (t, 10_000)).collect();
-        let out = run_scenario(&r, &opts(Mode::Bike));
-        let truth_m: f64 = r.truth.windows(2).map(|w| distance_m(w[0].p, w[1].p)).sum();
-        let odo = out.shown.last().unwrap().odometer_m;
-        let mut streak = 0;
-        let mut worst = 0;
-        for x in &out.shown {
-            streak = if x.verdict == Verdict::Gated { streak + 1 } else { 0 };
-            worst = worst.max(streak);
-        }
-        println!("seed {seed}: odometer {odo:.0} of {truth_m:.0} m, worst gated streak {worst}, {:?}", apgo_core::loc::bench::verdict_counts(&out.shown));
-        assert!((odo - truth_m).abs() <= 0.1 * truth_m, "seed {seed}: odometer {odo:.0} vs {truth_m:.0} m");
-        assert!(worst <= 3, "seed {seed}: {worst} gated in a row");
-    }
-}
-
-#[test]
 fn a_mover_without_steps_leaves_a_quiet_hold_within_thirty_seconds() {
     // Ruling FR-C1 (final review C1): a wheelchair, a stroller or a cart cup holder moves the phone with the step counter quiet. After
     // a minute standing (held), the player moves off at 0.5 to 2.5 m/s, with and without Doppler speed in the fixes: the hold ends
@@ -403,9 +357,9 @@ fn a_mover_without_steps_leaves_a_quiet_hold_within_thirty_seconds() {
 #[test]
 fn standing_unheld_shows_no_course() {
     // Ruling T8-R17: noise is no direction of travel. Unheld standing (a phone without a step counter in its first 10 s, where the hold
-    // cannot start yet, and a Bike zone) reports no course on >= 95 % of fixes over the 20 seeds.
+    // cannot start yet) reports no course on >= 95 % of fixes over the 20 seeds.
     let s = Scenario::walk(origin(), vec![Leg::Stop { secs: 120 }], 8.0);
-    let (mut walk, mut bike) = ((0_usize, 0_usize), (0_usize, 0_usize));
+    let mut walk = (0_usize, 0_usize);
     for seed in 0..SEEDS {
         let r = s.generate(seed);
         let mut l = apgo_core::loc::Locator::default();
@@ -413,19 +367,10 @@ fn standing_unheld_shows_no_course() {
             walk.0 += usize::from(l.on_fix(f).course_deg.is_none());
             walk.1 += 1;
         }
-        let mut l = apgo_core::loc::Locator::default();
-        l.set_mode(Mode::Bike);
-        for f in &r.fixes {
-            let e = l.on_fix(f);
-            if !l.holding() {
-                bike.0 += usize::from(e.course_deg.is_none());
-                bike.1 += 1;
-            }
-        }
     }
     let share = |(none, n): (usize, usize)| none as f64 / n as f64;
-    println!("no course: step-less first 10 s {:.3} of {}, Bike zone unheld {:.3} of {}", share(walk), walk.1, share(bike), bike.1);
-    assert!(share(walk) >= 0.95 && share(bike) >= 0.95, "step-less {:.3}, Bike {:.3}", share(walk), share(bike));
+    println!("no course: step-less first 10 s {:.3} of {}", share(walk), walk.1);
+    assert!(share(walk) >= 0.95, "step-less {:.3}", share(walk));
 }
 
 use std::sync::Arc;

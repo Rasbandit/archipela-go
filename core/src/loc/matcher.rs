@@ -632,7 +632,7 @@ mod tests {
         if out.seg.is_some() {
             assert!((south(out.point) - LocParams::default().match_side_max_m).abs() < 0.5, "at most 12 m out: {out:?}");
         }
-        let mut drive = Matcher::new(Some(Arc::new(StreetGraph::from_ways(&grid_ways(o(), 5, 100.0)).unwrap())), mode_mask(Mode::Drive));
+        let mut drive = Matcher::new(Some(Arc::new(StreetGraph::from_ways(&grid_ways(o(), 5, 100.0)).unwrap())), way_class::CAR);
         let out = walk(&mut drive, row, 90.0, 4.0, 12, 0).unwrap();
         assert!(south(out.point).abs() < 0.5, "a driver snaps onto the road: {out:?}");
     }
@@ -1138,12 +1138,12 @@ mod tests {
     }
 
     #[test]
-    fn a_new_mode_restarts_the_lattice() {
+    fn a_new_mask_restarts_the_lattice() {
         let mut m = Matcher::new(Some(grid()), mode_mask(Mode::Walk));
         walk(&mut m, destination(o(), 0.0, 100.0), 90.0, 2.0, 5, 0);
         m.set_mask(mode_mask(Mode::Walk));
         assert!(m.best().is_some(), "the same mask changes nothing");
-        m.set_mask(mode_mask(Mode::Drive));
+        m.set_mask(way_class::CAR);
         assert!(m.best().is_none());
         assert_eq!(m.trace().len(), 5, "what the lattice held went into the trace");
     }
@@ -1191,11 +1191,11 @@ mod tests {
     #[test]
     #[ignore = "timing harness: cargo test --release -p apgo-core hmm_step_time -- --ignored --nocapture"]
     fn hmm_step_time() {
-        // The 10 km-radius probe: a 20 km square of streets 100 m apart; a walk, a drive and a screen-off drive (a fix per 5 s) across it.
+        // The 10 km-radius probe: a 20 km square of streets 100 m apart; a walk, a run and a screen-off run (a fix per 5 s) across it.
         let sw = destination(destination(o(), 180.0, 10_000.0), 270.0, 10_000.0);
         let graph = Arc::new(StreetGraph::from_ways(&grid_ways(sw, 201, 100.0)).unwrap());
         let params = LocParams::default();
-        for (name, mode, step_m, dt_s) in [("walk", Mode::Walk, 5.0, 4), ("drive", Mode::Drive, 20.0, 1), ("screen-off drive", Mode::Drive, 75.0, 5)] {
+        for (name, mode, step_m, dt_s) in [("walk", Mode::Walk, 5.0, 4), ("run", Mode::Run, 10.0, 2), ("screen-off run", Mode::Run, 25.0, 5)] {
             let mut m = Matcher::new(Some(Arc::clone(&graph)), mode_mask(mode));
             let (mut times, mut most, mut confident) = (vec![], 0, 0);
             // A staircase of blocks along the streets (300 m east, 200 m north, repeated) from the middle, with up to 3 m of noise. Points

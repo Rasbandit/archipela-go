@@ -1,5 +1,5 @@
 //! Replay a recorded walk through the location filters and print the scorecard.
-//! Usage: `cargo run --release --example replay -- <pulled-dir | raw.jsonl | journal.db> [--mode walk|run|bike|drive] [--from-ms N]
+//! Usage: `cargo run --release --example replay -- <pulled-dir | raw.jsonl | journal.db> [--mode walk|run] [--from-ms N]
 //! [--to-ms N] [--game games/<id>.json] [--atlas files/atlas/<realm>.json]... [--params p.json] [--compare baseline] [--geojson out.geojson]
 //! [--csv out.csv]`
 //! `--params` is a `LocParams` JSON (missing fields keep their defaults); `--compare baseline` also prints today's rules; each `--atlas`
@@ -50,7 +50,7 @@ fn args() -> Args {
     };
     while let Some(x) = it.next() {
         match x.as_str() {
-            "--mode" => a.mode = Mode::parse(&it.next().expect("--mode needs a value")).expect("walk, run, bike or drive"),
+            "--mode" => a.mode = Mode::parse(&it.next().expect("--mode needs a value")).expect("walk or run"),
             "--from-ms" => a.from_ms = it.next().expect("--from-ms N").parse().expect("a number"),
             "--to-ms" => a.to_ms = it.next().expect("--to-ms N").parse().expect("a number"),
             "--game" => a.game = it.next().map(PathBuf::from),
@@ -147,7 +147,7 @@ fn main() {
         rec.skipped,
         a.mode.name()
     );
-    let reference = rts_reference(&rec.fixes, 15.0, if matches!(a.mode, Mode::Bike | Mode::Drive) { 1.5 } else { 0.5 });
+    let reference = rts_reference(&rec.fixes, 15.0, 0.5);
     let quests = targets(a.game.as_deref());
     let mut targets = quests.clone();
     targets.extend(virtual_targets(&reference, 200.0, 25.0));

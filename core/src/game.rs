@@ -441,10 +441,9 @@ fn reach_radius(t: &Target) -> Option<f64> {
     }
 }
 
-/// Whether quests of `mode` count at `kmh`: the mode's speed cap (`loc::imm::mode_cap_mps`, one table for the filter and the game); Drive
-/// quests count at any speed.
+/// Whether quests of `mode` count at `kmh`: the mode's speed cap (`loc::imm::mode_cap_mps`, one table for the filter and the game).
 fn speed_ok(mode: Mode, kmh: f64) -> bool {
-    mode == Mode::Drive || kmh / 3.6 <= mode_cap_mps(mode)
+    kmh / 3.6 <= mode_cap_mps(mode)
 }
 
 /// The lower bound of an estimate's speed (two sigmas under it), km/h, so GPS noise does not block a slow walker.
@@ -2151,7 +2150,7 @@ mod tests {
         let far = destination(home(), 0.0, 30_000.0);
         let trail = destination(far, 0.0, 60.0);
         (a1.streets, a1.streets_rough) = (vec![far], vec![trail]);
-        let zones = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r0, atlas: &a0 }, ZoneCtx { zone: 2, mode: Mode::Bike, realm: &r1, atlas: &a1 }];
+        let zones = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r0, atlas: &a0 }, ZoneCtx { zone: 2, mode: Mode::Run, realm: &r1, atlas: &a1 }];
         let pool = trap_pool(&zones);
         assert!(pool.contains(&far) && pool.contains(&trail), "a trap in zone 2 finds zone 2's streets");
         assert!(pool.len() <= 2 * TRAP_POOL_PER_ZONE + 2, "kept small: {}", pool.len());
@@ -2584,7 +2583,7 @@ mod tests {
 
     #[test]
     fn a_new_solo_game_assigns_everything_and_locks_later_zones() {
-        let g = game(&reach_only(&[Mode::Walk, Mode::Bike], 20, "all_trips"), Backend::Solo, 4);
+        let g = game(&reach_only(&[Mode::Walk, Mode::Run], 20, "all_trips"), Backend::Solo, 4);
         assert_eq!(g.assignments.len(), 20);
         let views = g.quest_views(0);
         assert!(views.iter().any(|v| v.zone == 2 && v.state == QuestState::Locked));
@@ -2613,7 +2612,7 @@ mod tests {
 
     #[test]
     fn full_playthrough_unlocks_zones_and_reports_the_goal_exactly_once() {
-        let mut g = game(&reach_only(&[Mode::Walk, Mode::Bike, Mode::Drive], 30, "all_trips"), Backend::Solo, 9);
+        let mut g = game(&reach_only(&[Mode::Walk, Mode::Run, Mode::Walk], 30, "all_trips"), Backend::Solo, 9);
         let ev = play_all(&mut g, 0);
         assert!(ev.iter().filter(|e| matches!(e, Event::ZoneUnlocked { .. })).count() >= 2, "zones 2 and 3 unlock along the way");
         assert_eq!(ev.iter().filter(|e| matches!(e, Event::GoalAchieved { .. })).count(), 1);
@@ -2623,13 +2622,13 @@ mod tests {
 
     #[test]
     fn archipelago_backend_sends_checks_and_unlocks_from_synced_items() {
-        let mut g = game(&reach_only(&[Mode::Walk, Mode::Bike], 20, "all_trips"), Backend::Archipelago, 2);
+        let mut g = game(&reach_only(&[Mode::Walk, Mode::Run], 20, "all_trips"), Backend::Archipelago, 2);
         let q = g.quest_views(0).into_iter().find(|v| v.zone == 1).unwrap();
         let ev = g.on_estimate(&fixat(q.anchor.unwrap(), 50), None);
         assert!(ev.iter().any(|e| matches!(e, Event::SendCheck { .. })) && !ev.iter().any(|e| matches!(e, Event::Reward { .. })));
-        let ev = g.sync_items(&["Progressive Zone Key".into(), "Bike".into()], 60, None);
+        let ev = g.sync_items(&["Progressive Zone Key".into(), "Running Shoes".into()], 60, None);
         assert!(ev.contains(&Event::ZoneUnlocked { zone: 2 }));
-        let again = g.sync_items(&["Progressive Zone Key".into(), "Bike".into()], 70, None);
+        let again = g.sync_items(&["Progressive Zone Key".into(), "Running Shoes".into()], 70, None);
         assert!(again.is_empty(), "already-seen items trigger nothing");
         assert!(g.quest_views(0).iter().any(|v| v.zone == 2 && v.state == QuestState::Open));
     }
@@ -2674,7 +2673,7 @@ mod tests {
 
     #[test]
     fn any_realm_can_serve_zones_of_any_mode_because_travel_is_the_games_choice() {
-        let o = reach_only(&[Mode::Walk, Mode::Bike], 12, "all_trips");
+        let o = reach_only(&[Mode::Walk, Mode::Run], 12, "all_trips");
         let g1 = generate(&o, 1).unwrap();
         let realms = vec![realm("r0", Mode::Walk)];
         let created = Game::create(
@@ -2786,11 +2785,11 @@ mod tests {
 
     #[test]
     fn reroll_keeps_finished_quests() {
-        let o = reach_only(&[Mode::Walk, Mode::Bike], 12, "all_trips");
+        let o = reach_only(&[Mode::Walk, Mode::Run], 12, "all_trips");
         let mut g = game(&o, Backend::Solo, 1);
         let q = g.quest_views(0).into_iter().find(|v| v.zone == 1).unwrap();
         g.on_estimate(&fixat(q.anchor.unwrap(), 1), None);
-        let realms = vec![realm("r0", Mode::Walk), realm("r1", Mode::Bike)];
+        let realms = vec![realm("r0", Mode::Walk), realm("r1", Mode::Run)];
         let before: Vec<String> = g.assignments.iter().map(|a| format!("{:?}", a.target)).collect();
         let n = g.reroll(&g.assignments.iter().map(|a| a.location_id).collect::<Vec<_>>(), &realms, 99, &Catalog::builtin()).unwrap();
         assert_eq!(n, 11, "the finished quest is not rerolled");
@@ -2827,6 +2826,21 @@ mod tests {
         g.save(&dir).unwrap();
         let Err(err) = Game::load(&dir, "g1") else { panic!("a save with a removed goal must not load") };
         assert!(err.contains("older version") && err.contains("unknown goal boss"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_save_with_a_bike_zone_is_refused() {
+        let dir = std::env::temp_dir().join(format!("apgo-bikezone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        g.save(&dir).unwrap();
+        let path = Game::path_for(&dir, "g1");
+        let json = std::fs::read_to_string(&path).unwrap();
+        let old = json.replace("\"mode\":\"walk\"", "\"mode\":\"bike\"");
+        assert_ne!(old, json, "the save must hold a walk zone");
+        std::fs::write(&path, old).unwrap();
+        assert!(Game::load(&dir, "g1").is_err(), "Bike is gone; old saves do not load");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3313,11 +3327,11 @@ mod tests {
     fn create_and_load_pick_the_fastest_zone_mode_and_a_travel_mode_sets_filter_and_odometer() {
         let dir = std::env::temp_dir().join(format!("apgo-game-mode-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let mut g = game(&reach_only(&[Mode::Walk, Mode::Bike], 12, "all_trips"), Backend::Solo, 1);
-        assert_eq!((g.locator.mode(), g.odometer.speed_cap_mps()), (Mode::Bike, mode_cap_mps(Mode::Bike)), "created: fastest zone mode");
+        let mut g = game(&reach_only(&[Mode::Walk, Mode::Run], 12, "all_trips"), Backend::Solo, 1);
+        assert_eq!((g.locator.mode(), g.odometer.speed_cap_mps()), (Mode::Run, mode_cap_mps(Mode::Run)), "created: fastest zone mode");
         g.save(&dir).unwrap();
         let back = Game::load(&dir, &g.id).unwrap();
-        assert_eq!((back.locator.mode(), back.odometer.speed_cap_mps()), (Mode::Bike, mode_cap_mps(Mode::Bike)), "loaded: fastest zone mode");
+        assert_eq!((back.locator.mode(), back.odometer.speed_cap_mps()), (Mode::Run, mode_cap_mps(Mode::Run)), "loaded: fastest zone mode");
         g.set_travel_mode(Mode::Walk);
         assert_eq!((g.locator.mode(), g.odometer.speed_cap_mps()), (Mode::Walk, mode_cap_mps(Mode::Walk)));
         let _ = std::fs::remove_dir_all(&dir);
@@ -4177,7 +4191,7 @@ mod tests {
 
     #[test]
     fn a_new_game_starts_with_empty_counters_and_no_time_away() {
-        let g = game(&reach_only(&[Mode::Walk, Mode::Bike], 20, "all_trips"), Backend::Solo, 4);
+        let g = game(&reach_only(&[Mode::Walk, Mode::Run], 20, "all_trips"), Backend::Solo, 4);
         assert!(g.counters.progress.is_empty() && g.counters.steps_last.is_none() && g.counters.away_mark.is_none());
     }
 }
