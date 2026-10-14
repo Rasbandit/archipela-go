@@ -34,6 +34,8 @@ class CollectFormatTest {
             tier = 1u,
             effortMin = 10.0,
             mode = "walk",
+            needs = emptyList(),
+            missing = emptyList(),
             state = "open",
             progress = 0f,
             shape = "collect",

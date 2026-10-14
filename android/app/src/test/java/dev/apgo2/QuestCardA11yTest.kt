@@ -220,6 +220,8 @@ class QuestCardA11yTest {
             tier = 1u,
             effortMin = 9.0,
             mode = "walk",
+            needs = emptyList(),
+            missing = emptyList(),
             state = state,
             progress = 0f,
             shape = "point",

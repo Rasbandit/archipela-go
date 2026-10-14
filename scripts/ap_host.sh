@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Dev Archipelago server with OUR apworld, single player "Tester".
-#   [APGO_ZONES=walk,run] [APGO_GOALS="Treasure Hunt,Completionist"] [APGO_REQ=require_all_goals] scripts/ap_host.sh start [trips]
+#   [APGO_ZONES=2] [APGO_RUN_SHARE=20 (0: no run quests)] [APGO_GOALS="Treasure Hunt,Completionist"] [APGO_REQ=require_all_goals] scripts/ap_host.sh start [trips]
 #                                      generate a seed and host it on :38281 (+ adb reverse to the phone)
 #   scripts/ap_host.sh serve           host the last generated seed again on its save (a server restart; nothing regenerated)
 #   scripts/ap_host.sh stop | status | log
@@ -46,7 +46,8 @@ case "${1:-}" in
     trips="${2:-100}"
     "$0" stop >/dev/null 2>&1 || true
     rm -rf "$dev"; mkdir -p "$dev/players" "$dev/out"
-    zones="${APGO_ZONES:-walk,run}"
+    zones="${APGO_ZONES:-2}"
+    run_share="${APGO_RUN_SHARE:-20}"
     goals="${APGO_GOALS:-Treasure Hunt}"
     req="${APGO_REQ:-require_any_one_goal}"
     cat > "$dev/players/Tester.yaml" <<YAML
@@ -57,7 +58,9 @@ game: "$game"
   goal_requirement: $req
   goals_required: ${APGO_NEED:-2}
   number_of_trips: $trips
-  zone_modes: [${zones//,/, }]
+  zone_count: $zones
+  run_quests: $([ "$run_share" -gt 0 ] && echo true || echo false)
+  run_share: $([ "$run_share" -gt 0 ] && echo "$run_share" || echo 20)
   easy_share: 50
   medium_share: 35
   hard_share: 15
@@ -67,7 +70,7 @@ YAML
     (cd "$dev/out" && unzip -q -o AP_*.zip '*.archipelago' && ls -- *.archipelago >/dev/null)
     serve
     [ -n "${APGO_AP_NO_ADB:-}" ] || { adb reverse tcp:"$port" tcp:"$port" >/dev/null 2>&1 && echo "adb reverse set: phone localhost:$port -> this machine" || echo "(no phone for adb reverse)"; }
-    echo "server up (pid $(cat "$dev/server.pid")), slot Tester, $trips trips, zones $zones, goals $goals ($req). Connect to localhost:$port"
+    echo "server up (pid $(cat "$dev/server.pid")), slot Tester, $trips trips, $zones zones, runs ${run_share}%, goals $goals ($req). Connect to localhost:$port"
     ;;
   serve)
     "$0" stop >/dev/null 2>&1 || true

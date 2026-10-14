@@ -102,6 +102,8 @@ class MapFeaturesTest {
         tier = 1u,
         effortMin = 10.0,
         mode = "walk",
+        needs = emptyList(),
+        missing = emptyList(),
         state = state,
         progress = 0f,
         shape = shape,

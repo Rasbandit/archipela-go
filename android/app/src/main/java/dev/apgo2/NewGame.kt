@@ -50,7 +50,6 @@ import dev.apgo2.ui.HelpTip
 import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.IconLabel
 import dev.apgo2.ui.LabelWithHelp
-import dev.apgo2.ui.MODES
 import dev.apgo2.ui.SwitchRow
 import dev.apgo2.ui.Tone
 import uniffi.apgo_ffi.RealmOut
@@ -63,6 +62,7 @@ private const val MAX_ZONES = 6
 private const val MIN_DISTANCE_M = 150u
 private const val TRAP_RATE_PERCENT = 30u
 private const val REDUCTION_PERCENT = 8u
+private const val DEFAULT_RUN_SHARE = 20u
 private const val DEFAULT_TRIPS = 60f
 private const val DEFAULT_MINUTES_PER_TIER = 10f
 private const val DEFAULT_NEED = 2
@@ -97,10 +97,9 @@ private val MIXES =
 private val TERRAIN_LABELS = mapOf(ANY to "Any", "prefer_paved" to "Prefer paved", "paved_only" to "Paved only")
 private val REQUIREMENT_LABELS = mapOf(ANY to "Any one", ALL to "All of them", AT_LEAST to "At least…")
 
-/** A zone being set up: a realm, how you travel there, and the quest types it uses. */
+/** A zone being set up: a realm and the quest types it uses. */
 private data class ZoneDraft(
     val realmId: String,
-    val mode: String,
     val types: Set<String>,
 )
 
@@ -147,7 +146,9 @@ private class NewGameForm {
             goalRequirement = if (goals.size == 1) ANY else requirement,
             goalNeed = need.coerceIn(1, goals.size).toUInt(),
             numberOfTrips = trips.toInt().toUInt(),
-            zoneModes = zones.map { it.mode },
+            zoneCount = zones.size.toUInt(),
+            runQuests = false,
+            runShare = DEFAULT_RUN_SHARE,
             easyShare = mix.easy.toUInt(),
             mediumShare = mix.medium.toUInt(),
             hardShare = mix.hard.toUInt(),
@@ -298,7 +299,7 @@ private fun ZonesSection(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 scanned.forEach { r ->
                     OutlinedButton(
-                        onClick = { onAdd(ZoneDraft(r.id, "walk", availableTypes(m, r.id))) },
+                        onClick = { onAdd(ZoneDraft(r.id, availableTypes(m, r.id))) },
                     ) { IconLabel(r.name, ApgoIcons.realm(r.icon)) }
                 }
             }
@@ -323,14 +324,6 @@ private fun ZoneCard(
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ZoneHeader(index, realm, onRemove)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                LabelWithHelp("Travel by ${zone.mode}", Help.travelMode)
-                IconChoices(MODES, zone.mode, { onChange(zone.copy(mode = it)) }, ApgoIcons::mode, { it })
-            }
             LabelWithHelp("Quest types", Help.questTypes)
             QuestTypeChips(findsByFamily(m, zone.realmId), available, zone, onChange)
             if (zone.types.none { it in available }) {
@@ -484,11 +477,11 @@ private fun ArchipelagoSection(
         }) { Text("Connect") }
         Text("Status: ${m.ap.status}${m.ap.goalSummary()?.let { "  ·  goal: $it" } ?: ""}", fontSize = 12.sp)
         m.ap.hint?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.error) }
-        if (m.ap.zoneModes.isNotEmpty()) {
-            Text("This game needs ${m.ap.zoneModes.size} zone(s). Pick a realm for each:", fontSize = 12.sp)
-            m.ap.zoneModes.forEachIndexed { i, mode ->
+        if (m.ap.zoneCount > 0) {
+            Text("This game needs ${m.ap.zoneCount} zone(s). Pick a realm for each:", fontSize = 12.sp)
+            repeat(m.ap.zoneCount) { i ->
                 val options = m.realmOps.shown.filter { it.scannedAtMs != null }
-                Text("Zone ${i + 1} ($mode)", style = MaterialTheme.typography.titleSmall)
+                Text("Zone ${i + 1}", style = MaterialTheme.typography.titleSmall)
                 if (options.isEmpty()) Text("No scanned realm yet: create one first.", fontSize = 12.sp)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     options.forEach { r ->
@@ -496,7 +489,7 @@ private fun ArchipelagoSection(
                     }
                 }
             }
-            val complete = form.apZoneRealms.size == m.ap.zoneModes.size && form.apZoneRealms.none { it.isBlank() }
+            val complete = form.apZoneRealms.size == m.ap.zoneCount && form.apZoneRealms.none { it.isBlank() }
             Button(enabled = complete, onClick = {
                 m.ap.startGame(form.apZoneRealms.toList(), "Archipelago: ${form.slot}")
             }) { Text("Start this game") }
