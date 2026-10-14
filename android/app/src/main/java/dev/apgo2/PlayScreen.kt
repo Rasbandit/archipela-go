@@ -447,6 +447,8 @@ private fun PlayMap(
                 m.selected = id
             },
             home = m.home?.let { LatLng(it.lat, it.lon) },
+            // The circle in use moves with the pin and comes and goes with the step counter: read again when either may have changed.
+            homeZone = remember(m.home, m.presence.decision) { m.engine.presenceCircle() },
             trace = trace,
             traceOld = traceOld,
             lastPlace = m.lastPlace,

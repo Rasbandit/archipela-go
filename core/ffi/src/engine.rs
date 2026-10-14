@@ -1782,6 +1782,11 @@ impl Engine {
         self.watch().has_center()
     }
 
+    /// The home circle in use, to draw on the map; `None` when home Wi-Fi alone decides.
+    pub fn presence_circle(&self) -> Option<CircleOut> {
+        self.watch().circle().map(|c| CircleOut { center: gp(c), radius_m: apgo_core::home_watch::HOME_CIRCLE_M })
+    }
+
     /// When the walk that left home began (its first step), while away after a check.
     pub fn presence_left_at_ms(&self) -> Option<i64> {
         self.watch().left_at_ms()
@@ -3039,8 +3044,11 @@ mod tests {
         assert!(!e.presence_has_circle(), "no home pin yet");
         e.set_home(gp(home())).unwrap();
         assert!(!e.presence_has_circle(), "no step counter yet");
+        assert!(e.presence_circle().is_none(), "nothing to draw");
         e.presence_set_walk_sensor(true);
         assert!(e.presence_has_circle());
+        let drawn = e.presence_circle().unwrap();
+        assert_eq!((pt(&drawn.center), drawn.radius_m), (home(), apgo_core::home_watch::HOME_CIRCLE_M), "the map draws the circle in use");
         e.presence_wifi(Some(true), FIX_T_MS);
         e.presence_start(FIX_T_MS);
         assert_eq!(e.presence_state(), "home");

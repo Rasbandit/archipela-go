@@ -1,6 +1,8 @@
 package dev.apgo2
 
 import androidx.compose.ui.geometry.Offset
+import dev.apgo2.presence.GeoFix
+import dev.apgo2.presence.HomeWifiOffer
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
@@ -12,6 +14,7 @@ import dev.apgo2.ui.openItems
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.geometry.LatLng
+import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.CollectItemOut
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.QuestOut
@@ -20,6 +23,9 @@ import kotlin.math.cos
 import kotlin.math.pow
 
 private const val MIN_POLYGON_POINTS = 3
+
+/** The pin is joined to the trace's end only this close, metres: the trace lags the pin up to its 10 s reload plus the matcher's lag. */
+internal const val TRACE_HEAD_MAX_M = 100.0
 private const val BANNED_OPACITY = 0.55
 private const val HIDDEN = "hidden"
 
@@ -321,3 +327,27 @@ private fun questProps(
     .put(MapProp.IMAGE, image)
     .put(MapProp.SORT, MapMarkers.drawOrder(q.state))
     .put(MapProp.ID, q.locationId.toString())
+
+/** What the map draws around you: the home circle and the line joining your trace to your pin. */
+internal object MeFeatures {
+    /** The circle round the home pin that counts as home (presence), or nothing while home Wi-Fi alone decides. */
+    fun homeZone(c: CircleOut?): List<JSONObject> =
+        listOfNotNull(c?.let { GeoJson.feature(GeoJson.polygon(circleRing(it.center.lat, it.center.lon, it.radiusM))) })
+
+    /**
+     * The line from the trace's newest point to the pin, sent with every pin move: the trace reloads every 10 s and ends at the
+     * matcher's newest input, so without it the line trails behind you. None for a stale pin or one far off (a restart broke the trace).
+     */
+    fun traceHead(
+        end: LatLng?,
+        pin: MePin?,
+    ): List<JSONObject> {
+        if (end == null || pin == null || pin.spec.state == "stale") return emptyList()
+        val gap = HomeWifiOffer.distanceM(GeoFix(end.latitude, end.longitude, 0.0), GeoFix(pin.lat, pin.lon, 0.0))
+        return if (gap > TRACE_HEAD_MAX_M) {
+            emptyList()
+        } else {
+            listOf(GeoJson.feature(GeoJson.lineString(listOf(end.latitude to end.longitude, pin.lat to pin.lon))))
+        }
+    }
+}

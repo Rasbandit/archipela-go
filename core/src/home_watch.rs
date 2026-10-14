@@ -88,8 +88,9 @@ impl HomeWatch {
         self.circle_changed();
     }
 
-    // The circle round the pin, used only with steps to see a walk out.
-    fn circle(&self) -> Option<Point> {
+    /// The centre of the circle in use (radius [`HOME_CIRCLE_M`]): the pin, only with steps to see a walk out.
+    #[must_use]
+    pub fn circle(&self) -> Option<Point> {
         self.center.filter(|_| self.walk_sensor)
     }
 

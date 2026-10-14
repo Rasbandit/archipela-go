@@ -67,6 +67,7 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
+import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
 import kotlin.math.abs
@@ -245,6 +246,9 @@ private class MapHolder(
 
     /** The pin the location component shows, to skip updates too small to see ([MePins.meaningfullyDiffers]). */
     var meDrawn: MePin? = null
+
+    /** The newest point of this session's trace, which [showMe] joins to the pin (MeFeatures.traceHead). */
+    var traceEnd: LatLng? = null
 
     init {
         MapStyle.init(context)
@@ -539,6 +543,8 @@ internal fun QuestMap(
     onMapClick: (LatLng) -> Unit,
     modifier: Modifier = Modifier,
     home: LatLng? = null,
+    /** The circle round home that counts as home (presence), drawn faintly; null when there is none. */
+    homeZone: CircleOut? = null,
     onMapLongClick: ((LatLng) -> Unit)? = null,
     /** Circle being edited: center and radius in metres. */
     circle: Pair<LatLng, Double>? = null,
@@ -614,7 +620,7 @@ internal fun QuestMap(
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
     SyncContent(holder, quests, realms, selected, anchor, finds, trace, traceOld)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
-    SyncPins(holder, thaw, waypoint, home, me, onShow)
+    SyncPins(holder, thaw, waypoint, home, homeZone, me, onShow)
     MapCamera(holder, inputs, overlaysFollowed, fit, focus, anchor)
     MapFraming(holder, circle, meKnown, quests, realms, points)
     // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
@@ -744,7 +750,11 @@ private fun SyncContent(
         holder.show(MapSource.LINES, MapFeatures.lines(quests))
         holder.show(MapSource.AREAS, MapFeatures.areas(quests))
     }
-    LaunchedEffect(style, trace) { holder.show(MapSource.TRACE, MapFeatures.trace(trace)) }
+    LaunchedEffect(style, trace) {
+        holder.show(MapSource.TRACE, MapFeatures.trace(trace))
+        holder.traceEnd = trace.lastOrNull()?.lastOrNull()
+        holder.show(MapSource.TRACE_HEAD, MeFeatures.traceHead(holder.traceEnd, holder.meDrawn))
+    }
     LaunchedEffect(style, traceOld) { holder.show(MapSource.TRACE_OLD, MapFeatures.trace(traceOld)) }
 }
 
@@ -779,11 +789,13 @@ private fun SyncPins(
     thaw: LatLng?,
     waypoint: LatLng?,
     home: LatLng?,
+    homeZone: CircleOut?,
     me: () -> MePin?,
     onShow: Boolean,
 ) {
     val style = holder.style
     LaunchedEffect(style, thaw, waypoint) { holder.show(MapSource.MARKS, MapFeatures.marks(thaw, waypoint)) }
+    LaunchedEffect(style, homeZone) { holder.show(MapSource.HOME_ZONE, MeFeatures.homeZone(homeZone)) }
     LaunchedEffect(style, home) {
         holder.show(MapSource.HOME, MapFeatures.pin(home))
         holder.repaint()
@@ -901,6 +913,7 @@ private fun MapHolder.showMe(pin: MePin?) {
     if (pin == null) {
         lc.isLocationComponentEnabled = false
         meDrawn = null
+        show(MapSource.TRACE_HEAD, emptyList())
         return
     }
     if (pin.spec != meSpec) {
@@ -913,5 +926,6 @@ private fun MapHolder.showMe(pin: MePin?) {
     if (wasOff || MePins.meaningfullyDiffers(meDrawn, pin)) {
         lc.forceLocationUpdate(listOf(pin.toLocation(System.currentTimeMillis())), true)
         meDrawn = pin
+        show(MapSource.TRACE_HEAD, MeFeatures.traceHead(traceEnd, pin))
     }
 }
