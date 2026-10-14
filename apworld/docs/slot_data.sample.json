@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "goals": [
     "treasure_hunt"
   ],
@@ -25,63 +25,91 @@
   "zones": [
     {
       "id": 1,
-      "mode": "walk",
-      "zone_keys_needed": 0,
-      "tool": null
+      "zone_keys_needed": 0
     },
     {
       "id": 2,
-      "mode": "run",
-      "zone_keys_needed": 1,
-      "tool": "Running Shoes"
+      "zone_keys_needed": 1
     },
     {
       "id": 3,
-      "mode": "walk",
-      "zone_keys_needed": 2,
-      "tool": null
+      "zone_keys_needed": 2
     }
   ],
   "trips": [
+    {
+      "location_id": 8902400004001,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "hard",
+      "effort_tier": 10,
+      "type": "dwell",
+      "needs": []
+    },
     {
       "location_id": 8902400002001,
       "zone": 1,
       "mode": "walk",
       "difficulty": "medium",
       "effort_tier": 7,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400004001,
-      "zone": 1,
-      "mode": "walk",
-      "difficulty": "hard",
-      "effort_tier": 9,
-      "type": "steps"
+      "type": "park",
+      "needs": []
     },
     {
       "location_id": 8902400002002,
       "zone": 1,
       "mode": "walk",
       "difficulty": "medium",
-      "effort_tier": 6,
-      "type": "reach"
+      "effort_tier": 7,
+      "type": "dwell",
+      "needs": []
+    },
+    {
+      "location_id": 8902400004002,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "hard",
+      "effort_tier": 8,
+      "type": "reach",
+      "needs": []
     },
     {
       "location_id": 8902400000001,
       "zone": 1,
       "mode": "walk",
       "difficulty": "easy",
-      "effort_tier": 1,
-      "type": "steps"
+      "effort_tier": 2,
+      "type": "reach",
+      "needs": []
     },
     {
       "location_id": 8902400000002,
       "zone": 1,
       "mode": "walk",
       "difficulty": "easy",
-      "effort_tier": 1,
-      "type": "reach"
+      "effort_tier": 2,
+      "type": "reach",
+      "needs": []
+    },
+    {
+      "location_id": 8902400005001,
+      "zone": 1,
+      "mode": "run",
+      "difficulty": "hard",
+      "effort_tier": 9,
+      "type": "courier",
+      "needs": [
+        "Running Shoes"
+      ]
+    },
+    {
+      "location_id": 8902400000003,
+      "zone": 1,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "reach",
+      "needs": []
     },
     {
       "location_id": 8902400002003,
@@ -89,47 +117,26 @@
       "mode": "walk",
       "difficulty": "medium",
       "effort_tier": 6,
-      "type": "dwell"
-    },
-    {
-      "location_id": 8902400000003,
-      "zone": 1,
-      "mode": "walk",
-      "difficulty": "easy",
-      "effort_tier": 2,
-      "type": "dwell"
+      "type": "landmark",
+      "needs": []
     },
     {
       "location_id": 8902400000004,
       "zone": 1,
       "mode": "walk",
       "difficulty": "easy",
-      "effort_tier": 1,
-      "type": "courier"
+      "effort_tier": 2,
+      "type": "explore",
+      "needs": []
     },
     {
       "location_id": 8902400000005,
       "zone": 1,
       "mode": "walk",
       "difficulty": "easy",
-      "effort_tier": 2,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400004002,
-      "zone": 1,
-      "mode": "walk",
-      "difficulty": "hard",
-      "effort_tier": 10,
-      "type": "steps"
-    },
-    {
-      "location_id": 8902400004003,
-      "zone": 1,
-      "mode": "walk",
-      "difficulty": "hard",
-      "effort_tier": 10,
-      "type": "landmark"
+      "effort_tier": 3,
+      "type": "water",
+      "needs": []
     },
     {
       "location_id": 8902400000006,
@@ -137,31 +144,57 @@
       "mode": "walk",
       "difficulty": "easy",
       "effort_tier": 1,
-      "type": "courier"
+      "type": "park",
+      "needs": []
+    },
+    {
+      "location_id": 8902400003001,
+      "zone": 1,
+      "mode": "run",
+      "difficulty": "medium",
+      "effort_tier": 6,
+      "type": "courier",
+      "needs": [
+        "Running Shoes"
+      ]
     },
     {
       "location_id": 8902400000007,
       "zone": 1,
       "mode": "walk",
       "difficulty": "easy",
-      "effort_tier": 2,
-      "type": "reach"
+      "effort_tier": 3,
+      "type": "reach",
+      "needs": []
     },
     {
       "location_id": 8902400002004,
       "zone": 1,
       "mode": "walk",
       "difficulty": "medium",
-      "effort_tier": 4,
-      "type": "landmark"
+      "effort_tier": 6,
+      "type": "explore",
+      "needs": []
     },
     {
       "location_id": 8902400000008,
       "zone": 1,
       "mode": "walk",
       "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "water",
+      "needs": []
+    },
+    {
+      "location_id": 8902400001001,
+      "zone": 1,
+      "mode": "run",
+      "difficulty": "easy",
       "effort_tier": 2,
-      "type": "trail"
+      "type": "trail",
+      "needs": [
+        "Running Shoes"
+      ]
     },
     {
       "location_id": 8902400002005,
@@ -169,103 +202,35 @@
       "mode": "walk",
       "difficulty": "medium",
       "effort_tier": 6,
-      "type": "landmark"
+      "type": "reach",
+      "needs": []
     },
     {
       "location_id": 8902400000009,
       "zone": 1,
       "mode": "walk",
       "difficulty": "easy",
-      "effort_tier": 3,
-      "type": "away"
+      "effort_tier": 2,
+      "type": "landmark",
+      "needs": []
     },
     {
       "location_id": 8902400002006,
       "zone": 1,
       "mode": "walk",
       "difficulty": "medium",
-      "effort_tier": 6,
-      "type": "trail"
+      "effort_tier": 4,
+      "type": "courier",
+      "needs": []
     },
     {
       "location_id": 8902400000010,
-      "zone": 1,
-      "mode": "walk",
-      "difficulty": "easy",
-      "effort_tier": 2,
-      "type": "water"
-    },
-    {
-      "location_id": 8902400002007,
-      "zone": 1,
-      "mode": "walk",
-      "difficulty": "medium",
-      "effort_tier": 4,
-      "type": "landmark"
-    },
-    {
-      "location_id": 8902400001001,
       "zone": 2,
-      "mode": "run",
+      "mode": "walk",
       "difficulty": "easy",
       "effort_tier": 1,
-      "type": "courier"
-    },
-    {
-      "location_id": 8902400001002,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "easy",
-      "effort_tier": 3,
-      "type": "landmark"
-    },
-    {
-      "location_id": 8902400005001,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "hard",
-      "effort_tier": 10,
-      "type": "dwell"
-    },
-    {
-      "location_id": 8902400001003,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "easy",
-      "effort_tier": 3,
-      "type": "explore"
-    },
-    {
-      "location_id": 8902400001004,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "easy",
-      "effort_tier": 3,
-      "type": "away"
-    },
-    {
-      "location_id": 8902400001005,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "easy",
-      "effort_tier": 2,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400003001,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "medium",
-      "effort_tier": 4,
-      "type": "landmark"
-    },
-    {
-      "location_id": 8902400003002,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "medium",
-      "effort_tier": 4,
-      "type": "away"
+      "type": "water",
+      "needs": []
     },
     {
       "location_id": 8902400005002,
@@ -273,223 +238,207 @@
       "mode": "run",
       "difficulty": "hard",
       "effort_tier": 8,
-      "type": "reach"
+      "type": "trail",
+      "needs": [
+        "Running Shoes"
+      ]
     },
     {
-      "location_id": 8902400003003,
+      "location_id": 8902400003002,
       "zone": 2,
       "mode": "run",
       "difficulty": "medium",
-      "effort_tier": 6,
-      "type": "trail"
-    },
-    {
-      "location_id": 8902400001006,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "easy",
-      "effort_tier": 1,
-      "type": "trail"
-    },
-    {
-      "location_id": 8902400001007,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "easy",
-      "effort_tier": 1,
-      "type": "water"
-    },
-    {
-      "location_id": 8902400003004,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "medium",
-      "effort_tier": 4,
-      "type": "water"
-    },
-    {
-      "location_id": 8902400001008,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "easy",
-      "effort_tier": 3,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400005003,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "hard",
-      "effort_tier": 9,
-      "type": "away"
-    },
-    {
-      "location_id": 8902400003005,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "medium",
-      "effort_tier": 4,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400001009,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "easy",
-      "effort_tier": 2,
-      "type": "landmark"
-    },
-    {
-      "location_id": 8902400003006,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "medium",
-      "effort_tier": 5,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400003007,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "medium",
-      "effort_tier": 6,
-      "type": "dwell"
-    },
-    {
-      "location_id": 8902400001010,
-      "zone": 2,
-      "mode": "run",
-      "difficulty": "easy",
-      "effort_tier": 2,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400002008,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "medium",
-      "effort_tier": 5,
-      "type": "landmark"
+      "effort_tier": 7,
+      "type": "landmark",
+      "needs": [
+        "Running Shoes"
+      ]
     },
     {
       "location_id": 8902400000011,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "easy",
-      "effort_tier": 3,
-      "type": "landmark"
-    },
-    {
-      "location_id": 8902400000012,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "easy",
-      "effort_tier": 3,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400000013,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "easy",
-      "effort_tier": 3,
-      "type": "landmark"
-    },
-    {
-      "location_id": 8902400002009,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "medium",
-      "effort_tier": 4,
-      "type": "courier"
-    },
-    {
-      "location_id": 8902400002010,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "medium",
-      "effort_tier": 4,
-      "type": "dwell"
-    },
-    {
-      "location_id": 8902400002011,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "medium",
-      "effort_tier": 4,
-      "type": "landmark"
-    },
-    {
-      "location_id": 8902400000014,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "easy",
-      "effort_tier": 1,
-      "type": "dwell"
-    },
-    {
-      "location_id": 8902400000015,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "easy",
-      "effort_tier": 1,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400000016,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "easy",
-      "effort_tier": 3,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400004004,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "hard",
-      "effort_tier": 8,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400002012,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "medium",
-      "effort_tier": 4,
-      "type": "away"
-    },
-    {
-      "location_id": 8902400004005,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "hard",
-      "effort_tier": 9,
-      "type": "reach"
-    },
-    {
-      "location_id": 8902400004006,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "hard",
-      "effort_tier": 9,
-      "type": "courier"
-    },
-    {
-      "location_id": 8902400000017,
-      "zone": 3,
+      "zone": 2,
       "mode": "walk",
       "difficulty": "easy",
       "effort_tier": 2,
-      "type": "reach"
+      "type": "reach",
+      "needs": []
+    },
+    {
+      "location_id": 8902400000012,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "landmark",
+      "needs": []
+    },
+    {
+      "location_id": 8902400001002,
+      "zone": 2,
+      "mode": "run",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "park",
+      "needs": [
+        "Running Shoes"
+      ]
+    },
+    {
+      "location_id": 8902400002007,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 7,
+      "type": "park",
+      "needs": []
+    },
+    {
+      "location_id": 8902400002008,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 6,
+      "type": "trail",
+      "needs": []
+    },
+    {
+      "location_id": 8902400000013,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "trail",
+      "needs": []
+    },
+    {
+      "location_id": 8902400002009,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 7,
+      "type": "steps",
+      "needs": []
+    },
+    {
+      "location_id": 8902400000014,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "reach",
+      "needs": []
+    },
+    {
+      "location_id": 8902400001003,
+      "zone": 2,
+      "mode": "run",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "reach",
+      "needs": [
+        "Running Shoes"
+      ]
+    },
+    {
+      "location_id": 8902400004003,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "hard",
+      "effort_tier": 8,
+      "type": "reach",
+      "needs": []
+    },
+    {
+      "location_id": 8902400002010,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 5,
+      "type": "dwell",
+      "needs": []
+    },
+    {
+      "location_id": 8902400002011,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "reach",
+      "needs": []
+    },
+    {
+      "location_id": 8902400000015,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "landmark",
+      "needs": []
+    },
+    {
+      "location_id": 8902400000016,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "dwell",
+      "needs": []
+    },
+    {
+      "location_id": 8902400002012,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 5,
+      "type": "trail",
+      "needs": []
+    },
+    {
+      "location_id": 8902400004004,
+      "zone": 2,
+      "mode": "walk",
+      "difficulty": "hard",
+      "effort_tier": 10,
+      "type": "steps",
+      "needs": []
+    },
+    {
+      "location_id": 8902400001004,
+      "zone": 2,
+      "mode": "run",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "trail",
+      "needs": [
+        "Running Shoes"
+      ]
     },
     {
       "location_id": 8902400002013,
       "zone": 3,
       "mode": "walk",
       "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "courier",
+      "needs": []
+    },
+    {
+      "location_id": 8902400000017,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 3,
+      "type": "water",
+      "needs": []
+    },
+    {
+      "location_id": 8902400002014,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "medium",
       "effort_tier": 7,
-      "type": "reach"
+      "type": "landmark",
+      "needs": []
     },
     {
       "location_id": 8902400000018,
@@ -497,7 +446,8 @@
       "mode": "walk",
       "difficulty": "easy",
       "effort_tier": 2,
-      "type": "landmark"
+      "type": "reach",
+      "needs": []
     },
     {
       "location_id": 8902400000019,
@@ -505,23 +455,151 @@
       "mode": "walk",
       "difficulty": "easy",
       "effort_tier": 3,
-      "type": "courier"
-    },
-    {
-      "location_id": 8902400002014,
-      "zone": 3,
-      "mode": "walk",
-      "difficulty": "medium",
-      "effort_tier": 6,
-      "type": "courier"
+      "type": "landmark",
+      "needs": []
     },
     {
       "location_id": 8902400000020,
       "zone": 3,
       "mode": "walk",
       "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "reach",
+      "needs": []
+    },
+    {
+      "location_id": 8902400004005,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "hard",
+      "effort_tier": 8,
+      "type": "courier",
+      "needs": []
+    },
+    {
+      "location_id": 8902400001005,
+      "zone": 3,
+      "mode": "run",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "landmark",
+      "needs": [
+        "Running Shoes"
+      ]
+    },
+    {
+      "location_id": 8902400002015,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "reach",
+      "needs": []
+    },
+    {
+      "location_id": 8902400002016,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 5,
+      "type": "away",
+      "needs": []
+    },
+    {
+      "location_id": 8902400004006,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "hard",
+      "effort_tier": 9,
+      "type": "explore",
+      "needs": []
+    },
+    {
+      "location_id": 8902400002017,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 4,
+      "type": "park",
+      "needs": []
+    },
+    {
+      "location_id": 8902400003003,
+      "zone": 3,
+      "mode": "run",
+      "difficulty": "medium",
+      "effort_tier": 7,
+      "type": "reach",
+      "needs": [
+        "Running Shoes"
+      ]
+    },
+    {
+      "location_id": 8902400002018,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "medium",
+      "effort_tier": 6,
+      "type": "steps",
+      "needs": []
+    },
+    {
+      "location_id": 8902400000021,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "easy",
       "effort_tier": 3,
-      "type": "reach"
+      "type": "landmark",
+      "needs": []
+    },
+    {
+      "location_id": 8902400000022,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "reach",
+      "needs": []
+    },
+    {
+      "location_id": 8902400000023,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "steps",
+      "needs": []
+    },
+    {
+      "location_id": 8902400001006,
+      "zone": 3,
+      "mode": "run",
+      "difficulty": "easy",
+      "effort_tier": 2,
+      "type": "courier",
+      "needs": [
+        "Running Shoes"
+      ]
+    },
+    {
+      "location_id": 8902400004007,
+      "zone": 3,
+      "mode": "walk",
+      "difficulty": "hard",
+      "effort_tier": 9,
+      "type": "reach",
+      "needs": []
+    },
+    {
+      "location_id": 8902400001007,
+      "zone": 3,
+      "mode": "run",
+      "difficulty": "easy",
+      "effort_tier": 1,
+      "type": "trail",
+      "needs": [
+        "Running Shoes"
+      ]
     }
   ],
   "boss": {
@@ -530,6 +608,7 @@
     "mode": "walk",
     "difficulty": "hard",
     "effort_tier": 10,
-    "type": "boss"
+    "type": "boss",
+    "needs": []
   }
 }

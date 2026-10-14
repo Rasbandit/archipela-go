@@ -1,4 +1,4 @@
-"""Client contract v4: build the slot_data dict. Pure and JSON-serializable."""
+"""Client contract v5: build the slot_data dict. Pure and JSON-serializable."""
 
 from collections.abc import Sequence
 from typing import Any
@@ -18,6 +18,7 @@ def quest_entry(quest: Quest) -> dict[str, Any]:
         "difficulty": quest.difficulty,
         "effort_tier": quest.tier,
         "type": quest.family,
+        "needs": list(quest.needs),
     }
 
 
@@ -49,10 +50,7 @@ def build_slot_data(  # noqa: PLR0913  # keyword-only, one argument per slot_dat
         "return_home": return_home,
         "death_link": death_link,
         "enabled_traps": list(enabled_traps),
-        "zones": [
-            {"id": z.id, "mode": z.mode, "zone_keys_needed": z.keys_needed, "tool": z.tool}
-            for z in zones
-        ],
+        "zones": [{"id": z.id, "zone_keys_needed": z.keys_needed} for z in zones],
         "trips": [quest_entry(q) for q in quests.trips],
         "boss": quest_entry(quests.boss) if quests.boss else None,
     }

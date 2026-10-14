@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Archipela-Go 2 slot_data v3",
+  "title": "Archipela-Go 2 slot_data v5",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -21,7 +21,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 4
+      "const": 5
     },
     "goals": {
       "type": "array",
@@ -97,9 +97,7 @@
         "additionalProperties": false,
         "required": [
           "id",
-          "mode",
-          "zone_keys_needed",
-          "tool"
+          "zone_keys_needed"
         ],
         "properties": {
           "id": {
@@ -107,19 +105,10 @@
             "minimum": 1,
             "maximum": 6
           },
-          "mode": {
-            "$ref": "#/$defs/mode"
-          },
           "zone_keys_needed": {
             "type": "integer",
             "minimum": 0,
             "maximum": 5
-          },
-          "tool": {
-            "enum": [
-              "Running Shoes",
-              null
-            ]
           }
         }
       }
@@ -159,7 +148,8 @@
         "mode",
         "difficulty",
         "effort_tier",
-        "type"
+        "type",
+        "needs"
       ],
       "properties": {
         "location_id": {
@@ -189,6 +179,16 @@
         "type": {
           "type": "string",
           "minLength": 1
+        },
+        "needs": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 2,
+          "items": {
+            "enum": [
+              "Running Shoes"
+            ]
+          }
         }
       }
     }

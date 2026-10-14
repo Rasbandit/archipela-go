@@ -5,7 +5,7 @@ ID = ID_OFFSET + block * 1000 + n, with block = difficulty_index * len(MODES) + 
 """
 
 from . import names
-from .constants import BLOCK_SIZE, BOSS_BLOCK, DIFFICULTIES, ID_OFFSET, MAX_TRIPS, MODES
+from .constants import BADGES, BLOCK_SIZE, BOSS_BLOCK, DIFFICULTIES, ID_OFFSET, MAX_TRIPS, MODES
 from .distribution import Quest
 
 
@@ -46,5 +46,9 @@ LOCATION_NAME_GROUPS: dict[str, set[str]] = {
     },
     "Boss": {names.BOSS_LOCATION},
 }
+# One group per badge item: the quests it locks (excludable like any group).
+LOCATION_NAME_GROUPS.update(
+    {item: LOCATION_NAME_GROUPS[m.capitalize()] for m, item in BADGES.items()}
+)
 # The boss is the hardest quest, so excluding "Hard" keeps progression off it too.
 LOCATION_NAME_GROUPS["Hard"].add(names.BOSS_LOCATION)

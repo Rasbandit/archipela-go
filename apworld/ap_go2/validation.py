@@ -3,10 +3,9 @@
 from collections import Counter
 from collections.abc import Iterable, Sequence
 
-from .constants import FAMILIES, GOAL_NAMES, GOALS, MAX_ZONES, MODES, REQUIREMENTS
+from .constants import FAMILIES, GOAL_NAMES, GOALS, MAX_ZONES, REQUIREMENTS
 from .distribution import split_trips
 from .names import TRAP_KEYS, letter
-from .zones import build_zones, items_to_enter, required_tools
 
 _LETTERS = {"treasure_hunt": "APGO"}
 
@@ -73,50 +72,21 @@ def check_requirement(goals: Sequence[str], requirement: str, need: int) -> None
         raise ValueError(msg)
 
 
-def normalize_zone_modes(values: Iterable[object]) -> list[str]:
-    """Lower-case and trim zone modes, checking count and validity.
-
-    Raises:
-        ValueError: If there are too few or too many zones, or an unknown mode.
-    """
-    modes = [str(v).strip().lower() for v in values]
-    if not 1 <= len(modes) <= MAX_ZONES:
-        msg = f"zone_modes needs 1 to {MAX_ZONES} entries, got {len(modes)}"
-        raise ValueError(msg)
-    unknown = sorted(set(modes) - set(MODES))
-    if unknown:
-        msg = f"zone_modes has unknown modes {unknown}; valid: {', '.join(MODES)}"
-        raise ValueError(msg)
-    return modes
-
-
-def mandatory_count(goal: str | Iterable[str], zone_modes: Sequence[str]) -> int:
+def mandatory_count(goal: str | Iterable[str], zones: int, tools: Sequence[str]) -> int:
     """Items that must exist: letters, zone keys and tools."""
-    return (
-        sum(goal_letter_counts(goal).values())
-        + len(zone_modes)
-        - 1
-        + len(required_tools(zone_modes))
-    )
+    return sum(goal_letter_counts(goal).values()) + zones - 1 + len(tools)
 
 
-def _can_unlock_everything(trips: int, zone_modes: Sequence[str]) -> bool:
-    """Every zone has a quest, and the quests already open can hold the items for the next zone."""
-    split = split_trips(trips, len(zone_modes))
-    if 0 in split:
-        return False
-    zones = build_zones(zone_modes)
-    for k in range(1, len(zones)):
-        keys, tools = items_to_enter(zones, k + 1)
-        if sum(split[:k]) < keys + len(tools):
-            return False
-    return True
+def _can_unlock_everything(trips: int, zones: int) -> bool:
+    """Every zone has a quest, and the quests before zone k can hold the k - 1 keys to enter it."""
+    split = split_trips(trips, zones)
+    return 0 not in split and all(sum(split[:k]) >= k for k in range(1, zones))
 
 
-def min_trips(goal: str | Iterable[str], zone_modes: Sequence[str]) -> int:
+def min_trips(goal: str | Iterable[str], zones: int, tools: Sequence[str]) -> int:
     """Smallest `number_of_trips` that holds the mandatory items and keeps every zone unlockable."""
-    trips = max(1, mandatory_count(goal, zone_modes))
-    while not _can_unlock_everything(trips, zone_modes):
+    trips = max(1, mandatory_count(goal, zones, tools))
+    while not _can_unlock_everything(trips, zones):
         trips += 1
     return trips
 
@@ -125,12 +95,13 @@ def validate_settings(  # noqa: PLR0913  # keyword-only, one argument per player
     *,
     goal: str | Iterable[str],
     trips: int,
-    zone_modes: Sequence[str],
+    zones: int,
+    tools: Sequence[str],
     shares: Sequence[int],
     families: Iterable[str],
     traps: Iterable[str],
-) -> list[str]:
-    """Check everything; return the normalized zone modes."""
+) -> None:
+    """Check everything; `tools` are the badge items the pool will hold."""
     goals = as_goals(goal)
     if not goals:
         msg = "a game needs at least one goal"
@@ -139,7 +110,9 @@ def validate_settings(  # noqa: PLR0913  # keyword-only, one argument per player
         if g not in GOALS:
             msg = f"unknown goal {g!r}"
             raise ValueError(msg)
-    modes = normalize_zone_modes(zone_modes)
+    if not 1 <= zones <= MAX_ZONES:
+        msg = f"zone_count must be 1 to {MAX_ZONES}, got {zones}"
+        raise ValueError(msg)
     if sum(shares) <= 0 or min(shares) < 0:
         msg = "easy_share, medium_share and hard_share cannot all be 0"
         raise ValueError(msg)
@@ -151,11 +124,10 @@ def validate_settings(  # noqa: PLR0913  # keyword-only, one argument per player
     if unknown_traps:
         msg = f"enabled_traps has unknown traps {unknown_traps}; valid: {', '.join(TRAP_KEYS)}"
         raise ValueError(msg)
-    needed = min_trips(goals, modes)
+    needed = min_trips(goals, zones, tools)
     if trips < needed:
         msg = (
             f"number_of_trips ({trips}) is too small for this goal and these zones; "
             f"it needs at least {needed}"
         )
         raise ValueError(msg)
-    return modes

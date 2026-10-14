@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 from . import names
 from .validation import goal_letter_counts, mandatory_count
-from .zones import required_tools
 
 _EFFORT_SHARE_PERCENT = 15
 _EFFORT_MIN = 5
@@ -31,7 +30,8 @@ def plan_items(  # noqa: PLR0913  # keyword-only, one argument per player option
     rng: random.Random,
     locations: int,
     goal: str | Iterable[str],
-    zone_modes: Sequence[str],
+    zones: int,
+    tools: Sequence[str],
     effort: bool,
     scouting: bool,
     collection: bool,
@@ -39,15 +39,15 @@ def plan_items(  # noqa: PLR0913  # keyword-only, one argument per player option
     traps: Iterable[str],
 ) -> ItemPlan:
     """Counts sum to `locations`: mandatory items, optional useful items, traps, then filler."""
-    mandatory = mandatory_count(goal, zone_modes)
+    mandatory = mandatory_count(goal, zones, tools)
     if locations < mandatory:
         msg = f"locations ({locations}) cannot hold the {mandatory} mandatory items"
         raise ValueError(msg)
 
     counts: Counter[str] = Counter(goal_letter_counts(goal))
-    if len(zone_modes) > 1:
-        counts[names.ZONE_KEY] = len(zone_modes) - 1
-    counts.update(dict.fromkeys(required_tools(zone_modes), 1))
+    if zones > 1:
+        counts[names.ZONE_KEY] = zones - 1
+    counts.update(dict.fromkeys(tools, 1))
 
     free = locations - mandatory
     for enabled, name, percent, minimum in (

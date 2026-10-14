@@ -1,22 +1,12 @@
-from worlds.ap_go2.zones import build_zones, items_to_enter, required_tools
+from dataclasses import fields
+
+from worlds.ap_go2.zones import Zone, build_zones
 
 
-def test_zone_one_is_free_and_toolless() -> None:
-    z = build_zones(["run", "run", "walk"])
-    assert (z[0].keys_needed, z[0].tool) == (0, None)
-    assert (z[1].keys_needed, z[1].tool) == (1, None)  # same mode as zone 1
-    assert (z[2].keys_needed, z[2].tool) == (2, None)  # walking needs no tool
+def test_zone_one_is_free_and_later_zones_need_keys() -> None:
+    z = build_zones(3)
+    assert [(x.id, x.keys_needed) for x in z] == [(1, 0), (2, 1), (3, 2)]
 
 
-def test_tools_only_for_modes_other_than_zone_one() -> None:
-    assert required_tools(["walk"]) == []
-    assert required_tools(["walk", "run"]) == ["Running Shoes"]
-    assert required_tools(["run", "walk", "walk"]) == []  # walking needs no tool
-    assert required_tools(["walk", "run", "run"]) == ["Running Shoes"]  # distinct
-
-
-def test_items_to_enter_accumulates() -> None:
-    zones = build_zones(["walk", "run", "walk"])
-    assert items_to_enter(zones, 1) == (0, set())
-    assert items_to_enter(zones, 2) == (1, {"Running Shoes"})
-    assert items_to_enter(zones, 3) == (2, {"Running Shoes"})
+def test_zones_have_no_mode_or_tool() -> None:
+    assert {f.name for f in fields(Zone)} == {"id", "keys_needed"}

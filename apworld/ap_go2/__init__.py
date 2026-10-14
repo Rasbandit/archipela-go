@@ -15,7 +15,7 @@ from worlds.AutoWorld import WebWorld, World  # type: ignore[import-not-found]
 from worlds.generic.Rules import set_rule  # type: ignore[import-not-found]
 
 from . import names
-from .constants import BOSS_GOALS, GAME_NAME
+from .constants import BADGES, BOSS_GOALS, GAME_NAME
 from .distribution import QuestPlan, generate_quests
 from .item_plan import ItemPlan, plan_items
 from .items import ITEM_NAME_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE
@@ -89,10 +89,11 @@ class ApGo2World(World):  # type: ignore[misc]
                 "all": len(self.goals),
                 "at_least": opts.goals_required.value,
             }[self.goal_requirement]
-            modes = validate_settings(
+            validate_settings(
                 goal=self.goals,
                 trips=opts.number_of_trips.value,
-                zone_modes=list(opts.zone_modes.value),
+                zones=opts.zone_count.value,
+                tools=list(BADGES.values()) if opts.run_quests else [],
                 shares=shares,
                 families=opts.quest_types.value,
                 traps=opts.enabled_traps.value,
@@ -101,22 +102,25 @@ class ApGo2World(World):  # type: ignore[misc]
             msg = f"{self.game} ({self.player_name}): {exc}"
             raise OptionError(msg) from exc
 
-        self.zones = build_zones(modes)
+        self.zones = build_zones(opts.zone_count.value)
         families = sorted(opts.quest_types.value)
         self.quests = generate_quests(
             rng=self.random,
-            zone_modes=modes,
+            zones=opts.zone_count.value,
             trips=opts.number_of_trips.value,
             shares=shares,
             families=families,
             boss=any(g in BOSS_GOALS for g in self.goals),
+            run_share=opts.run_share.value if opts.run_quests else 0,
         )
+        tools = sorted({n for q in self.quests.trips for n in q.needs})
         locations = len(self.quests.trips) + (1 if self.quests.boss else 0)
         self.plan = plan_items(
             rng=self.random,
             locations=locations,
             goal=self.goals,
-            zone_modes=modes,
+            zones=opts.zone_count.value,
+            tools=tools,
             effort=bool(opts.enable_effort_reductions),
             scouting=bool(opts.enable_scouting_distance_bonuses),
             collection=bool(opts.enable_collection_distance_bonuses),
@@ -125,11 +129,11 @@ class ApGo2World(World):  # type: ignore[misc]
         )
 
     def _enter_rule(self, zone: Zone) -> Callable[[CollectionState], bool]:
-        keys, tool = zone.keys_needed, zone.tool
-        return lambda state: (
-            state.has(names.ZONE_KEY, self.player, keys)
-            and (tool is None or state.has(tool, self.player))
-        )
+        keys = zone.keys_needed
+        return lambda state: state.has(names.ZONE_KEY, self.player, keys)
+
+    def _needs_rule(self, needs: tuple[str, ...]) -> Callable[[CollectionState], bool]:
+        return lambda state: state.has_all(needs, self.player)
 
     def create_regions(self) -> None:
         """Chain one region per zone behind Menu, place quests, and lock Victory on the Goal."""
@@ -144,9 +148,12 @@ class ApGo2World(World):  # type: ignore[misc]
         quests = [*self.quests.trips, *([self.quests.boss] if self.quests.boss else [])]
         for quest in quests:
             region = regions[quest.zone - 1]
-            region.locations.append(
-                ApGo2Location(self.player, quest.name, LOCATION_NAME_TO_ID[quest.name], region)
+            location = ApGo2Location(
+                self.player, quest.name, LOCATION_NAME_TO_ID[quest.name], region
             )
+            if quest.needs:  # a badge locks the quest until its tools are held
+                set_rule(location, self._needs_rule(quest.needs))
+            region.locations.append(location)
 
         # Letters are demanded only when unavoidable (see letters_needed_by_logic).
         letters = letters_needed_by_logic(self.goals, self.goal_need)

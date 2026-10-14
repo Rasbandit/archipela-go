@@ -1,7 +1,7 @@
-# Client Contract v4 (`schema_version` = 4)
+# Client Contract v5 (`schema_version` = 5)
 
 Normative description of what the apworld sends and what a client must do with it. Machine-readable form:
-`slot_data.schema.json`; a real example: `slot_data.sample.json` (3 zones walk/run/walk, 60 trips, goal
+`slot_data.schema.json`; a real example: `slot_data.sample.json` (3 zones, 60 trips of which 12 are runs, goal
 treasure_hunt, any one goal); a player YAML: `example.yaml`. If the schema and this file disagree, fix both together.
 
 Game name: `Archipela-Go 2: Electric Boogaloo`. Item and location IDs are offset by `8_902_400_000_000`
@@ -9,7 +9,7 @@ Game name: `Archipela-Go 2: Electric Boogaloo`. Item and location IDs are offset
 
 ## Unknown versions and types
 
-- Refuse (do not play) a seed whose `schema_version` is not one you support (this app reads 4 only); show a clear "update the app" message.
+- Refuse (do not play) a seed whose `schema_version` is not one you support (this app reads 5 only); show a clear "update the app" message.
 - Ignore quest `type` values you do not know: show them as unsupported, never send their location.
 - Ignore unknown extra fields; a breaking change bumps `schema_version`.
 
@@ -17,7 +17,7 @@ Game name: `Archipela-Go 2: Electric Boogaloo`. Item and location IDs are offset
 
 | Field | Type | Meaning |
 | -- | -- | -- |
-| `schema_version` | int, 4 | See above |
+| `schema_version` | int, 5 | See above |
 | `goals` | array, 1-2 | The selected win conditions, as goal ids (see Goals) |
 | `goal_requirement` | `any`, `all` or `at_least` | How the goals combine into winning |
 | `goal_need` | int 1-2 | How many goals must be finished: 1 for `any`, the number of goals for `all`, N for `at_least` |
@@ -26,12 +26,13 @@ Game name: `Archipela-Go 2: Electric Boogaloo`. Item and location IDs are offset
 | `min_distance_m` | int | Closest a place may be to home, meters |
 | `fog_of_war`, `return_home`, `death_link` | bool | Client behaviors |
 | `enabled_traps` | array | Trap groups in the pool: freeze, fog, shuffle, silence, leash, detour, toll, slow, honor |
-| `zones` | array | `{id, mode, zone_keys_needed, tool}`; zone 1 is free; `tool` is an item name or null |
+| `zones` | array | `{id, zone_keys_needed}`; zone 1 is free |
 | `trips` | array | One quest per entry (below) |
 | `boss` | object or null | A quest entry; non-null when `treasure_hunt` is among the goals |
 
 Quest entry: `location_id` (int), `zone` (1-6), `mode` (`walk|run`), `difficulty`
-(`easy|medium|hard`), `effort_tier` (1-10), `type` (family, or `boss`).
+(`easy|medium|hard`), `effort_tier` (1-10), `type` (family, or `boss`), `needs` (array of item names, the
+quest's badges; empty when open).
 
 ## Effort
 
@@ -45,17 +46,18 @@ walk 4.5, run 9 km/h. Never place a place closer than `min_distance_m`.
 | Family | Modes |
 | -- | -- |
 | reach, dwell, landmark, courier, away, explore, trail, water, park, steps | walk, run |
-| boss | the last zone's mode |
+| boss | walk |
 
 The apworld picks the family; the client picks the concrete kind and place from the realm's atlas, falling
 back to reach when nothing fits.
 
-## Zones, keys, tools
+## Zones, keys, badges
 
-A zone `k` is open when `Progressive Zone Key` count >= `zone_keys_needed` (= k-1) and, if `tool` is set, that
-tool item is held (and all earlier zones are open). Tools exist only for zones whose mode differs from zone
-1's and is run: `Running Shoes`. Walking never needs a tool. Item ids `ID_OFFSET + 3` and `+ 4` (the old Bike and
-Car) are retired and never reused. Quests of a closed zone must not be sent.
+A zone `k` is open when `Progressive Zone Key` count >= `zone_keys_needed` (= k-1). A quest is open when its
+zone is open and every item in its `needs` is held (`needs` is a subset of the received items). A quest that is
+not open is Locked: it must not be tracked or sent. Today the only badge is `Running Shoes`, on every `run` quest
+(YAML `run_quests` and `run_share`); walk quests and the boss need nothing. Item ids `ID_OFFSET + 3` and `+ 4`
+(the old Bike and Car) are retired and never reused.
 
 ## Locations
 
@@ -80,7 +82,7 @@ Boss Quest                ->  6001
 | Item | Class | Client behavior |
 | -- | -- | -- |
 | Progressive Zone Key | progression | Opens zones |
-| Running Shoes | progression | Tools, see Zones |
+| Running Shoes | progression | Badge on run quests, see Zones |
 | Progressive Effort Reduction | useful | Reduces effort (not logic) |
 | Progressive Scouting Distance / Collection Distance | useful | Larger reveal / check radius |
 | Freeze, Fog Of War, Shuffle, Silence, Leash, Detour, Toll, Slow Trap | trap | App-implemented traps |
