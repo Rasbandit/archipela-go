@@ -17,7 +17,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,10 +24,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -38,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -101,17 +101,22 @@ internal fun RecapScreen(
     val reduced = rememberReducedMotion()
     val clock = rememberRecapClock(r.endMs, RecapTimeline.endMs(slots), reduced)
     Surface(Modifier.fillMaxSize()) {
-        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Text(Help.RECAP_TITLE, style = MaterialTheme.typography.headlineMedium) }
-            item { Text(RecapFormat.subtitle(r)) }
-            if (hasMap(r)) item { Reveal(0, reduced) { RecapMap(r.route, r.quests, selected, toggle) } }
-            if (r.chains.isNotEmpty()) item { Reveal(1, reduced) { ProgressCard(r, slots, clock, animate = !reduced) } }
-            if (r.quests.isNotEmpty()) item { Reveal(2, reduced) { QuestsCard(r.quests, selected, toggle) } }
-            items(RecapFormat.sections(r), key = { it.first }) { (label, lines) ->
-                Text(label, style = MaterialTheme.typography.titleSmall)
-                lines.forEach { Text(it) }
+        // A plain scrolling column, not a lazy one: scrolling must not tear down the map or replay the reveals.
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(Help.RECAP_TITLE, style = MaterialTheme.typography.headlineMedium)
+            Text(RecapFormat.subtitle(r))
+            if (hasMap(r)) Reveal(0, reduced) { RecapMap(r.route, r.quests, selected, toggle) }
+            if (r.chains.isNotEmpty()) Reveal(1, reduced) { ProgressCard(r, slots, clock, animate = !reduced) }
+            if (r.quests.isNotEmpty()) Reveal(2, reduced) { QuestsCard(r.quests, selected, toggle) }
+            RecapFormat.sections(r).forEach { (label, lines) ->
+                key(label) {
+                    Column {
+                        Text(label, style = MaterialTheme.typography.titleSmall)
+                        lines.forEach { Text(it) }
+                    }
+                }
             }
-            item { Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text(Help.RECAP_DONE) } }
+            Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text(Help.RECAP_DONE) }
         }
     }
 }
