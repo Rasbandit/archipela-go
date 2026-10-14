@@ -162,6 +162,9 @@ internal class PresenceController(
         decision = d
         Diag.raw("rawstate", RawLines.state(d.state.name, d.counting, zone.name.lowercase(), appVisible))
         if (d.state != prev.state) onStateChange(prev.state, d, t)
+        // Also a home check that ends at home: the state stays AtHome, only its GPS mode changes.
+        val arrived = PresencePolicy.arrivedHome(prev.state, d.state, d.gps == GpsMode.Check, prev.gps == GpsMode.Check)
+        if (arrived && model.hud != null) bankAtHome()
         applyLocation()
     }
 
@@ -188,7 +191,7 @@ internal class PresenceController(
         if (homeStarted && model.engine.presenceState() != homeState) evaluate()
     }
 
-    // The presence state changed: log it, bank on arriving home, and let a newly opened game ask for a cold-start fix.
+    // The presence state changed: log it, and let a newly opened game ask for a cold-start fix.
     private fun onStateChange(
         prev: PresenceState,
         d: Decision,
@@ -197,7 +200,6 @@ internal class PresenceController(
         Diag.info(TAG, d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
         if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
         model.noteJournal()
-        if (PresencePolicy.arrivedHome(prev, d.state, d.gps == GpsMode.Check) && model.hud != null) bankAtHome()
         if (prev == PresenceState.Stopped) model.sensors.allowColdStart()
     }
 

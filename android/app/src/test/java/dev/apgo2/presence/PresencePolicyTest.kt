@@ -51,6 +51,20 @@ class PresencePolicyTest {
         assertFalse(PresencePolicy.arrivedHome(PresenceState.InZone, PresenceState.AtHome, checking = true))
     }
 
+    @Test fun aHomeCheckThatEndsAtHomeIsArrivingHome() {
+        // A cold start at home with no home Wi-Fi: Stopped -> AtHome while checking, then the check says "home" with the state
+        // unchanged. That is the arrival, so the stale outing closes.
+        assertTrue(PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.AtHome, wasChecking = true, checking = false))
+        assertFalse(
+            "still checking",
+            PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.AtHome, wasChecking = true, checking = true),
+        )
+        assertFalse(
+            "a check that finds a walk leaves home",
+            PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.InZone, wasChecking = true),
+        )
+    }
+
     @Test fun theCarBeatsEverythingElse() {
         val d = PresencePolicy.decide(signals(car = true, home = true, zone = Zone.Inside))
         assertEquals(Decision(PresenceState.InCar, GpsMode.Off, counting = false), d)
