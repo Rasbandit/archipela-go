@@ -93,7 +93,7 @@ impl Recap {
             || !self.items.is_empty()
             || !self.zones_unlocked.is_empty()
             || self.banked > 0
-            || !self.chains.is_empty()
+            || self.chains.iter().any(|c| c.marks.iter().any(|&m| c.before < m && m <= c.after))
             || self.steps >= MIN_STEPS;
         self.end_ms - self.start_ms >= MIN_AWAY_MS && happened
     }
@@ -138,15 +138,25 @@ mod tests {
         assert!(Recap { banked: 1, ..walk(5) }.worth_showing());
     }
 
-    #[test]
-    fn a_walk_that_only_moved_a_bar_is_worth_showing() {
-        let r = Recap {
+    fn bar(before: f64, after: f64) -> Recap {
+        Recap {
             start_ms: 0,
             end_ms: 10 * 60_000,
-            chains: vec![RecapChain { id: "1:x".into(), name: "x".into(), unit: ChainUnit::Cells, zone: 1, before: 1.0, after: 2.0, marks: vec![5.0] }],
+            chains: vec![RecapChain { id: "1:x".into(), name: "x".into(), unit: ChainUnit::Cells, zone: 1, before, after, marks: vec![5.0] }],
             ..Recap::default()
-        };
-        assert!(r.worth_showing());
+        }
+    }
+
+    #[test]
+    fn a_bar_that_crossed_a_mark_is_worth_showing() {
+        assert!(bar(4.0, 6.0).worth_showing());
+        assert!(bar(4.0, 5.0).worth_showing(), "landing exactly on a mark counts");
+    }
+
+    #[test]
+    fn a_bar_that_grew_without_crossing_a_mark_is_not_worth_showing() {
+        assert!(!bar(1.0, 2.0).worth_showing());
+        assert!(!bar(5.0, 7.0).worth_showing(), "the mark was already behind it");
     }
 
     #[test]

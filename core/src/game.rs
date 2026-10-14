@@ -4737,7 +4737,7 @@ mod tests {
         left_home(&mut g, 1_000);
         g.outing.as_mut().unwrap().progress_at_start.clear(); // as if the chain's zone unlocked mid-walk
         g.on_steps(200, 1_001, None);
-        g.on_steps(400, 1_002, None);
+        g.on_steps(700, 1_002, None); // crosses the 500 mark, else the walk would not be worth showing
         let r = g.arrive_home(10 * 60_000).1.unwrap();
         assert_eq!(r.chains[0].before, 0.0);
     }
@@ -4827,7 +4827,8 @@ mod tests {
         g.set_counting(false, 9_000_000);
         let r = g.arrive_home(9_100_000).1.expect("a forager done");
         let q = r.quests.iter().find(|q| !q.goal.is_empty()).expect("the forager is listed");
-        assert!(q.at.is_some() && q.t_ms > 0);
+        assert!(q.t_ms > 0);
+        assert_eq!(q.at, Some(g.home), "banked on arrival, so it is recorded at home");
         assert_eq!(q.reward.as_deref(), g.solo_rewards.get(&2000).map(String::as_str), "solo: the reward is known");
     }
 
