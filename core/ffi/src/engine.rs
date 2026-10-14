@@ -730,7 +730,7 @@ impl From<&Recap> for RecapOut {
                     place: q.place.clone(),
                     goal: q.goal.clone(),
                     t_ms: q.t_ms,
-                    at: q.at.map(|p| GeoPoint { lat: p.lat, lon: p.lon }),
+                    at: q.at.map(gp),
                     reward: q.reward.clone(),
                 })
                 .collect(),
@@ -738,7 +738,7 @@ impl From<&Recap> for RecapOut {
             items: r.items.clone(),
             zones_unlocked: r.zones_unlocked.clone(),
             banked: r.banked,
-            route: r.route.iter().map(|s| s.iter().map(|p| GeoPoint { lat: p.lat, lon: p.lon }).collect()).collect(),
+            route: r.route.iter().map(|s| s.iter().copied().map(gp).collect()).collect(),
         }
     }
 }
@@ -2451,14 +2451,11 @@ impl Engine {
         let segs = start.map_or_else(Vec::new, |from| self.read_segments(&game_id, from, t_ms));
         let Some((id, ev, entries)) = self.with_game(|g| {
             let (ev, recap) = g.arrive_home(t_ms);
-            let stored = recap.is_some_and(|mut r| {
+            if let Some(mut r) = recap {
                 if g.id == game_id {
                     r.set_route(&segs.iter().map(|s| s.iter().map(|p| Point::new(p.lat, p.lon)).collect()).collect::<Vec<_>>());
                 }
                 g.recap = Some(r);
-                true
-            });
-            if stored {
                 if let Err(e) = g.save(&self.dir) {
                     self.note(format!("could not save game {}: {e}", g.id));
                 }

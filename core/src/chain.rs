@@ -8,7 +8,8 @@ use crate::assign::{Assignment, Target};
 use crate::num::round_u64;
 
 /// What a chain counts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Ordered as the recap lists chains: steps, minutes, cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChainUnit {
     /// Steps taken.

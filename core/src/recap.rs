@@ -4,14 +4,14 @@
 use serde::{Deserialize, Serialize};
 
 use crate::chain::ChainUnit;
-use crate::geo::{polyline_len_m, Point};
+use crate::geo::{polyline_len_m, simplify, Point};
 
 /// An outing shorter than this is never shown (a trip to the mailbox, Wi-Fi flicker at the door).
 pub const MIN_AWAY_MS: i64 = 5 * 60_000;
 /// Steps that make an outing worth showing on their own.
 pub const MIN_STEPS: i64 = 500;
-/// Route thinning tolerance in degrees of latitude (about 5 m).
-const THIN_DEG: f64 = 5.0 / 111_320.0;
+/// Route thinning tolerance in metres.
+const THIN_M: f64 = 5.0;
 
 /// One quest finished on the walk, as the recap lists it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -101,15 +101,8 @@ impl Recap {
     /// Set the route and distance from the recorded trace (one line per stretch; the journal splits at gaps).
     pub fn set_route(&mut self, segments: &[Vec<Point>]) {
         self.distance_m = segments.iter().map(|s| polyline_len_m(s)).sum();
-        self.route = segments.iter().filter(|s| s.len() >= 2).map(|s| thin(s)).collect();
+        self.route = segments.iter().filter(|s| s.len() >= 2).map(|s| simplify(s, THIN_M)).collect();
     }
-}
-
-/// Douglas-Peucker via `geo`, keeping both ends.
-fn thin(line: &[Point]) -> Vec<Point> {
-    use ::geo::{Coord, LineString, Simplify};
-    let ls: LineString<f64> = line.iter().map(|p| Coord { x: p.lon, y: p.lat }).collect();
-    ls.simplify(THIN_DEG).coords().map(|c| Point::new(c.y, c.x)).collect()
 }
 
 #[cfg(test)]

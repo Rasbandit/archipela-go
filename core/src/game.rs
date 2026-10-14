@@ -1232,11 +1232,6 @@ impl Game {
             })
             .collect();
         let checks_sent = if self.backend == Backend::Archipelago { u32::try_from(quests_done.len()).unwrap_or(u32::MAX) } else { 0 };
-        let unit_rank = |u: ChainUnit| match u {
-            ChainUnit::Steps => 0,
-            ChainUnit::Minutes => 1,
-            ChainUnit::Cells => 2,
-        };
         let mut chains: Vec<RecapChain> = self
             .chains()
             .iter()
@@ -1254,7 +1249,7 @@ impl Game {
                 })
             })
             .collect();
-        chains.sort_by_key(|c| (unit_rank(c.unit), c.zone));
+        chains.sort_by_key(|c| (c.unit, c.zone));
         Recap {
             start_ms: o.start_ms,
             end_ms: t_ms,

@@ -117,9 +117,9 @@ private fun AppBody(
             )
         }
         Box(Modifier.weight(1f)) {
-            // Play stays composed (laid out, not placed) under the other tabs and New Game, so its map returns with no reload or
-            // camera jump.
-            val onPlay = m.nav.tab == AppTab.PLAY && !m.nav.newGameOpen
+            // Play stays composed (laid out, not placed) under the other tabs, New Game and the recap, so its map returns with no reload
+            // or camera jump; hidden meanwhile, so it stops drawing.
+            val onPlay = m.nav.tab == AppTab.PLAY && !m.nav.newGameOpen && m.recap == null
             PlayScreen(m, if (onPlay) Modifier else Modifier.unplaced(), onShow = onPlay)
             when (m.nav.tab) {
                 AppTab.PLAY -> if (m.nav.newGameOpen) NewGameScreen(m)
