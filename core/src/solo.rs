@@ -44,13 +44,19 @@ pub fn trap_item(key: &str) -> Option<&'static str> {
     })
 }
 
-/// The badge (tool item) a quest in `mode` needs, if any (walking needs none); mirrors the apworld's `BADGES`.
+/// The badges: the mode whose quests carry one, its tool item, and the icon key the app draws for it. Mirrors the apworld's `BADGES`.
+pub const BADGES: [(Mode, &str, &str); 1] = [(Mode::Run, "Running Shoes", "run")];
+
+/// The badge (tool item) a quest in `mode` needs, if any (walking needs none).
 #[must_use]
 pub fn badge_for(mode: Mode) -> Option<&'static str> {
-    match mode {
-        Mode::Walk => None,
-        Mode::Run => Some("Running Shoes"),
-    }
+    BADGES.iter().find(|b| b.0 == mode).map(|b| b.1)
+}
+
+/// The icon key of the badge `item` ("run"); "tool" for an item that is not a badge, so the app still draws something.
+#[must_use]
+pub fn badge_icon(item: &str) -> &'static str {
+    BADGES.iter().find(|b| b.1 == item).map_or("tool", |b| b.2)
 }
 
 fn mode_index(m: Mode) -> i64 {
@@ -215,7 +221,7 @@ pub fn validate(o: &SoloOptions) -> Result<(), String> {
     if !(1..=6).contains(&o.zone_count) {
         return Err(format!("zone_count must be 1 to 6, got {}", o.zone_count));
     }
-    if !(1..=50).contains(&o.run_share) {
+    if o.run_quests && !(1..=50).contains(&o.run_share) {
         return Err(format!("run_share must be 1 to 50, got {}", o.run_share));
     }
     check_goal_ids(&o.goal_list(), o.goal_mode, o.goal_need)?;
@@ -237,10 +243,10 @@ pub fn validate(o: &SoloOptions) -> Result<(), String> {
     Ok(())
 }
 
-/// The badge items the pool holds: Running Shoes when run quests are on.
+/// The badge items the pool holds: Running Shoes when run quests are on and there is room for at least one.
 #[must_use]
 pub fn tool_names(o: &SoloOptions) -> Vec<&'static str> {
-    if o.run_quests {
+    if o.run_quests && run_count(o.number_of_trips, o.zone_count, o.run_share) > 0 {
         badge_for(Mode::Run).into_iter().collect()
     } else {
         Vec::new()
@@ -330,9 +336,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     let total_locs = count_u32(trips.len()) + u32::from(boss.is_some());
     // (zone index that needs it, item); the badge is needed from zone 1 on, so it goes after the keys anywhere open.
     let mut unlock: Vec<(usize, String)> = (2..=zn).map(|k| (k, "Progressive Zone Key".to_string())).collect();
-    if trips.iter().any(|t| !t.needs.is_empty()) {
-        unlock.extend(tool_names(o).into_iter().map(|t| (zn + 1, t.to_string())));
-    }
+    unlock.extend(tool_names(o).into_iter().map(|t| (zn + 1, t.to_string())));
     let letters: Vec<String> = letters_for_goals(&o.goal_list()).chars().map(|c| format!("Letter {c}")).collect();
     let mut free = i64::from(total_locs) - count_i64(unlock.len()) - count_i64(letters.len());
     let mut other: Vec<String> = Vec::new();
@@ -556,6 +560,28 @@ mod tests {
         let g = generate(&opts(3, 60, "all_trips"), 4).unwrap();
         assert!(g.slot.trips.iter().all(|q| q.mode == Mode::Walk && q.needs.is_empty()));
         assert!(!g.rewards.values().any(|v| v == "Running Shoes"));
+    }
+
+    #[test]
+    fn the_run_share_is_only_checked_when_run_quests_are_on() {
+        let off = SoloOptions { run_share: 0, ..opts(1, 20, "all_trips") };
+        assert!(generate(&off, 1).is_ok(), "an unused share does not matter");
+        assert!(generate(&SoloOptions { run_quests: true, ..off }, 1).unwrap_err().contains("run_share"));
+    }
+
+    #[test]
+    fn no_shoes_are_asked_for_when_no_run_quest_fits() {
+        let one_each = runs(3, 3, "all_trips", 50); // one quest per zone: each is its zone's open first quest
+        assert_eq!(tool_names(&one_each), Vec::<&str>::new());
+        let g = generate(&one_each, 1).unwrap();
+        assert!(g.slot.trips.iter().all(|q| q.needs.is_empty()) && !g.rewards.values().any(|v| v == "Running Shoes"));
+        assert_eq!(tool_names(&runs(3, 4, "all_trips", 50)), vec!["Running Shoes"]);
+    }
+
+    #[test]
+    fn each_badge_has_an_icon_key_for_the_app() {
+        assert_eq!(badge_icon("Running Shoes"), "run");
+        assert_eq!(badge_icon("Gloves"), "tool", "an unknown tool still gets an icon");
     }
 
     #[test]

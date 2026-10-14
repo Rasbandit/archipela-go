@@ -313,6 +313,21 @@ pub struct GameInfo {
     pub name: String,
 }
 
+/// One badge (a tool a quest or chain needs), worded and iconed by the core.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BadgeOut {
+    /// The tool item ("Running Shoes").
+    pub item: String,
+    /// Which icon to draw: "run", or "tool" for any other.
+    pub icon: String,
+    /// Whether the player does not hold it yet.
+    pub missing: bool,
+}
+
+fn badge_out(b: apgo_core::game::BadgeView) -> BadgeOut {
+    BadgeOut { item: b.item, icon: b.icon, missing: b.missing }
+}
+
 /// One milestone of a progressive chain.
 #[derive(Debug, uniffi::Record)]
 pub struct MarkOut {
@@ -349,10 +364,10 @@ pub struct ChainOut {
     pub rule: String,
     /// The milestones in order.
     pub marks: Vec<MarkOut>,
-    /// The badges every quest of the chain needs.
-    pub needs: Vec<String>,
-    /// The badges in `needs` the player does not hold yet (the chain counts nothing while any are missing).
-    pub missing: Vec<String>,
+    /// The chain's badges (the chain counts nothing while any is missing).
+    pub badges: Vec<BadgeOut>,
+    /// What it still needs ("Needs Running Shoes"); `None` when nothing is missing.
+    pub badge_note: Option<String>,
 }
 
 /// A quest as the UI shows it.
@@ -378,10 +393,12 @@ pub struct QuestOut {
     pub effort_min: f64,
     /// How the player travels there: walk or run.
     pub mode: String,
-    /// The quest's badges: items that must all be held before it can be played.
-    pub needs: Vec<String>,
-    /// The badges in `needs` the player does not hold yet (the quest is locked while any are missing).
-    pub missing: Vec<String>,
+    /// The quest's badges: tools that must all be held before it can be played (it is locked while any is missing).
+    pub badges: Vec<BadgeOut>,
+    /// The badge its map pin shows; `None` for an open quest.
+    pub pin_badge: Option<BadgeOut>,
+    /// What it still needs, for the card ("Needs Running Shoes"); `None` when nothing is missing.
+    pub badge_note: Option<String>,
     /// locked | hidden | open | progress | done
     pub state: String,
     /// Progress from 0 to 1.
@@ -2012,8 +2029,9 @@ impl Engine {
                         tier: q.tier,
                         effort_min: q.effort_min,
                         mode: q.mode.name().into(),
-                        needs: q.needs,
-                        missing: q.missing,
+                        badges: q.badges.into_iter().map(badge_out).collect(),
+                        pin_badge: q.pin_badge.map(badge_out),
+                        badge_note: q.badge_note,
                         state: match q.state {
                             QuestState::Locked => "locked",
                             QuestState::Hidden => "hidden",
@@ -2261,8 +2279,8 @@ impl Engine {
                     total: c.total,
                     rule: c.rule,
                     marks: c.marks.into_iter().map(|m| MarkOut { at: m.at, location_id: m.location_id, reached: m.reached, reward: m.reward }).collect(),
-                    needs: c.needs,
-                    missing: c.missing,
+                    badges: c.badges.into_iter().map(badge_out).collect(),
+                    badge_note: c.badge_note,
                 })
                 .collect()
         })
