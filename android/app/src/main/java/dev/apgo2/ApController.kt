@@ -341,7 +341,7 @@ internal class ApController(
         }
     }
 
-    /** The goals of the connected game in words ("Letter Hunt, The Big One (any one)"), from slot_data v3 (or the single goal of v2). */
+    /** The goals of the connected game in words ("treasure hunt, all trips (any one)"), from slot_data v3 (or the single goal of v2). */
     fun goalSummary(): String? =
         slotJson?.let { json ->
             runCatching {

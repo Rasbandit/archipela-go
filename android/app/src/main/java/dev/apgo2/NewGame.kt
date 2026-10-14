@@ -412,7 +412,7 @@ private fun GoalsSection(
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         LabelWithHelp("Win conditions", Help.goals, style = MaterialTheme.typography.titleMedium)
-        Text("Choose one or more.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Choose one or both.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             GOALS.forEach { (id, title) ->
                 ApgoChip(title, id in goals, { onToggle(id) }, textSize = 12.sp, icon = if (id in goals) ApgoIcons.Check else null)

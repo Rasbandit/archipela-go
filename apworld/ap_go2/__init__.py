@@ -15,7 +15,7 @@ from worlds.AutoWorld import WebWorld, World  # type: ignore[import-not-found]
 from worlds.generic.Rules import set_rule  # type: ignore[import-not-found]
 
 from . import names
-from .constants import BOSS_GOALS, GAME_NAME, GOAL_TARGET_OPTIONS
+from .constants import BOSS_GOALS, GAME_NAME
 from .distribution import QuestPlan, generate_quests
 from .item_plan import ItemPlan, plan_items
 from .items import ITEM_NAME_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE
@@ -180,15 +180,7 @@ class ApGo2World(World):  # type: ignore[misc]
         """Build the slot_data the phone client reads (see the client contract schema)."""
         opts = self.options
         return build_slot_data(
-            goals=[
-                (
-                    gid,
-                    getattr(opts, GOAL_TARGET_OPTIONS[gid]).value
-                    if gid in GOAL_TARGET_OPTIONS
-                    else 0,
-                )
-                for gid in self.goals
-            ],
+            goals=[(gid, 0) for gid in self.goals],  # no beta goal counts anything
             goal_requirement=self.goal_requirement,
             goal_need=self.goal_need,
             minutes_per_tier=opts.minutes_per_tier.value,
