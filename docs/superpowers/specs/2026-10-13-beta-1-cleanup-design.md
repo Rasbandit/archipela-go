@@ -46,6 +46,7 @@ and **Completionist** only. Pure deletion: no new behaviour, no legacy shims.
 | Android | `ui/Components.kt` `MODES`, `PLAY_MODES`, `modeLabel`; mode icons in `ui/ApgoIcons.kt`; travel help in `ui/HelpText.kt`. |
 | scripts | `scripts/ap_host.sh` default zones `walk`; `scripts/e2e_autoplay.sh` mode regex. |
 | contract and docs | `contract.md`, schema and sample (zones and trips use walk/run only), `example.yaml`; context docs that list four modes; `CLAUDE.md` schema line. |
+| goal target | With the schema 4 bump, slot_data `goals` becomes a list of ids: drop `GoalSpec.target`, the schema-2 `goal`/`goal_target` fields, the apworld `GOAL_TARGET_OPTIONS` and `(id, target)` tuples, and the schema `target` property. (PR 1 already removed it from the app input and solo options; found in the PR 1 code review.) |
 
 ## Old seeds and saves
 
