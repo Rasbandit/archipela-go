@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::chain::ChainUnit;
 use crate::geo::{polyline_len_m, simplify, Point};
+use crate::units::{distance, UnitSystem};
 
 /// An outing shorter than this is never shown (a trip to the mailbox, Wi-Fi flicker at the door).
 pub const MIN_AWAY_MS: i64 = 5 * 60_000;
@@ -105,6 +106,20 @@ pub struct Recap {
     pub banked: u32,
     /// The trace, one thinned line per recorded stretch.
     pub route: Vec<Vec<Point>>,
+}
+
+/// The one-line summary of a walk, e.g. "3.1 km · 42 min · 2 quests" (quests omitted when none).
+#[must_use]
+pub fn walk_summary(r: &Recap, units: UnitSystem) -> String {
+    let minutes = ((r.end_ms - r.start_ms).max(0) + 30_000) / 60_000;
+    let time = if minutes >= 60 { format!("{} h {} min", minutes / 60, minutes % 60) } else { format!("{minutes} min") };
+    let mut parts = vec![distance(r.distance_m, units), time];
+    match r.quests_done.len() {
+        0 => {}
+        1 => parts.push("1 quest".into()),
+        n => parts.push(format!("{n} quests")),
+    }
+    parts.join(" · ")
 }
 
 impl Recap {
@@ -208,5 +223,18 @@ mod tests {
         assert_eq!((r.distance_m, r.route.len()), (0.0, 0), "a lone point has no length and draws no line");
         r.set_route(&[vec![Point::new(40.0, -111.0)], vec![Point::new(40.0, -111.0), Point::new(40.001, -111.0)]]);
         assert_eq!(r.route.len(), 1, "only the stretch with a line is kept");
+    }
+
+    #[test]
+    fn the_summary_reads_distance_time_and_quests() {
+        let mut r = Recap { start_ms: 0, end_ms: 42 * 60_000, distance_m: 3100.0, ..Recap::default() };
+        assert_eq!(walk_summary(&r, UnitSystem::Metric), "3.1 km · 42 min");
+        r.quests_done = vec!["a".into()];
+        assert_eq!(walk_summary(&r, UnitSystem::Metric), "3.1 km · 42 min · 1 quest");
+        r.quests_done.push("b".into());
+        assert_eq!(walk_summary(&r, UnitSystem::Metric), "3.1 km · 42 min · 2 quests");
+        r.end_ms = 135 * 60_000;
+        assert_eq!(walk_summary(&r, UnitSystem::Metric), "3.1 km · 2 h 15 min · 2 quests");
+        assert!(walk_summary(&r, UnitSystem::Imperial).starts_with("1.9 mi"));
     }
 }

@@ -19,7 +19,7 @@ use apgo_core::loc::{DisplayPosition, DisplaySource, Estimate, HeadingSource, Pr
 use apgo_core::marks::Mark;
 use apgo_core::num::count_u32;
 use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
-use apgo_core::recap::Recap;
+use apgo_core::recap::{walk_summary, Recap};
 use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_with_stop, Atlas, Fetch, Pacing, SCAN_BUDGET};
 use apgo_core::settings::{resolve_units, Settings};
@@ -2486,14 +2486,16 @@ impl Engine {
             return Vec::new();
         };
         let segs = start.map_or_else(Vec::new, |from| self.read_segments(&game_id, from, t_ms));
+        let units = self.unit_system();
         let Some((id, ev, entries, ready)) = self.with_game(|g| {
             let (ev, recap) = g.arrive_home(t_ms);
-            let ready = recap.is_some();
+            let mut ready = None;
             if let Some(mut r) = recap {
                 if g.id == game_id {
                     r.set_route(&segs.iter().map(|s| s.iter().map(|p| Point::new(p.lat, p.lon)).collect()).collect::<Vec<_>>());
                 }
-                g.recap = Some(r);
+                g.recap = Some(r.clone());
+                ready = Some(r);
                 if let Err(e) = g.save(&self.dir) {
                     self.note(format!("could not save game {}: {e}", g.id));
                 }
@@ -2505,12 +2507,33 @@ impl Engine {
         }) else {
             return Vec::new();
         };
-        self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&id, e)));
+        self.journal_do(|j| {
+            entries.iter().try_for_each(|e| j.log(&id, e))?;
+            if let Some(r) = &ready {
+                j.add_walk(&id, r)?;
+                j.log(&id, &JournalEvent { t_ms: r.end_ms, kind: kind::WALK.into(), detail: walk_summary(r, units), at: None })?;
+            }
+            Ok(())
+        });
         let mut out = self.events_out(ev);
-        if ready {
+        if ready.is_some() {
             out.push(EventOut::RecapReady);
         }
         out
+    }
+
+    /// The kept recap of the walk that ended at `end_ms` (an Activity row's time) in the open game, else the last one open.
+    /// `None` when there is none.
+    pub fn walk_recap(&self, end_ms: i64) -> Option<RecapOut> {
+        let id = self.game_id().or_else(|| self.last_game.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone())?;
+        let read = self.journal.as_ref()?.lock().unwrap_or_else(std::sync::PoisonError::into_inner).walk(&id, end_ms);
+        match read {
+            Ok(r) => r.as_ref().map(RecapOut::from),
+            Err(e) => {
+                self.note(format!("journal read failed: {e}"));
+                None
+            }
+        }
     }
 
     /// The last walk's recap, until dismissed.
@@ -2875,6 +2898,28 @@ mod tests {
         assert!(restarted.pending_recap().is_some(), "saved with the game");
         restarted.dismiss_recap();
         assert!(restarted.pending_recap().is_none());
+    }
+
+    #[test]
+    fn each_recapped_walk_is_kept_with_an_activity_row() {
+        let e = engine_with_game("walks");
+        e.set_counting(false, 0);
+        e.set_counting(true, 1_000);
+        e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
+        e.set_counting(false, 599_000);
+        e.bank_at_home(600_000);
+        let rows = |e: &Engine| e.activity(50).into_iter().filter(|a| a.kind == "walk").collect::<Vec<_>>();
+        assert_eq!(rows(&e).len(), 1);
+        assert_eq!(rows(&e)[0].t_ms, 600_000);
+        assert!(e.walk_recap(600_000).is_some_and(|r| r.end_ms == 600_000 && r.steps == 900));
+        assert!(e.walk_recap(1).is_none());
+        e.bank_at_home(610_000);
+        assert_eq!(rows(&e).len(), 1, "a second arrival adds no row");
+        e.dismiss_recap();
+        assert!(e.walk_recap(600_000).is_some(), "dismissing leaves the kept walk");
+        let restarted = Engine::new(e.dir.to_string_lossy().into_owned());
+        restarted.open_game("g1".into()).unwrap();
+        assert!(restarted.walk_recap(600_000).is_some());
     }
 
     #[test]
