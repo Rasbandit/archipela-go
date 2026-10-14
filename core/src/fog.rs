@@ -96,6 +96,7 @@ mod tests {
             location_id: id,
             zone: 1,
             mode: Mode::Walk,
+            needs: vec![],
             family: "reach".into(),
             kind_id: "k".into(),
             quest_name: "q".into(),

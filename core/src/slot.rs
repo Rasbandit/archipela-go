@@ -1,20 +1,16 @@
-//! `slot_data` v4: what the apworld (or the solo generator) says about a game. Mirrors `apworld/docs/slot_data.schema.json`.
+//! `slot_data` v5: what the apworld (or the solo generator) says about a game. Mirrors `apworld/docs/slot_data.schema.json`.
 
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::Mode;
 
-/// A zone of the game: its travel mode and what unlocks it.
+/// A zone of the game and the keys that open it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ZoneSlot {
     /// Zone number, starting at 1.
     pub id: u32,
-    /// How the player travels in this zone.
-    pub mode: Mode,
     /// Zone keys needed before the zone opens.
     pub zone_keys_needed: u32,
-    /// Name of the tool item that must be held, if the mode needs one.
-    pub tool: Option<String>,
 }
 
 /// A quest location in the game.
@@ -33,6 +29,8 @@ pub struct QuestSlot {
     /// Quest family wanted for the slot.
     #[serde(rename = "type")]
     pub family: String,
+    /// The quest's badges: items that must all be held before it can be played (empty when open).
+    pub needs: Vec<String>,
 }
 
 /// How several goals combine into winning.
@@ -107,9 +105,9 @@ pub struct SlotData {
 }
 
 /// The `slot_data` version this app writes, and the only one it reads.
-pub const CURRENT_SCHEMA: u32 = 4;
+pub const CURRENT_SCHEMA: u32 = 5;
 /// The `slot_data` versions this app can read.
-pub const SUPPORTED_SCHEMAS: [u32; 1] = [4];
+pub const SUPPORTED_SCHEMAS: [u32; 1] = [5];
 
 /// Check that this app reads `slot_data` schema `version`.
 ///
@@ -188,11 +186,14 @@ mod tests {
     #[test]
     fn real_apworld_sample_parses() {
         let d = SlotData::from_json(SAMPLE).unwrap();
-        assert_eq!(d.schema_version, 4);
+        assert_eq!(d.schema_version, 5);
         assert_eq!(d.goals, vec!["treasure_hunt".to_string()]);
         assert_eq!((d.goal_mode, d.goal_need), (GoalMode::Any, 1));
-        assert_eq!(d.zones.len(), 3);
-        assert_eq!(d.zones[1].tool.as_deref(), Some("Running Shoes"));
+        assert_eq!(d.zones, vec![ZoneSlot { id: 1, zone_keys_needed: 0 }, ZoneSlot { id: 2, zone_keys_needed: 1 }, ZoneSlot { id: 3, zone_keys_needed: 2 }]);
+        let runs: Vec<&QuestSlot> = d.trips.iter().filter(|t| t.mode == Mode::Run).collect();
+        assert_eq!(runs.len(), 12);
+        assert!(runs.iter().all(|t| t.needs == ["Running Shoes"]));
+        assert!(d.trips.iter().filter(|t| t.mode == Mode::Walk).all(|t| t.needs.is_empty()));
         assert_eq!(d.trips.len(), 60);
         assert!(d.boss.is_some());
         assert_eq!(d.all_quests().len(), 61);
@@ -207,11 +208,27 @@ mod tests {
     }
 
     #[test]
-    fn schema_3_is_refused_and_4_is_read() {
-        let err = SlotData::from_json(&sample_with("schema_version", 3.into())).unwrap_err();
-        assert!(err.contains("unsupported slot_data schema 3"), "{err}");
-        assert_eq!(SUPPORTED_SCHEMAS, [4]);
-        assert_eq!(SlotData::from_json(SAMPLE).unwrap().schema_version, 4);
+    fn schema_4_is_refused_and_5_is_read() {
+        let err = SlotData::from_json(&sample_with("schema_version", 4.into())).unwrap_err();
+        assert!(err.contains("unsupported slot_data schema 4"), "{err}");
+        assert_eq!(SUPPORTED_SCHEMAS, [5]);
+        assert_eq!(SlotData::from_json(SAMPLE).unwrap().schema_version, 5);
+    }
+
+    #[test]
+    fn a_real_schema_4_seed_is_refused_by_its_version_not_its_shape() {
+        let mut v4: serde_json::Value = serde_json::from_str(SAMPLE).unwrap();
+        v4["schema_version"] = 4.into();
+        v4["zones"][1]["mode"] = "run".into();
+        v4["zones"][1]["tool"] = "Running Shoes".into();
+        assert_eq!(SlotData::from_json(&v4.to_string()).unwrap_err(), "unsupported slot_data schema 4 (this app understands [5])");
+    }
+
+    #[test]
+    fn every_quest_must_list_its_needs() {
+        let mut no_needs: serde_json::Value = serde_json::from_str(SAMPLE).unwrap();
+        no_needs["trips"][0].as_object_mut().unwrap().remove("needs");
+        assert!(SlotData::from_json(&no_needs.to_string()).unwrap_err().contains("needs"));
     }
 
     #[test]
@@ -222,17 +239,17 @@ mod tests {
         v3["zones"][1]["mode"] = "bike".into();
         v3["zones"][1]["tool"] = "Bike".into();
         let err = SlotData::from_json(&v3.to_string()).unwrap_err();
-        assert_eq!(err, "unsupported slot_data schema 3 (this app understands [4])");
+        assert_eq!(err, "unsupported slot_data schema 3 (this app understands [5])");
         assert!(SlotData::from_json("{\"zones\": []}").unwrap_err().starts_with("bad slot_data"), "no version at all is malformed");
     }
 
     #[test]
     fn goals_are_a_list_of_ids() {
         let objects = sample_with("goals", serde_json::json!([{ "id": "treasure_hunt", "target": 0 }]));
-        assert!(SlotData::from_json(&objects).is_err(), "schema 4 goals are plain ids");
+        assert!(SlotData::from_json(&objects).is_err(), "goals are plain ids");
         let mut missing: serde_json::Value = serde_json::from_str(SAMPLE).unwrap();
         missing.as_object_mut().unwrap().remove("goals");
-        assert!(SlotData::from_json(&missing.to_string()).is_err(), "schema 4 always has goals");
+        assert!(SlotData::from_json(&missing.to_string()).is_err(), "slot_data always has goals");
     }
 
     #[test]

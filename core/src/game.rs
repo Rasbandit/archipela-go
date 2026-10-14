@@ -87,6 +87,10 @@ pub struct QuestView {
     pub effort_min: f64,
     /// How the player travels there.
     pub mode: Mode,
+    /// The quest's badges: items that must all be held before it can be played.
+    pub needs: Vec<String>,
+    /// The badges in `needs` the player does not hold yet (a quest with any is Locked).
+    pub missing: Vec<String>,
     /// Where the quest stands for the player.
     pub state: QuestState,
     /// Progress from 0 to 1.
@@ -512,7 +516,7 @@ fn zone_ctx<'a>(slot: &SlotData, zone_realms: &[String], realms: &'a [(Realm, At
     for (i, z) in slot.zones.iter().enumerate() {
         let id = zone_realms.get(i).ok_or_else(|| format!("zone {} has no realm assigned", z.id))?;
         let (realm, atlas) = realms.iter().find(|(r, _)| &r.id == id).map(|(r, a)| (r, a)).ok_or_else(|| format!("realm {id} not found"))?;
-        out.push(ZoneCtx { zone: z.id, mode: z.mode, realm, atlas });
+        out.push(ZoneCtx { zone: z.id, realm, atlas });
     }
     Ok(out)
 }
@@ -521,7 +525,15 @@ fn slots_in(slot: &SlotData, only: Option<&[i64]>) -> Vec<SlotIn> {
     slot.all_quests()
         .into_iter()
         .filter(|q| only.is_none_or(|ids| ids.contains(&q.location_id)))
-        .map(|q| SlotIn { location_id: q.location_id, zone: q.zone, mode: q.mode, family: q.family.clone(), tier: q.effort_tier, boss: q.family == "boss" })
+        .map(|q| SlotIn {
+            location_id: q.location_id,
+            zone: q.zone,
+            mode: q.mode,
+            family: q.family.clone(),
+            tier: q.effort_tier,
+            boss: q.family == "boss",
+            needs: q.needs.clone(),
+        })
         .collect()
 }
 
@@ -600,11 +612,23 @@ impl Game {
         count_u32(self.items.iter().filter(|i| *i == item).count())
     }
 
-    /// Whether the player holds enough zone keys, and the tool, to enter `zone`.
+    /// Whether the player holds enough zone keys to enter `zone`.
     #[must_use]
     pub fn zone_unlocked(&self, zone: u32) -> bool {
         let keys = self.count("Progressive Zone Key");
-        self.slot.zone(zone).is_some_and(|z| keys >= z.zone_keys_needed && z.tool.as_ref().is_none_or(|t| self.items.contains(t)))
+        self.slot.zone(zone).is_some_and(|z| keys >= z.zone_keys_needed)
+    }
+
+    /// The badges in `needs` the player does not hold yet.
+    #[must_use]
+    pub fn missing_needs(&self, needs: &[String]) -> Vec<String> {
+        needs.iter().filter(|n| !self.items.contains(n)).cloned().collect()
+    }
+
+    /// Whether a quest in `zone` that needs `needs` can be played: its zone is open and every badge is held (`needs` within the items).
+    #[must_use]
+    pub fn quest_unlocked(&self, zone: u32, needs: &[String]) -> bool {
+        self.zone_unlocked(zone) && needs.iter().all(|n| self.items.contains(n))
     }
 
     fn unlocked_set(&self) -> BTreeSet<u32> {
@@ -656,7 +680,7 @@ impl Game {
                 );
                 let state = if done {
                     QuestState::Done
-                } else if !self.zone_unlocked(a.zone) {
+                } else if !self.quest_unlocked(a.zone, &a.needs) {
                     QuestState::Locked
                 } else if hidden {
                     QuestState::Hidden
@@ -680,6 +704,8 @@ impl Game {
                     tier: a.tier,
                     effort_min: a.effort_min,
                     mode: a.mode,
+                    needs: a.needs.clone(),
+                    missing: self.missing_needs(&a.needs),
                     state,
                     progress,
                     anchor: anchor(&a.target),
@@ -839,9 +865,9 @@ impl Game {
         chain::derive(&self.assignments)
     }
 
-    /// The chains whose zone is unlocked: only these count progress or complete marks.
+    /// The chains that can be played (zone open, badges held): only these count progress or complete marks.
     fn unlocked_chains(&self) -> Vec<Chain> {
-        self.chains().into_iter().filter(|c| self.zone_unlocked(c.zone)).collect()
+        self.chains().into_iter().filter(|c| self.quest_unlocked(c.zone, &c.needs)).collect()
     }
 
     fn counter_of(&self, c: &Chain) -> f64 {
@@ -975,10 +1001,10 @@ impl Game {
         self.odometer.set_speed_cap(mode_cap_mps(mode));
     }
 
-    /// The game with the travel mode it has before the engine knows where the player is: the fastest of its zones (as between zones, see
-    /// `loc::mode_at`), so a cyclist is never judged as a walker.
+    /// The game with its travel mode: the fastest of its quests, so a runner is never judged as a walker. Quests, not zones, have a mode,
+    /// so it never changes while the game is played.
     fn with_default_travel_mode(mut self) -> Self {
-        let mode = self.slot.zones.iter().map(|z| z.mode).max().unwrap_or(Mode::Walk);
+        let mode = self.slot.all_quests().iter().map(|q| q.mode).max().unwrap_or(Mode::Walk);
         self.set_travel_mode(mode);
         self
     }
@@ -1023,7 +1049,7 @@ impl Game {
         let mut reached = Vec::new();
         for a in &self.assignments {
             let Target::Collect { need, .. } = &a.target else { continue };
-            if self.done.contains(&a.location_id) || !self.zone_unlocked(a.zone) {
+            if self.done.contains(&a.location_id) || !self.quest_unlocked(a.zone, &a.needs) {
                 continue;
             }
             let Some(c) = self.collected.get_mut(&a.location_id) else { continue };
@@ -1075,7 +1101,7 @@ impl Game {
     /// A chain's counter as of `now_ms`: what is credited, plus the time away since the mark (worked out when asked, nothing ticks).
     fn counter_at(&self, c: &Chain, now_ms: i64) -> f64 {
         let credited = self.counter_of(c);
-        let running = self.counters.away_mark.filter(|_| c.unit == ChainUnit::Minutes && self.zone_unlocked(c.zone) && !self.checks_blocked());
+        let running = self.counters.away_mark.filter(|_| c.unit == ChainUnit::Minutes && self.quest_unlocked(c.zone, &c.needs) && !self.checks_blocked());
         running.map_or(credited, |mark| {
             let from = self.unlocked_at.get(&c.zone).map_or(mark, |u| mark.max(*u));
             credited + i64_to_f64((now_ms - from).clamp(0, AWAY_MAX_STRETCH_MS)) / 60_000.0
@@ -1251,9 +1277,9 @@ impl Game {
         let in_chain: BTreeSet<i64> = self.assignments.iter().filter(|a| is_chain_target(&a.target)).map(|a| a.location_id).collect();
         let mut finished = Vec::new();
         if blocked.is_none() {
-            let ids: Vec<(i64, Mode, u32)> = self.assignments.iter().map(|a| (a.location_id, a.mode, a.zone)).collect();
-            for (id, mode, zone) in ids {
-                if self.done.contains(&id) || !self.zone_unlocked(zone) || in_chain.contains(&id) {
+            let ids: Vec<(i64, Mode, bool)> = self.assignments.iter().map(|a| (a.location_id, a.mode, self.quest_unlocked(a.zone, &a.needs))).collect();
+            for (id, mode, open) in ids {
+                if self.done.contains(&id) || !open || in_chain.contains(&id) {
                     continue;
                 }
                 if self.fog_on() && !self.fog.discovered.contains(&id) {
@@ -1432,7 +1458,7 @@ impl Game {
         for a in &self.assignments {
             let Target::Collect { r, .. } = &a.target else { continue };
             if let Some(z) = zones.iter().find(|z| z.zone == a.zone) {
-                pools.insert(a.location_id, forage_pool(z, &params, a.tier, *r));
+                pools.insert(a.location_id, forage_pool(z, &params, a.tier, *r, a.mode));
             }
         }
         self.forage_pools = pools;
@@ -1608,7 +1634,7 @@ impl Game {
             let Some(a) = self.assignments.iter_mut().find(|a| a.location_id == id) else { continue };
             let Some(z) = zones.iter().find(|z| z.zone == a.zone) else { continue };
             let (_, index) = zone_paths(z, &params);
-            if let Some(t) = replace_unpicked(&a.target, &picked, z, &index, &params, a.tier, &mut rng) {
+            if let Some(t) = replace_unpicked(&a.target, &picked, z, &index, &params, a.tier, a.mode, &mut rng) {
                 // Seeded again from the moved points (less the picked ones), keeping when it tops up; filled below when it has a pool.
                 let clock = self.forage.remove(&id).and_then(|f| f.next_spawn_ms);
                 let mut f = seed_forage(
@@ -1734,6 +1760,8 @@ impl Game {
                     "GPS fix unusable (too coarse, stale or from a mock app)".to_string()
                 } else if !self.zone_unlocked(a.zone) {
                     format!("zone {} is still locked", a.zone)
+                } else if let Some(n) = self.missing_needs(&a.needs).first() {
+                    format!("needs {n}")
                 } else if self.fog_on() && !self.fog.discovered.contains(&a.location_id) {
                     "not discovered yet (fog of war)".to_string()
                 } else if let Some(b) = &blocked {
@@ -1899,7 +1927,7 @@ impl Game {
         let migrate_cells = !self.counters.cells_counted;
         self.counters.cells_counted = true;
         for c in self.chains() {
-            if migrate_cells && c.unit == ChainUnit::Cells && self.zone_unlocked(c.zone) {
+            if migrate_cells && c.unit == ChainUnit::Cells && self.quest_unlocked(c.zone, &c.needs) {
                 let seen = count_f64(self.fog.cells.len());
                 let entry = self.counters.progress.entry(c.id.clone()).or_insert(0.0);
                 *entry = entry.max(seen);
@@ -1985,14 +2013,22 @@ mod tests {
         (r, a)
     }
 
+    /// A reach-only solo game with one zone per entry of `zones`; any `Run` entry turns run quests on.
     fn reach_only(zones: &[Mode], trips: u32, goal: &str) -> SoloOptions {
-        SoloOptions { zone_modes: zones.to_vec(), number_of_trips: trips, goal: goal.into(), quest_types: vec!["reach".into()], ..SoloOptions::default() }
+        SoloOptions {
+            zone_count: count_u32(zones.len()),
+            run_quests: zones.contains(&Mode::Run),
+            number_of_trips: trips,
+            goal: goal.into(),
+            quest_types: vec!["reach".into()],
+            ..SoloOptions::default()
+        }
     }
 
     fn game(o: &SoloOptions, backend: Backend, seed: u64) -> Game {
         let g = generate(o, seed).unwrap();
-        let realms: Vec<(Realm, Atlas)> = o.zone_modes.iter().enumerate().map(|(i, m)| realm(&format!("r{i}"), *m)).collect();
-        let zr = (0..o.zone_modes.len()).map(|i| format!("r{i}")).collect();
+        let realms: Vec<(Realm, Atlas)> = (0..o.zone_count).map(|i| realm(&format!("r{i}"), Mode::Walk)).collect();
+        let zr = (0..o.zone_count).map(|i| format!("r{i}")).collect();
         Game::create(
             NewGame {
                 id: "g1".into(),
@@ -2163,7 +2199,7 @@ mod tests {
         let far = destination(home(), 0.0, 30_000.0);
         let trail = destination(far, 0.0, 60.0);
         (a1.streets, a1.streets_rough) = (vec![far], vec![trail]);
-        let zones = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r0, atlas: &a0 }, ZoneCtx { zone: 2, mode: Mode::Run, realm: &r1, atlas: &a1 }];
+        let zones = [ZoneCtx { zone: 1, realm: &r0, atlas: &a0 }, ZoneCtx { zone: 2, realm: &r1, atlas: &a1 }];
         let pool = trap_pool(&zones);
         assert!(pool.contains(&far) && pool.contains(&trail), "a trap in zone 2 finds zone 2's streets");
         assert!(pool.len() <= 2 * TRAP_POOL_PER_ZONE + 2, "kept small: {}", pool.len());
@@ -2458,7 +2494,7 @@ mod tests {
     fn a_reward_that_unlocks_the_zone_does_not_credit_the_locked_interval_before_it() {
         let mut g = away_game(&[3.0, 2.0]); // marks at 2 and 5 minutes
         lock_zone_1(&mut g);
-        g.slot.zones.push(crate::slot::ZoneSlot { id: 2, mode: Mode::Walk, zone_keys_needed: 0, tool: None });
+        g.slot.zones.push(crate::slot::ZoneSlot { id: 2, zone_keys_needed: 0 });
         let key_spot = destination(g.home, 90.0, 1600.0); // 100 m beyond where `away_for` stands
         g.assignments.push(chain::tests_support::member(2000, 2, "reach", Target::Point { p: key_spot, r: 50.0 }));
         g.solo_rewards.insert(2000, "Progressive Zone Key".into());
@@ -2596,11 +2632,40 @@ mod tests {
 
     #[test]
     fn a_new_solo_game_assigns_everything_and_locks_later_zones() {
-        let g = game(&reach_only(&[Mode::Walk, Mode::Run], 20, "all_trips"), Backend::Solo, 4);
+        let g = game(&reach_only(&[Mode::Walk, Mode::Walk], 20, "all_trips"), Backend::Solo, 4);
         assert_eq!(g.assignments.len(), 20);
         let views = g.quest_views(0);
-        assert!(views.iter().any(|v| v.zone == 2 && v.state == QuestState::Locked));
+        assert!(views.iter().filter(|v| v.zone == 2).all(|v| v.state == QuestState::Locked));
         assert!(views.iter().filter(|v| v.zone == 1).all(|v| v.state == QuestState::Open));
+    }
+
+    #[test]
+    fn a_run_quest_is_locked_until_running_shoes_arrive() {
+        let mut g = game(&reach_only(&[Mode::Run], 20, "all_trips"), Backend::Solo, 4);
+        let shoes = vec!["Running Shoes".to_string()];
+        let views = g.quest_views(0);
+        let runs: Vec<&QuestView> = views.iter().filter(|v| v.mode == Mode::Run).collect();
+        assert_eq!(runs.len(), 4, "20 % of 20");
+        assert!(runs.iter().all(|v| v.state == QuestState::Locked && v.needs == shoes && v.missing == shoes));
+        assert!(views.iter().filter(|v| v.mode == Mode::Walk).all(|v| v.state == QuestState::Open && v.needs.is_empty() && v.missing.is_empty()));
+        assert!(!g.quest_unlocked(1, &shoes) && g.quest_unlocked(1, &[]));
+        g.items.push("Running Shoes".into());
+        let views = g.quest_views(0);
+        assert!(views.iter().all(|v| v.state == QuestState::Open && v.missing.is_empty()), "the shoes open every run quest");
+        assert!(g.quest_unlocked(1, &shoes));
+    }
+
+    #[test]
+    fn a_quest_with_two_badges_needs_both() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        let two = vec!["Running Shoes".to_string(), "Gloves".to_string()];
+        assert_eq!(g.missing_needs(&two), two);
+        g.items.push("Gloves".into());
+        assert!(!g.quest_unlocked(1, &two));
+        assert_eq!(g.missing_needs(&two), vec!["Running Shoes".to_string()]);
+        g.items.push("Running Shoes".into());
+        assert!(g.quest_unlocked(1, &two) && g.missing_needs(&two).is_empty());
+        assert!(!g.quest_unlocked(9, &[]), "an unknown zone is never open");
     }
 
     #[test]
@@ -2758,7 +2823,7 @@ mod tests {
     #[test]
     fn a_rerolled_quest_never_becomes_a_chain_member() {
         // Every family, so the steps / away / explore slots and the boss could all be re-placed as progressive kinds.
-        let o = SoloOptions { zone_modes: vec![Mode::Walk], number_of_trips: 20, goal: "all_trips".into(), ..SoloOptions::default() };
+        let o = SoloOptions { zone_count: 1, number_of_trips: 20, goal: "all_trips".into(), ..SoloOptions::default() };
         let realms = vec![realm("r0", Mode::Walk)];
         let catalog = Catalog::builtin();
         for seed in 0..10 {

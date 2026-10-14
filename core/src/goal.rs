@@ -150,6 +150,7 @@ mod tests {
             difficulty: diff.into(),
             effort_tier: 2,
             family: fam.into(),
+            needs: vec![],
         };
         SlotData {
             schema_version: CURRENT_SCHEMA,
@@ -160,12 +161,17 @@ mod tests {
             return_home: false,
             death_link: false,
             enabled_traps: vec![],
-            zones: vec![
-                ZoneSlot { id: 1, mode: Mode::Walk, zone_keys_needed: 0, tool: None },
-                ZoneSlot { id: 2, mode: Mode::Walk, zone_keys_needed: 1, tool: None },
-            ],
+            zones: vec![ZoneSlot { id: 1, zone_keys_needed: 0 }, ZoneSlot { id: 2, zone_keys_needed: 1 }],
             trips: vec![q(1, 1, "easy", "reach"), q(2, 1, "hard", "dwell"), q(3, 2, "hard", "landmark"), q(4, 2, "hard", "reach")],
-            boss: Some(QuestSlot { location_id: 9, zone: 2, mode: Mode::Walk, difficulty: "hard".into(), effort_tier: 10, family: "boss".into() }),
+            boss: Some(QuestSlot {
+                location_id: 9,
+                zone: 2,
+                mode: Mode::Walk,
+                difficulty: "hard".into(),
+                effort_tier: 10,
+                family: "boss".into(),
+                needs: vec![],
+            }),
             goals: vec![goal.into()],
             goal_mode: GoalMode::All,
             goal_need: 0,

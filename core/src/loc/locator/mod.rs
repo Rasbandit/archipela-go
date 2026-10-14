@@ -205,8 +205,8 @@ impl Locator {
         &self.params
     }
 
-    /// The travel mode at the player's position (see [`crate::loc::mode_at`]); applies from the next fix. A new mode restarts the
-    /// matcher on that mode's streets.
+    /// The game's travel mode (the fastest of its quests); applies from the next fix. A new mode restarts the matcher on that mode's
+    /// streets.
     pub fn set_mode(&mut self, mode: Mode) {
         self.mode = mode;
         if self.matcher.set_mask(mode_mask(mode)) {
