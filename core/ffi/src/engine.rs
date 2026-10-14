@@ -19,6 +19,7 @@ use apgo_core::loc::{DisplayPosition, DisplaySource, Estimate, HeadingSource, Pr
 use apgo_core::marks::Mark;
 use apgo_core::num::count_u32;
 use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
+use apgo_core::recap::Recap;
 use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_with_stop, Atlas, Fetch, Pacing, SCAN_BUDGET};
 use apgo_core::settings::{resolve_units, Settings};
@@ -618,6 +619,51 @@ pub struct HudOut {
     pub backend: String,
     /// Display name of the game.
     pub game_name: String,
+}
+
+/// The walk recap ("Welcome home"), see `apgo_core::recap::Recap`.
+#[derive(Debug, uniffi::Record)]
+pub struct RecapOut {
+    /// When the player left home, Unix ms.
+    pub start_ms: i64,
+    /// When they arrived home, Unix ms.
+    pub end_ms: i64,
+    /// Raw steps walked.
+    pub steps: i64,
+    /// Length of the recorded trace in metres.
+    pub distance_m: f64,
+    /// Map squares seen for the first time.
+    pub new_cells: u32,
+    /// Names of the quests completed.
+    pub quests_done: Vec<String>,
+    /// Checks sent to the server.
+    pub checks_sent: u32,
+    /// Items received.
+    pub items: Vec<String>,
+    /// Zones unlocked.
+    pub zones_unlocked: Vec<u32>,
+    /// Forager items brought home.
+    pub banked: u32,
+    /// The thinned trace, one line per recorded stretch.
+    pub route: Vec<Vec<GeoPoint>>,
+}
+
+impl From<&Recap> for RecapOut {
+    fn from(r: &Recap) -> Self {
+        Self {
+            start_ms: r.start_ms,
+            end_ms: r.end_ms,
+            steps: r.steps,
+            distance_m: r.distance_m,
+            new_cells: r.new_cells,
+            quests_done: r.quests_done.clone(),
+            checks_sent: r.checks_sent,
+            items: r.items.clone(),
+            zones_unlocked: r.zones_unlocked.clone(),
+            banked: r.banked,
+            route: r.route.iter().map(|s| s.iter().map(|p| GeoPoint { lat: p.lat, lon: p.lon }).collect()).collect(),
+        }
+    }
 }
 
 /// Something that happened that the host should react to.
@@ -2313,18 +2359,56 @@ impl Engine {
         self.events_out(ev)
     }
 
-    /// The phone joined home Wi-Fi: every forager quest banks what it carries (see `Game::bank_at_home`). Safe to call again.
+    /// The phone arrived home (home Wi-Fi or the home circle): forager quests bank what they carry and the walk closes into its
+    /// recap (see `Game::arrive_home`), kept with the game until dismissed. Safe to call again.
     pub fn bank_at_home(&self, t_ms: i64) -> Vec<EventOut> {
-        let Some((game_id, ev, entries)) = self.with_game(|g| {
-            let ev = g.bank_at_home(t_ms);
+        let Some((game_id, ev, entries, recap)) = self.with_game(|g| {
+            let (ev, recap) = g.arrive_home(t_ms);
             self.save_if_due(g, t_ms, true);
             let entries = g.journal_events(&ev, t_ms, None);
-            (g.id.clone(), ev, entries)
+            (g.id.clone(), ev, entries, recap)
         }) else {
             return Vec::new();
         };
         self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&game_id, e)));
+        if let Some(mut r) = recap {
+            let segs = self
+                .journal
+                .as_ref()
+                .map(|j| j.lock().unwrap_or_else(std::sync::PoisonError::into_inner).segments(&game_id, r.start_ms, r.end_ms, DEFAULT_MAX_GAP_MS));
+            let segs = match segs {
+                Some(Ok(s)) => s,
+                Some(Err(e)) => {
+                    self.note(format!("journal read failed: {e}"));
+                    Vec::new()
+                }
+                None => Vec::new(),
+            };
+            r.set_route(&segs.iter().map(|s| s.iter().map(|p| Point::new(p.lat, p.lon)).collect()).collect::<Vec<_>>());
+            self.with_game(|g| {
+                g.recap = Some(r);
+                if let Err(e) = g.save(&self.dir) {
+                    self.note(format!("could not save game {}: {e}", g.id));
+                }
+            });
+        }
         self.events_out(ev)
+    }
+
+    /// The last walk's recap, until dismissed.
+    pub fn pending_recap(&self) -> Option<RecapOut> {
+        self.with_game(|g| g.recap.as_ref().map(RecapOut::from)).flatten()
+    }
+
+    /// The player closed the recap.
+    pub fn dismiss_recap(&self) {
+        self.with_game(|g| {
+            if g.recap.take().is_some() {
+                if let Err(e) = g.save(&self.dir) {
+                    self.note(format!("could not save game {}: {e}", g.id));
+                }
+            }
+        });
     }
 
     /// Archipelago: pass the full received-item name list; new items trigger unlocks/traps.
@@ -2644,6 +2728,43 @@ mod tests {
         .unwrap();
         e.install(game);
         e
+    }
+
+    #[test]
+    fn arriving_home_stores_one_recap_with_its_route_until_dismissed() {
+        let e = engine_with_game("recap");
+        e.set_counting(false, 0);
+        e.set_counting(true, 1_000);
+        e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
+        let east = |m: f64| destination(home(), 90.0, m);
+        e.journal_do(|j| {
+            (0..=10).try_for_each(|i| {
+                let p = east(500.0 + f64::from(i) * 10.0);
+                j.add_point("g1", &TrackPoint { t_ms: 60_000 + i64::from(i) * 5_000, lat: p.lat, lon: p.lon, accuracy_m: 5.0, simulated: false })
+            })
+        });
+        e.set_counting(false, 599_000);
+        e.bank_at_home(600_000);
+        let r = e.pending_recap().expect("a 10 min walk with 900 steps");
+        assert_eq!((r.steps, r.route.len(), r.route[0].len()), (900, 1, 2), "a straight line thins to its ends");
+        assert!((r.distance_m - 100.0).abs() < 1.0);
+        e.bank_at_home(610_000);
+        assert!(e.pending_recap().is_some_and(|r| r.end_ms == 600_000), "a second arrival keeps the recap");
+        let restarted = Engine::new(e.dir.to_string_lossy().into_owned());
+        restarted.open_game("g1".into()).unwrap();
+        assert!(restarted.pending_recap().is_some(), "saved with the game");
+        restarted.dismiss_recap();
+        assert!(restarted.pending_recap().is_none());
+    }
+
+    #[test]
+    fn a_walk_with_no_trace_still_gets_its_recap() {
+        let e = engine_with_game("recap-no-trace");
+        e.set_counting(false, 0);
+        e.set_counting(true, 1_000);
+        e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
+        e.bank_at_home(600_000);
+        assert!(e.pending_recap().is_some_and(|r| r.distance_m == 0.0 && r.route.is_empty()));
     }
 
     #[test]
