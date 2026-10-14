@@ -7,6 +7,7 @@ import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MarkerSpec
+import dev.apgo2.ui.ToolBadge
 import dev.apgo2.ui.Units
 import dev.apgo2.ui.circleRing
 import dev.apgo2.ui.hex
@@ -34,9 +35,6 @@ internal object MapProp {
     const val STATE = "state"
     const val SELECTED = "sel"
     const val IMAGE = "img"
-
-    /** On a badged quest pin: the image of its tool badge (the first missing one, else the first it needs). */
-    const val BADGE = "badge"
     const val SORT = "z"
     const val OPACITY = "op"
     const val ID = "id"
@@ -103,7 +101,12 @@ internal object GeoJson {
 }
 
 /** The name of this quest's pin image in the map style. */
-internal val QuestOut.mapImageKey: String get() = MarkerSpec.Quest(kindId, family, state, MapMarkers.pips(difficulty, boss)).key
+internal val QuestOut.mapImageKey: String
+    get() = MarkerSpec.Quest(kindId, family, state, MapMarkers.pips(difficulty, boss), toolBadge).key
+
+// The badge a quest's pin shows: the first tool still missing, else the first it needs; none for an open quest.
+private val QuestOut.toolBadge: ToolBadge?
+    get() = (missing.firstOrNull() ?: needs.firstOrNull())?.let { ToolBadge(it, missing = it in missing) }
 
 // A forager still under way shows its items on the map instead of one pin; the core decides (see `collect_out`).
 internal val QuestOut.showsItems: Boolean get() = collect?.onMap == true
@@ -111,13 +114,8 @@ internal val QuestOut.showsItems: Boolean get() = collect?.onMap == true
 /** The name of the pin image of this forager quest's items (null for other quests and done foragers). */
 internal val QuestOut.itemImageKey: String? get() = collect?.takeIf { showsItems }?.let { MarkerSpec.Item(it.theme).key }
 
-/** The image of this quest's tool badge: the first badge still missing, else the first it needs; null for an open quest. */
-internal val QuestOut.badgeImageKey: String?
-    get() = (missing.firstOrNull() ?: needs.firstOrNull())?.let { MarkerSpec.Tool(it, missing = it in missing).key }
-
-/** Every pin image the quest layer needs for these quests: each quest's, each forager's item pin, and each tool badge. */
-internal val List<QuestOut>.pinImages: Set<String>
-    get() = flatMap { listOfNotNull(it.mapImageKey, it.itemImageKey, it.badgeImageKey) }.toSet()
+/** Every pin image the quest layer needs for these quests: each quest's, and each forager's item pin. */
+internal val List<QuestOut>.pinImages: Set<String> get() = flatMap { listOfNotNull(it.mapImageKey, it.itemImageKey) }.toSet()
 
 /** A pickup under a tap: its quest's id, where it lies, and where it is on screen. */
 internal data class TappedPickup(
@@ -215,11 +213,7 @@ internal object MapFeatures {
         val visible = quests.filter { it.state != HIDDEN }
         val anchored = visible.filter { it.shape != "line" && !it.showsItems }.mapNotNull { q -> q.anchor?.let { q to it } }
         val dropOffs = visible.filter { it.shape == "courier" }.mapNotNull { q -> q.anchorB?.let { q to it } }
-        return (anchored + dropOffs).map { (q, p) ->
-            val props = questProps(q, q.locationId == selected)
-            q.badgeImageKey?.let { props.put(MapProp.BADGE, it) }
-            GeoJson.pointFeature(p.lat, p.lon, props)
-        }
+        return (anchored + dropOffs).map { (q, p) -> GeoJson.pointFeature(p.lat, p.lon, questProps(q, q.locationId == selected)) }
     }
 
     /** [pins] split into the rest (a clustered source) and the selected ones (their own source, so they never vanish into a cluster). */

@@ -20,16 +20,17 @@ internal sealed interface MarkerSpec {
     }
 
     /**
-     * A quest on the Play map: its body in the state colour (open | progress | done | locked), its kind's icon, and [pips] (1 to 3)
-     * dots for its difficulty.
+     * A quest on the Play map: its body in the state colour (open | progress | done | locked), its kind's icon, [pips] (1 to 3)
+     * dots for its difficulty, and its [tool] badge if it has one.
      */
     data class Quest(
         val kindId: String,
         val family: String,
         val state: String,
         val pips: Int,
+        val tool: ToolBadge? = null,
     ) : MarkerSpec {
-        override val key get() = "quest|$kindId|$family|$state|$pips"
+        override val key get() = "quest|$kindId|$family|$state|$pips" + (tool?.let { "|${it.item}|${it.stateKey}" } ?: "")
     }
 
     /** A cluster of quests: a ring split by how many are in each of [MapMarkers.RING_STATES], around the count. */
@@ -49,25 +50,31 @@ internal sealed interface MarkerSpec {
         override val key get() = "item|$theme"
     }
 
-    /** A quest's tool badge on its pin: the tool's icon on a small token, orange while [missing], navy once held. */
-    data class Tool(
-        val item: String,
-        val missing: Boolean,
-    ) : MarkerSpec {
-        override val key get() = "tool|$item|${if (missing) MISSING else HELD}"
-
-        companion object {
-            const val MISSING = "missing"
-            const val HELD = "held"
-        }
-    }
-
     /** The player on the map: the person pin, or an arrow when there is a heading; hollow while bridged, grey when stale. */
     data class Me(
         val heading: Boolean,
         val state: String,
     ) : MarkerSpec {
         override val key get() = "me|${if (heading) "h" else "n"}|$state|pin"
+    }
+}
+
+/** A quest's tool badge on its pin's corner: the tool's icon, orange while [missing], navy once held. */
+internal data class ToolBadge(
+    val item: String,
+    val missing: Boolean,
+) {
+    val stateKey get() = if (missing) MISSING else HELD
+
+    companion object {
+        const val MISSING = "missing"
+        const val HELD = "held"
+
+        /** The badge from a key's state part; null for anything else. */
+        fun parse(
+            item: String,
+            state: String,
+        ): ToolBadge? = listOf(MISSING, HELD).firstOrNull { it == state }?.let { ToolBadge(item, it == MISSING) }
     }
 }
 
@@ -88,6 +95,7 @@ internal object MapMarkers {
     private const val STATE_DONE = "done"
     private const val FULL_TURN = 360f
     private const val QUEST_PARTS = 4
+    private const val QUEST_TOOL_PARTS = 6
     private const val MAX_PIPS = 3
 
     // A locked quest's pickups: still seen, plainly not yet for collecting.
@@ -123,9 +131,6 @@ internal object MapMarkers {
     /** Pixel size of a pickup token's bitmap, drawn at size 1: about 40% as wide as a quest pin. */
     const val ITEM_TOKEN_PX = 64
 
-    /** Pixel size of a tool badge token, drawn at size 1: a corner mark on a quest pin. */
-    const val TOOL_TOKEN_PX = 72
-
     /** Pixel size of the player's pin bitmap. */
     const val ME_PIN_PX = 120
 
@@ -144,7 +149,6 @@ internal object MapMarkers {
             p[0] == "ring" -> parseRing(rest)
             p[0] == "quest" -> parseQuest(rest)
             p[0] == "item" -> if (rest.size == 1) MarkerSpec.Item(rest[0]) else null
-            p[0] == "tool" -> parseTool(rest)
             p.size != KEY_PARTS -> null
             p[0] == "pin" -> MarkerSpec.Find(rest[0], rest[1], rest[2])
             p[0] == "me" -> MarkerSpec.Me(rest[0] == "h", rest[1])
@@ -152,17 +156,11 @@ internal object MapMarkers {
         }
     }
 
-    private fun parseTool(parts: List<String>): MarkerSpec.Tool? =
-        when (parts.getOrNull(1)) {
-            MarkerSpec.Tool.MISSING -> MarkerSpec.Tool(parts[0], missing = true)
-            MarkerSpec.Tool.HELD -> MarkerSpec.Tool(parts[0], missing = false)
-            else -> null
-        }?.takeIf { parts.size == 2 }
-
     private fun parseQuest(parts: List<String>): MarkerSpec.Quest? {
         val pips = parts.getOrNull(QUEST_PARTS - 1)?.toIntOrNull()
-        val valid = parts.size == QUEST_PARTS && pips != null && pips in 1..MAX_PIPS
-        return if (valid) MarkerSpec.Quest(parts[0], parts[1], parts[2], pips) else null
+        val tool = if (parts.size == QUEST_TOOL_PARTS) ToolBadge.parse(parts[QUEST_PARTS], parts[QUEST_PARTS + 1]) else null
+        val valid = (parts.size == QUEST_PARTS || tool != null) && pips != null && pips in 1..MAX_PIPS
+        return if (valid) MarkerSpec.Quest(parts[0], parts[1], parts[2], pips, tool) else null
     }
 
     /** Difficulty as dots on the pin: easy 1, medium 2, hard 3; the boss is the hardest. Anything else reads as medium. */
@@ -175,9 +173,6 @@ internal object MapMarkers {
             difficulty.equals("easy", ignoreCase = true) -> 1
             else -> 2
         }
-
-    /** A tool badge's colour: orange while the tool is missing, navy once held. */
-    fun toolFill(missing: Boolean): Color = if (missing) ApgoPalette.toolMissing else ApgoPalette.toolHeld
 
     /** A pickup's opacity: faded while its quest is locked, full otherwise. */
     fun itemOpacity(state: String): Double = if (state == STATE_LOCKED) LOCKED_ITEM_OPACITY else 1.0
@@ -247,6 +242,7 @@ internal object MapMarkers {
                     fill = questFill(spec.state),
                     badge = badge(spec.state),
                     pips = spec.pips,
+                    tool = spec.tool,
                 )
             }
 
@@ -261,14 +257,6 @@ internal object MapMarkers {
                     fill = ApgoPalette.pickup,
                     glyph = ApgoPalette.navy,
                     ring = ApgoPalette.navy,
-                )
-            }
-
-            is MarkerSpec.Tool -> {
-                renderPin(
-                    ApgoIcons.badge(spec.item),
-                    TOOL_TOKEN_PX,
-                    fill = toolFill(spec.missing),
                 )
             }
 

@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MarkerSpec
+import dev.apgo2.ui.ToolBadge
 import dev.apgo2.ui.Units
 import dev.apgo2.ui.hex
 import org.json.JSONArray
@@ -125,16 +126,18 @@ class MapFeaturesTest {
         hasAbout = false,
     )
 
-    @Test fun aBadgedQuestPinCarriesItsBadgeImageAndAnOpenOneNone() {
+    @Test fun aBadgedQuestsPinShowsItsToolMissingFirstAndAnOpenOnesNone() {
         val shoes = listOf("Running Shoes")
-        val locked = quest(1, state = "locked").copy(mode = "run", needs = shoes, missing = shoes)
-        val held = quest(2).copy(mode = "run", needs = shoes)
-        val plain = quest(3)
-        val props = MapFeatures.quests(listOf(locked, held, plain), selected = null).map { it.getJSONObject("properties") }
-        assertEquals(MarkerSpec.Tool("Running Shoes", missing = true).key, props[0].getString(MapProp.BADGE))
-        assertEquals(MarkerSpec.Tool("Running Shoes", missing = false).key, props[1].getString(MapProp.BADGE))
-        assertFalse(props[2].has(MapProp.BADGE))
-        assertTrue("the map is given every badge image", MarkerSpec.Tool("Running Shoes", missing = true).key in listOf(locked).pinImages)
+        val two = listOf("Running Shoes", "Gloves")
+        val pin = { q: QuestOut -> MapMarkers.parse(q.mapImageKey) as MarkerSpec.Quest }
+        assertEquals(ToolBadge("Running Shoes", missing = true), pin(quest(1, state = "locked").copy(needs = shoes, missing = shoes)).tool)
+        assertEquals(ToolBadge("Running Shoes", missing = false), pin(quest(2).copy(needs = shoes)).tool)
+        assertEquals(
+            "the missing one shows first",
+            ToolBadge("Gloves", missing = true),
+            pin(quest(3).copy(needs = two, missing = listOf("Gloves"))).tool,
+        )
+        assertNull(pin(quest(4)).tool)
     }
 
     @Test fun aForagerShowsOnePickupPerItemStillOutThereAndNoQuestPin() {
