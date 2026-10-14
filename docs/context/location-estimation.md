@@ -1,7 +1,7 @@
 # Context Doc: location estimation (filter, map matching, gap bridging)
 
-_Last verified: 2026-10-09 (branch `feat/location-quality`, tracker #89). Unit tests, CI scenarios and host replays only: no outdoor
-walk with this build yet (#117)._
+_Last verified: 2026-10-13 (tracker #89). First outdoor walk replayed (Pixel 8 Pro, 25 min): raw fixes median 2.0 m, filter
+error RMS 2.6 m against the RTS reference; see "Device walk 2026-10-13" below._
 
 Spec: `docs/superpowers/specs/2026-10-08-location-quality-design.md` (binding; where the build differs, "Changed from the spec"
 below and the parameter table say so). Plan and per-task rulings: `docs/superpowers/plans/2026-10-08-location-quality.md`. Library research:
@@ -120,6 +120,7 @@ building, each by a ruling in the plan's ledger:
 | `course_max_sigma_deg`, `course_min_speed_mps` | 25, 0.8 | 35, 0.5 | Course from the W and F models only; walkers kept no course otherwise |
 | `match_min_move_m`, `match_min_gap_ms` | 5 m / 5 s | 2 m / 1 s | Owner: feed every moving estimate; corners match within 3 s median |
 | `match_stay_confidence` | none | 0.4 | Hysteresis: show at 0.7, keep showing down to 0.4 (node ambiguity at 1 Hz) |
+| `match_side_max_m` | none | 12 | Walk/Run on a road keeps the walker's side up to this far out (#176, unmapped sidewalks) |
 | `calib_window_ms`, `calib_min_dist_m`, `calib_obs_scale` | 20 s / 30 m / 2.0 | 60 s / 80 m / 1.5 | The spec's windows never adapted; sigma from the step-predicted distance |
 | `calib_path_step_m`, `calib_cusum_*` | none | 15 m, h 3, drift 0.25 | Path decimated against jitter; CUSUM change detection |
 | `hold_quiet_max_m`, `hold_quiet_sigmas` | none | 15 m, 3.5 | A quiet step counter hides at most this much movement (FR-C1; 3 sigma let GNSS drift end standing holds) |
@@ -171,7 +172,9 @@ building, each by a ruling in the plan's ledger:
 - Scorecard (`bench/metrics.rs`, against the RTS-smoothed track of fixes at 15 m or better): fixes, error RMS / p95, false jumps,
   standing jitter RMS and path per minute, held share, arrival lag p50 / p90, missed arrivals, turn lag p50, verdicts, odometer.
   The replay adds pickups gained / lost / both (with `--game`), the reference path, cost per fix and matching share (with
-  `--atlas`). Bridging error is scored only by the CI gap scenarios.
+  `--atlas`: segment changes, off-network share, pin jumps per minute: the pin's offset from its estimate changing by over 3 m).
+  Bridging error is scored only by the CI gap scenarios. Position error counts only shown positions inside the reference's time
+  span (#178): a cold-start fix before the first good fix was clamped to it and scored 9 m RMS for a 2.6 m walk.
 - Pull a walk: `scripts/pull_diag.sh <out>` (journal, games, atlases, diag, raw track), then `python3 scripts/diag_report.py <out>`
   (`== raw track ==` and `== gnss ==` sections).
 - **Real walks are never committed** (they show the owner's home): keep pulls in the main checkout's `diag/` (gitignored) or the
@@ -233,6 +236,12 @@ the next wake (about 5 s in a zone, from the wake-up compass and steps). A `gnss
   button to the battery optimisation list (no `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission).
 
 ## Map pin
+
+Where the pin sits on a match (`StreetGraph::beside`, `display`): footways, paths and sidewalks snap; a road (car class) in a Walk or
+Run zone keeps the estimate, at most `match_side_max_m` (12 m) from the centreline, because OSM maps few US sidewalks and snapping
+onto the centreline put walkers 5-8 m into the road (#176). The matcher's answer (`MatchOut::point`) and the trace follow the same
+rule; Bike and Drive snap onto roads. A snapped pin is never farther from the estimate than the show gate `max(10 m, 2 sigma)`: at
+5 s fixes the shown segment lags a corner by an input or two, and the pin waited at the corner 11-13 m from the estimate (#177).
 
 `Engine::position(now_ms)` after every fix, step batch and heading change; `MePins.from` turns it into a pin and `MapHolder.showMe`
 pushes it to the LocationComponent (`forceLocationUpdate`, look-ahead). It glides for the time since the last refresh (200 ms to
@@ -332,10 +341,20 @@ Found 2026-10-10, walk test on the Pixel 8 Pro (`diag/20261010-210133`).
 - Debug recipe: `scripts/pull_diag.sh`; compare the timestamps in journal.db `points` against the `rawfix` lines in `diag/raw`;
   replay in arrival order.
 
+## Device walk 2026-10-13
+
+25 min on sidewalks, screen mostly off (5 s fixes) with 1 s stretches on screen. Raw fused fixes: median accuracy 2.0 m, p90 6.6 m,
+725 of 727 from GNSS. Filter estimate to raw fix: median 0.7 m. Where OSM maps the sidewalk, the snapped pin sat 0.3-3 m from it;
+an 8 min stretch with no mapped sidewalk (nearest sidewalk 35-100 m) snapped onto the road centreline 5.5-8.3 m away with
+confidence 0.9-1.0, fixed by keeping the walker's side (#176): pin to estimate median 6.2 -> 0.0 m there. Pin jumps 2.2 -> 1.0 per
+minute; screen-on jumps over 6 m 6 -> 1. Left: matched/unmatched flag switches up to 2 per 10 s on that road (#177), now invisible
+because both place the pin at the estimate; screen-off jumps (16) are unseen, and the trace comes from the lag-smoothed matcher.
+Rejected: virtual sidewalks offset from centrelines (sparse `sidewalk=*` tags, several metres of offset error; research 2026-10-13
+in #176). Real walks stay in `diag/` (gitignored), never in fixtures.
+
 ## Not done / follow-ups
 
-- No outdoor walk with this build; map matching is unscored on real walks until a pull includes atlases; iOS not started. All
-  three: #117 (device walk, with the list of parked tuning items from Task 23).
+- iOS not started (#117 holds the parked tuning items from Task 23).
 - Not checked on a device: glide, snap, arrow and circle together, pin images, landscape compass, battery step, GMS path and its
   fallbacks, `heading compare` line, street graph build time on the phone.
 - #91 raw-track step lines (done here, closes with the PR); #114 fused orientation (done here).
