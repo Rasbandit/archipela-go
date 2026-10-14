@@ -26,7 +26,7 @@ use crate::loc::{imm::mode_cap_mps, DisplayPosition, Estimate, HeadingIn, Locato
 use crate::near_path::PathIndex;
 use crate::num::{count_f64, count_u32, i64_to_f64, round_i64, to_f32};
 use crate::realm::Realm;
-use crate::recap::{Recap, RecapChain, RecapQuest};
+use crate::recap::{Recap, RecapChain, RecapForager, RecapQuest};
 use crate::scan::Atlas;
 use crate::slot::{check_schema, SlotData};
 use crate::solo::badge_icon;
@@ -354,6 +354,9 @@ pub struct Outing {
     /// Forager items banked on leaving (all foragers). A fix inside the home radius banks before presence says "at home".
     #[serde(default)]
     pub banked_at_start: u32,
+    /// Each forager's (banked, picked count) on leaving, by location id.
+    #[serde(default)]
+    pub forage_at_start: BTreeMap<i64, (u32, u32)>,
 }
 
 /// A game in progress: its quests, progress, rewards, fog, traps and goal. Saved as JSON.
@@ -1054,6 +1057,7 @@ impl Game {
                 items_at_start: self.items.len(),
                 zones_at_start: self.unlocked_set(),
                 banked_at_start: self.banked_total(),
+                forage_at_start: self.collected.iter().map(|(id, c)| (*id, (c.banked, u32::try_from(c.picked.len()).unwrap_or(u32::MAX)))).collect(),
             });
         }
     }
@@ -1252,11 +1256,31 @@ impl Game {
             })
             .collect();
         chains.sort_by_key(|c| (c.unit, c.zone));
+        let foragers = self
+            .assignments
+            .iter()
+            .filter_map(|a| {
+                let Target::Collect { need, theme, .. } = &a.target else { return None };
+                let c = self.collected.get(&a.location_id)?;
+                let (banked_before, picked_before) = o.forage_at_start.get(&a.location_id).copied().unwrap_or((0, 0));
+                let picked_now = u32::try_from(c.picked.len()).unwrap_or(u32::MAX);
+                (c.banked != banked_before || picked_now != picked_before).then(|| RecapForager {
+                    name: a.quest_name.clone(),
+                    theme: theme.clone(),
+                    need: *need,
+                    banked_before,
+                    banked_after: c.banked,
+                    picked: picked_now.saturating_sub(picked_before),
+                    carried: c.carried,
+                })
+            })
+            .collect();
         Recap {
             start_ms: o.start_ms,
             end_ms: t_ms,
             steps: o.steps,
             chains,
+            foragers,
             counted_steps: round_i64(o.counted_steps),
             new_cells: u32::try_from(self.fog.cells.len().saturating_sub(o.cells_at_start)).unwrap_or(u32::MAX),
             quests_done,
@@ -4896,5 +4920,66 @@ mod tests {
         let r = g.arrive_home(1_300_000).1.expect("steps alone are worth it");
         assert_eq!(r.banked, 0, "nothing banked under the trap");
         assert!(g.outing.is_none());
+    }
+
+    fn forager_walk(picks: usize) -> (Game, Vec<Point>) {
+        let (mut g, pts) = forager_game();
+        left_home(&mut g, 0);
+        for (i, p) in pts[..picks].iter().enumerate() {
+            g.on_estimate(&fixat(*p, 600 * (i as i64 + 1)), None);
+        }
+        (g, pts)
+    }
+
+    #[test]
+    fn a_forager_banked_on_arrival_shows_before_and_after() {
+        let (mut g, _) = forager_walk(2);
+        g.set_counting(false, 1_250_000);
+        let r = g.arrive_home(1_300_000).1.expect("two items brought home");
+        let f = r.foragers.first().expect("the forager is listed");
+        assert_eq!((f.banked_before, f.banked_after, f.picked, f.carried, f.need), (0, 2, 2, 0, 3));
+        assert_eq!((f.theme.as_str(), r.foragers.len()), ("acorns", 1));
+        assert_eq!(f.name, g.assignments[0].quest_name);
+    }
+
+    #[test]
+    fn a_forager_completed_at_home_reaches_its_need() {
+        let (mut g, _) = forager_walk(3);
+        g.set_counting(false, 1_250_000);
+        let r = g.arrive_home(1_300_000).1.unwrap();
+        assert_eq!(r.foragers[0].banked_after, r.foragers[0].need);
+    }
+
+    #[test]
+    fn items_still_carried_after_a_blocked_bank_show_in_the_recap() {
+        let (mut g, _) = forager_walk(1);
+        g.outing.as_mut().unwrap().steps = 900;
+        freeze(&mut g);
+        let r = g.arrive_home(1_300_000).1.expect("steps alone are worth it");
+        let f = &r.foragers[0];
+        assert_eq!((f.banked_after, f.carried), (f.banked_before, 1));
+    }
+
+    #[test]
+    fn a_forager_with_no_start_entry_counts_from_zero() {
+        let (mut g, _) = forager_walk(2);
+        g.outing.as_mut().unwrap().forage_at_start.clear();
+        g.set_counting(false, 1_250_000);
+        let r = g.arrive_home(1_300_000).1.unwrap();
+        assert_eq!((r.foragers[0].banked_before, r.foragers[0].picked), (0, 2));
+    }
+
+    #[test]
+    fn a_forager_that_did_not_change_is_not_listed() {
+        let (mut g, _) = forager_walk(0);
+        g.outing.as_mut().unwrap().steps = 900;
+        let r = g.arrive_home(1_300_000).1.unwrap();
+        assert!(r.foragers.is_empty());
+    }
+
+    #[test]
+    fn an_outing_saved_before_forager_progress_still_loads() {
+        let old = serde_json::json!({ "start_ms": 1, "steps": 2, "cells_at_start": 0, "items_at_start": 0, "zones_at_start": [] });
+        assert!(serde_json::from_value::<Outing>(old).unwrap().forage_at_start.is_empty());
     }
 }

@@ -49,6 +49,25 @@ pub struct RecapChain {
     pub marks: Vec<f64>,
 }
 
+/// One forager (collect quest) that moved on the walk: its banked count before and after.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecapForager {
+    /// Display name of the quest.
+    pub name: String,
+    /// What is collected ("acorns").
+    pub theme: String,
+    /// Items needed to finish.
+    pub need: u32,
+    /// Items banked on leaving home.
+    pub banked_before: u32,
+    /// Items banked on arriving home.
+    pub banked_after: u32,
+    /// Items picked up on the walk.
+    pub picked: u32,
+    /// Items still carried (not banked) on arriving.
+    pub carried: u32,
+}
+
 /// What one outing came to.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Recap {
@@ -73,6 +92,9 @@ pub struct Recap {
     /// Steps that counted toward chains (slowed by the backpack), rounded.
     #[serde(default)]
     pub counted_steps: i64,
+    /// The foragers that banked or picked something on the walk, in quest order.
+    #[serde(default)]
+    pub foragers: Vec<RecapForager>,
     /// Checks sent to the Archipelago server.
     pub checks_sent: u32,
     /// Items received.

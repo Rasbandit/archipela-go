@@ -666,6 +666,25 @@ pub struct RecapQuestOut {
     pub reward: Option<String>,
 }
 
+/// A forager that moved on the walk, see `apgo_core::recap::RecapForager`.
+#[derive(Debug, uniffi::Record)]
+pub struct RecapForagerOut {
+    /// Display name of the quest.
+    pub name: String,
+    /// What is collected.
+    pub theme: String,
+    /// Items needed to finish.
+    pub need: u32,
+    /// Items banked on leaving home.
+    pub banked_before: u32,
+    /// Items banked on arriving home.
+    pub banked_after: u32,
+    /// Items picked up on the walk.
+    pub picked: u32,
+    /// Items still carried on arriving.
+    pub carried: u32,
+}
+
 /// The walk recap ("Welcome home"), see `apgo_core::recap::Recap`.
 #[derive(Debug, uniffi::Record)]
 pub struct RecapOut {
@@ -687,6 +706,8 @@ pub struct RecapOut {
     pub chains: Vec<RecapChainOut>,
     /// The stand-alone quests finished on the walk, in order.
     pub quests: Vec<RecapQuestOut>,
+    /// The foragers that banked or picked something on the walk.
+    pub foragers: Vec<RecapForagerOut>,
     /// Checks sent to the server.
     pub checks_sent: u32,
     /// Items received.
@@ -732,6 +753,19 @@ impl From<&Recap> for RecapOut {
                     t_ms: q.t_ms,
                     at: q.at.map(gp),
                     reward: q.reward.clone(),
+                })
+                .collect(),
+            foragers: r
+                .foragers
+                .iter()
+                .map(|f| RecapForagerOut {
+                    name: f.name.clone(),
+                    theme: f.theme.clone(),
+                    need: f.need,
+                    banked_before: f.banked_before,
+                    banked_after: f.banked_after,
+                    picked: f.picked,
+                    carried: f.carried,
                 })
                 .collect(),
             checks_sent: r.checks_sent,
@@ -2872,6 +2906,24 @@ mod tests {
         assert_eq!((q.t_ms, q.at.as_ref().map(|p| p.lat)), (5_000, Some(home().lat)));
         let c = r.chains.first().expect("a chain grew");
         assert_eq!((c.unit.as_str(), c.before, c.after, c.marks.clone()), ("steps", 300.0, 900.0, vec![500.0, 1500.0]));
+    }
+
+    #[test]
+    fn the_recap_maps_forager_progress() {
+        let e = engine_with_game("recap-forager");
+        e.set_counting(false, 0);
+        e.set_counting(true, 1_000);
+        e.with_game(|g| {
+            g.outing.as_mut().unwrap().steps = 900;
+            let a = &mut g.assignments[0];
+            a.target = Target::Collect { pts: vec![home()], need: 4, r: 25.0, theme: "acorns".into() };
+            let c = Collected { picked: [0u16, 1].into(), carried: 2, banked: 1 };
+            g.collected.insert(a.location_id, c);
+        });
+        e.bank_at_home(600_000);
+        let r = e.pending_recap().expect("recap");
+        let f = r.foragers.first().expect("forager listed");
+        assert_eq!((f.theme.as_str(), f.need, f.banked_before, f.banked_after, f.picked, f.carried), ("acorns", 4, 0, 3, 2, 0));
     }
 
     #[test]
