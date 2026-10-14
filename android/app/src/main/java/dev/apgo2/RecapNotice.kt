@@ -50,7 +50,17 @@ internal class RecapNotice(
         private const val CHANNEL = "walk_recap_v1"
         private const val ID = 3000
 
-        fun shouldPost(appVisible: Boolean) = !appVisible
+        /** Post only a recap this arrival closed, and only while the app is off screen. */
+        fun shouldPost(
+            appVisible: Boolean,
+            isNew: Boolean,
+        ) = isNew && !appVisible
+
+        /** The recap was closed by the arrival at [arrivedMs]; an arrival with no walk to close keeps the older one. */
+        fun isNew(
+            recap: RecapOut,
+            arrivedMs: Long,
+        ) = recap.endMs == arrivedMs
     }
 }
 
@@ -66,11 +76,13 @@ internal class RecapController(
     var recap by mutableStateOf<RecapOut?>(null)
         private set
 
-    /** Arrived home: show the walk's recap, or notify when off screen. */
-    fun onArrivedHome() {
+    /** Arrived home at [arrivedMs]: show the walk's recap, or notify when off screen. An older recap is not shown or posted again. */
+    fun onArrivedHome(arrivedMs: Long) {
         val r = engine.pendingRecap() ?: return
+        val isNew = RecapNotice.isNew(r, arrivedMs)
+        if (!isNew) return
         recap = r
-        if (RecapNotice.shouldPost(presence.appVisible)) notice.post(r)
+        if (RecapNotice.shouldPost(presence.appVisible, isNew)) notice.post(r)
     }
 
     /** Re-read the core's pending recap (the app came back to the screen, or a game opened). */

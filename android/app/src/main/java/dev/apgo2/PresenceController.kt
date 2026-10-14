@@ -204,8 +204,9 @@ internal class PresenceController(
     // Presence arrived home (home Wi-Fi or the home circle): forager quests bank what they carry, even with no GPS fix.
     private fun bankAtHome() {
         if (!model.engine.hasGame()) return
-        model.handle(model.engine.bankAtHome(model.now()))
-        model.recaps.onArrivedHome()
+        val t = model.now()
+        model.handle(model.engine.bankAtHome(t))
+        model.recaps.onArrivedHome(t)
         model.refreshPlay(withTrace = false)
     }
 
