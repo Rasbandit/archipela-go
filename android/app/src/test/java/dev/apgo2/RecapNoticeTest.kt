@@ -9,8 +9,8 @@ import org.junit.Test
 class RecapNoticeTest {
     // On screen the recap opens at once; off screen it waits behind a notification.
     @Test fun notifiesOnlyOffScreen() {
-        assertTrue(RecapNotice.shouldPost(appVisible = false, isNew = true))
-        assertFalse(RecapNotice.shouldPost(appVisible = true, isNew = true))
+        assertTrue(RecapNotice.shouldPost(appVisible = false))
+        assertFalse(RecapNotice.shouldPost(appVisible = true))
     }
 
     // A later arrival with no walk keeps the old recap: it was already announced, so it is not posted again.
@@ -18,7 +18,6 @@ class RecapNoticeTest {
         val r = recap(minutes = 42)
         assertTrue(RecapNotice.isNew(r, arrivedMs = 42 * 60_000))
         assertFalse(RecapNotice.isNew(r, arrivedMs = 90 * 60_000))
-        assertFalse(RecapNotice.shouldPost(appVisible = false, isNew = false))
     }
 
     @Test fun textSaysHowLongAndHowManyQuests() {

@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.apgo2.ui.Help
@@ -53,11 +54,11 @@ internal fun RecapScreen(
                 }
             }
             if (r.route.isNotEmpty()) item { RouteMap(r.route) }
-            items(RecapFormat.sections(r)) { (label, lines) ->
+            items(RecapFormat.sections(r), key = { it.first }) { (label, lines) ->
                 Text(label, style = MaterialTheme.typography.titleSmall)
                 lines.forEach { Text(it) }
             }
-            item { Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Done") } }
+            item { Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text(Help.RECAP_DONE) } }
         }
     }
 }
@@ -67,7 +68,7 @@ private fun StatTile(
     label: String,
     value: String,
 ) {
-    Card {
+    Card(Modifier.semantics(mergeDescendants = true) {}) {
         Text(value, Modifier.padding(start = 12.dp, top = 8.dp, end = 12.dp), style = MaterialTheme.typography.titleLarge)
         Text(label, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp), style = MaterialTheme.typography.labelMedium)
     }

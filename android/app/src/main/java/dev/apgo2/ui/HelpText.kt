@@ -181,6 +181,7 @@ internal object Help {
 
     // ---- walk recap
     const val RECAP_TITLE = "Welcome home"
+    const val RECAP_DONE = "Done"
     const val RECAP_NOTICE_TITLE = "Welcome home: see your walk"
 
     fun recapNoticeText(r: RecapOut): String {

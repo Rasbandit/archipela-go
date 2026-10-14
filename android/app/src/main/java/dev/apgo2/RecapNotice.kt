@@ -32,7 +32,7 @@ internal class RecapNotice(
     fun post(recap: RecapOut) {
         if (!nm.areNotificationsEnabled()) return
         val intent = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val open = PendingIntent.getActivity(ctx, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(ctx, ID, intent, PendingIntent.FLAG_IMMUTABLE)
         val n =
             Notification
                 .Builder(ctx, CHANNEL)
@@ -51,11 +51,8 @@ internal class RecapNotice(
         private const val CHANNEL = "walk_recap_v1"
         private const val ID = 3000
 
-        /** Post only a recap this arrival closed, and only while the app is off screen. */
-        fun shouldPost(
-            appVisible: Boolean,
-            isNew: Boolean,
-        ) = isNew && !appVisible
+        /** Post only while the app is off screen. */
+        fun shouldPost(appVisible: Boolean) = !appVisible
 
         /** The recap was closed by the arrival at [arrivedMs]; an arrival with no walk to close keeps the older one. */
         fun isNew(
@@ -80,10 +77,9 @@ internal class RecapController(
     /** Arrived home at [arrivedMs]: show the walk's recap, or notify when off screen. An older recap is not shown or posted again. */
     fun onArrivedHome(arrivedMs: Long) {
         val r = engine.pendingRecap() ?: return
-        val isNew = RecapNotice.isNew(r, arrivedMs)
-        if (!isNew) return
+        if (!RecapNotice.isNew(r, arrivedMs)) return
         recap = r
-        if (RecapNotice.shouldPost(presence.appVisible, isNew)) notice.post(r)
+        if (RecapNotice.shouldPost(presence.appVisible)) notice.post(r)
     }
 
     /** Re-read the core's pending recap (the app came back to the screen, or a game opened). */
