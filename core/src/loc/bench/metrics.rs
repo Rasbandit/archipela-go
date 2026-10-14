@@ -342,7 +342,7 @@ pub struct MatchingStats {
     pub switches_per_min: f64,
     /// Share of matches that are off-network.
     pub off_share: f64,
-    /// Displays per minute whose offset from the estimate changed by more than [`PIN_JUMP_M`] since the one before: the pin snapping
+    /// Displays per minute whose offset from the estimate changed by more than `PIN_JUMP_M` since the one before: the pin snapping
     /// onto a street or off it, which the estimate's own movement does not explain.
     pub pin_jumps_per_min: f64,
 }
