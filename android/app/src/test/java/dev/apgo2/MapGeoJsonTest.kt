@@ -380,6 +380,22 @@ class MapFeaturesTest {
         assertEquals(2, t.single().coords().length())
     }
 
+    @Test fun aRouteIsOneLinePerStretchAndSkipsLonePoints() {
+        val a = GeoPoint(40.0, -111.0)
+        val b = GeoPoint(40.001, -111.0)
+        val features = RecapFeatures.route(listOf(listOf(a, b), listOf(a)))
+        assertEquals(1, features.size)
+        assertEquals("LineString", features.single().getJSONObject("geometry").getString("type"))
+        assertEquals(
+            listOf(-111.0, 40.0),
+            features
+                .single()
+                .coords()
+                .getJSONArray(0)
+                .let { listOf(it.getDouble(0), it.getDouble(1)) },
+        )
+    }
+
     @Test fun realmsDrawTheActiveShape() {
         val circle = CircleOut(geo(10.0, 10.0), 100.0)
         val r =

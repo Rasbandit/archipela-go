@@ -691,7 +691,7 @@ private fun LocateButton(
 // Hands the map view the activity's lifecycle events while it is on show; a hidden map is stopped and made invisible (so it stops
 // drawing), and a map leaving the screen is destroyed.
 @Composable
-private fun MapLifecycle(
+internal fun MapLifecycle(
     mapView: MapView,
     onShow: Boolean,
 ) {

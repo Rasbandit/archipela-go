@@ -356,3 +356,10 @@ internal object MeFeatures {
         }
     }
 }
+
+/** The features of the walk recap's map. */
+internal object RecapFeatures {
+    /** The route: one line per recorded stretch (a lone point draws nothing). */
+    fun route(segments: List<List<GeoPoint>>): List<JSONObject> =
+        segments.filter { it.size >= 2 }.map { seg -> GeoJson.feature(GeoJson.lineString(seg.map { it.lat to it.lon })) }
+}
