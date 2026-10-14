@@ -1564,8 +1564,8 @@ mod tests {
         let walk = atlas.offers(&cat, &[Mode::Walk]);
         assert_eq!(walk["touch_grass"], 1);
         assert!(walk.contains_key("street_smarts"), "geometry-free kinds are always on offer");
-        let drive = atlas.offers(&cat, &[Mode::Drive]);
-        assert!(!drive.contains_key("touch_grass"), "park quests are walk/run only");
+        let run = atlas.offers(&cat, &[Mode::Run]);
+        assert_eq!(run, walk, "every kind is offered walking and running alike");
         assert!(!walk.contains_key("hydrant_hunter"), "kinds with no matches are not offered");
     }
 

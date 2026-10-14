@@ -19,7 +19,7 @@ from worlds.generic.Rules import exclusion_rules
 SCHEMA = json.loads(
     (Path(__file__).parents[2] / "docs" / "slot_data.schema.json").read_text(encoding="utf-8")
 )
-MULTI = ["walk", "bike", "drive"]
+MULTI = ["walk", "run", "walk"]
 
 
 class Base(WorldTestBase):
@@ -83,26 +83,28 @@ class TestThreeZonesLong(Base):
         assert not self.zone_reachable(one_key, 3)
 
     def test_zones_gated_by_tools(self) -> None:
-        for tool, zone in (("Bike", 2), ("Car", 3)):
+        for tool, zone in (("Running Shoes", 2),):
             state = CollectionState(self.multiworld)
             self.collect_all_but([tool, names.VICTORY], state)
             assert not self.zone_reachable(state, zone)
             state.collect(self.get_items_by_name(tool)[0])
             assert self.zone_reachable(state, zone)
 
-    def test_no_walk_or_run_tools(self) -> None:
-        assert not self.get_items_by_name("Running Shoes")
+    def test_only_running_shoes_and_no_retired_tools(self) -> None:
+        assert len(self.get_items_by_name("Running Shoes")) == 1
+        assert not self.get_items_by_name("Bike")
+        assert not self.get_items_by_name("Car")
 
     def test_slot_data(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
-        assert [z["tool"] for z in data["zones"]] == [None, "Bike", "Car"]
+        assert [z["tool"] for z in data["zones"]] == [None, "Running Shoes", None]
         assert {t["zone"] for t in data["trips"]} == {1, 2, 3}
 
 
 class TestBossInLastZone(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
-        "zone_modes": ["walk", "bike"],
+        "zone_modes": ["walk", "run"],
         "goal_selection": [GOAL_NAMES["treasure_hunt"]],
         "number_of_trips": 30,
     }
@@ -188,7 +190,7 @@ def _make_goal_test(goal: str) -> type:
     class _T(Base):
         options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
             "goal_selection": [GOAL_NAMES[goal]],
-            "zone_modes": ["walk", "bike"],
+            "zone_modes": ["walk", "run"],
             "number_of_trips": 40,
         }
 
@@ -196,7 +198,7 @@ def _make_goal_test(goal: str) -> type:
             self.collect_all_but([])
             self.assertBeatable(beatable=True)
             jsonschema.validate(self.world.fill_slot_data(), SCHEMA)
-            assert self.world.fill_slot_data()["goals"][0]["id"] == goal
+            assert self.world.fill_slot_data()["goals"][0] == goal
 
     _T.__name__ = f"TestGoal_{goal}"
     _T.__qualname__ = _T.__name__
@@ -236,7 +238,7 @@ class TestEffortReductionsOptional(Base):
 class TestLargeSeed(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "number_of_trips": 1000,
-        "zone_modes": ["walk", "run", "bike", "drive", "walk", "run"],
+        "zone_modes": ["walk", "run", "walk", "run", "walk", "run"],
         "goal_selection": [GOAL_NAMES["treasure_hunt"]],
     }
 
@@ -311,7 +313,7 @@ class TestSeveralGoalsAny(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "goal_selection": ["Treasure Hunt", "Completionist"],
         "goal_requirement": "require_any_one_goal",
-        "zone_modes": ["walk", "bike"],
+        "zone_modes": ["walk", "run"],
         "number_of_trips": 40,
     }
 
@@ -327,7 +329,7 @@ class TestSeveralGoalsAny(Base):
     def test_slot_data_lists_both_goals(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
-        assert [g["id"] for g in data["goals"]] == ["treasure_hunt", "all_trips"]
+        assert data["goals"] == ["treasure_hunt", "all_trips"]
         assert (data["goal_requirement"], data["goal_need"]) == ("any", 1)
 
 
@@ -345,10 +347,10 @@ class TestSeveralGoalsAll(Base):
         state.collect(self.get_items_by_name("Letter O")[0])
         assert self.goal_reachable(state)
 
-    def test_targets_are_zero(self) -> None:
+    def test_goals_are_plain_ids(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
-        assert {g["id"]: g["target"] for g in data["goals"]} == {"treasure_hunt": 0, "all_trips": 0}
+        assert data["goals"] == ["treasure_hunt", "all_trips"]
         assert (data["goal_requirement"], data["goal_need"]) == ("all", 2)
 
 
@@ -418,7 +420,7 @@ class TestBothGoalsAtLeastTwo(Base):
     def test_slot_data_lists_both_goals(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
-        assert [g["id"] for g in data["goals"]] == ["treasure_hunt", "all_trips"]
+        assert data["goals"] == ["treasure_hunt", "all_trips"]
         assert (data["goal_requirement"], data["goal_need"]) == ("at_least", 2)
 
     def test_both_goals_are_needed_so_letters_are_logic(self) -> None:

@@ -41,7 +41,7 @@ pub fn dist_for(effort_min: f64, mode: Mode) -> f64 {
 pub fn cadence_steps_per_min(mode: Mode) -> f64 {
     match mode {
         Mode::Run => 150.0,
-        _ => 100.0,
+        Mode::Walk => 100.0,
     }
 }
 
@@ -59,6 +59,6 @@ mod tests {
         assert_eq!(mid(3, 10.0), 25.0);
         let d = dist_for(30.0, Mode::Walk);
         assert!((travel_min(d, Mode::Walk) - 30.0).abs() < 1e-9);
-        assert!(dist_for(30.0, Mode::Drive) > 5.0 * dist_for(30.0, Mode::Walk));
+        assert!(dist_for(30.0, Mode::Run) > 1.5 * dist_for(30.0, Mode::Walk));
     }
 }

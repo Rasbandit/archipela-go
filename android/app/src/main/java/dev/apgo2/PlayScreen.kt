@@ -626,7 +626,7 @@ private fun ZoneChip(z: ZoneOut) {
     }
 }
 
-// What a locked zone still needs: its keys and its tool, like "3key+bike".
+// What a locked zone still needs: its keys and its tool, like "3key+Running Shoes".
 private fun unlockCost(z: ZoneOut): String {
     val keys = if (z.keysNeeded > 0u) "${z.keysNeeded}key" else ""
     return keys + (z.tool?.let { "+$it" } ?: "")

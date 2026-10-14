@@ -73,7 +73,7 @@ class NumberOfTrips(Range):
 
 
 class ZoneModes(OptionList):
-    """Ordered zones, each walk, run, bike or drive (1 to 6). Zone 1 is free; the rest need keys."""
+    """Ordered zones, each walk or run (1 to 6). Zone 1 is free; the rest need keys."""
 
     display_name = "Zone Modes"
     default = ["walk"]

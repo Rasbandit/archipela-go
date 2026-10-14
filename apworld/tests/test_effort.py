@@ -35,4 +35,4 @@ def test_tier_for_effort_ceils_and_clamps() -> None:
 def test_effort_and_distance() -> None:
     assert effort_minutes(4, 10) == 40
     assert distance_km(6, 10, "walk") == pytest.approx(4.5)
-    assert distance_km(6, 10, "drive") == pytest.approx(35.0)
+    assert distance_km(6, 10, "run") == pytest.approx(9.0)

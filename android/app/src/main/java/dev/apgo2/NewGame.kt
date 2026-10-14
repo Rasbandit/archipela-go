@@ -50,10 +50,9 @@ import dev.apgo2.ui.HelpTip
 import dev.apgo2.ui.IconChoices
 import dev.apgo2.ui.IconLabel
 import dev.apgo2.ui.LabelWithHelp
-import dev.apgo2.ui.PLAY_MODES
+import dev.apgo2.ui.MODES
 import dev.apgo2.ui.SwitchRow
 import dev.apgo2.ui.Tone
-import dev.apgo2.ui.modeLabel
 import uniffi.apgo_ffi.RealmOut
 import uniffi.apgo_ffi.SoloOptionsIn
 
@@ -329,8 +328,8 @@ private fun ZoneCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                LabelWithHelp("Travel by ${modeLabel(zone.mode)}", Help.travelMode)
-                IconChoices(PLAY_MODES, zone.mode, { onChange(zone.copy(mode = it)) }, ApgoIcons::mode, ::modeLabel)
+                LabelWithHelp("Travel by ${zone.mode}", Help.travelMode)
+                IconChoices(MODES, zone.mode, { onChange(zone.copy(mode = it)) }, ApgoIcons::mode, { it })
             }
             LabelWithHelp("Quest types", Help.questTypes)
             QuestTypeChips(findsByFamily(m, zone.realmId), available, zone, onChange)
@@ -489,7 +488,7 @@ private fun ArchipelagoSection(
             Text("This game needs ${m.ap.zoneModes.size} zone(s). Pick a realm for each:", fontSize = 12.sp)
             m.ap.zoneModes.forEachIndexed { i, mode ->
                 val options = m.realmOps.shown.filter { it.scannedAtMs != null }
-                Text("Zone ${i + 1} (${modeLabel(mode)})", style = MaterialTheme.typography.titleSmall)
+                Text("Zone ${i + 1} ($mode)", style = MaterialTheme.typography.titleSmall)
                 if (options.isEmpty()) Text("No scanned realm yet: create one first.", fontSize = 12.sp)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     options.forEach { r ->

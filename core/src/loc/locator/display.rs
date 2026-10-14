@@ -338,8 +338,8 @@ mod tests {
         // A new mode, then a counting toggle.
         let t = walk_the_street(&mut l, t + 3, 40);
         assert_eq!(undecided(&l), lag);
-        l.set_mode(Mode::Drive);
-        assert_eq!((undecided(&l), l.matched()), (0, None));
+        l.set_mode(Mode::Run);
+        assert_eq!(undecided(&l), lag, "running uses the same streets: the match goes on");
         let _ = walk_the_street(&mut l, t, 40);
         assert!(undecided(&l) > 0);
         l.reset();
@@ -574,15 +574,10 @@ mod tests {
         assert!(l.shown_seg.is_some());
         l.reset();
         assert!(l.shown_seg.is_none(), "a reset forgets it");
-        let t = walk_the_street(&mut l, 40, 40);
+        walk_the_street(&mut l, 40, 40);
         assert!(l.shown_seg.is_some());
-        l.set_mode(Mode::Drive); // other streets
-        assert!(l.shown_seg.is_none(), "a new mode forgets it");
-        walk_the_street(&mut l, t, 5);
-        l.set_mode(Mode::Drive);
-        l.shown_seg = Some(0);
-        l.set_mode(Mode::Drive); // the same mode restarts nothing
-        assert_eq!(l.shown_seg, Some(0), "the same mode keeps it");
+        l.set_mode(Mode::Run); // the same streets
+        assert!(l.shown_seg.is_some(), "a mode on the same streets restarts nothing");
     }
 
     #[test]

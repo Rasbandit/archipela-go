@@ -1,7 +1,7 @@
 """Location ID table and name groups. Pure.
 
-ID = ID_OFFSET + block * 1000 + n, with block = difficulty_index * 4 + mode_index
-(difficulty order Easy, Medium, Hard; mode order Walk, Run, Bike, Drive). `Boss Quest` is 12001.
+ID = ID_OFFSET + block * 1000 + n, with block = difficulty_index * len(MODES) + mode_index
+(difficulty order Easy, Medium, Hard; mode order Walk, Run). `Boss Quest` is block 6, id 6001.
 """
 
 from . import names

@@ -19,7 +19,6 @@ import com.composables.icons.lucide.Briefcase
 import com.composables.icons.lucide.Building2
 import com.composables.icons.lucide.Bus
 import com.composables.icons.lucide.Camera
-import com.composables.icons.lucide.Car
 import com.composables.icons.lucide.Castle
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
@@ -77,7 +76,6 @@ import com.composables.icons.lucide.Palette
 import com.composables.icons.lucide.Pause
 import com.composables.icons.lucide.PawPrint
 import com.composables.icons.lucide.Pentagon
-import com.composables.icons.lucide.PlugZap
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RadioTower
 import com.composables.icons.lucide.Redo2
@@ -135,8 +133,6 @@ internal object ApgoIcons {
     // Travel modes
     val Walk = Lucide.Footprints
     val Run: ImageVector get() = runner
-    val Bike = Lucide.Bike
-    val Car = Lucide.Car
 
     // Actions
     val Add = Lucide.Plus
@@ -302,7 +298,6 @@ internal object ApgoIcons {
             "know_your_block" to Lucide.Building2,
             "pit_stop" to Lucide.Fuel,
             "hydration_station" to Lucide.GlassWater,
-            "plug_in" to Lucide.PlugZap,
             "camp_out" to Lucide.Tent,
             "hut_to_hut" to Lucide.House,
             "spelunker" to Lucide.Mountain,
@@ -321,7 +316,6 @@ internal object ApgoIcons {
             "wild_things" to Lucide.Bird,
             "trail_boss" to Lucide.Signpost,
             "full_circle" to Lucide.Repeat,
-            "pedal_pusher" to Lucide.Bike,
             "ridge_runner" to Lucide.Mountain,
             "stairmaster" to Lucide.ChevronsUp,
             "follow_the_flow" to Lucide.Waves,
@@ -354,13 +348,7 @@ internal object ApgoIcons {
         family: String,
     ): ImageVector = kinds[kindId] ?: families[family] ?: Lucide.MapPin
 
-    fun mode(mode: String): ImageVector =
-        when (mode) {
-            "run" -> Run
-            "bike" -> Bike
-            "drive" -> Car
-            else -> Walk
-        }
+    fun mode(mode: String): ImageVector = if (mode == "run") Run else Walk
 
     /** A realm's icon, a map pin until one is picked. */
     fun realm(key: String?): ImageVector = realmIcons[key] ?: Lucide.MapPin

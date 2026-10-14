@@ -276,7 +276,7 @@ fn to_core(o: SoloOptionsIn) -> Result<SoloOptions, CoreError> {
     };
     Ok(SoloOptions {
         goal: String::new(),
-        goals: o.goals.into_iter().map(|id| apgo_core::slot::GoalSpec { id, target: 0 }).collect(),
+        goals: o.goals,
         goal_mode,
         goal_need: o.goal_need,
         zone_quest_types: o.zone_quest_types,
@@ -367,7 +367,7 @@ pub struct QuestOut {
     pub tier: u8,
     /// Expected effort in minutes.
     pub effort_min: f64,
-    /// How the player travels there: walk, run, bike or drive.
+    /// How the player travels there: walk or run.
     pub mode: String,
     /// locked | hidden | open | progress | done
     pub state: String,
@@ -535,7 +535,7 @@ fn pin_at(collect: Option<&CollectOut>, state: QuestState, anchor: Option<Point>
 pub struct ZoneOut {
     /// Zone number.
     pub id: u32,
-    /// How the player travels in the zone: walk, run, bike or drive.
+    /// How the player travels in the zone: walk or run.
     pub mode: String,
     /// Whether the player can enter the zone.
     pub unlocked: bool,
@@ -1407,7 +1407,7 @@ impl Engine {
     fn kinds_by_place<'a>(&'a self, atlas: &Atlas) -> BTreeMap<usize, Vec<&'a Kind>> {
         let mut out: BTreeMap<usize, Vec<&Kind>> = BTreeMap::new();
         for (kind_id, idxs) in &atlas.matches {
-            let Some(kind) = self.catalog.kind(kind_id).filter(|k| Mode::PLAY.iter().any(|&m| k.allows(m))) else { continue };
+            let Some(kind) = self.catalog.kind(kind_id) else { continue };
             for &i in idxs {
                 out.entry(i).or_default().push(kind);
             }
@@ -1433,7 +1433,7 @@ impl Engine {
 
     fn offers_of(&self, atlas: &Atlas) -> Vec<OfferOut> {
         let mut v: Vec<OfferOut> = atlas
-            .offers(&self.catalog, &Mode::PLAY)
+            .offers(&self.catalog, &Mode::ALL)
             .into_iter()
             .filter_map(|(id, count)| {
                 self.catalog.kind(&id).map(|k| OfferOut { kind_id: id, name: k.name.clone(), family: k.family.clone(), blurb: k.blurb.clone(), count })
@@ -2121,13 +2121,14 @@ impl Engine {
             let views = g.quest_views(now_ms);
             let mut letters: Vec<char> = g.items.iter().filter_map(|i| i.strip_prefix("Letter ").and_then(|s| s.chars().next())).collect();
             letters.sort_unstable();
-            let tools: Vec<String> = ["Running Shoes", "Bike", "Car"].iter().filter(|t| g.items.iter().any(|i| i == *t)).map(ToString::to_string).collect();
+            let tools: Vec<String> =
+                Mode::ALL.iter().filter_map(|m| apgo_core::solo::tool_for(*m)).filter(|t| g.items.iter().any(|i| i == t)).map(ToString::to_string).collect();
             HudOut {
                 away_running: g.away_running(),
                 goals: g
                     .goal_statuses()
                     .into_iter()
-                    .map(|(spec, st)| GoalLineOut { id: spec.id, label: st.label, progress: st.progress, achieved: st.achieved })
+                    .map(|(id, st)| GoalLineOut { id, label: st.label, progress: st.progress, achieved: st.achieved })
                     .collect(),
                 goal_label: s.label,
                 goal_progress: s.progress,
@@ -3360,13 +3361,13 @@ mod tests {
 
     #[test]
     fn the_travel_mode_comes_from_the_last_estimate_and_from_the_raw_fix_only_before_the_first() {
-        // Ruling E2: a Walk zone here, a Bike zone 10 km north.
+        // Ruling E2: a Walk zone here, a Run zone 10 km north.
         let walk = Point::new(40.0, -111.0);
-        let bike = destination(walk, 0.0, 10_000.0);
-        let zones = [(Shape::Circle { center: walk, radius_m: 500.0 }, Mode::Walk), (Shape::Circle { center: bike, radius_m: 500.0 }, Mode::Bike)];
+        let run = destination(walk, 0.0, 10_000.0);
+        let zones = [(Shape::Circle { center: walk, radius_m: 500.0 }, Mode::Walk), (Shape::Circle { center: run, radius_m: 500.0 }, Mode::Run)];
         assert_eq!(fix_mode(&zones, None, walk), Some(Mode::Walk), "the first fix: its raw position");
-        assert_eq!(fix_mode(&zones, Some(bike), walk), Some(Mode::Bike), "later: the last estimate, never the raw fix");
-        assert_eq!(fix_mode(&zones, Some(destination(walk, 0.0, 5_000.0)), walk), Some(Mode::Bike), "between zones: fastest");
+        assert_eq!(fix_mode(&zones, Some(run), walk), Some(Mode::Run), "later: the last estimate, never the raw fix");
+        assert_eq!(fix_mode(&zones, Some(destination(walk, 0.0, 5_000.0)), walk), Some(Mode::Run), "between zones: fastest");
         assert_eq!(fix_mode(&[], None, walk), None);
     }
 

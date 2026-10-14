@@ -97,7 +97,6 @@ fn line_label(kind: &str) -> &'static str {
     match kind {
         "stairmaster" => "Steps",
         "ridge_runner" => "Ridge",
-        "pedal_pusher" => "Cycleway",
         _ => "Trail",
     }
 }
@@ -390,7 +389,6 @@ mod tests {
         let t = |id: &str| details(&feat(id, &[], line())).type_label;
         assert_eq!(t("L:stairmaster:~:1_2").as_deref(), Some("Steps"));
         assert_eq!(t("L:ridge_runner:~:1_2").as_deref(), Some("Ridge"));
-        assert_eq!(t("L:pedal_pusher:~:1_2").as_deref(), Some("Cycleway"));
         assert_eq!(t("L:full_circle:~:1_2").as_deref(), Some("Trail"));
     }
 

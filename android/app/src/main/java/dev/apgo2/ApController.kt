@@ -18,6 +18,7 @@ import uniffi.apgo_ffi.ApPoll
 import uniffi.apgo_ffi.ApReconnect
 import uniffi.apgo_ffi.ApServerOut
 import uniffi.apgo_ffi.ApSession
+import uniffi.apgo_ffi.CoreException
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.ServerMatch
 import uniffi.apgo_ffi.apNeedsSync
@@ -350,7 +351,9 @@ internal class ApController(
         when (e) {
             is ApEvent.Connected -> {
                 slotJson = s.slotDataJson()
-                zoneModes = slotJson?.let { runCatching { model.engine.slotZoneModes(it) }.getOrNull() } ?: emptyList()
+                val (modes, refused) = readZoneModes(slotJson) { model.engine.slotZoneModes(it) }
+                zoneModes = modes
+                refused?.let { hint = it }
             }
 
             is ApEvent.Error -> {
@@ -409,3 +412,16 @@ internal class ApController(
         model.refreshPlay(withTrace = false) // items never change where you walked
     }
 }
+
+/** The zone modes of a connected seed and, when the core refuses it (an older seed), the core's reason to show the player. */
+internal fun readZoneModes(
+    slotJson: String?,
+    read: (String) -> List<String>,
+): Pair<List<String>, String?> =
+    slotJson?.let { json ->
+        runCatching { read(json) }.fold({ it to null }, {
+            emptyList<String>() to
+                ((it as? CoreException.Failed)?.detail ?: it.message ?: "This game cannot be played.")
+        })
+    }
+        ?: (emptyList<String>() to null)

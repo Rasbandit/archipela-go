@@ -170,7 +170,7 @@ pub struct Assignment {
     /// Whether the map knows more about the place (facts, a description or a Wikipedia article): the card's "About this place".
     #[serde(default)]
     pub has_about: bool,
-    /// A boss quest's own kind ("`pedal_pusher`"), for its wording; `kind_id` is then "`the_big_one`". `None` for other quests and
+    /// A boss quest's own kind ("`trail_boss`"), for its wording; `kind_id` is then "`the_big_one`". `None` for other quests and
     /// for bosses saved before it was kept.
     #[serde(default)]
     pub base_kind: Option<String>,
@@ -1264,22 +1264,22 @@ mod tests {
     }
 
     #[test]
-    fn boss_gets_a_big_effort_and_drive_zones_never_get_walk_only_kinds() {
+    fn boss_gets_a_big_effort_and_run_zones_only_get_run_kinds() {
         let cat = Catalog::builtin();
-        let (r, a) = (realm(Mode::Drive), atlas(&cat, true));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Drive, realm: &r, atlas: &a }];
-        let mut slots: Vec<SlotIn> = (1..=15).map(|i| slot(i, if i % 2 == 0 { "landmark" } else { "dwell" }, 3, Mode::Drive)).collect();
-        slots.push(SlotIn { location_id: 99, zone: 1, mode: Mode::Drive, family: "boss".into(), tier: 10, boss: true });
+        let (r, a) = (realm(Mode::Run), atlas(&cat, true));
+        let z = [ZoneCtx { zone: 1, mode: Mode::Run, realm: &r, atlas: &a }];
+        let mut slots: Vec<SlotIn> = (1..=15).map(|i| slot(i, if i % 2 == 0 { "landmark" } else { "dwell" }, 3, Mode::Run)).collect();
+        slots.push(SlotIn { location_id: 99, zone: 1, mode: Mode::Run, family: "boss".into(), tier: 10, boss: true });
         let out = assign(&slots, &z, &cat, &params(5));
         for o in &out {
             let k = cat.kind(&o.kind_id);
             if let Some(k) = k {
-                assert!(k.allows(Mode::Drive), "{} not allowed for drive", k.id);
+                assert!(k.allows(Mode::Run), "{} not allowed for run", k.id);
             }
         }
         let boss = out.last().unwrap();
         assert!(boss.boss && boss.kind_id == "the_big_one" && boss.quest_name.starts_with("The Big One"));
-        // A 9 km realm cannot offer 95 minutes of driving; the boss must still be the biggest thing available.
+        // A 9 km realm cannot offer 95 minutes of running; the boss must still be the biggest thing available.
         let biggest_other = out[..out.len() - 1].iter().map(|o| o.effort_min).fold(0.0, f64::max);
         assert!(boss.effort_min >= biggest_other, "boss {} vs others {}", boss.effort_min, biggest_other);
     }
@@ -1527,7 +1527,7 @@ mod tests {
 
     fn every_slot() -> Vec<SlotIn> {
         let mut out = Vec::new();
-        for (z, mode) in [Mode::Walk, Mode::Run, Mode::Bike, Mode::Drive].into_iter().enumerate() {
+        for (z, mode) in [Mode::Walk, Mode::Run].into_iter().enumerate() {
             let zone = z as u32 + 1;
             for fam in crate::solo::FAMILIES {
                 for tier in [1, 3, 5, 8, 10] {
@@ -1545,11 +1545,8 @@ mod tests {
         let cat = Catalog::builtin();
         let r = realm(Mode::Walk);
         let a = town(&cat);
-        let zones: Vec<ZoneCtx<'_>> = [Mode::Walk, Mode::Run, Mode::Bike, Mode::Drive]
-            .into_iter()
-            .enumerate()
-            .map(|(i, mode)| ZoneCtx { zone: i as u32 + 1, mode, realm: &r, atlas: &a })
-            .collect();
+        let zones: Vec<ZoneCtx<'_>> =
+            [Mode::Walk, Mode::Run].into_iter().enumerate().map(|(i, mode)| ZoneCtx { zone: i as u32 + 1, mode, realm: &r, atlas: &a }).collect();
         let slots = every_slot();
         let mut kinds = BTreeSet::new();
         for seed in 1..=4 {
@@ -1627,7 +1624,7 @@ mod tests {
         let k = cat.kind("forager").unwrap();
         let r = realm(Mode::Walk);
         let a = crate::scan::build_atlas("r", 0, vec![], fine_streets(3700.0), &cat);
-        for (mode, tier, need) in [(Mode::Walk, 1, 3), (Mode::Walk, 2, 5), (Mode::Run, 3, 7), (Mode::Walk, 4, 10), (Mode::Bike, 3, 7), (Mode::Walk, 7, 10)] {
+        for (mode, tier, need) in [(Mode::Walk, 1, 3), (Mode::Walk, 2, 5), (Mode::Run, 3, 7), (Mode::Walk, 4, 10), (Mode::Walk, 7, 10)] {
             let z = ZoneCtx { zone: 1, mode, realm: &r, atlas: &a };
             let pool = street_pool(&z, SurfacePref::Any);
             let mut p = params(3);
@@ -1691,26 +1688,18 @@ mod tests {
     }
 
     #[test]
-    fn forager_quests_join_the_courier_family_with_a_themed_title_but_never_drive() {
+    fn forager_quests_join_the_courier_family_with_a_themed_title() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, false));
         let mut seen = 0;
         for seed in 1..=8 {
-            let zones = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }, ZoneCtx { zone: 2, mode: Mode::Drive, realm: &r, atlas: &a }];
+            let zones = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }, ZoneCtx { zone: 2, mode: Mode::Run, realm: &r, atlas: &a }];
             let mut slots: Vec<SlotIn> = (1..=4).map(|t| slot(i64::from(t), "courier", t, Mode::Walk)).collect();
-            slots.extend((1..=4).map(|t| SlotIn {
-                location_id: 10 + i64::from(t),
-                zone: 2,
-                mode: Mode::Drive,
-                family: "courier".into(),
-                tier: t,
-                boss: false,
-            }));
+            slots.extend((1..=4).map(|t| SlotIn { location_id: 10 + i64::from(t), zone: 2, mode: Mode::Run, family: "courier".into(), tier: t, boss: false }));
             for o in assign(&slots, &zones, &cat, &params(seed)) {
                 if o.kind_id != "forager" {
                     continue;
                 }
-                assert_eq!(o.zone, 1, "no forager in a drive zone");
                 let Target::Collect { need, theme, .. } = &o.target else { panic!("{:?}", o.target) };
                 assert_eq!(o.quest_name, format!("Forager: bring home {need} {theme}"));
                 seen += 1;

@@ -11,8 +11,7 @@ _USEFUL = ItemClassification.useful
 ITEM_TABLE: dict[str, tuple[int, ItemClassification]] = {
     names.ZONE_KEY: (ID_OFFSET + 1, _PROG),
     "Running Shoes": (ID_OFFSET + 2, _PROG),
-    "Bike": (ID_OFFSET + 3, _PROG),
-    "Car": (ID_OFFSET + 4, _PROG),
+    # ID_OFFSET + 3 and + 4 were Bike and Car; never reuse them.
     names.EFFORT_REDUCTION: (ID_OFFSET + 5, _USEFUL),
     names.SCOUTING: (ID_OFFSET + 6, _USEFUL),
     names.COLLECTION: (ID_OFFSET + 7, _USEFUL),

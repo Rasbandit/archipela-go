@@ -480,7 +480,7 @@ impl Locator {
         }
         let mut q = self.params.clone();
         let k = q.maneuver_sigma_a_scale;
-        (q.sigma_a_walk, q.sigma_a_run, q.sigma_a_bike, q.sigma_a_drive) = (q.sigma_a_walk * k, q.sigma_a_run * k, q.sigma_a_bike * k, q.sigma_a_drive * k);
+        (q.sigma_a_walk, q.sigma_a_run, q.sigma_a_fast) = (q.sigma_a_walk * k, q.sigma_a_run * k, q.sigma_a_fast * k);
         imm.predict_to(t_ms, self.mode, &q)
     }
 
@@ -519,7 +519,7 @@ impl Locator {
 
     fn start(&mut self, f: &RawFix, sigma: f64) {
         self.frame = Some(Frame::new(f.point()));
-        self.imm = Some(Imm::new([0.0, 0.0], sigma, f.t_ms, self.mode, &self.params));
+        self.imm = Some(Imm::new([0.0, 0.0], sigma, f.t_ms, &self.params));
         self.last_taken_ms = Some(f.t_ms);
         self.started_ms = Some(f.t_ms);
         self.reloc.clear();
@@ -793,16 +793,16 @@ mod tests {
 
     #[test]
     fn crossing_the_reanchor_distance_moves_nothing() {
-        // Review Focus 4: a 7.2 km ride at 8 m/s crosses the 5 km re-anchor; the estimate and the odometer stay smooth.
+        // Review Focus 4: a 7.2 km run at 8 m/s crosses the 5 km re-anchor; the estimate and the odometer stay smooth.
         let mut l = Locator::default();
-        l.set_mode(Mode::Bike);
+        l.set_mode(Mode::Run);
         let mut odo = Odometer::default();
         let (mut total, mut prev, mut reanchors): (f64, Option<Estimate>, usize) = (0.0, None, 0);
         for t in 0..=900 {
             let origin = l.frame.map(|f| f.origin());
             let e = l.on_fix(&fix(destination(o(), 90.0, 8.0 * i64_to_f64(t)), t, 4.0));
             total += odo.step(&e);
-            // The first seconds are the filter warming up in a Bike zone; this test is about the re-anchor.
+            // The first seconds are the filter warming up; this test is about the re-anchor.
             if let Some(p) = prev.filter(|_| t >= 3) {
                 let step = distance_m(p.point(), e.point());
                 assert!(step < 9.5, "jump at {t}: {step}");
@@ -941,7 +941,7 @@ mod tests {
     fn relocation_speed_is_the_global_cap_not_the_zone_mode() {
         // Ruling T8-R4: far fixes moving 30 m/s agree whatever the zone: a walker who boards a train is relocated, not gated for ever.
         let far = |k: i64| destination(o(), 90.0, 5000.0 + 30.0 * i64_to_f64(k));
-        for mode in [Mode::Walk, Mode::Drive] {
+        for mode in [Mode::Walk, Mode::Run] {
             let mut l = Locator::default();
             l.set_mode(mode);
             let t = stand(&mut l, 1, 10);

@@ -26,8 +26,6 @@ pub const JOIN_M: f64 = 12.0;
 pub fn mode_mask(mode: Mode) -> u8 {
     match mode {
         Mode::Walk | Mode::Run => way_class::FOOT,
-        Mode::Bike => way_class::BIKE,
-        Mode::Drive => way_class::CAR,
     }
 }
 
@@ -680,7 +678,7 @@ mod tests {
         assert_eq!(g.seg(0).class, FOOT | BIKE | CAR, "the street wins: not a sidewalk");
         let g = StreetGraph::from_ways(&[way(1, FOOT | SIDE, pts.clone()), way(2, FOOT | BIKE | SIDE, pts)]).unwrap();
         assert_eq!(g.seg(0).class, FOOT | BIKE | SIDE, "mode bits are joined, the side bit kept");
-        assert!([Mode::Walk, Mode::Run, Mode::Bike, Mode::Drive].iter().all(|m| mode_mask(*m) & SIDE == 0), "SIDE is no mode");
+        assert!(Mode::ALL.iter().all(|m| mode_mask(*m) & SIDE == 0), "SIDE is no mode");
     }
 
     #[test]

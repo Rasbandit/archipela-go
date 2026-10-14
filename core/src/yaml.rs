@@ -2,7 +2,7 @@
 
 use crate::goal::goal_yaml_name;
 use crate::num::count_u32;
-use crate::slot::{check_goal_specs, GoalMode};
+use crate::slot::{check_goal_ids, GoalMode};
 use crate::solo::SoloOptions;
 
 /// The game name registered by the apworld.
@@ -20,8 +20,8 @@ pub fn build_yaml(player_name: &str, o: &SoloOptions) -> Result<String, String> 
     let modes: Vec<String> = o.zone_modes.iter().map(|m| m.name().to_string()).collect();
     let b = |x: bool| if x { "true" } else { "false" };
     let goals = o.goal_list();
-    check_goal_specs(&goals, o.goal_mode, o.goal_need)?;
-    let selection: Vec<String> = goals.iter().map(|g| goal_yaml_name(&g.id).to_string()).collect();
+    check_goal_ids(&goals, o.goal_mode, o.goal_need)?;
+    let selection: Vec<String> = goals.iter().map(|g| goal_yaml_name(g).to_string()).collect();
     let (requirement, need) = match o.goal_mode {
         GoalMode::Any => ("require_any_one_goal", 1),
         GoalMode::All => ("require_all_goals", count_u32(goals.len())),
@@ -64,7 +64,7 @@ pub fn build_yaml(player_name: &str, o: &SoloOptions) -> Result<String, String> 
 mod tests {
     use super::*;
     use crate::catalog::Mode;
-    use crate::slot::{GoalMode, GoalSpec};
+    use crate::slot::GoalMode;
 
     #[test]
     fn yaml_has_every_option_key_the_apworld_example_uses() {
@@ -82,15 +82,15 @@ mod tests {
 
     #[test]
     fn modes_and_lists_are_rendered_for_the_apworld() {
-        let o = SoloOptions { zone_modes: vec![Mode::Walk, Mode::Bike, Mode::Drive], goal: "treasure_hunt".into(), ..SoloOptions::default() };
+        let o = SoloOptions { zone_modes: vec![Mode::Walk, Mode::Run, Mode::Walk], goal: "treasure_hunt".into(), ..SoloOptions::default() };
         let y = build_yaml("Me", &o).unwrap();
-        assert!(y.contains("zone_modes: [walk, bike, drive]") && y.contains("goal_selection: [Treasure Hunt]") && y.contains("name: Me"));
+        assert!(y.contains("zone_modes: [walk, run, walk]") && y.contains("goal_selection: [Treasure Hunt]") && y.contains("name: Me"));
         assert!(y.contains("enable_effort_reductions: false"));
     }
 
     #[test]
     fn each_goal_requirement_uses_the_apworlds_name() {
-        let g = |id: &str| GoalSpec { id: id.into(), target: 0 };
+        let g = |id: &str| id.to_string();
         let with = |mode| {
             build_yaml("Me", &SoloOptions { goals: vec![g("treasure_hunt"), g("all_trips")], goal_mode: mode, goal_need: 2, ..SoloOptions::default() }).unwrap()
         };
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn goals_required_is_the_number_the_rule_needs() {
-        let g = |id: &str| GoalSpec { id: id.into(), target: 0 };
+        let g = |id: &str| id.to_string();
         let both = |mode, need| SoloOptions { goals: vec![g("treasure_hunt"), g("all_trips")], goal_mode: mode, goal_need: need, ..SoloOptions::default() };
         assert!(build_yaml("Me", &SoloOptions::default()).unwrap().contains("goals_required: 1"), "one goal needs one");
         assert!(build_yaml("Me", &both(GoalMode::Any, 0)).unwrap().contains("goals_required: 1"));
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn an_impossible_goal_count_is_an_error_not_a_quiet_fix() {
-        let g = |id: &str| GoalSpec { id: id.into(), target: 0 };
+        let g = |id: &str| id.to_string();
         let o = SoloOptions { goals: vec![g("treasure_hunt"), g("all_trips")], goal_mode: GoalMode::AtLeast, goal_need: 5, ..SoloOptions::default() };
         let err = build_yaml("Me", &o).unwrap_err();
         assert!(err.contains("at least 5"), "{err}");

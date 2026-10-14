@@ -191,7 +191,7 @@ internal object ApgoPalette {
                     "grape_expectations",
                     "hydration_station",
                 ),
-            Color(0xFF5D4037) to listOf("bus_stop_bingo", "all_aboard", "rack_em_up", "plug_in"), // getting around
+            Color(0xFF5D4037) to listOf("bus_stop_bingo", "all_aboard", "rack_em_up"), // getting around
             // sport and play
             Color(0xFF0097A7) to
                 listOf(

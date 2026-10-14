@@ -77,7 +77,6 @@ fn line_text(kind: &str, len_m: f64, coverage: f64, units: UnitSystem) -> (Strin
         return ("Climb all the stairs".into(), format!("All {} · up or down", distance(len_m, units)));
     }
     let (verb, noun) = match kind {
-        "pedal_pusher" => ("Ride", "path"),
         "full_circle" => ("Walk", "loop"),
         "ridge_runner" => ("Walk", "ridge"),
         "follow_the_flow" => ("Follow", "river"),
@@ -296,7 +295,6 @@ mod tests {
     fn line_quests_say_a_friendly_share_and_the_distance() {
         assert_eq!(text(&quest("trail_boss", line(4506.0, 0.5))), ("Walk half the trail".into(), "1.4 mi of 2.8 mi · either direction".into()));
         assert_eq!(text(&quest("trail_boss", line(4506.0, 0.25))).0, "Walk a quarter of the trail");
-        assert_eq!(text(&quest("pedal_pusher", line(4506.0, 1.0))), ("Ride the whole path".into(), "All 2.8 mi · either direction".into()));
         assert_eq!(text(&quest("full_circle", line(4506.0, 0.75))).0, "Walk three quarters of the loop");
         assert_eq!(text(&quest("stairmaster", line(60.0, 0.8))), ("Climb all the stairs".into(), "All 200 ft · up or down".into()));
     }
@@ -315,7 +313,7 @@ mod tests {
             a.base_kind = Some(base.into());
             text(&a).0
         };
-        assert_eq!(boss("pedal_pusher", line(4506.0, 0.5)), "Ride half the path");
+        assert_eq!(boss("trail_boss", line(4506.0, 0.5)), "Walk half the trail");
         assert_eq!(boss("follow_the_flow", line(4506.0, 0.5)), "Follow half the river");
         assert_eq!(boss("stairmaster", line(60.0, 0.8)), "Climb all the stairs");
         assert_eq!(boss("bench_warmer", Target::Dwell { p: home(), r: 40.0, minutes: 3.0 }), "Sit 3 min");

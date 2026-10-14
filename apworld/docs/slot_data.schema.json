@@ -21,32 +21,18 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 3
+      "const": 4
     },
     "goals": {
       "type": "array",
       "minItems": 1,
       "maxItems": 2,
+      "uniqueItems": true,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "target"
-        ],
-        "properties": {
-          "id": {
-            "enum": [
-              "treasure_hunt",
-              "all_trips"
-            ]
-          },
-          "target": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 1000
-          }
-        }
+        "enum": [
+          "treasure_hunt",
+          "all_trips"
+        ]
       }
     },
     "goal_requirement": {
@@ -132,8 +118,6 @@
           "tool": {
             "enum": [
               "Running Shoes",
-              "Bike",
-              "Car",
               null
             ]
           }
@@ -163,9 +147,7 @@
     "mode": {
       "enum": [
         "walk",
-        "run",
-        "bike",
-        "drive"
+        "run"
       ]
     },
     "quest": {

@@ -14,18 +14,11 @@ pub enum Mode {
     Walk,
     /// Running.
     Run,
-    /// By bike.
-    Bike,
-    /// By car.
-    Drive,
 }
 
 impl Mode {
-    /// Every mode.
-    pub const ALL: [Self; 4] = [Self::Walk, Self::Run, Self::Bike, Self::Drive];
-
-    /// The modes a game can use for now. Car is left out until it is supported.
-    pub const PLAY: [Self; 3] = [Self::Walk, Self::Run, Self::Bike];
+    /// Every mode, slowest first.
+    pub const ALL: [Self; 2] = [Self::Walk, Self::Run];
 
     /// The lowercase name of the mode, as used in settings and files.
     #[must_use]
@@ -33,15 +26,13 @@ impl Mode {
         match self {
             Self::Walk => "walk",
             Self::Run => "run",
-            Self::Bike => "bike",
-            Self::Drive => "drive",
         }
     }
 
-    /// The mode called `s` (`car` also means drive), if any.
+    /// The mode called `s`, if any.
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|m| m.name() == s || (s == "car" && *m == Self::Drive))
+        Self::ALL.into_iter().find(|m| m.name() == s)
     }
 
     /// Typical active speed in meters per minute.
@@ -50,8 +41,6 @@ impl Mode {
         match self {
             Self::Walk => 75.0,
             Self::Run => 150.0,
-            Self::Bike => 250.0,
-            Self::Drive => 583.0,
         }
     }
 }
@@ -304,11 +293,11 @@ mod tests {
     }
 
     #[test]
-    fn forager_is_a_courier_kind_for_walk_run_and_bike_with_a_collect_rule() {
+    fn forager_is_a_courier_kind_with_a_collect_rule() {
         let c = Catalog::builtin();
         let k = c.kind("forager").expect("forager is in the catalog");
         assert_eq!((k.family.as_str(), k.name.as_str(), k.geom), ("courier", "Forager", Geom::None));
-        assert_eq!(k.modes, [Mode::Walk, Mode::Run, Mode::Bike]);
+        assert_eq!(k.modes, [Mode::Walk, Mode::Run]);
         assert_eq!(k.verify, Verify::Collect { need_by_tier: vec![3, 5, 7, 10], spare_factor: 2, pick_r_m: 25.0 });
         assert!(!k.is_progressive());
     }
@@ -400,8 +389,25 @@ mod tests {
         let c = Catalog::builtin();
         let memorial = c.kind("remember_when").unwrap();
         assert!(memorial.matches(&tags(&[("historic", "ruins;memorial")])));
-        assert_eq!(Mode::parse("car"), Some(Mode::Drive));
         assert!(c.kind("trail_boss").unwrap().allows(Mode::Walk));
-        assert!(!c.kind("trail_boss").unwrap().allows(Mode::Drive));
+    }
+
+    #[test]
+    fn only_walk_and_run_exist() {
+        assert_eq!(Mode::ALL, [Mode::Walk, Mode::Run]);
+        for gone in ["bike", "drive", "car"] {
+            assert_eq!(Mode::parse(gone), None, "{gone}");
+        }
+        assert_eq!(Mode::parse("run"), Some(Mode::Run));
+        assert!(serde_json::from_str::<Mode>("\"bike\"").is_err(), "an old bike zone does not load");
+    }
+
+    #[test]
+    fn every_kind_has_a_walk_or_run_mode_and_the_ride_kinds_are_gone() {
+        let c = Catalog::builtin();
+        for k in &c.kinds {
+            assert!(k.modes.iter().all(|m| Mode::ALL.contains(m)) && !k.modes.is_empty(), "{} modes {:?}", k.id, k.modes);
+        }
+        assert!(c.kind("pedal_pusher").is_none() && c.kind("plug_in").is_none());
     }
 }

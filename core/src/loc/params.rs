@@ -24,26 +24,18 @@ pub struct LocParams {
     pub q_stationary_m2_per_s: f64,
     /// Stationary model: velocity sigma, m/s.
     pub stationary_vel_sigma_mps: f64,
-    /// White-noise acceleration of the walking model in a Walk zone (and Bike/Drive zones), m/s^2.
+    /// White-noise acceleration of the walking model in a Walk zone, m/s^2.
     pub sigma_a_walk: f64,
     /// White-noise acceleration of the walking model in a Run zone, m/s^2.
     pub sigma_a_run: f64,
-    /// White-noise acceleration of the fast model (Walk, Run and Bike zones), m/s^2.
-    pub sigma_a_bike: f64,
-    /// White-noise acceleration of the fast model in a Drive zone, m/s^2.
-    pub sigma_a_drive: f64,
-    /// Initial velocity sigma in Walk/Run zones, m/s.
-    pub v0_slow_mps: f64,
-    /// Initial velocity sigma in Bike/Drive zones, m/s.
-    pub v0_fast_mps: f64,
-    /// Initial model probabilities in Walk/Run zones (S, W, F).
-    pub mu0_slow: [f64; 3],
-    /// Initial model probabilities in Bike/Drive zones.
-    pub mu0_fast: [f64; 3],
-    /// Per-second switching rates in Walk/Run zones (the diagonal is ignored: it is the remainder).
-    pub pi_slow: [[f64; 3]; 3],
-    /// Per-second switching rates in Bike/Drive zones.
-    pub pi_fast: [[f64; 3]; 3],
+    /// White-noise acceleration of the fast model, m/s^2.
+    pub sigma_a_fast: f64,
+    /// Initial velocity sigma, m/s.
+    pub v0_mps: f64,
+    /// Initial model probabilities (S, W, F).
+    pub mu0: [f64; 3],
+    /// Per-second switching rates (the diagonal is ignored: it is the remainder).
+    pub pi: [[f64; 3]; 3],
     /// Longest single prediction step, seconds (longer gaps are predicted in steps).
     pub max_predict_s: f64,
     /// Most of a `Pi` row that may switch away in one step.
@@ -275,9 +267,7 @@ pub struct LocParams {
     pub calib_cusum_drift: f64,
     /// ... and a sum above this means the carry changed.
     pub calib_cusum_h: f64,
-    /// Gap bridging (Task 22): a Walk/Run gap is bridged once the last accepted fix is this old and steps come in, ms ... (Bike and
-    /// Drive never bridge: their pin coasts on the filter's prediction, `predicted_after_ms` then `stale_after_ms`; the brief's
-    /// `coast_max_ms` is not added, ruling T22-R2.)
+    /// Gap bridging (Task 22): a gap is bridged once the last accepted fix is this old and steps come in, ms ...
     pub bridge_after_ms: i64,
     /// ... or longer when fixes come far apart: this share (percent) of the widest of the last few fix spacings, so screen-off fixes
     /// (5 s batched up to 10 s, seen 13 s apart and handed over 8 s late; now batched up to 20 s) are never a gap (walk test 2026-10-10: each one bridged and
@@ -341,14 +331,10 @@ impl Default for LocParams {
             stationary_vel_sigma_mps: 0.1,
             sigma_a_walk: 0.3,
             sigma_a_run: 1.0,
-            sigma_a_bike: 1.5,
-            sigma_a_drive: 3.0,
-            v0_slow_mps: 2.0,
-            v0_fast_mps: 10.0,
-            mu0_slow: [0.6, 0.35, 0.05],
-            mu0_fast: [0.4, 0.1, 0.5],
-            pi_slow: [[0.95, 0.048, 0.002], [0.05, 0.94, 0.01], [0.02, 0.08, 0.90]],
-            pi_fast: [[0.93, 0.02, 0.05], [0.05, 0.80, 0.15], [0.04, 0.01, 0.95]],
+            sigma_a_fast: 1.5,
+            v0_mps: 2.0,
+            mu0: [0.6, 0.35, 0.05],
+            pi: [[0.95, 0.048, 0.002], [0.05, 0.94, 0.01], [0.02, 0.08, 0.90]],
             max_predict_s: 10.0,
             max_offdiag_share: 0.9,
             mu_floor: 1e-4,
