@@ -28,7 +28,7 @@ everything in "In scope", the game has a real Archipelago sphere structure, tang
 3. **Difficulty is not a gate.** Easy, medium and hard quests appear at every level of the pyramid.
 4. **Every reward is tangible.** Filler is a bundle of resources.
 5. **Rewards first, picking up needs the tool.** Any resource can arrive as a quest reward at any time; picking one up off
-   the map needs that resource's tool (litter needs none).
+   the map needs that resource's tool (acorns need none).
 6. **One resource, one tool.** The same table decides a forager quest's badge and whether a map pickup is allowed.
 7. **Only fixed, sure things.** No content that depends on water, postboxes or other places many areas lack.
 8. **Never pull the player home early.** Fetch quests return to the quest giver; banking is when the player chooses.
@@ -42,7 +42,7 @@ everything in "In scope", the game has a real Archipelago sphere structure, tang
             two badges   (~10%)                  e.g. Dowsing + Satchel: dig up the parcel, return it
        one badge, any order   (~35%)             Gloves · Satchel · Dowsing Rod · Magnet · Trowel (+ Running Shoes)
   open from the start: sphere 1   (~55%)         reach · dwell · landmark · park · trail · explore · steps · away
-                                                 · courier · fetch & return · litter forager · Regulars
+                                                 · courier · fetch & return · acorn forager · Regulars
 ```
 
 Shares are draft defaults (YAML `badge_shares`). A wide sphere 1 avoids `FillError` (see `apworld-pitfalls.md`).
@@ -63,7 +63,7 @@ Shares are draft defaults (YAML `badge_shares`). A wide sphere 1 avoids `FillErr
 
 | Resource | Tool to pick up | Comes from |
 | -- | -- | -- |
-| litter | none (good deed: "clean up the park") | map, rewards |
+| acorns (working name) | none | map, rewards |
 | pinecones | Gloves | map, rewards |
 | bottle caps | Magnet | map, rewards |
 | seeds | Trowel | map, rewards; planted by Plant & Harvest |
@@ -129,9 +129,9 @@ Each step is its own spec, plan and PRs. Order: 1, then 2, then (3, 4) and (5, 6
 
 | # | Sub-project | Scope | Depends on | Existing issues |
 | -- | -- | -- | -- | -- |
-| 1 | Cleanup | Remove Bike/Car (modes, items, catalog, UI); one zone by default; goals down to Treasure Hunt + Completionist; remove `Hydrate!`/`Take a Breather!` (temporary filler: litter bundle) | none | |
+| 1 | Cleanup | Remove Bike/Car (modes, items, catalog, UI); one zone by default; goals down to Treasure Hunt + Completionist | none | |
 | 2 | Badge system | slot_data `needs` per quest (schema 4), badge location groups, core gate, badge on card and pin; Running Shoes as the first badge; YAML `run_quests`, `badge_shares` | 1 | #53, #96 |
-| 3 | Resources | one stash of 4 resources, resource bundles as filler, tool-gated map pickups, forager variants | 2 | #55 |
+| 3 | Resources | one stash of 4 resources, resource bundles replace `Hydrate!`/`Take a Breather!` as filler, tool-gated map pickups, forager variants | 2 | #55 |
 | 4 | Shop | spend resources; contents; AP Shop Slots decision | 3 | #56 |
 | 5 | Quest shapes | one per PR: Gloves (forager + gloved courier), Satchel (courier + fetch & return), Dowsing Rod (Hot & Cold), Magnet (Lost & Found) | 2 (and #183) | #183 |
 | 6 | Return visits | the engine, then Regulars at pins, then Trowel (Plant & Harvest) | 2 | |
