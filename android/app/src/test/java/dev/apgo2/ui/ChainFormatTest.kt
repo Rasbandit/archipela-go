@@ -25,8 +25,8 @@ class ChainFormatTest {
         total = marks.last().first,
         rule = "r",
         marks = marks.mapIndexed { i, (at, reached) -> MarkOut(at = at, locationId = i.toLong(), reached = reached, reward = null) },
-        needs = emptyList(),
-        missing = emptyList(),
+        badges = emptyList(),
+        badgeNote = null,
     )
 
     @Test fun amountsReadNaturallyPerUnit() {

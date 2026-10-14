@@ -16,7 +16,7 @@ from worlds.generic.Rules import set_rule  # type: ignore[import-not-found]
 
 from . import names
 from .constants import BADGES, BOSS_GOALS, GAME_NAME
-from .distribution import QuestPlan, generate_quests
+from .distribution import QuestPlan, generate_quests, run_count
 from .item_plan import ItemPlan, plan_items
 from .items import ITEM_NAME_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE
 from .locations import LOCATION_NAME_GROUPS, LOCATION_NAME_TO_ID
@@ -80,6 +80,10 @@ class ApGo2World(World):  # type: ignore[misc]
         opts = self.options
         self.trap_keys = [k for k in names.TRAP_KEYS if k in opts.enabled_traps.value]
         shares = (opts.easy_share.value, opts.medium_share.value, opts.hard_share.value)
+        trips, zones = opts.number_of_trips.value, opts.zone_count.value
+        run_share = opts.run_share.value if opts.run_quests else 0
+        # The shoes are mandatory only when a run quest fits (the rule generate_quests uses).
+        tools = list(BADGES.values()) if run_count(trips, zones, run_share) else []
         try:
             self.goals = goal_ids_from_selection(opts.goal_selection.value)
             self.goal_requirement = {0: "any", 1: "all", 2: "at_least"}[opts.goal_requirement.value]
@@ -91,9 +95,9 @@ class ApGo2World(World):  # type: ignore[misc]
             }[self.goal_requirement]
             validate_settings(
                 goal=self.goals,
-                trips=opts.number_of_trips.value,
-                zones=opts.zone_count.value,
-                tools=list(BADGES.values()) if opts.run_quests else [],
+                trips=trips,
+                zones=zones,
+                tools=tools,
                 shares=shares,
                 families=opts.quest_types.value,
                 traps=opts.enabled_traps.value,
@@ -102,18 +106,17 @@ class ApGo2World(World):  # type: ignore[misc]
             msg = f"{self.game} ({self.player_name}): {exc}"
             raise OptionError(msg) from exc
 
-        self.zones = build_zones(opts.zone_count.value)
+        self.zones = build_zones(zones)
         families = sorted(opts.quest_types.value)
         self.quests = generate_quests(
             rng=self.random,
-            zones=opts.zone_count.value,
-            trips=opts.number_of_trips.value,
+            zones=zones,
+            trips=trips,
             shares=shares,
             families=families,
             boss=any(g in BOSS_GOALS for g in self.goals),
-            run_share=opts.run_share.value if opts.run_quests else 0,
+            run_share=run_share,
         )
-        tools = sorted({n for q in self.quests.trips for n in q.needs})
         locations = len(self.quests.trips) + (1 if self.quests.boss else 0)
         self.plan = plan_items(
             rng=self.random,

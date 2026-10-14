@@ -477,3 +477,18 @@ class TestExtremeRunShareFills(Base):
         assert sum(q.mode == "run" for q in self.world.quests.trips) == 4  # capped: 10 - 6 zones
         distribute_items_restrictive(self.multiworld)
         assert self.multiworld.can_beat_game(CollectionState(self.multiworld))
+
+
+class TestRunQuestsWithNoRoomForARun(Base):
+    """Run quests on, but each quest opens its zone: no run fits, so no shoes are needed."""
+
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
+        "zone_count": 3,
+        "run_quests": True,
+        "goal_selection": [GOAL_NAMES["all_trips"]],
+        "number_of_trips": 3,
+    }
+
+    def test_no_run_quests_and_no_running_shoes(self) -> None:
+        assert all(q.needs == () for q in self.world.quests.trips)
+        assert not self.get_items_by_name("Running Shoes")
