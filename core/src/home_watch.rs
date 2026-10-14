@@ -169,6 +169,12 @@ impl HomeWatch {
         }
     }
 
+    /// Whether there is a home pin (else home Wi-Fi alone decides).
+    #[must_use]
+    pub fn has_center(&self) -> bool {
+        self.center.is_some()
+    }
+
     /// Where the player is.
     #[must_use]
     pub fn state(&self) -> HomeState {

@@ -12,6 +12,7 @@ use apgo_core::catalog::{Catalog, Kind, Mode};
 use apgo_core::chain::ChainUnit;
 use apgo_core::game::{ApServer, Backend, Event, Game, NearMiss, NewGame, QuestState, Streets};
 use apgo_core::geo::{distance_m, simplify_spaced, Point};
+use apgo_core::home_watch::{HomeState, HomeWatch};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::loc::calib::StepCal;
 use apgo_core::loc::{mode_at, DisplayPosition, DisplaySource, Estimate, HeadingSource, Provider, RawFix, Verdict};
@@ -1064,6 +1065,8 @@ pub struct Engine {
     /// Held while a finished scan saves and while a realm is deleted, so a delete can never land between a scan's last check
     /// that its realm exists and its save (which would bring the realm back).
     store_write: Mutex<()>,
+    /// Whether the player is home (home Wi-Fi, the circle round the home pin), fed with every real fix and step reading.
+    home_watch: Mutex<HomeWatch>,
 }
 
 /// The stop flags of running scans, by realm id. Each scan has its own flag, so two scans of one realm never clear each other's.
@@ -1171,6 +1174,16 @@ impl Engine {
         // units while `units` holds the newer ones. No path takes `region` while holding the game lock.
         self.with_game(|g| g.set_units(u));
         drop(r);
+    }
+
+    // The saved home pin is the home circle's centre.
+    fn with_home_center(self: Arc<Self>) -> Arc<Self> {
+        self.watch().set_center(self.store().home());
+        self
+    }
+
+    fn watch(&self) -> MutexGuard<'_, HomeWatch> {
+        self.home_watch.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn store(&self) -> RealmStore {
@@ -1460,8 +1473,10 @@ impl Engine {
             realm_edits: AtomicU64::default(),
             scans: ScanRegistry::default(),
             store_write: Mutex::new(()),
+            home_watch: Mutex::new(HomeWatch::default()),
             dir,
         })
+        .with_home_center()
     }
 
     /// Number of quest kinds in the catalog.
@@ -1721,7 +1736,45 @@ impl Engine {
     /// # Errors
     /// Returns an error if the file cannot be written.
     pub fn set_home(&self, p: GeoPoint) -> Result<(), CoreError> {
-        self.store().set_home(pt(&p)).map_err(err)
+        self.store().set_home(pt(&p)).map_err(err)?;
+        self.watch().set_center(Some(pt(&p)));
+        Ok(())
+    }
+
+    // ---------- presence: home ----------
+    /// Presence started (or restarted) at `t_ms`: decide home from the home Wi-Fi reading given so far and the home circle.
+    pub fn presence_start(&self, t_ms: i64) {
+        self.watch().start(t_ms);
+    }
+
+    /// The (debounced) home Wi-Fi reading: `Some(true)` on it, `Some(false)` on another network, `None` unknown or off.
+    pub fn presence_wifi(&self, home: Option<bool>, t_ms: i64) {
+        self.watch().on_wifi(home, t_ms);
+    }
+
+    /// The scheduled wake-up at [`Self::presence_due_ms`]: a GPS check that found nothing clear falls back.
+    pub fn presence_tick(&self, t_ms: i64) {
+        self.watch().tick(t_ms);
+    }
+
+    /// Where the player is: "home" (GPS off, nothing counts), "checking" (GPS on to tell, nothing counts) or "away".
+    pub fn presence_state(&self) -> String {
+        match self.watch().state() {
+            HomeState::Home => "home",
+            HomeState::Checking => "checking",
+            HomeState::Away => "away",
+        }
+        .into()
+    }
+
+    /// When a running GPS check gives up: schedule one wake-up then and call [`Self::presence_tick`].
+    pub fn presence_due_ms(&self) -> Option<i64> {
+        self.watch().due_ms()
+    }
+
+    /// When the walk that left home began (its first step), while away after a check.
+    pub fn presence_left_at_ms(&self) -> Option<i64> {
+        self.watch().left_at_ms()
     }
 
     // ---------- game setup ----------
@@ -2093,6 +2146,14 @@ impl Engine {
         let simulated = simulated && SIM_ALLOWED;
         let raw = raw_fix(&fix, simulated, SIM_ALLOWED);
         let t_ms = raw.t_ms;
+        if !simulated {
+            let mut watch = self.watch();
+            watch.on_fix(raw.point(), raw.accuracy_m, t_ms);
+            // At home (or still telling, inside the circle) a fix reaches nothing: no points or trace at home.
+            if watch.has_center() && watch.state() != HomeState::Away {
+                return Vec::new();
+            }
+        }
         let Some((game_id, ev, entries, near, est)) = self.with_game(|g| {
             // Ruling E2: the mode (set before the filter runs) and the zone come from estimates, the raw fix only before the first one.
             let mode = fix_mode(&self.zones.lock().unwrap_or_else(std::sync::PoisonError::into_inner).modes, g.last_estimate().map(|e| e.point()), raw.point());
@@ -2210,6 +2271,7 @@ impl Engine {
     /// A step-counter reading from the phone (cumulative since boot) at the sensor event's time, with the cadence if the phone knows it.
     /// Only counts while a game is open.
     pub fn on_steps(&self, total: i64, t_ms: i64, cadence: Option<f64>) -> Vec<EventOut> {
+        self.watch().on_steps(total, t_ms);
         let Some((game_id, ev, entries)) = self.with_game(|g| {
             let ev = g.on_steps(total, t_ms, cadence);
             self.save_if_due(g, t_ms, ev.iter().any(Event::saves_at_once));
@@ -2955,6 +3017,56 @@ mod tests {
 
     /// A fix time in the core's sane range (after 2000-01-01, adversarial review M1).
     const FIX_T_MS: i64 = 1_800_000_005_000;
+
+    fn journaled(e: &Engine) -> usize {
+        e.journal.as_ref().unwrap().lock().unwrap().track("g1", 0, i64::MAX).unwrap().len()
+    }
+
+    #[test]
+    fn with_a_home_pin_a_wifi_drop_only_checks_and_fixes_at_home_are_never_recorded() {
+        // The owner's phone drops home Wi-Fi for minutes: GPS may look once, but nothing at home reaches the game, journal or trace.
+        let e = engine_with_game("homewatch");
+        e.set_home(gp(home())).unwrap();
+        e.presence_wifi(Some(true), FIX_T_MS);
+        e.presence_start(FIX_T_MS);
+        assert_eq!(e.presence_state(), "home");
+        e.presence_wifi(None, FIX_T_MS + 1000);
+        assert_eq!((e.presence_state().as_str(), e.presence_due_ms()), ("checking", Some(FIX_T_MS + 1000 + apgo_core::home_watch::CHECK_MS)));
+        e.on_fix(fix_at(destination(home(), 90.0, 10.0), FIX_T_MS + 2000), None, false);
+        assert_eq!(e.presence_state(), "home");
+        assert_eq!(journaled(&e), 0, "no point at home");
+        assert!(e.trace_matched().runs.iter().all(|r| r.points.is_empty()), "no trace at home");
+    }
+
+    #[test]
+    fn a_walk_out_of_the_home_circle_leaves_and_records_from_there() {
+        let e = engine_with_game("homewalk");
+        e.set_home(gp(home())).unwrap();
+        e.presence_wifi(Some(true), FIX_T_MS);
+        e.presence_start(FIX_T_MS);
+        for s in 1..=16 {
+            e.on_steps(1000 + 2 * s, FIX_T_MS + s * 1000, None);
+        }
+        assert_eq!(e.presence_state(), "checking", "a walk burst asks GPS to look");
+        e.on_fix(fix_at(destination(home(), 90.0, 50.0), FIX_T_MS + 20_000), None, false); // 45-55 m: unclear
+        assert_eq!((e.presence_state().as_str(), journaled(&e)), ("checking", 0), "still in the circle: nothing recorded");
+        e.on_fix(fix_at(destination(home(), 90.0, 70.0), FIX_T_MS + 40_000), None, false);
+        assert_eq!(e.presence_state(), "away");
+        assert_eq!(e.presence_left_at_ms(), Some(FIX_T_MS + 1000), "the walk began at its first step");
+        assert_eq!(journaled(&e), 1, "the first fix outside is recorded");
+    }
+
+    #[test]
+    fn a_simulated_fix_never_moves_presence() {
+        let e = engine_with_game("homesim");
+        e.set_home(gp(home())).unwrap();
+        e.presence_start(FIX_T_MS);
+        e.on_fix(fix_at(destination(home(), 90.0, 500.0), FIX_T_MS + 1000), None, true);
+        // A release build believes no simulated fix: there it is a real fix 500 m out.
+        assert_eq!(e.presence_state(), if SIM_ALLOWED { "checking" } else { "away" });
+        e.presence_tick(FIX_T_MS + apgo_core::home_watch::CHECK_MS);
+        assert_eq!(e.presence_state(), "away", "no home Wi-Fi and no clear fix: playing, as before the circle");
+    }
 
     fn fix_at(p: Point, t_ms: i64) -> FixIn {
         FixIn { t_ms, lat: p.lat, lon: p.lon, accuracy_m: 5.0, ..fix_in("gps") }
