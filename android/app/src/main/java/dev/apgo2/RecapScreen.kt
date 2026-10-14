@@ -148,9 +148,9 @@ private fun rememberRecapClock(
     end: Long,
     reduced: Boolean,
 ): Animatable<Float, AnimationVector1D> {
-    val clock = remember { Animatable(0f) }
+    val clock = remember { Animatable(if (reduced) end.toFloat() else 0f) }
     LaunchedEffect(key) {
-        clock.snapTo(0f)
+        if (!reduced) clock.snapTo(0f)
         if (reduced || end == 0L) {
             clock.snapTo(end.toFloat())
         } else {
@@ -160,7 +160,7 @@ private fun rememberRecapClock(
     return clock
 }
 
-private fun hasMap(r: RecapOut) = r.route.isNotEmpty() || r.quests.any { it.at != null }
+private fun hasMap(r: RecapOut) = RecapFeatures.cameraPoints(r.route, r.quests).isNotEmpty()
 
 private fun chainMax(c: RecapChainOut): Double = (c.marks.maxOrNull() ?: c.after).coerceAtLeast(1.0)
 
@@ -180,7 +180,8 @@ private fun ProgressCard(
                 Legend(ApgoPalette.questTodo, Help.RECAP_LEGEND_BEFORE)
                 Legend(ApgoPalette.questProgress, Help.RECAP_LEGEND_COUNTED)
             }
-            r.chains.forEachIndexed { i, c -> ChainBlock(r, c, slots[i], now, animate) }
+            val stepsAt = r.chains.indexOfFirst { it.unit == "steps" }
+            r.chains.forEachIndexed { i, c -> ChainBlock(r, c, slots[i], now, animate, showSteps = i == stepsAt) }
         }
     }
 }
@@ -192,6 +193,7 @@ private fun ChainBlock(
     slot: RecapTimeline.Slot,
     now: Long,
     animate: Boolean,
+    showSteps: Boolean,
 ) {
     val value = c.before + (c.after - c.before) * RecapTimeline.progress(now, slot)
     Column(Modifier.alpha(if (now < slot.startMs) BEFORE_START_ALPHA else 1f)) {
@@ -204,7 +206,7 @@ private fun ChainBlock(
             Text(RecapFormat.barTotal(c, value), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             Text(RecapFormat.barNext(c, value), style = MaterialTheme.typography.bodySmall)
         }
-        val steps = if (c.unit == "steps") RecapFormat.stepsLine(r) else null
+        val steps = if (showSteps) RecapFormat.stepsLine(r) else null
         if (steps != null) Text(steps, Modifier.alpha(RecapTimeline.fadeIn(now, slot)), style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -225,6 +227,7 @@ private const val LEGEND_DP = 10
 private const val MAP_HEIGHT_DP = 200
 private const val MAP_CORNER_DP = 12
 private const val MAP_PADDING_PX = 48
+private const val SINGLE_POINT_ZOOM = 16.0
 private const val PIN_TAP_DP = 12f
 private const val PIN_SOURCE = "recap-pins"
 private const val PIN_LAYER = "recap-pins-dot"
@@ -308,9 +311,11 @@ private fun RecapMap(
                         style.getSourceAs<GeoJsonSource>(MapSource.TRACE)?.setGeoJson(GeoJson.collection(RecapFeatures.route(route)))
                         style.addSource(GeoJsonSource(PIN_SOURCE))
                         pinLayers().forEach(style::addLayer)
-                        val points = route.flatten().map { LatLng(it.lat, it.lon) }
-                        if (points.size >= 2) {
-                            map.moveCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.fromLatLngs(points), MAP_PADDING_PX))
+                        val points = RecapFeatures.cameraPoints(route, quests).map { LatLng(it.lat, it.lon) }
+                        when (points.size) {
+                            0 -> Unit
+                            1 -> map.moveCamera(CameraUpdateFactory.newLatLngZoom(points.single(), SINGLE_POINT_ZOOM))
+                            else -> map.moveCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.fromLatLngs(points), MAP_PADDING_PX))
                         }
                         styleReady.value = style
                     }

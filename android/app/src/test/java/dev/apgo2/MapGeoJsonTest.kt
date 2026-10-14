@@ -394,6 +394,18 @@ class MapFeaturesTest {
         )
     }
 
+    @Test fun theCameraFitsTheRouteAndEveryQuestPin() {
+        fun q(at: GeoPoint?) = uniffi.apgo_ffi.RecapQuestOut("Q", "P", "g", 0L, at, null)
+        val a = GeoPoint(40.0, -111.0)
+        val b = GeoPoint(40.001, -111.0)
+        val pin = GeoPoint(41.0, -112.0)
+        assertEquals(listOf(a, b), RecapFeatures.cameraPoints(listOf(listOf(a, b)), emptyList()))
+        assertEquals(listOf(pin), RecapFeatures.cameraPoints(emptyList(), listOf(q(null), q(pin))))
+        assertEquals(listOf(a, b, pin), RecapFeatures.cameraPoints(listOf(listOf(a, b)), listOf(q(pin))))
+        assertEquals("a single point", listOf(pin), RecapFeatures.cameraPoints(emptyList(), listOf(q(pin))))
+        assertEquals(emptyList<GeoPoint>(), RecapFeatures.cameraPoints(emptyList(), emptyList()))
+    }
+
     @Test fun aRouteIsOneLinePerStretchAndSkipsLonePoints() {
         val a = GeoPoint(40.0, -111.0)
         val b = GeoPoint(40.001, -111.0)

@@ -364,6 +364,12 @@ internal object RecapFeatures {
     fun route(segments: List<List<GeoPoint>>): List<JSONObject> =
         segments.filter { it.size >= 2 }.map { seg -> GeoJson.feature(GeoJson.lineString(seg.map { it.lat to it.lon })) }
 
+    /** Every point the camera must show: the route and each quest pin. */
+    fun cameraPoints(
+        segments: List<List<GeoPoint>>,
+        quests: List<RecapQuestOut>,
+    ): List<GeoPoint> = segments.flatten() + quests.mapNotNull { it.at }
+
     /** A numbered pin per quest that has a place; `n` counts every quest so pins match list rows. */
     fun questPins(
         quests: List<RecapQuestOut>,

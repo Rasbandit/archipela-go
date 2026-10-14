@@ -62,6 +62,7 @@ import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.CardFormat
 import dev.apgo2.ui.FeedbackText
+import dev.apgo2.ui.Help
 import dev.apgo2.ui.Tone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -387,7 +388,7 @@ private fun AboutToggle(
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .clickable(role = Role.Button, onClickLabel = if (open) "Hide details" else "Show details", onClick = onToggle)
-            .semantics { stateDescription = if (open) "Expanded" else "Collapsed" },
+            .semantics { stateDescription = if (open) Help.EXPANDED else Help.COLLAPSED },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("About this place", fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
