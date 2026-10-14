@@ -264,7 +264,7 @@ and the same `Locator` and parameters.
 | Fixes in a zone | `CLLocationUpdate.liveUpdates(.fitness)` for Walk/Run, `.otherNavigation` for Bike; **never** `.automotiveNavigation` (Core Location road-snaps it before our filter) | `on_fix(FixIn, ..)`, provider `ios` |
 | Background | `CLBackgroundActivitySession` (iOS 17+), `UIBackgroundModes: location` | foreground service |
 | Precise location | `requestTemporaryFullAccuracyAuthorization(withPurposeKey:)` when `accuracyAuthorization == .reducedAccuracy` | fine location permission |
-| Outside zones, home, car | Coarser updates or none; presence rules stay in the host | `PresencePolicy` |
+| Outside zones, home, car | Coarser updates or none; home is decided in the core (`HomeWatch`: home Wi-Fi from the host, the home circle, a GPS check on a walk); car and zone rules stay in the host | `PresencePolicy`, `presence_*` |
 | Fix fields | `coordinate`, `timestamp`, `horizontalAccuracy`, `speed`, `speedAccuracy`, `course`, `courseAccuracy`, `altitude`, `verticalAccuracy`; **negative = unknown: send `None`**; `sourceInformation.isSimulatedBySoftware` as `mock` | `FixIn` |
 | Compass | `CLHeading.trueHeading` as `azimuth_deg`, `headingAccuracy` as `error_deg` (negative = invalid: `None`), `headingFilter = 2` | `on_heading(HeadingIn)` |
 | Steps | `CMPedometer.startUpdates(from:)`: `numberOfSteps` (cumulative, the core uses differences), `currentCadence` | `on_steps(total, t_ms, cadence)`; source `phone.pedometer` |
