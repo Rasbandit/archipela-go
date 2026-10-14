@@ -153,6 +153,10 @@ pub struct ChainView {
     pub rule: String,
     /// The milestones in order.
     pub marks: Vec<MarkView>,
+    /// The badges every quest of the chain needs.
+    pub needs: Vec<String>,
+    /// The badges in `needs` the player does not hold yet (the chain counts nothing while any are missing).
+    pub missing: Vec<String>,
 }
 
 /// Something that happened that the UI or the server needs to hear about.
@@ -785,6 +789,8 @@ impl Game {
                 ChainView {
                     rule: c.rule_text(),
                     total: c.total(),
+                    missing: self.missing_needs(&c.needs),
+                    needs: c.needs,
                     id: c.id,
                     zone: c.zone,
                     kind_id: c.kind_id,
@@ -1001,12 +1007,25 @@ impl Game {
         self.odometer.set_speed_cap(mode_cap_mps(mode));
     }
 
-    /// The game with its travel mode: the fastest of its quests, so a runner is never judged as a walker. Quests, not zones, have a mode,
-    /// so it never changes while the game is played.
+    /// The game with its travel mode set (see [`Self::refresh_travel_mode`]).
     fn with_default_travel_mode(mut self) -> Self {
-        let mode = self.slot.all_quests().iter().map(|q| q.mode).max().unwrap_or(Mode::Walk);
+        let mode = self.playable_mode();
         self.set_travel_mode(mode);
         self
+    }
+
+    /// The fastest mode among the quests whose badges are held, so a runner is never judged as a walker, and a walker is not judged by
+    /// run rules before the Running Shoes arrive.
+    fn playable_mode(&self) -> Mode {
+        self.slot.all_quests().iter().filter(|q| self.missing_needs(&q.needs).is_empty()).map(|q| q.mode).max().unwrap_or(Mode::Walk)
+    }
+
+    /// Follow the travel mode to what the held items make playable; only items change it, so it is called when they do.
+    fn refresh_travel_mode(&mut self) {
+        let mode = self.playable_mode();
+        if mode != self.locator.mode() {
+            self.set_travel_mode(mode);
+        }
     }
 
     /// The newest estimate the filter made (what the last fix became); `None` until a fix was usable.
@@ -1563,8 +1582,11 @@ impl Game {
 
     /// An item arrived (solo reward or server). Applies unlocks and trap effects.
     pub fn receive_item(&mut self, name: &str, now_ms: i64, pos: Option<Point>) -> Vec<Event> {
+        // Time away up to now counts only for what was playable before this item (a zone or a badge it opens starts counting now).
+        self.settle_away(now_ms);
         let before = self.unlocked_set();
         self.items.push(name.to_string());
+        self.refresh_travel_mode();
         let mut ev = Vec::new();
         for z in self.unlocked_set().difference(&before) {
             self.unlocked_at.insert(*z, now_ms);
@@ -1595,6 +1617,7 @@ impl Game {
     pub fn sync_items(&mut self, all: &[String], now_ms: i64, pos: Option<Point>) -> Vec<Event> {
         if all.len() < self.items.len() {
             self.items = all.to_vec();
+            self.refresh_travel_mode();
             return vec![];
         }
         let fresh: Vec<String> = all[self.items.len()..].to_vec();
@@ -2504,6 +2527,58 @@ mod tests {
         assert!(g.counters.progress.get("1:wanderlust").is_none_or(|m| *m == 0.0), "the minute before the unlock was locked");
         g.on_estimate(&fixat(key_spot, 360), None);
         assert!((g.counters.progress["1:wanderlust"] - 1.0).abs() < 0.01);
+    }
+
+    /// Every quest of `g` becomes a run that needs Running Shoes.
+    fn badge_all(g: &mut Game) {
+        for a in &mut g.assignments {
+            a.mode = Mode::Run;
+            a.needs = vec!["Running Shoes".into()];
+        }
+    }
+
+    #[test]
+    fn a_badged_steps_chain_counts_nothing_until_the_shoes_arrive() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]);
+        badge_all(&mut g);
+        let id = "1:step_up:Running Shoes";
+        assert_eq!(g.chain_views(0)[0].missing, vec!["Running Shoes".to_string()]);
+        g.on_steps(0, 1, None);
+        assert!(g.on_steps(5000, 2, None).is_empty());
+        assert!(g.counters.progress.get(id).is_none_or(|n| *n == 0.0), "a badged chain must not fill");
+        assert!(done_ids(&g.receive_item("Running Shoes", 3, None)).is_empty());
+        assert!(g.chain_views(0)[0].missing.is_empty());
+        g.on_steps(5300, 4, None);
+        assert!((g.counters.progress[id] - 300.0).abs() < 0.01, "only steps after the shoes count");
+    }
+
+    #[test]
+    fn the_shoes_do_not_credit_a_run_away_chain_with_time_from_before_they_arrived() {
+        let mut g = away_game(&[3.0, 2.0]); // marks at 2 and 5 minutes
+        badge_all(&mut g);
+        let shoes_spot = destination(g.home, 90.0, 1600.0); // 100 m beyond where `away_for` stands
+        g.assignments.push(chain::tests_support::member(2000, 1, "reach", Target::Point { p: shoes_spot, r: 50.0 }));
+        g.solo_rewards.insert(2000, "Running Shoes".into());
+        away_for(&mut g, 1500.0, 0, 5); // locked by the badge, last fix at 240 s
+        g.on_estimate(&fixat(shoes_spot, 300), None);
+        assert!(g.items.contains(&"Running Shoes".to_string()));
+        let id = "1:wanderlust:Running Shoes";
+        assert!(g.counters.progress.get(id).is_none_or(|m| *m == 0.0), "the time before the shoes was locked");
+        g.on_estimate(&fixat(shoes_spot, 360), None);
+        assert!((g.counters.progress[id] - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_run_quest_at_its_target_is_not_sent_until_the_shoes_arrive() {
+        let (mut g, id, _) = start_near_a_quest();
+        badge_all(&mut g);
+        let target = target_of(&g, id);
+        let ev = g.on_estimate(&fixat(target, 1100), None);
+        assert!(!done_ids(&ev).contains(&id), "a badged quest never completes without its badge");
+        let nm = g.explain_near(&fixat(target, 1101), 100.0).into_iter().find(|n| n.location_id == id).expect("near");
+        assert_eq!(nm.reason, "needs Running Shoes");
+        g.receive_item("Running Shoes", 1_102_000, None);
+        assert!(done_ids(&g.on_estimate(&fixat(target, 1200), None)).contains(&id));
     }
 
     #[test]
@@ -3418,14 +3493,19 @@ mod tests {
     }
 
     #[test]
-    fn create_and_load_pick_the_fastest_zone_mode_and_a_travel_mode_sets_filter_and_odometer() {
+    fn create_and_load_pick_the_fastest_playable_mode_and_a_travel_mode_sets_filter_and_odometer() {
         let dir = std::env::temp_dir().join(format!("apgo-game-mode-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mut g = game(&reach_only(&[Mode::Walk, Mode::Run], 12, "all_trips"), Backend::Solo, 1);
-        assert_eq!((g.locator.mode(), g.odometer.speed_cap_mps()), (Mode::Run, mode_cap_mps(Mode::Run)), "created: fastest zone mode");
+        assert_eq!(g.locator.mode(), Mode::Walk, "created: run quests are locked, so walking rules");
+        g.receive_item("Running Shoes", 0, None);
+        assert_eq!((g.locator.mode(), g.odometer.speed_cap_mps()), (Mode::Run, mode_cap_mps(Mode::Run)), "the shoes make runs playable");
         g.save(&dir).unwrap();
         let back = Game::load(&dir, &g.id).unwrap();
-        assert_eq!((back.locator.mode(), back.odometer.speed_cap_mps()), (Mode::Run, mode_cap_mps(Mode::Run)), "loaded: fastest zone mode");
+        assert_eq!((back.locator.mode(), back.odometer.speed_cap_mps()), (Mode::Run, mode_cap_mps(Mode::Run)), "loaded: fastest playable mode");
+        g.sync_items(&[], 1, None);
+        assert_eq!(g.locator.mode(), Mode::Walk, "the server took the shoes back");
+        g.set_travel_mode(Mode::Run);
         g.set_travel_mode(Mode::Walk);
         assert_eq!((g.locator.mode(), g.odometer.speed_cap_mps()), (Mode::Walk, mode_cap_mps(Mode::Walk)));
         let _ = std::fs::remove_dir_all(&dir);

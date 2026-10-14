@@ -21,7 +21,7 @@ in this step is **Running Shoes**, on run quests, when YAML `run_quests` is on.
 | **`run_share`** (1-50 %, default 20) instead of `badge_shares` | Run is an opt-in pace rule, so its count must not shrink as tools arrive. `badge_shares` lands in Beta 5 with the tools it splits (YAGNI) |
 | A badged quest without its tool is **Locked** (same state as a locked zone) | Reuses the existing Locked path; matches the roadmap rule "without the tool the reward cannot be claimed" |
 | `MODE_TOOLS` / `tool_for` become one badge table | One place for Gloves, Satchel... in Beta 5 |
-| The game's travel mode is the fastest of its quests, set once (found while building) | Zones have no mode; the per-fix zone lookup (`loc::mode_at`) is gone |
+| The game's travel mode is the fastest of its playable quests (badges held), updated when items change (found while building) | Zones have no mode; the per-fix zone lookup (`loc::mode_at`) is gone; walking is not judged by run rules before the shoes |
 | Chains group by zone, kind and `needs` (found while building) | A chain is locked as a whole, so its quests must share their badges |
 | The first quest of every zone is never a run; `run_count` is capped at `trips - zones` | Every zone keeps an open quest, so fill never dead-ends |
 

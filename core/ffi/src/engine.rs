@@ -349,6 +349,10 @@ pub struct ChainOut {
     pub rule: String,
     /// The milestones in order.
     pub marks: Vec<MarkOut>,
+    /// The badges every quest of the chain needs.
+    pub needs: Vec<String>,
+    /// The badges in `needs` the player does not hold yet (the chain counts nothing while any are missing).
+    pub missing: Vec<String>,
 }
 
 /// A quest as the UI shows it.
@@ -988,7 +992,6 @@ fn raw_fix(f: &FixIn, simulated: bool, sim_allowed: bool) -> RawFix {
     }
 }
 
-/// The travel mode for the filter on the next fix (ruling E2): the zone mode at the last estimate, at the raw fix only before the first one.
 /// Whether an accepted estimate goes into the journal: 5 s or 5 m after the last point written, or at once when the clock jumped (a switch
 /// between simulated and real fixes, or a time before the last point: the simulator's clock runs ahead).
 fn journal_due(last: Option<&TrackPoint>, p: &TrackPoint) -> bool {
@@ -2258,6 +2261,8 @@ impl Engine {
                     total: c.total,
                     rule: c.rule,
                     marks: c.marks.into_iter().map(|m| MarkOut { at: m.at, location_id: m.location_id, reached: m.reached, reward: m.reward }).collect(),
+                    needs: c.needs,
+                    missing: c.missing,
                 })
                 .collect()
         })

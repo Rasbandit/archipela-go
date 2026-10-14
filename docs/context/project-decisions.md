@@ -120,7 +120,8 @@ Spec: `docs/superpowers/specs/2026-10-14-beta-2-badges-design.md` (#185).
 | `badge_shares` waits for Beta 5 | Nothing to split while Running Shoes is the only tool |
 | A badged quest without its tool is Locked (no tracking, nothing to claim) | Reuses the zone lock path; "without the tool the reward cannot be claimed" |
 | The first quest of every zone is never a run; keys and the shoes sit on open quests (solo) | Every zone has an open quest, so fill never dead-ends |
-| The travel mode is the game's (the fastest of its quests), set once; the per-fix zone mode lookup is gone | Zones have no mode any more; one less per-fix pass |
+| The travel mode is the fastest of the playable quests (badges held), updated when items change; the per-fix zone mode lookup is gone | Zones have no mode any more; walking is not judged by run rules before the shoes |
+| An arriving item first settles time away, so a zone or badge it opens counts only from then | A badge has no unlock time of its own |
 | Chains group by zone, kind and badges | A chain is locked as a whole, so its quests must share `needs` |
 
 ## 2026-10-08 Licence (decision)

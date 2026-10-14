@@ -414,7 +414,7 @@ internal class ApController(
     }
 }
 
-/** The zone modes of a connected seed and, when the core refuses it (an older seed), the core's reason to show the player. */
+/** The zone count of a connected seed and, when the core refuses it (an older seed), the core's reason to show the player. */
 internal fun readZoneCount(
     slotJson: String?,
     read: (String) -> UInt,

@@ -152,7 +152,6 @@ pub struct Assignment {
     /// How the player travels to this quest.
     pub mode: Mode,
     /// The quest's badges (`slot_data` `needs`): items that must all be held before it can be played.
-    #[serde(default)]
     pub needs: Vec<String>,
     /// Quest family of the chosen kind.
     pub family: String,
