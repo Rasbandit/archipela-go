@@ -60,7 +60,7 @@ internal fun ActivityScreen(
         }
         LazyColumn(Modifier.weight(1f)) {
             items(rows) { e ->
-                if (e.kind == "walk") {
+                if (e.kind == WALK) {
                     WalkRow(e.detail, time.format(Date(e.tMs))) { m.recaps.openWalk(e.tMs) }
                 } else {
                     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -97,7 +97,7 @@ private fun WalkRow(
         Icon(ApgoIcons.Walk, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Column {
             Text(
-                "${AwayFormat.kindLabel("walk")}  ·  $whenText",
+                "${AwayFormat.kindLabel(WALK)}  ·  $whenText",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.primary,
             )

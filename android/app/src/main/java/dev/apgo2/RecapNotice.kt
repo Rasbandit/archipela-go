@@ -75,7 +75,7 @@ internal class RecapController(
         private set
 
     // A preview or a past walk: not the core's pending recap, so closing it never touches the core.
-    private var transient = false
+    private var transient by mutableStateOf(false)
 
     /** What the recap screen's button says. */
     val closeLabel: String get() = closeLabel(transient)
@@ -90,8 +90,11 @@ internal class RecapController(
 
     /** Re-read the core's pending recap (the app came back to the screen, or a game opened). */
     fun refresh() {
-        transient = false
-        recap = engine.pendingRecap()
+        val pending = engine.pendingRecap()
+        if (refreshReplaces(transient, pending != null)) {
+            transient = false
+            recap = pending
+        }
     }
 
     /** Debug only: show [r] (sample data) without touching the core. Dismissing it leaves any real pending recap alone. */
@@ -112,7 +115,8 @@ internal class RecapController(
         scope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { engine.walkRecap(endMs) } }
             r.onFailure { Diag.error("recap", "open walk failed", it) }
-            r.getOrNull()?.let(::showHistory)
+            val walk = r.getOrNull()
+            if (walk == null) Diag.warn("recap", "no recap for the walk", "end_ms" to endMs) else showHistory(walk)
         }
     }
 
@@ -128,6 +132,12 @@ internal class RecapController(
     companion object {
         /** A previewed or past recap is not the core's pending one, so dismissing it must not clear that. */
         fun dismissTouchesCore(transient: Boolean) = !transient
+
+        /** Coming back to the app keeps an open past walk or preview, unless a real recap is pending. */
+        fun refreshReplaces(
+            transient: Boolean,
+            hasPending: Boolean,
+        ) = !transient || hasPending
 
         fun closeLabel(transient: Boolean) = if (transient) Help.RECAP_CLOSE else Help.RECAP_DONE
 

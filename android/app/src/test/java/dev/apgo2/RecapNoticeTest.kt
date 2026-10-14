@@ -60,4 +60,11 @@ class RecapDismissTest {
         assertTrue(RecapController.historyMayShow(shown = true, transient = true))
         assertFalse(RecapController.historyMayShow(shown = true, transient = false))
     }
+
+    @Test fun refreshKeepsATransientUnlessARealRecapIsPending() {
+        assertTrue(RecapController.refreshReplaces(transient = false, hasPending = false))
+        assertTrue(RecapController.refreshReplaces(transient = false, hasPending = true))
+        assertTrue(RecapController.refreshReplaces(transient = true, hasPending = true))
+        assertFalse(RecapController.refreshReplaces(transient = true, hasPending = false))
+    }
 }

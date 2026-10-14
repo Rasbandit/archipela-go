@@ -1,5 +1,7 @@
 package dev.apgo2
 
+/** The activity-log kind of a closed walk. */
+internal const val WALK = "walk"
 private const val APP_FOREGROUND = "app_foreground"
 private const val APP_BACKGROUND = "app_background"
 private const val MS_PER_MINUTE = 60_000
@@ -22,7 +24,7 @@ internal object AwayFormat {
             "near_miss" to "Near a quest",
             "play_paused" to "Stopped playing",
             "presence" to "Presence",
-            "walk" to "Walk",
+            WALK to "Walk",
             "play_resumed" to "Resumed",
             APP_FOREGROUND to "App opened",
             APP_BACKGROUND to "App left the screen",
