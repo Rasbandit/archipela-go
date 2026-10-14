@@ -83,7 +83,7 @@ const ROUTE_CACHE_NODES: usize = 256;
 /// The matcher's answer for the newest input.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MatchOut {
-    /// The matched point (the estimate itself off-network).
+    /// The matched point: on the street, or beside a road for a walker ([`StreetGraph::beside`]); the estimate itself off-network.
     pub point: Point,
     /// Normalised forward probability of the chosen state and every state of the same kind (street or off-network) at the same place,
     /// within `clamp(1.5 sigma_z, 1.5 m, match_place_max_m)` (rulings T18-conf, conf2, conf3), 0..1; capped at `match_degraded_cap` on
@@ -160,6 +160,7 @@ pub struct Matcher {
     cache: HashMap<usize, Vec<(u32, f32)>>,
     route_limit_m: f64,
     show_confidence: f64,
+    side_max_m: f64,
 }
 
 impl Matcher {
@@ -274,7 +275,7 @@ impl Matcher {
     fn tail(&self) -> Vec<Point> {
         let path = self.path();
         let skip = self.columns.len() - self.undecided;
-        self.columns.iter().zip(&path).skip(skip).map(|(c, &i)| Self::shown(&c[i], self.show_confidence)).collect()
+        self.columns.iter().zip(&path).skip(skip).map(|(c, &i)| self.shown(&c[i])).collect()
     }
 
     /// Whether the next point carries on the trace's last run (there is one, and no break ends it).
@@ -299,12 +300,12 @@ impl Matcher {
         self.trace_from_ms
     }
 
-    /// A decided state's trace point: the matched point when it is a street state shown with enough confidence, else the estimate.
-    fn shown(s: &State, show_confidence: f64) -> Point {
-        if s.cand.is_some() && s.conf >= show_confidence {
-            s.point
-        } else {
-            s.input
+    /// A decided state's trace point: the matched point (beside a road for a walker, [`StreetGraph::beside`]) when it is a street state
+    /// shown with enough confidence, else the estimate.
+    fn shown(&self, s: &State) -> Point {
+        match (s.cand, &self.graph) {
+            (Some(c), Some(g)) if s.conf >= self.show_confidence => g.beside(c.seg, s.point, s.input, self.mask, self.side_max_m),
+            _ => s.input,
         }
     }
 
@@ -337,7 +338,7 @@ impl Matcher {
     fn flush(&mut self) {
         let path = self.path();
         let skip = self.columns.len() - self.undecided;
-        let shown: Vec<Point> = self.columns.iter().zip(&path).skip(skip).map(|(c, &i)| Self::shown(&c[i], self.show_confidence)).collect();
+        let shown: Vec<Point> = self.columns.iter().zip(&path).skip(skip).map(|(c, &i)| self.shown(&c[i])).collect();
         for q in shown {
             self.settle(q);
         }
@@ -460,7 +461,7 @@ impl Matcher {
         if p.match_route_limit_m.to_bits() != self.route_limit_m.to_bits() {
             self.cache.clear(); // its maps were searched to the old limit
         }
-        (self.route_limit_m, self.show_confidence) = (p.match_route_limit_m, p.match_show_confidence);
+        (self.route_limit_m, self.show_confidence, self.side_max_m) = (p.match_route_limit_m, p.match_show_confidence, p.match_side_max_m);
         let Some(graph) = self.graph.clone() else {
             self.settle(here);
             self.last_input = Some((here, est.t_ms));
@@ -507,7 +508,8 @@ impl Matcher {
             s.conf = c;
         }
         let i = Self::best_in(&states);
-        self.best = Some(MatchOut { point: states[i].point, confidence: states[i].conf, seg: states[i].cand.map(|c| c.seg) });
+        let point = states[i].cand.map_or(states[i].point, |c| graph.beside(c.seg, states[i].point, here, self.mask, self.side_max_m));
+        self.best = Some(MatchOut { point, confidence: states[i].conf, seg: states[i].cand.map(|c| c.seg) });
         self.columns.push_back(states);
         self.undecided += 1;
         // Fixed lag: a column with `lag` newer inputs is final and goes into the trace; the newest column stays for the next step.
@@ -515,7 +517,8 @@ impl Matcher {
             let path = self.path();
             while self.undecided > p.match_lag {
                 let k = self.columns.len() - self.undecided;
-                self.settle(Self::shown(&self.columns[k][path[k]], p.match_show_confidence));
+                let q = self.shown(&self.columns[k][path[k]]);
+                self.settle(q);
                 self.undecided -= 1;
             }
         }
@@ -588,13 +591,39 @@ mod tests {
     use crate::loc::bench::grid_ways;
     use crate::loc::graph::mode_mask;
     use crate::loc::Estimate;
+    use crate::scan::{way_class, WayGeom};
 
     fn o() -> Point {
         Point::new(40.0, -111.0)
     }
 
+    /// A grid of footways: what a walker snaps to (beside a road they keep their side, issue #176).
     fn grid() -> Arc<StreetGraph> {
-        Arc::new(StreetGraph::from_ways(&grid_ways(o(), 5, 100.0)).unwrap())
+        Arc::new(StreetGraph::from_ways(&footways(grid_ways(o(), 5, 100.0))).unwrap())
+    }
+
+    fn footways(ways: Vec<WayGeom>) -> Vec<WayGeom> {
+        ways.into_iter().map(|w| WayGeom { class: way_class::FOOT, ..w }).collect()
+    }
+
+    #[test]
+    fn a_walker_beside_a_road_keeps_their_side_in_the_answer_and_the_trace() {
+        // Issue #176: on a road (car class) the answer is still the road, but the point is the walker's, up to `match_side_max_m` out.
+        let mut m = Matcher::new(Some(Arc::new(StreetGraph::from_ways(&grid_ways(o(), 5, 100.0)).unwrap())), mode_mask(Mode::Walk));
+        let row = destination(o(), 0.0, 100.0);
+        let out = walk(&mut m, row, 90.0, 7.0, 12, 0).unwrap();
+        let south = |q: Point| (row.lat - q.lat) * 111_195.0;
+        assert!(out.seg.is_some() && out.confidence >= 0.7, "{out:?}");
+        assert!((south(out.point) - 7.0).abs() < 0.5, "the answer keeps the side: {out:?}");
+        assert!(m.trace().iter().all(|q| (south(*q) - 7.0).abs() < 0.5), "so does the trace: {:?}", m.trace());
+        let mut far = Matcher::new(Some(Arc::new(StreetGraph::from_ways(&grid_ways(o(), 5, 100.0)).unwrap())), mode_mask(Mode::Walk));
+        let out = walk(&mut far, row, 90.0, 15.0, 12, 0).unwrap();
+        if out.seg.is_some() {
+            assert!((south(out.point) - LocParams::default().match_side_max_m).abs() < 0.5, "at most 12 m out: {out:?}");
+        }
+        let mut drive = Matcher::new(Some(Arc::new(StreetGraph::from_ways(&grid_ways(o(), 5, 100.0)).unwrap())), mode_mask(Mode::Drive));
+        let out = walk(&mut drive, row, 90.0, 4.0, 12, 0).unwrap();
+        assert!(south(out.point).abs() < 0.5, "a driver snaps onto the road: {out:?}");
     }
 
     fn est(p: Point, t_s: i64) -> Estimate {
@@ -1030,10 +1059,7 @@ mod tests {
         let out = walk(&mut m, destination(row, 90.0, 28.0), 90.0, 2.0, 6, 20).unwrap();
         assert!(out.seg.is_some() && out.confidence >= 0.7, "matching starts on the new graph: {out:?}");
         // A rebuild with fewer segments: one street only, so the old grid's ids would be out of range.
-        let line = Arc::new(
-            StreetGraph::from_ways(&[crate::scan::WayGeom { id: 1, class: crate::scan::way_class::FOOT, pts: vec![row, destination(row, 90.0, 400.0)] }])
-                .unwrap(),
-        );
+        let line = Arc::new(StreetGraph::from_ways(&[WayGeom { id: 1, class: way_class::FOOT, pts: vec![row, destination(row, 90.0, 400.0)] }]).unwrap());
         m.set_graph(Some(Arc::clone(&line)));
         assert!(m.best().is_none(), "the old graph's answer is gone");
         let before = m.trace().len();
@@ -1076,7 +1102,7 @@ mod tests {
     #[test]
     fn halfway_between_two_parallel_streets_is_not_confident() {
         let (a, b) = (o(), destination(o(), 0.0, 10.0));
-        let way = |id: i64, from: Point| crate::scan::WayGeom { id, class: crate::scan::way_class::FOOT, pts: vec![from, destination(from, 90.0, 300.0)] };
+        let way = |id: i64, from: Point| WayGeom { id, class: way_class::FOOT, pts: vec![from, destination(from, 90.0, 300.0)] };
         let mut m = Matcher::new(StreetGraph::from_ways(&[way(1, a), way(2, b)]).map(Arc::new), mode_mask(Mode::Walk));
         let out = walk(&mut m, destination(o(), 0.0, 5.0), 90.0, 0.0, 10, 0).unwrap();
         assert!(out.seg.is_some() && out.confidence < 0.7, "{out:?}");
@@ -1086,7 +1112,7 @@ mod tests {
     fn bad_gps_never_merges_streets_ten_metres_apart() {
         // Ruling T18-conf2: the place radius grows with sigma_z but is capped (6.5 m), so sigma_z = 20 m keeps the streets apart.
         let (a, b) = (o(), destination(o(), 0.0, 10.0));
-        let way = |id: i64, from: Point| crate::scan::WayGeom { id, class: crate::scan::way_class::FOOT, pts: vec![from, destination(from, 90.0, 300.0)] };
+        let way = |id: i64, from: Point| WayGeom { id, class: way_class::FOOT, pts: vec![from, destination(from, 90.0, 300.0)] };
         let mut m = Matcher::new(StreetGraph::from_ways(&[way(1, a), way(2, b)]).map(Arc::new), mode_mask(Mode::Walk));
         let p = LocParams::default();
         let mut out = None;

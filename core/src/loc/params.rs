@@ -189,6 +189,9 @@ pub struct LocParams {
     pub match_stay_confidence: f64,
     /// ... and it is within this many times the showing distance of the estimate.
     pub match_stay_gate_factor: f64,
+    /// In a Walk or Run zone a matched road (car class) keeps the walker's side, up to this far from its centreline, instead of
+    /// snapping onto it: a sidewalk OSM does not map leaves only the centreline (issue #176). Footways and paths still snap. Metres.
+    pub match_side_max_m: f64,
     /// Carry offset (Task 20): learn only from estimates at most this uncertain, metres ...
     pub carry_learn_max_unc_m: f64,
     /// ... at least this fast, m/s ...
@@ -414,6 +417,7 @@ impl Default for LocParams {
             match_show_min_m: 10.0,
             match_stay_confidence: 0.4,
             match_stay_gate_factor: 1.5,
+            match_side_max_m: 12.0,
             carry_learn_max_unc_m: 10.0,
             carry_learn_min_speed_mps: 0.8,
             carry_learn_max_course_sigma_deg: 35.0,
