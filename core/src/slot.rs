@@ -117,10 +117,16 @@ impl SlotData {
     /// # Errors
     /// Returns a message if the JSON is malformed, the schema version is unsupported, there are no zones, or the goals cannot be played.
     pub fn from_json(s: &str) -> Result<Self, String> {
-        let d: Self = serde_json::from_str(s).map_err(|e| format!("bad slot_data: {e}"))?;
-        if !SUPPORTED_SCHEMAS.contains(&d.schema_version) {
-            return Err(format!("unsupported slot_data schema {} (this app understands {SUPPORTED_SCHEMAS:?})", d.schema_version));
+        /// Only the version, read first: an older seed's other fields may not parse as this schema.
+        #[derive(Deserialize)]
+        struct Head {
+            schema_version: u32,
         }
+        let head: Head = serde_json::from_str(s).map_err(|e| format!("bad slot_data: {e}"))?;
+        if !SUPPORTED_SCHEMAS.contains(&head.schema_version) {
+            return Err(format!("unsupported slot_data schema {} (this app understands {SUPPORTED_SCHEMAS:?})", head.schema_version));
+        }
+        let d: Self = serde_json::from_str(s).map_err(|e| format!("bad slot_data: {e}"))?;
         if d.zones.is_empty() {
             return Err("slot_data has no zones".into());
         }
@@ -196,6 +202,18 @@ mod tests {
         assert!(err.contains("unsupported slot_data schema 3"), "{err}");
         assert_eq!(SUPPORTED_SCHEMAS, [4]);
         assert_eq!(SlotData::from_json(SAMPLE).unwrap().schema_version, 4);
+    }
+
+    #[test]
+    fn a_real_schema_3_seed_is_refused_by_its_version_not_its_shape() {
+        let mut v3: serde_json::Value = serde_json::from_str(SAMPLE).unwrap();
+        v3["schema_version"] = 3.into();
+        v3["goals"] = serde_json::json!([{ "id": "treasure_hunt", "target": 0 }]);
+        v3["zones"][1]["mode"] = "bike".into();
+        v3["zones"][1]["tool"] = "Bike".into();
+        let err = SlotData::from_json(&v3.to_string()).unwrap_err();
+        assert_eq!(err, "unsupported slot_data schema 3 (this app understands [4])");
+        assert!(SlotData::from_json("{\"zones\": []}").unwrap_err().starts_with("bad slot_data"), "no version at all is malformed");
     }
 
     #[test]
