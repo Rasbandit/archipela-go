@@ -50,7 +50,7 @@ impl Recap {
     /// Set the route and distance from the recorded trace (one line per stretch; the journal splits at gaps).
     pub fn set_route(&mut self, segments: &[Vec<Point>]) {
         self.distance_m = segments.iter().map(|s| polyline_len_m(s)).sum();
-        self.route = segments.iter().filter(|s| !s.is_empty()).map(|s| thin(s)).collect();
+        self.route = segments.iter().filter(|s| s.len() >= 2).map(|s| thin(s)).collect();
     }
 }
 
@@ -118,6 +118,8 @@ mod tests {
         r.set_route(&[]);
         assert_eq!((r.distance_m, r.route.len()), (0.0, 0));
         r.set_route(&[vec![Point::new(40.0, -111.0)]]);
-        assert_eq!(r.distance_m, 0.0, "a lone point has no length");
+        assert_eq!((r.distance_m, r.route.len()), (0.0, 0), "a lone point has no length and draws no line");
+        r.set_route(&[vec![Point::new(40.0, -111.0)], vec![Point::new(40.0, -111.0), Point::new(40.001, -111.0)]]);
+        assert_eq!(r.route.len(), 1, "only the stretch with a line is kept");
     }
 }
