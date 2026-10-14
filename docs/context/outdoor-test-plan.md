@@ -41,7 +41,8 @@ and walk off (leaving is immediate; arriving back needs 45 s of Wi-Fi), start/st
 (GNSS every second, at most 60 s), and so does a walk at home (30 steps in 30 s; the step counter runs at home in 10 s batches).
 Only a fix clearly outside the 50 m circle (distance minus accuracy) leaves; one clearly inside ends the check (no new check from
 steps for 2 min); an unclear check falls back to home. Two fixes clearly inside bring you home while out. Fixes while home or
-checking reach no game, journal point or trace. Without a pin, home Wi-Fi alone decides as before. To check outdoors: sit at home
+checking reach no game, journal point or trace. Without a pin or a readable step counter (GPS is off at home, so only steps can
+see a walk out), home Wi-Fi alone decides as before. The emulator has no step counter, so it never uses the circle. To check outdoors: sit at home
 with Wi-Fi off (no points, chip "At home"), walk out (tracking within about 30 s of the walk starting plus the 50 m), walk back in.
 Diag: `rawstate` presence lines and `"gps":"Check"` while checking.
 Where to look afterwards: Activity tab, kind **Presence** ("At home: paused", "Tracking", "Outside every zone: saving battery"); in the diag, lines with
