@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::num::{count_f32, count_f64, to_f32};
-use crate::slot::{GoalMode, GoalSpec, SlotData};
+use crate::slot::{GoalMode, SlotData};
 
 /// How far along a win condition is.
 #[derive(Debug, Clone, PartialEq)]
@@ -40,8 +40,8 @@ pub fn goal_yaml_name(id: &str) -> &'static str {
 /// ("Treasure Hunt, Completionist (any one)"). An unknown id is shown as it is.
 #[must_use]
 pub fn goal_summary(slot: &SlotData) -> String {
-    let goals = slot.goal_list();
-    let names: Vec<&str> = goals.iter().map(|g| Some(goal_yaml_name(&g.id)).filter(|n| !n.is_empty()).unwrap_or(&g.id)).collect();
+    let goals = &slot.goals;
+    let names: Vec<&str> = goals.iter().map(|g| Some(goal_yaml_name(g)).filter(|n| !n.is_empty()).unwrap_or(g)).collect();
     if names.len() == 1 {
         return names[0].to_string();
     }
@@ -85,15 +85,8 @@ fn letter_progress(items: &[String], word: &str) -> (f64, f64) {
 
 /// Every goal of the game with its own progress, for the UI.
 #[must_use]
-pub fn evaluate_each(c: &GoalCtx<'_>) -> Vec<(GoalSpec, GoalStatus)> {
-    c.slot
-        .goal_list()
-        .into_iter()
-        .map(|g| {
-            let st = evaluate_one(c, &g.id);
-            (g, st)
-        })
-        .collect()
+pub fn evaluate_each(c: &GoalCtx<'_>) -> Vec<(String, GoalStatus)> {
+    c.slot.goals.iter().map(|g| (g.clone(), evaluate_one(c, g))).collect()
 }
 
 /// The game's win condition: its goal, or several goals combined by the slot's rule (any, all, or at least N).
@@ -144,7 +137,7 @@ fn evaluate_one(c: &GoalCtx<'_>, g: &str) -> GoalStatus {
 mod tests {
     use super::*;
     use crate::catalog::Mode;
-    use crate::slot::{GoalMode, GoalSpec, QuestSlot, ZoneSlot};
+    use crate::slot::{GoalMode, QuestSlot, ZoneSlot, CURRENT_SCHEMA};
 
     const APGO: [&str; 4] = ["Letter A", "Letter P", "Letter G", "Letter O"];
 
@@ -159,9 +152,7 @@ mod tests {
             family: fam.into(),
         };
         SlotData {
-            schema_version: 2,
-            goal: goal.into(),
-            goal_target: 0,
+            schema_version: CURRENT_SCHEMA,
             minutes_per_tier: 10,
             reduction_percent: 8,
             min_distance_m: 150,
@@ -175,7 +166,7 @@ mod tests {
             ],
             trips: vec![q(1, 1, "easy", "reach"), q(2, 1, "hard", "dwell"), q(3, 2, "hard", "landmark"), q(4, 2, "hard", "reach")],
             boss: Some(QuestSlot { location_id: 9, zone: 2, mode: Mode::Walk, difficulty: "hard".into(), effort_tier: 10, family: "boss".into() }),
-            goals: vec![],
+            goals: vec![goal.into()],
             goal_mode: GoalMode::All,
             goal_need: 0,
         }
@@ -184,7 +175,7 @@ mod tests {
     /// A slot whose win condition is several goals combined by `mode`.
     fn multi(goals: &[&str], mode: GoalMode, need: u32) -> SlotData {
         let mut s = slot(goals[0]);
-        s.goals = goals.iter().map(|id| GoalSpec { id: (*id).into(), target: 0 }).collect();
+        s.goals = goals.iter().map(|id| (*id).to_string()).collect();
         s.goal_mode = mode;
         s.goal_need = need;
         s
@@ -200,9 +191,9 @@ mod tests {
     }
 
     #[test]
-    fn a_slot_without_a_goals_list_plays_its_single_goal_exactly_as_before() {
+    fn a_single_goal_keeps_its_own_label() {
         let s = slot("all_trips");
-        assert_eq!(s.goal_list(), vec![GoalSpec { id: "all_trips".into(), target: 0 }]);
+        assert_eq!(s.goals, vec!["all_trips".to_string()]);
         let st = eval(&s, &[1, 2, 3, 4, 9], &[]);
         assert!(st.achieved);
         assert_eq!(st.label, "Complete every quest: 5/5", "a single goal keeps its own label");
@@ -243,8 +234,8 @@ mod tests {
         let (d, it) = ctx_parts(&[9], &APGO);
         let each = evaluate_each(&GoalCtx { slot: &s, done: &d, items: &it });
         assert_eq!(each.len(), 2);
-        assert_eq!((each[0].0.id.as_str(), each[0].1.achieved), ("treasure_hunt", true));
-        assert_eq!((each[1].0.id.as_str(), each[1].1.achieved), ("all_trips", false));
+        assert_eq!((each[0].0.as_str(), each[0].1.achieved), ("treasure_hunt", true));
+        assert_eq!((each[1].0.as_str(), each[1].1.achieved), ("all_trips", false));
     }
 
     #[test]

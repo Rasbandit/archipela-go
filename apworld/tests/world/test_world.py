@@ -196,7 +196,7 @@ def _make_goal_test(goal: str) -> type:
             self.collect_all_but([])
             self.assertBeatable(beatable=True)
             jsonschema.validate(self.world.fill_slot_data(), SCHEMA)
-            assert self.world.fill_slot_data()["goals"][0]["id"] == goal
+            assert self.world.fill_slot_data()["goals"][0] == goal
 
     _T.__name__ = f"TestGoal_{goal}"
     _T.__qualname__ = _T.__name__
@@ -327,7 +327,7 @@ class TestSeveralGoalsAny(Base):
     def test_slot_data_lists_both_goals(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
-        assert [g["id"] for g in data["goals"]] == ["treasure_hunt", "all_trips"]
+        assert data["goals"] == ["treasure_hunt", "all_trips"]
         assert (data["goal_requirement"], data["goal_need"]) == ("any", 1)
 
 
@@ -345,10 +345,10 @@ class TestSeveralGoalsAll(Base):
         state.collect(self.get_items_by_name("Letter O")[0])
         assert self.goal_reachable(state)
 
-    def test_targets_are_zero(self) -> None:
+    def test_goals_are_plain_ids(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
-        assert {g["id"]: g["target"] for g in data["goals"]} == {"treasure_hunt": 0, "all_trips": 0}
+        assert data["goals"] == ["treasure_hunt", "all_trips"]
         assert (data["goal_requirement"], data["goal_need"]) == ("all", 2)
 
 
@@ -418,7 +418,7 @@ class TestBothGoalsAtLeastTwo(Base):
     def test_slot_data_lists_both_goals(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
-        assert [g["id"] for g in data["goals"]] == ["treasure_hunt", "all_trips"]
+        assert data["goals"] == ["treasure_hunt", "all_trips"]
         assert (data["goal_requirement"], data["goal_need"]) == ("at_least", 2)
 
     def test_both_goals_are_needed_so_letters_are_logic(self) -> None:

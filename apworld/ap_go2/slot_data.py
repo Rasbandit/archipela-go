@@ -1,4 +1,4 @@
-"""Client contract v2: build the slot_data dict. Pure and JSON-serializable."""
+"""Client contract v4: build the slot_data dict. Pure and JSON-serializable."""
 
 from collections.abc import Sequence
 from typing import Any
@@ -23,7 +23,7 @@ def quest_entry(quest: Quest) -> dict[str, Any]:
 
 def build_slot_data(  # noqa: PLR0913  # keyword-only, one argument per slot_data field
     *,
-    goals: Sequence[tuple[str, int]],
+    goals: Sequence[str],
     goal_requirement: str,
     goal_need: int,
     minutes_per_tier: int,
@@ -39,7 +39,7 @@ def build_slot_data(  # noqa: PLR0913  # keyword-only, one argument per slot_dat
     """Assemble slot_data (schema `SCHEMA_VERSION`) from resolved settings and the quest plan."""
     return {
         "schema_version": SCHEMA_VERSION,
-        "goals": [{"id": gid, "target": target} for gid, target in goals],
+        "goals": list(goals),
         "goal_requirement": goal_requirement,
         "goal_need": goal_need,
         "minutes_per_tier": minutes_per_tier,

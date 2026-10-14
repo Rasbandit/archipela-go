@@ -1,4 +1,4 @@
-# Client Contract v3 (`schema_version` = 3)
+# Client Contract v4 (`schema_version` = 4)
 
 Normative description of what the apworld sends and what a client must do with it. Machine-readable form:
 `slot_data.schema.json`; a real example: `slot_data.sample.json` (3 zones walk/bike/drive, 60 trips, goal
@@ -9,7 +9,7 @@ Game name: `Archipela-Go 2: Electric Boogaloo`. Item and location IDs are offset
 
 ## Unknown versions and types
 
-- Refuse (do not play) a seed whose `schema_version` is not one you support (this app reads 2 and 3; 2 had a single `goal` and `goal_target`); show a clear "update the app" message.
+- Refuse (do not play) a seed whose `schema_version` is not one you support (this app reads 4 only); show a clear "update the app" message.
 - Ignore quest `type` values you do not know: show them as unsupported, never send their location.
 - Ignore unknown extra fields; a breaking change bumps `schema_version`.
 
@@ -17,8 +17,8 @@ Game name: `Archipela-Go 2: Electric Boogaloo`. Item and location IDs are offset
 
 | Field | Type | Meaning |
 | -- | -- | -- |
-| `schema_version` | int, 3 | See above |
-| `goals` | array, 1-2 | The selected win conditions, each `{id, target}` (see Goals); `target` is 0 (no beta goal counts anything) |
+| `schema_version` | int, 4 | See above |
+| `goals` | array, 1-2 | The selected win conditions, as goal ids (see Goals) |
 | `goal_requirement` | `any`, `all` or `at_least` | How the goals combine into winning |
 | `goal_need` | int 1-2 | How many goals must be finished: 1 for `any`, the number of goals for `all`, N for `at_least` |
 | `minutes_per_tier` | int 5-30 | Effort minutes per tier |
@@ -90,7 +90,7 @@ never tell the server a player won.
 
 A player picks the goals with `goal_selection` (an `OptionSet`, as the Satisfactory world does), the rule with `goal_requirement`
 (`require_any_one_goal`, `require_all_goals`, `require_at_least_n_goals` + `goals_required`). The slot_data carries the resolved
-ids (targets are 0).
+ids.
 
 | Goal | Win when |
 | -- | -- |

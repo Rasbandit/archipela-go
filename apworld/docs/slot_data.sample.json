@@ -1,10 +1,7 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "goals": [
-    {
-      "id": "treasure_hunt",
-      "target": 0
-    }
+    "treasure_hunt"
   ],
   "goal_requirement": "any",
   "goal_need": 1,

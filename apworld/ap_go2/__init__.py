@@ -180,7 +180,7 @@ class ApGo2World(World):  # type: ignore[misc]
         """Build the slot_data the phone client reads (see the client contract schema)."""
         opts = self.options
         return build_slot_data(
-            goals=[(gid, 0) for gid in self.goals],  # no beta goal counts anything
+            goals=list(self.goals),
             goal_requirement=self.goal_requirement,
             goal_need=self.goal_need,
             minutes_per_tier=opts.minutes_per_tier.value,

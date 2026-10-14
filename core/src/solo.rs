@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::Mode;
 use crate::num::{count_i64, count_u32, round_u32};
-use crate::slot::{check_goal_specs, GoalMode, GoalSpec, QuestSlot, SlotData, ZoneSlot, CURRENT_SCHEMA};
+use crate::slot::{check_goal_ids, GoalMode, QuestSlot, SlotData, ZoneSlot, CURRENT_SCHEMA};
 
 /// First Archipelago id of this game; every location and item id is this plus an offset.
 pub const ID_OFFSET: i64 = 8_902_400_000_000;
@@ -75,7 +75,7 @@ pub struct SoloOptions {
     /// The win condition. When `goals` is not empty it takes over (and these two are only the single-goal form).
     pub goal: String,
     /// The win conditions; when not empty they replace `goal`.
-    pub goals: Vec<GoalSpec>,
+    pub goals: Vec<String>,
     /// How the goals combine into winning.
     pub goal_mode: GoalMode,
     /// For an at-least goal mode, how many goals must be finished.
@@ -154,12 +154,12 @@ pub struct SoloGame {
 }
 
 /// Treasure Hunt is the one goal with letters (A, P, G, O) and a Boss Quest.
-fn has_treasure_hunt(goals: &[GoalSpec]) -> bool {
-    goals.iter().any(|g| g.id == "treasure_hunt")
+fn has_treasure_hunt(goals: &[String]) -> bool {
+    goals.iter().any(|g| g == "treasure_hunt")
 }
 
 /// The letters a set of goals needs.
-fn letters_for_goals(goals: &[GoalSpec]) -> &'static str {
+fn letters_for_goals(goals: &[String]) -> &'static str {
     if has_treasure_hunt(goals) {
         "APGO"
     } else {
@@ -170,9 +170,9 @@ fn letters_for_goals(goals: &[GoalSpec]) -> &'static str {
 impl SoloOptions {
     /// The win conditions: the `goals` list, or the single `goal`.
     #[must_use]
-    pub fn goal_list(&self) -> Vec<GoalSpec> {
+    pub fn goal_list(&self) -> Vec<String> {
         if self.goals.is_empty() {
-            vec![GoalSpec { id: self.goal.clone(), target: 0 }]
+            vec![self.goal.clone()]
         } else {
             self.goals.clone()
         }
@@ -203,7 +203,7 @@ pub fn validate(o: &SoloOptions) -> Result<(), String> {
     if o.zone_modes.is_empty() || o.zone_modes.len() > 6 {
         return Err("zone_modes needs 1 to 6 zones".into());
     }
-    check_goal_specs(&o.goal_list(), o.goal_mode, o.goal_need)?;
+    check_goal_ids(&o.goal_list(), o.goal_mode, o.goal_need)?;
     if o.easy_share + o.medium_share + o.hard_share == 0 {
         return Err("at least one difficulty share must be above 0".into());
     }
@@ -381,8 +381,6 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
 
     let slot = SlotData {
         schema_version: CURRENT_SCHEMA,
-        goal: String::new(), // schema 3 carries goals only
-        goal_target: 0,
         goals: o.goal_list(),
         goal_mode: o.goal_mode,
         goal_need: o.goal_need,
@@ -448,7 +446,7 @@ mod tests {
     #[test]
     fn several_goals_together_ask_for_everything_each_one_needs() {
         let mut o = opts(&[Mode::Walk], 60, "all_trips");
-        o.goals = vec![GoalSpec { id: "treasure_hunt".into(), target: 0 }, GoalSpec { id: "all_trips".into(), target: 0 }];
+        o.goals = vec!["treasure_hunt".to_string(), "all_trips".to_string()];
         o.goal_mode = GoalMode::All;
         let g = generate(&o, 3).unwrap();
         assert!(g.slot.boss.is_some(), "Treasure Hunt needs a boss quest");
@@ -456,15 +454,15 @@ mod tests {
         assert_eq!(letters, "APGO".len(), "Treasure Hunt needs its letters");
         assert_eq!(g.slot.goals.len(), 2);
         assert_eq!(g.slot.goal_mode, GoalMode::All);
-        assert_eq!(g.slot.goals[0].id, "treasure_hunt");
+        assert_eq!(g.slot.goals[0], "treasure_hunt");
     }
 
     #[test]
     fn a_goal_list_is_checked_like_a_single_goal() {
         let mut o = opts(&[Mode::Walk], 60, "treasure_hunt");
-        o.goals = vec![GoalSpec { id: "nonsense".into(), target: 0 }];
+        o.goals = vec!["nonsense".to_string()];
         assert!(validate(&o).is_err());
-        o.goals = vec![GoalSpec { id: "treasure_hunt".into(), target: 0 }, GoalSpec { id: "all_trips".into(), target: 0 }];
+        o.goals = vec!["treasure_hunt".to_string(), "all_trips".to_string()];
         o.goal_mode = GoalMode::AtLeast;
         o.goal_need = 3;
         assert!(validate(&o).unwrap_err().contains("goal"), "3 of 2 goals is impossible");

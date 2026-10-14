@@ -27,7 +27,6 @@ use crate::near_path::PathIndex;
 use crate::num::{count_f64, count_u32, i64_to_f64, round_i64, to_f32};
 use crate::realm::Realm;
 use crate::scan::Atlas;
-use crate::slot::GoalSpec;
 use crate::slot::SlotData;
 use crate::traps::Traps;
 use crate::units::{distance, distance_rounded, speed_kmh, Round, UnitSystem};
@@ -619,7 +618,7 @@ impl Game {
 
     /// Each goal of the game with its own progress.
     #[must_use]
-    pub fn goal_statuses(&self) -> Vec<(GoalSpec, GoalStatus)> {
+    pub fn goal_statuses(&self) -> Vec<(String, GoalStatus)> {
         evaluate_each(&self.goal_ctx())
     }
 
@@ -2824,8 +2823,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("apgo-oldgoal-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        g.slot.goal = "boss".into(); // The Big One, removed in Beta 1
-        g.slot.goals = vec![];
+        g.slot.goals = vec!["boss".into()]; // The Big One, removed in Beta 1
         g.save(&dir).unwrap();
         let Err(err) = Game::load(&dir, "g1") else { panic!("a save with a removed goal must not load") };
         assert!(err.contains("older version") && err.contains("unknown goal boss"), "{err}");

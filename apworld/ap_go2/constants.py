@@ -2,7 +2,7 @@
 
 GAME_NAME = "Archipela-Go 2: Electric Boogaloo"
 ID_OFFSET = 8_902_400_000_000
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 MAX_TRIPS = 1000
 MAX_ZONES = 6
@@ -19,9 +19,6 @@ GOAL_NAMES: dict[str, str] = {
     "treasure_hunt": "Treasure Hunt",
     "all_trips": "Completionist",
 }
-
-# Goals that count something, and the option holding that count. None in the beta.
-GOAL_TARGET_OPTIONS: dict[str, str] = {}
 
 # How the chosen goals combine into winning (slot_data `goal_requirement`).
 REQUIREMENTS = ("any", "all", "at_least")

@@ -276,7 +276,7 @@ fn to_core(o: SoloOptionsIn) -> Result<SoloOptions, CoreError> {
     };
     Ok(SoloOptions {
         goal: String::new(),
-        goals: o.goals.into_iter().map(|id| apgo_core::slot::GoalSpec { id, target: 0 }).collect(),
+        goals: o.goals,
         goal_mode,
         goal_need: o.goal_need,
         zone_quest_types: o.zone_quest_types,
@@ -2127,7 +2127,7 @@ impl Engine {
                 goals: g
                     .goal_statuses()
                     .into_iter()
-                    .map(|(spec, st)| GoalLineOut { id: spec.id, label: st.label, progress: st.progress, achieved: st.achieved })
+                    .map(|(id, st)| GoalLineOut { id, label: st.label, progress: st.progress, achieved: st.achieved })
                     .collect(),
                 goal_label: s.label,
                 goal_progress: s.progress,
