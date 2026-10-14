@@ -104,9 +104,8 @@ internal object GeoJson {
 internal val QuestOut.mapImageKey: String
     get() = MarkerSpec.Quest(kindId, family, state, MapMarkers.pips(difficulty, boss), toolBadge).key
 
-// The badge a quest's pin shows: the first tool still missing, else the first it needs; none for an open quest.
-private val QuestOut.toolBadge: ToolBadge?
-    get() = (missing.firstOrNull() ?: needs.firstOrNull())?.let { ToolBadge(it, missing = it in missing) }
+// The badge the core picked for this quest's pin; none for an open quest.
+private val QuestOut.toolBadge: ToolBadge? get() = pinBadge?.let { ToolBadge(it.icon, it.missing) }
 
 // A forager still under way shows its items on the map instead of one pin; the core decides (see `collect_out`).
 internal val QuestOut.showsItems: Boolean get() = collect?.onMap == true

@@ -84,6 +84,8 @@ internal fun ChainRow(
                 modifier = Modifier.weight(1f),
             )
         }
+        // Chains split by badge, so a run chain sits beside its walking twin: its badges say which is which.
+        if (c.badges.isNotEmpty()) BadgeRow(c.badges, c.badgeNote)
         val marks = c.marks.map { it.at }
         val ticks = ChainFormat.fractions(marks, c.total)
         ChainBar(ChainFormat.fill(c.counter, c.total, marks, ticks), ticks, c.marks.map { it.reached })

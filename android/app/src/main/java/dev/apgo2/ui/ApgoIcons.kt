@@ -110,6 +110,7 @@ import com.composables.icons.lucide.Undo2
 import com.composables.icons.lucide.User
 import com.composables.icons.lucide.UtensilsCrossed
 import com.composables.icons.lucide.Waves
+import com.composables.icons.lucide.Wrench
 import com.composables.icons.lucide.X
 
 /**
@@ -350,8 +351,8 @@ internal object ApgoIcons {
 
     fun mode(mode: String): ImageVector = if (mode == "run") Run else Walk
 
-    /** The icon of a badge (a tool item a quest needs); an unknown tool shows a lock. */
-    fun badge(item: String): ImageVector = if (item == "Running Shoes") Run else Locked
+    /** The icon of a badge, by the key the core names for it ("run"); any other tool shows a wrench. */
+    fun badge(icon: String): ImageVector = if (icon == "run") Run else Lucide.Wrench
 
     /** A realm's icon, a map pin until one is picked. */
     fun realm(key: String?): ImageVector = realmIcons[key] ?: Lucide.MapPin

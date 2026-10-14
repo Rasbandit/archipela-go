@@ -21,12 +21,6 @@ class CardFormatTest {
         assertEquals(CardFormat.Place("Bonneville Trail", null), CardFormat.place(PlaceOut("Bonneville Trail", null, quoted = false)))
     }
 
-    @Test fun aBadgeNoteNamesWhatIsStillMissing() {
-        assertEquals(null, CardFormat.badgeNote(emptyList()))
-        assertEquals("Needs Running Shoes", CardFormat.badgeNote(listOf("Running Shoes")))
-        assertEquals("Needs Running Shoes and Gloves", CardFormat.badgeNote(listOf("Running Shoes", "Gloves")))
-    }
-
     @Test fun effortIsRoundedMinutes() {
         assertEquals("~9 min", CardFormat.effort(9.4))
         assertEquals("~10 min", CardFormat.effort(9.6))

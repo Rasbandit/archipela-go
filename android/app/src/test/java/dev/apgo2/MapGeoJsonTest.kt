@@ -16,6 +16,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.maplibre.android.geometry.LatLng
+import uniffi.apgo_ffi.BadgeOut
 import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.CollectItemOut
 import uniffi.apgo_ffi.CollectOut
@@ -127,18 +128,12 @@ class MapFeaturesTest {
         hasAbout = false,
     )
 
-    @Test fun aBadgedQuestsPinShowsItsToolMissingFirstAndAnOpenOnesNone() {
-        val shoes = listOf("Running Shoes")
-        val two = listOf("Running Shoes", "Gloves")
+    @Test fun aQuestsPinDrawsTheBadgeTheCorePicked() {
         val pin = { q: QuestOut -> MapMarkers.parse(q.mapImageKey) as MarkerSpec.Quest }
-        assertEquals(ToolBadge("Running Shoes", missing = true), pin(quest(1, state = "locked").copy(needs = shoes, missing = shoes)).tool)
-        assertEquals(ToolBadge("Running Shoes", missing = false), pin(quest(2).copy(needs = shoes)).tool)
-        assertEquals(
-            "the missing one shows first",
-            ToolBadge("Gloves", missing = true),
-            pin(quest(3).copy(needs = two, missing = listOf("Gloves"))).tool,
-        )
-        assertNull(pin(quest(4)).tool)
+        val missing = BadgeOut("Running Shoes", "run", missing = true)
+        assertEquals(ToolBadge("run", missing = true), pin(quest(1, state = "locked").copy(pinBadge = missing)).tool)
+        assertEquals(ToolBadge("run", missing = false), pin(quest(2).copy(pinBadge = missing.copy(missing = false))).tool)
+        assertNull(pin(quest(3)).tool)
     }
 
     @Test fun aForagerShowsOnePickupPerItemStillOutThereAndNoQuestPin() {

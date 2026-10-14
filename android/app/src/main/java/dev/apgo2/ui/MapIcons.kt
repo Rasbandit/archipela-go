@@ -243,7 +243,7 @@ internal fun renderQuestPin(
             drawCircle(ApgoPalette.onPin, radius = r, center = c)
             drawCircle(if (it.missing) ApgoPalette.toolMissing else ApgoPalette.toolHeld, radius = r - s * 0.025f, center = c)
             val g = r * 1.2f
-            icon(ApgoIcons.badge(it.item), c.x - g / 2, g, ApgoPalette.onPin, width = 2.6f, top = c.y - g / 2)
+            icon(ApgoIcons.badge(it.icon), c.x - g / 2, g, ApgoPalette.onPin, width = 2.6f, top = c.y - g / 2)
         }
     }
 }

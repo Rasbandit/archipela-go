@@ -30,7 +30,7 @@ internal sealed interface MarkerSpec {
         val pips: Int,
         val tool: ToolBadge? = null,
     ) : MarkerSpec {
-        override val key get() = "quest|$kindId|$family|$state|$pips" + (tool?.let { "|${it.item}|${it.stateKey}" } ?: "")
+        override val key get() = "quest|$kindId|$family|$state|$pips" + (tool?.let { "|${it.icon}|${it.stateKey}" } ?: "")
     }
 
     /** A cluster of quests: a ring split by how many are in each of [MapMarkers.RING_STATES], around the count. */
@@ -59,9 +59,9 @@ internal sealed interface MarkerSpec {
     }
 }
 
-/** A quest's tool badge on its pin's corner: the tool's icon, orange while [missing], navy once held. */
+/** A quest's tool badge on its pin's corner: the [icon] the core named for the tool, orange while [missing], navy once held. */
 internal data class ToolBadge(
-    val item: String,
+    val icon: String,
     val missing: Boolean,
 ) {
     val stateKey get() = if (missing) MISSING else HELD
@@ -72,9 +72,9 @@ internal data class ToolBadge(
 
         /** The badge from a key's state part; null for anything else. */
         fun parse(
-            item: String,
+            icon: String,
             state: String,
-        ): ToolBadge? = listOf(MISSING, HELD).firstOrNull { it == state }?.let { ToolBadge(item, it == MISSING) }
+        ): ToolBadge? = listOf(MISSING, HELD).firstOrNull { it == state }?.let { ToolBadge(icon, it == MISSING) }
     }
 }
 
