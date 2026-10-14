@@ -114,6 +114,10 @@ internal class AppModel(
     // Bench only: `adb shell run-as dev.apgo2.app touch files/allow_mock` lets mock fixes through in a debuggable build. It is read
     // once at start: force-stop the app (`adb shell am force-stop dev.apgo2.app`) for a new or removed flag to take effect.
     private val debuggable = ctx.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+
+    /** Whether this is a debuggable build: gates developer-only tools. */
+    val isDebuggable get() = debuggable
+
     private val mockAllowed =
         MockPolicy.allowed(
             debuggable,

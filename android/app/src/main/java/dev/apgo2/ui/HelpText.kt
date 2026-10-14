@@ -179,6 +179,10 @@ internal object Help {
             "How distances are shown. Auto uses the units of your phone's region.",
         )
 
+    // ---- developer (debug builds only)
+    const val DEVELOPER = "Developer"
+    const val PREVIEW_RECAP = "Preview walk recap"
+
     // ---- walk recap
     const val RECAP_TITLE = "Welcome home"
     const val RECAP_DONE = "Done"

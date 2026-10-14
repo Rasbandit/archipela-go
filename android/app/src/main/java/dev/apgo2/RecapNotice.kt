@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.apgo2.ui.Help
 import uniffi.apgo_ffi.Engine
+import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.RecapOut
 
 /** "Welcome home: see your walk": posted when a walk's recap is ready while the app is off screen. Opening the app shows it. */
@@ -67,22 +68,45 @@ internal class RecapController(
     /** The recap on show, until dismissed. */
     var recap by mutableStateOf<RecapOut?>(null)
         private set
+    private var previewing = false
 
     /** The core closed a walk into a new recap (`RecapReady`): show it, or notify when off screen. It is announced once. */
     fun onRecapReady() {
         val r = engine.pendingRecap() ?: return
+        previewing = false
         recap = r
         if (RecapNotice.shouldPost(presence.appVisible)) notice.post(r)
     }
 
     /** Re-read the core's pending recap (the app came back to the screen, or a game opened). */
     fun refresh() {
+        previewing = false
         recap = engine.pendingRecap()
     }
 
-    fun dismiss() {
-        engine.dismissRecap()
-        recap = null
-        notice.cancel()
+    /** Debug only: show [r] (sample data) without touching the core. Dismissing it leaves any real pending recap alone. */
+    fun preview(r: RecapOut) {
+        previewing = true
+        recap = r
     }
+
+    fun dismiss() {
+        if (dismissTouchesCore(previewing)) {
+            engine.dismissRecap()
+            notice.cancel()
+        }
+        previewing = false
+        recap = null
+    }
+
+    companion object {
+        /** A previewed recap is made up, so dismissing it must not clear the core's pending recap. */
+        fun dismissTouchesCore(previewing: Boolean) = !previewing
+    }
+}
+
+/** Debug builds: show the recap screen with made-up data around home (or the last place), saving nothing. */
+internal fun AppModel.previewRecap() {
+    val centre = realmOps.homePoint() ?: lastPlace?.let { GeoPoint(it.latitude, it.longitude) } ?: GeoPoint(40.7608, -111.8910)
+    recaps.preview(RecapSample.build(centre, now()))
 }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -40,5 +41,9 @@ internal fun SettingsScreen(
         LabelWithHelp("Distance units", Help.units)
         ChoiceChips(UNIT_OPTIONS, m.units.choice, m.units::choose, ::unitLabel)
         SwitchRow("Trap alerts", Help.trapAlerts, m.trapSettings.on, m.trapSettings::set)
+        if (m.isDebuggable) {
+            Text(Help.DEVELOPER, style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(onClick = m::previewRecap) { Text(Help.PREVIEW_RECAP) }
+        }
     }
 }

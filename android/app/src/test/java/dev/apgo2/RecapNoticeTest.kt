@@ -40,3 +40,11 @@ internal fun recap(
     banked = 0u,
     route = emptyList(),
 )
+
+class RecapDismissTest {
+    // A previewed recap is sample data: dismissing it must never reach the core.
+    @Test fun dismissTouchesCoreOnlyForRealRecaps() {
+        assertTrue(RecapController.dismissTouchesCore(previewing = false))
+        assertFalse(RecapController.dismissTouchesCore(previewing = true))
+    }
+}
