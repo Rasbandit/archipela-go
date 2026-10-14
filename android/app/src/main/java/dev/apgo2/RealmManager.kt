@@ -129,6 +129,7 @@ internal class RealmManager(
         val saved = runCatching { model.engine.setHome(GeoPoint(p.latitude, p.longitude)) }
         saved.onSuccess {
             model.home = model.engine.home()
+            model.presence.evaluate() // the home circle moved with the pin
             if (announce) model.status = "Home set"
         }
         saved.onFailure { model.fail("set_home", "Could not set home", it) }

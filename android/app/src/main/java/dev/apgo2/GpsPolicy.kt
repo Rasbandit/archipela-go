@@ -70,6 +70,9 @@ internal object GpsPolicy {
     /** Play services' `FusedLocationProviderClient` (Google's fusion), named in the plan and the Diag lines. */
     const val GMS_FUSED = "gms-fused"
 
+    /** At home, telling whether the player left the home circle: the first good fix ends the check, so no batching. */
+    val CHECK = Rate(ON_SCREEN_MS, 0f, highAccuracy = true)
+
     /** Not playing, app on screen: a relaxed rate for the map marker (time-based, plus a distance filter). */
     val IDLE = Rate(intervalMs = 15_000L, minDistanceM = 20f)
 
@@ -92,8 +95,9 @@ internal object GpsPolicy {
 
     /**
      * Whether to flush the running request's batch before replacing it with [next]: only a batched request holds fixes back, and only
-     * a new request replaces it. Stopping needs none: a stop follows arriving home or in the car, which settles only after a 45 s
-     * debounce (presence/PresencePolicy.kt Debouncer), so every fix taken before arriving was delivered (batches are 20 s at most).
+     * a new request replaces it. Stopping needs none: a stop follows arriving home or in the car. Home Wi-Fi and the car settle only
+     * after a debounce (presence/PresencePolicy.kt Debouncer), so every fix taken before was delivered (batches are 20 s at most);
+     * arriving by the home circle may drop the last batch, but its fixes are inside the circle, which records nothing.
      */
     fun shouldFlush(
         running: Rate?,
@@ -114,6 +118,8 @@ internal object GpsPolicy {
             d.state == dev.apgo2.presence.PresenceState.Stopped -> if (appVisible) IDLE else null
 
             d.state == dev.apgo2.presence.PresenceState.InZone -> inZone(screenOn && appVisible)
+
+            d.gps == dev.apgo2.presence.GpsMode.Check -> CHECK
 
             d.gps is dev.apgo2.presence.GpsMode.Rate -> Rate(d.gps.intervalMs, d.gps.minDistanceM)
 

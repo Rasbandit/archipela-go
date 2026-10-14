@@ -281,6 +281,7 @@ internal class AppModel(
         stepsTotal = total
         if (!engine.hasGame()) return
         val events = engine.onSteps(total, eventMs, null)
+        presence.onSteps()
         handle(events)
         pins.refresh()
         // The counter reports in batches: refresh when something happened or the count moved enough to show, never on a timer.

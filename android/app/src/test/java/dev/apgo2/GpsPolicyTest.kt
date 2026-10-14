@@ -23,6 +23,17 @@ class GpsPolicyTest {
         assertEquals("screen off, hidden", slow, GpsPolicy.forDecision(inZone, appVisible = false, screenOn = false))
     }
 
+    @Test fun aHomeCheckAsksForGnssEverySecondUnbatchedWhateverTheScreen() {
+        // A check is short (60 s at most): the first good fix ends it, so it should come as soon as the chip has one.
+        val check = dev.apgo2.presence.Decision(dev.apgo2.presence.PresenceState.AtHome, dev.apgo2.presence.GpsMode.Check, counting = false)
+        for (screen in listOf(true, false)) {
+            assertEquals(
+                GpsPolicy.Rate(1_000L, 0f, highAccuracy = true),
+                GpsPolicy.forDecision(check, appVisible = false, screenOn = screen),
+            )
+        }
+    }
+
     @Test fun inAZoneTheIntervalIsNeverSlowerThanFiveSecondsSoTheTraceStaysDense() {
         for (visible in listOf(true, false)) {
             for (screen in listOf(true, false)) {

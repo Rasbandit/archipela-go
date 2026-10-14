@@ -375,7 +375,10 @@ private fun GameHeader(
         Column {
             Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
             Text(
-                PresenceText.chip(m.presence.decision.state, m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty()),
+                PresenceText.chip(
+                    m.presence.decision.state,
+                    m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty() || m.engine.presenceHasCircle(),
+                ),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.primary,
             )

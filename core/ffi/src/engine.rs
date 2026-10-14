@@ -1772,6 +1772,11 @@ impl Engine {
         self.watch().due_ms()
     }
 
+    /// Whether there is a home circle (a saved home pin); without one home Wi-Fi alone decides.
+    pub fn presence_has_circle(&self) -> bool {
+        self.watch().has_center()
+    }
+
     /// When the walk that left home began (its first step), while away after a check.
     pub fn presence_left_at_ms(&self) -> Option<i64> {
         self.watch().left_at_ms()
@@ -3026,7 +3031,9 @@ mod tests {
     fn with_a_home_pin_a_wifi_drop_only_checks_and_fixes_at_home_are_never_recorded() {
         // The owner's phone drops home Wi-Fi for minutes: GPS may look once, but nothing at home reaches the game, journal or trace.
         let e = engine_with_game("homewatch");
+        assert!(!e.presence_has_circle(), "no home pin yet");
         e.set_home(gp(home())).unwrap();
+        assert!(e.presence_has_circle());
         e.presence_wifi(Some(true), FIX_T_MS);
         e.presence_start(FIX_T_MS);
         assert_eq!(e.presence_state(), "home");

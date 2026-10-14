@@ -12,7 +12,21 @@ class PresencePolicyTest {
         home: Boolean? = false,
         car: Boolean? = false,
         zone: Zone = Zone.Inside,
-    ) = Signals(playing, home, car, zone)
+        checking: Boolean = false,
+    ) = Signals(playing, home, car, zone, checking)
+
+    @Test fun aHomeCheckLooksWithGpsButCountsNothing() {
+        // The core is telling whether a walk or a Wi-Fi drop left the home circle: GPS on, still home, nothing counts.
+        assertEquals(
+            Decision(PresenceState.AtHome, GpsMode.Check, counting = false),
+            PresencePolicy.decide(signals(home = true, checking = true, zone = Zone.Far)),
+        )
+        assertEquals(
+            "the car still wins",
+            PresenceState.InCar,
+            PresencePolicy.decide(signals(home = true, checking = true, car = true)).state,
+        )
+    }
 
     @Test fun notPlayingIsStoppedAndNothingCounts() {
         val d = PresencePolicy.decide(signals(playing = false))
