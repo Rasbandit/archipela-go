@@ -44,6 +44,8 @@ struct Check {
 #[derive(Debug, Clone)]
 pub struct HomeWatch {
     center: Option<Point>,
+    /// Whether the phone reports steps: without them GPS-off at home could never see a walk out, so the circle is not used.
+    walk_sensor: bool,
     state: HomeState,
     started: bool,
     wifi: Option<bool>,
@@ -60,6 +62,7 @@ impl Default for HomeWatch {
     fn default() -> Self {
         Self {
             center: None,
+            walk_sensor: false,
             state: HomeState::Away,
             started: false,
             wifi: None,
@@ -76,7 +79,23 @@ impl HomeWatch {
     /// The home pin (the circle's centre); `None` leaves home to Wi-Fi alone, at once.
     pub fn set_center(&mut self, center: Option<Point>) {
         self.center = center;
-        if center.is_none() && self.started && self.state == HomeState::Checking {
+        self.circle_changed();
+    }
+
+    /// Whether the phone reports steps (a step counter, and permission to read it); the circle needs them.
+    pub fn set_walk_sensor(&mut self, on: bool) {
+        self.walk_sensor = on;
+        self.circle_changed();
+    }
+
+    // The circle round the pin, used only with steps to see a walk out.
+    fn circle(&self) -> Option<Point> {
+        self.center.filter(|_| self.walk_sensor)
+    }
+
+    // No circle any more: a running check ends as Wi-Fi alone would have it.
+    fn circle_changed(&mut self) {
+        if self.circle().is_none() && self.started && self.state == HomeState::Checking {
             if self.wifi == Some(true) {
                 self.go_home(i64::MIN);
             } else {
@@ -91,7 +110,7 @@ impl HomeWatch {
         self.started = true;
         if self.wifi == Some(true) {
             self.go_home(i64::MIN);
-        } else if self.center.is_some() {
+        } else if self.circle().is_some() {
             self.begin_check(t_ms, HomeState::Away, t_ms);
         } else {
             self.go_away(t_ms);
@@ -109,7 +128,7 @@ impl HomeWatch {
         if home == Some(true) {
             self.go_home(i64::MIN);
         } else if self.state == HomeState::Home {
-            if self.center.is_some() {
+            if self.circle().is_some() {
                 self.begin_check(t_ms, HomeState::Home, t_ms);
             } else {
                 self.go_away(t_ms);
@@ -120,7 +139,7 @@ impl HomeWatch {
     /// A step-counter total (cumulative) at the sensor event's time. At home, [`WALK_BURST_STEPS`] within [`WALK_BURST_MS`] start a
     /// check (unless one just found the player home).
     pub fn on_steps(&mut self, total: i64, t_ms: i64) {
-        if self.state != HomeState::Home || self.center.is_none() {
+        if self.state != HomeState::Home || self.circle().is_none() {
             return;
         }
         if self.steps.back().is_some_and(|&(t, _)| t_ms - t > WALK_BURST_MS || t > t_ms) {
@@ -139,7 +158,7 @@ impl HomeWatch {
     /// A real fix (never simulated): `accuracy_m` is its 68 % radius. Only a fix clearly outside the circle (by more than its accuracy)
     /// leaves, and only one clearly inside counts as inside.
     pub fn on_fix(&mut self, p: Point, accuracy_m: f64, t_ms: i64) {
-        let Some(center) = self.center.filter(|_| self.started) else { return };
+        let Some(center) = self.circle().filter(|_| self.started) else { return };
         if !(p.lat.is_finite() && p.lon.is_finite() && accuracy_m.is_finite() && accuracy_m >= 0.0) {
             return;
         }
@@ -170,10 +189,10 @@ impl HomeWatch {
         }
     }
 
-    /// Whether there is a home pin (else home Wi-Fi alone decides).
+    /// Whether the home circle is in use: a home pin and a step counter (else home Wi-Fi alone decides).
     #[must_use]
     pub fn has_center(&self) -> bool {
-        self.center.is_some()
+        self.circle().is_some()
     }
 
     /// Where the player is.
@@ -233,6 +252,7 @@ mod tests {
 
     fn at_home() -> HomeWatch {
         let mut w = HomeWatch::default();
+        w.set_walk_sensor(true);
         w.set_center(Some(home()));
         w.on_wifi(Some(true), 0);
         w.start(0);
@@ -245,6 +265,22 @@ mod tests {
             w.on_steps(total + 2 * s, from_ms + s * 1000);
         }
         total + 2 * secs
+    }
+
+    #[test]
+    fn without_a_step_counter_the_pin_is_ignored_and_wifi_alone_decides() {
+        // GPS is off at home, so only steps can tell a walk out: without them a player in the circle would stay paused for good.
+        let mut w = HomeWatch::default();
+        w.set_center(Some(home()));
+        w.on_wifi(Some(true), 0);
+        w.start(0);
+        assert!(!w.has_center());
+        w.on_wifi(None, 1_000);
+        assert_eq!(w.state(), HomeState::Away, "a drop leaves, as before the circle");
+        w.set_walk_sensor(true);
+        w.on_wifi(Some(true), 2_000);
+        w.on_wifi(None, 3_000);
+        assert_eq!(w.state(), HomeState::Checking, "with steps the circle applies");
     }
 
     #[test]
@@ -368,12 +404,14 @@ mod tests {
     fn starting_with_a_pin_and_no_home_wifi_checks_and_falls_back_to_away() {
         // As before the circle: no home Wi-Fi at the start means playing, unless a fix shows the player home.
         let mut w = HomeWatch::default();
+        w.set_walk_sensor(true);
         w.set_center(Some(home()));
         w.start(0);
         assert_eq!(w.state(), HomeState::Checking);
         w.tick(CHECK_MS);
         assert_eq!(w.state(), HomeState::Away);
         let mut inside = HomeWatch::default();
+        inside.set_walk_sensor(true);
         inside.set_center(Some(home()));
         inside.start(0);
         inside.on_fix(out(5.0), 10.0, 2_000);

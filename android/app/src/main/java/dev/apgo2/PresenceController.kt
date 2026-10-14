@@ -166,6 +166,7 @@ internal class PresenceController(
         t: Long,
     ): String {
         val e = model.engine
+        e.presenceSetWalkSensor(model.sensors.stepsAvailable)
         e.presenceWifi(wifi, t)
         if (!homeStarted) {
             e.presenceStart(t)

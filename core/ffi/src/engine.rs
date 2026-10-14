@@ -1772,7 +1772,12 @@ impl Engine {
         self.watch().due_ms()
     }
 
-    /// Whether there is a home circle (a saved home pin); without one home Wi-Fi alone decides.
+    /// Whether the phone reports steps (a step counter it may read): the home circle needs them to see a walk out.
+    pub fn presence_set_walk_sensor(&self, on: bool) {
+        self.watch().set_walk_sensor(on);
+    }
+
+    /// Whether the home circle is in use (a saved home pin and a step counter); without it home Wi-Fi alone decides.
     pub fn presence_has_circle(&self) -> bool {
         self.watch().has_center()
     }
@@ -3033,6 +3038,8 @@ mod tests {
         let e = engine_with_game("homewatch");
         assert!(!e.presence_has_circle(), "no home pin yet");
         e.set_home(gp(home())).unwrap();
+        assert!(!e.presence_has_circle(), "no step counter yet");
+        e.presence_set_walk_sensor(true);
         assert!(e.presence_has_circle());
         e.presence_wifi(Some(true), FIX_T_MS);
         e.presence_start(FIX_T_MS);
@@ -3049,6 +3056,7 @@ mod tests {
     fn a_walk_out_of_the_home_circle_leaves_and_records_from_there() {
         let e = engine_with_game("homewalk");
         e.set_home(gp(home())).unwrap();
+        e.presence_set_walk_sensor(true);
         e.presence_wifi(Some(true), FIX_T_MS);
         e.presence_start(FIX_T_MS);
         for s in 1..=16 {
@@ -3067,6 +3075,7 @@ mod tests {
     fn a_simulated_fix_never_moves_presence() {
         let e = engine_with_game("homesim");
         e.set_home(gp(home())).unwrap();
+        e.presence_set_walk_sensor(true);
         e.presence_start(FIX_T_MS);
         e.on_fix(fix_at(destination(home(), 90.0, 500.0), FIX_T_MS + 1000), None, true);
         // A release build believes no simulated fix: there it is a real fix 500 m out.

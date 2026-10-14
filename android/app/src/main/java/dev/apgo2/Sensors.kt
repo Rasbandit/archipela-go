@@ -107,6 +107,9 @@ internal class Sensors(
     private val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private var stepListener: SensorEventListener? = null
     private var stepsAllowed = false
+
+    /** Whether steps can be read (permission granted and a step counter present): the core's home circle needs them. */
+    val stepsAvailable: Boolean get() = stepsAllowed && sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) != null
     private var stepBatchUs: Int? = null
     private var stepWakeUp = false
     private var gnssCallback: GnssStatus.Callback? = null
