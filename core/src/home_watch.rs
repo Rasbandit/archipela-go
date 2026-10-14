@@ -99,10 +99,11 @@ impl HomeWatch {
     }
 
     /// The (debounced) home Wi-Fi reading: `Some(true)` on it, `Some(false)` on another network, `None` unknown or off. Joining it is
-    /// home; losing it at home leaves at once without a pin, and only checks with one.
+    /// home; losing it at home leaves at once without a pin, and only checks with one. Only a change counts (the host may repeat it).
     pub fn on_wifi(&mut self, home: Option<bool>, t_ms: i64) {
+        let changed = self.wifi != home;
         self.wifi = home;
-        if !self.started {
+        if !self.started || !changed {
             return;
         }
         if home == Some(true) {
@@ -274,6 +275,17 @@ mod tests {
         w.on_fix(out(20.0), 25.0, 15_000); // indoors: coarse, but within the circle either way (20 + 25 <= 50)
         assert_eq!(w.state(), HomeState::Home);
         assert_eq!(w.due_ms(), None, "GPS goes off again");
+    }
+
+    #[test]
+    fn the_same_wifi_reading_again_starts_no_new_check() {
+        // The host passes the reading on every evaluation: only a change counts, or a check that found home would restart at once.
+        let mut w = at_home();
+        w.on_wifi(None, 0);
+        w.on_fix(out(5.0), 5.0, 1_000);
+        assert_eq!(w.state(), HomeState::Home);
+        w.on_wifi(None, 2_000);
+        assert_eq!(w.state(), HomeState::Home);
     }
 
     #[test]
