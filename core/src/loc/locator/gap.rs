@@ -1,6 +1,5 @@
 //! GPS gaps: bridging from steps and heading with the particle cloud, compass jumps in the gap, re-anchoring.
 
-use crate::catalog::Mode;
 use crate::geo::Point;
 use crate::loc::bridge::{Bridge, Steer};
 use crate::loc::calib::step_length_m;
@@ -141,13 +140,12 @@ impl Locator {
         (widest.saturating_mul(p.bridge_after_spacing_pct) / 100).clamp(p.bridge_after_ms, p.bridge_after_max_ms.max(p.bridge_after_ms))
     }
 
-    /// Walk or Run zone, a filter running, a step counter, and no accepted fix for [`Self::bridge_wait_ms`] (but not yet
+    /// A filter running, a step counter, and no accepted fix for [`Self::bridge_wait_ms`] (but not yet
     /// `bridge_max_ms`), nor any fix the filter took (a gated one too, review I2) for that long.
     pub(super) fn may_bridge(&self, t_ms: i64) -> bool {
         let p = &self.params;
         let wait = self.bridge_wait_ms();
-        matches!(self.mode, Mode::Walk | Mode::Run)
-            && self.imm.as_ref().is_some_and(|imm| t_ms.saturating_sub(imm.t_ms) > wait)
+        self.imm.as_ref().is_some_and(|imm| t_ms.saturating_sub(imm.t_ms) > wait)
             && self.steps.present(t_ms, self.params.steps_present_ms)
             && self.last_accepted_ms.is_some_and(|a| t_ms.saturating_sub(a) > wait && t_ms.saturating_sub(a) <= p.bridge_max_ms)
     }
@@ -331,12 +329,12 @@ impl Locator {
         self.reanchor_warmup = REANCHOR_WARMUP_FIXES;
         // Standing in the gap (review round 3, minor 2): no velocity, and standing the likeliest model; else walking on.
         let (vel, mu) = if self.standing_in_gap(t_ms) {
-            ([0.0, 0.0], self.params.mu0_slow)
+            ([0.0, 0.0], self.params.mu0)
         } else {
             let speed = self.bridged.map_or(0.0, |e| e.speed_mps);
             (self.last_course.map_or([0.0, 0.0], |c| [speed * c.to_radians().sin(), speed * c.to_radians().cos()]), REANCHOR_MU_WALKING)
         };
-        self.imm = Some(Imm::with_prior(frame.to_enu(mean), cov, vel, mu, b.last_step_ms, self.mode, &self.params));
+        self.imm = Some(Imm::with_prior(frame.to_enu(mean), cov, vel, mu, b.last_step_ms, &self.params));
     }
 
     /// A taken fix, or a run of Blurry ones, ends the bridge; the bridged pin is kept but [`Self::last`] is newer.

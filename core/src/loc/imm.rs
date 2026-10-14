@@ -48,18 +48,13 @@ pub fn vel_block(p: &Mat<4, 4>) -> Mat<2, 2> {
     [[p[2][2], p[2][3]], [p[3][2], p[3][3]]]
 }
 
-fn slow(mode: Mode) -> bool {
-    matches!(mode, Mode::Walk | Mode::Run)
-}
-
 /// The model transition matrix for a step of `dt_s`: per-second rates times `min(dt, max_predict_s)` off the diagonal (scaled down if a row
 /// would switch away more than `max_offdiag_share`), the remainder on it.
 #[must_use]
-pub fn transition(p: &LocParams, mode: Mode, dt_s: f64) -> [[f64; 3]; 3] {
-    let rates = if slow(mode) { p.pi_slow } else { p.pi_fast };
+pub fn transition(p: &LocParams, dt_s: f64) -> [[f64; 3]; 3] {
     let t = dt_s.clamp(0.0, p.max_predict_s);
     std::array::from_fn(|i| {
-        let mut off: [f64; 3] = std::array::from_fn(|j| if i == j { 0.0 } else { rates[i][j] * t });
+        let mut off: [f64; 3] = std::array::from_fn(|j| if i == j { 0.0 } else { p.pi[i][j] * t });
         let sum: f64 = off.iter().sum();
         if sum > p.max_offdiag_share {
             off = off.map(|v| v * p.max_offdiag_share / sum);
@@ -75,7 +70,7 @@ pub fn sigma_a(p: &LocParams, mode: Mode, model: usize) -> f64 {
     match model {
         W if mode == Mode::Run => p.sigma_a_run,
         W => p.sigma_a_walk,
-        F => p.sigma_a_bike,
+        F => p.sigma_a_fast,
         _ => 0.0,
     }
 }
@@ -143,17 +138,17 @@ fn normalized(v: [f64; 3], floor: f64) -> [f64; 3] {
 }
 
 impl Imm {
-    /// A fresh filter at `z` (metres, ENU) with position sigma `sigma`: velocity 0 with the mode's initial sigma, the mode's model priors.
+    /// A fresh filter at `z` (metres, ENU) with position sigma `sigma`: velocity 0 with the initial sigma, the model priors.
     #[must_use]
-    pub fn new(z: [f64; 2], sigma: f64, t_ms: i64, mode: Mode, p: &LocParams) -> Self {
-        let v0 = if slow(mode) { p.v0_slow_mps } else { p.v0_fast_mps };
+    pub fn new(z: [f64; 2], sigma: f64, t_ms: i64, p: &LocParams) -> Self {
+        let v0 = p.v0_mps;
         let mut cov = zeros::<4, 4>();
         cov[0][0] = sigma * sigma;
         cov[1][1] = sigma * sigma;
         cov[2][2] = v0 * v0;
         cov[3][3] = v0 * v0;
         let g = Gaussian { x: [z[0], z[1], 0.0, 0.0], p: cov };
-        Self { models: [g; 3], mu: normalized(if slow(mode) { p.mu0_slow } else { p.mu0_fast }, p.mu_floor), t_ms }
+        Self { models: [g; 3], mu: normalized(p.mu0, p.mu_floor), t_ms }
     }
 
     /// A fresh filter at `z` already moving at `v` (m/s, ENU, per-axis sigma `v_sigma`), with model probabilities `mu`: a relocation
@@ -173,8 +168,8 @@ impl Imm {
     /// A filter whose prior is a known position Gaussian (the bridge's cloud, `cov` in m^2) moving at `vel` (m/s; the stationary model
     /// stays still) with model probabilities `mu`, at `t_ms`.
     #[must_use]
-    pub fn with_prior(pos: [f64; 2], cov: Mat<2, 2>, vel: [f64; 2], mu: [f64; 3], t_ms: i64, mode: Mode, p: &LocParams) -> Self {
-        let mut imm = Self::new(pos, 1.0, t_ms, mode, p);
+    pub fn with_prior(pos: [f64; 2], cov: Mat<2, 2>, vel: [f64; 2], mu: [f64; 3], t_ms: i64, p: &LocParams) -> Self {
+        let mut imm = Self::new(pos, 1.0, t_ms, p);
         for (j, g) in imm.models.iter_mut().enumerate() {
             g.p[0][0] = cov[0][0].max(1.0);
             g.p[0][1] = cov[0][1];
@@ -196,7 +191,7 @@ impl Imm {
     #[must_use]
     pub fn predict_to(&self, t_ms: i64, mode: Mode, p: &LocParams) -> ([Gaussian; 3], [f64; 3]) {
         let dt = (i64_to_f64(t_ms.saturating_sub(self.t_ms)) / 1000.0).max(0.0);
-        let (mut preds, c) = mix(&self.models, &self.mu, &transition(p, mode, dt));
+        let (mut preds, c) = mix(&self.models, &self.mu, &transition(p, dt));
         for (j, g) in preds.iter_mut().enumerate() {
             let mut left = dt;
             while left > 0.0 {
@@ -420,7 +415,7 @@ mod tests {
     fn a_prior_keeps_the_stationary_model_still() {
         // Review M10: the cloud's velocity is for the moving models; the stationary one keeps zero and its own sigma.
         let p = LocParams::default();
-        let imm = Imm::with_prior([5.0, 6.0], [[16.0, 2.0], [2.0, 9.0]], [1.2, 0.3], [0.1, 0.85, 0.05], 1_000, Mode::Walk, &p);
+        let imm = Imm::with_prior([5.0, 6.0], [[16.0, 2.0], [2.0, 9.0]], [1.2, 0.3], [0.1, 0.85, 0.05], 1_000, &p);
         let still = imm.models[S];
         assert_eq!((still.x, still.p[2][2], still.p[3][3]), ([5.0, 6.0, 0.0, 0.0], p.stationary_vel_sigma_mps.powi(2), p.stationary_vel_sigma_mps.powi(2)));
         for g in [imm.models[W], imm.models[F]] {
@@ -436,7 +431,7 @@ mod tests {
     fn pi_rows_are_probabilities_for_any_gap_and_both_mode_groups() {
         for mode in Mode::ALL {
             for dt in [0.0, 0.5, 1.0, 5.0, 10.0, 60.0] {
-                for row in transition(&params(), mode, dt) {
+                for row in transition(&params(), dt) {
                     assert!((row.iter().sum::<f64>() - 1.0).abs() < 1e-12, "{mode:?} {dt}: {row:?}");
                     assert!(row.iter().all(|v| (0.0..=1.0).contains(v)), "{mode:?} {dt}: {row:?}");
                 }
@@ -446,7 +441,7 @@ mod tests {
 
     #[test]
     fn one_second_of_pi_is_the_spec_table() {
-        let p = transition(&params(), Mode::Walk, 1.0);
+        let p = transition(&params(), 1.0);
         assert!((p[S][S] - 0.95).abs() < 1e-12 && (p[W][F] - 0.01).abs() < 1e-12 && (p[F][W] - 0.08).abs() < 1e-12);
     }
 
@@ -467,6 +462,18 @@ mod tests {
         let q = cv_noise(0.5, 2.0);
         assert!((q[0][0] - 0.25 * 16.0 / 4.0).abs() < 1e-12 && (q[0][2] - 0.25 * 8.0 / 2.0).abs() < 1e-12 && (q[2][2] - 0.25 * 4.0).abs() < 1e-12);
         assert_eq!(out.p, q);
+    }
+
+    #[test]
+    fn the_filter_tuning_is_the_old_walk_and_run_tuning() {
+        let p = params();
+        assert_eq!(p.pi, [[0.95, 0.048, 0.002], [0.05, 0.94, 0.01], [0.02, 0.08, 0.90]]);
+        assert_eq!(p.mu0, [0.6, 0.35, 0.05]);
+        assert!((p.v0_mps - 2.0).abs() < 1e-12);
+        assert!((sigma_a(&p, Mode::Walk, F) - 1.5).abs() < 1e-12, "the fast model keeps its old noise");
+        assert!((sigma_a(&p, Mode::Run, W) - p.sigma_a_run).abs() < 1e-12);
+        let t = transition(&p, 1.0);
+        assert!((t[S][W] - 0.048).abs() < 1e-12);
     }
 
     #[test]
@@ -502,13 +509,13 @@ mod tests {
     #[test]
     fn walking_fixes_raise_the_walking_model_and_standing_ones_the_stationary() {
         let p = params();
-        let mut walk = Imm::new([0.0, 0.0], 3.0, 0, Mode::Walk, &p);
+        let mut walk = Imm::new([0.0, 0.0], 3.0, 0, &p);
         // Step evidence (S x 0.1, steps coming in) is fed: position-only walking biases the combined speed low (mu_S ~0.2),
         // tracked for Tasks 7 and 23 in the ledger.
         feed(&mut walk, Mode::Walk, [0.1, 1.0, 1.0], (1..=60).map(|i| (i * 1000, [1.4 * i64_to_f64(i), 0.0])));
         assert!(walk.mu[W] > 0.6, "{:?}", walk.mu);
         assert!((walk.output().x[2] - 1.4).abs() < 0.3, "velocity learned: {:?}", walk.output().x);
-        let mut stand = Imm::new([0.0, 0.0], 3.0, 0, Mode::Walk, &p);
+        let mut stand = Imm::new([0.0, 0.0], 3.0, 0, &p);
         feed(&mut stand, Mode::Walk, [1.0; 3], (1..=60).map(|i| (i * 1000, [0.0, 0.0])));
         assert!(stand.mu[S] > 0.8, "{:?}", stand.mu);
         assert!((stand.mu.iter().sum::<f64>() - 1.0).abs() < 1e-9 && stand.mu.iter().all(|m| *m >= p.mu_floor * 0.99));
@@ -517,7 +524,7 @@ mod tests {
     #[test]
     fn coasting_keeps_the_prediction_and_advances_the_time() {
         let p = params();
-        let mut imm = Imm::new([0.0, 0.0], 3.0, 0, Mode::Walk, &p);
+        let mut imm = Imm::new([0.0, 0.0], 3.0, 0, &p);
         let (preds, c) = imm.predict_to(5_000, Mode::Walk, &p);
         imm.coast(preds, c, 5_000, p.mu_floor);
         assert_eq!(imm.t_ms, 5_000);
@@ -539,11 +546,11 @@ mod tests {
     #[test]
     fn new_normalizes_the_model_priors() {
         // T5-m2: zero or unnormalized priors from --params still give probabilities.
-        let zero = LocParams { mu0_slow: [0.0; 3], ..params() };
-        let imm = Imm::new([0.0, 0.0], 3.0, 0, Mode::Walk, &zero);
+        let zero = LocParams { mu0: [0.0; 3], ..params() };
+        let imm = Imm::new([0.0, 0.0], 3.0, 0, &zero);
         assert!(imm.mu.iter().all(|m| (m - 1.0 / 3.0).abs() < 1e-12), "{:?}", imm.mu);
-        let twice = LocParams { mu0_slow: [2.0, 1.0, 1.0], ..params() };
-        let imm = Imm::new([0.0, 0.0], 3.0, 0, Mode::Run, &twice);
+        let twice = LocParams { mu0: [2.0, 1.0, 1.0], ..params() };
+        let imm = Imm::new([0.0, 0.0], 3.0, 0, &twice);
         assert!((imm.mu[S] - 0.5).abs() < 1e-12 && (imm.mu[W] - 0.25).abs() < 1e-12, "{:?}", imm.mu);
     }
 
@@ -584,7 +591,7 @@ mod tests {
     fn a_nan_fix_changes_nothing() {
         // T5-m3: no model can take a NaN measurement: update returns false and the state stays.
         let p = params();
-        let mut imm = Imm::new([0.0, 0.0], 3.0, 0, Mode::Walk, &p);
+        let mut imm = Imm::new([0.0, 0.0], 3.0, 0, &p);
         let before = imm;
         let (preds, c) = imm.predict_to(1_000, Mode::Walk, &p);
         let m = Meas { pos: [f64::NAN, 0.0], r_pos: identity::<2>(), vel: None };

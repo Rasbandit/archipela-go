@@ -480,7 +480,7 @@ impl Locator {
         }
         let mut q = self.params.clone();
         let k = q.maneuver_sigma_a_scale;
-        (q.sigma_a_walk, q.sigma_a_run, q.sigma_a_bike, q.sigma_a_drive) = (q.sigma_a_walk * k, q.sigma_a_run * k, q.sigma_a_bike * k, q.sigma_a_drive * k);
+        (q.sigma_a_walk, q.sigma_a_run, q.sigma_a_fast) = (q.sigma_a_walk * k, q.sigma_a_run * k, q.sigma_a_fast * k);
         imm.predict_to(t_ms, self.mode, &q)
     }
 
@@ -519,7 +519,7 @@ impl Locator {
 
     fn start(&mut self, f: &RawFix, sigma: f64) {
         self.frame = Some(Frame::new(f.point()));
-        self.imm = Some(Imm::new([0.0, 0.0], sigma, f.t_ms, self.mode, &self.params));
+        self.imm = Some(Imm::new([0.0, 0.0], sigma, f.t_ms, &self.params));
         self.last_taken_ms = Some(f.t_ms);
         self.started_ms = Some(f.t_ms);
         self.reloc.clear();

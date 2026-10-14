@@ -2,7 +2,6 @@
 
 use std::collections::VecDeque;
 
-use crate::catalog::Mode;
 use crate::loc::calib::{Calibrator, StepCal};
 use crate::loc::imm::{S, W};
 use crate::num::i64_to_f64;
@@ -141,13 +140,10 @@ impl Locator {
         self.calib.cal()
     }
 
-    /// In a Walk or Run zone, a step counter is present and reported no new steps for `hold_quiet_steps_ms`: the player likely stands,
-    /// so only fixes `hold_quiet_max_m` out end a hold (rulings T8-R2, FR-C1). Not in Bike or Drive zones, where a quiet counter says
-    /// nothing (ruling T8-R18).
+    /// A step counter is present and reported no new steps for `hold_quiet_steps_ms`: the player likely stands, so only fixes
+    /// `hold_quiet_max_m` out end a hold (rulings T8-R2, FR-C1).
     pub(super) fn quiet_counter(&self, t_ms: i64) -> bool {
-        matches!(self.mode, Mode::Walk | Mode::Run)
-            && self.steps.present(t_ms, self.params.steps_present_ms)
-            && self.quiet_steps(t_ms, self.params.hold_quiet_steps_ms)
+        self.steps.present(t_ms, self.params.steps_present_ms) && self.quiet_steps(t_ms, self.params.hold_quiet_steps_ms)
     }
 
     pub(super) fn moving_steps(&self, t_ms: i64) -> bool {
@@ -173,7 +169,7 @@ impl Locator {
             if self.moving_steps(t_ms) {
                 l[S] *= self.params.steps_moving_factor;
             }
-            if matches!(self.mode, Mode::Walk | Mode::Run) && self.quiet_steps(t_ms, self.params.steps_quiet_window_ms) {
+            if self.quiet_steps(t_ms, self.params.steps_quiet_window_ms) {
                 l[W] *= self.params.steps_quiet_factor;
             }
         }
