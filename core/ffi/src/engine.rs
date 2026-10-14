@@ -342,6 +342,15 @@ pub struct MarkOut {
     pub reward: Option<String>,
 }
 
+/// The wire name of a chain's unit.
+fn unit_name(u: ChainUnit) -> &'static str {
+    match u {
+        ChainUnit::Steps => "steps",
+        ChainUnit::Minutes => "minutes",
+        ChainUnit::Cells => "cells",
+    }
+}
+
 /// A progressive quest chain: one counter with a check at each milestone.
 #[derive(Debug, uniffi::Record)]
 pub struct ChainOut {
@@ -621,6 +630,42 @@ pub struct HudOut {
     pub game_name: String,
 }
 
+/// A progressive quest that grew on the walk, see `apgo_core::recap::RecapChain`.
+#[derive(Debug, uniffi::Record)]
+pub struct RecapChainOut {
+    /// Chain id.
+    pub id: String,
+    /// Display name of the chain.
+    pub name: String,
+    /// steps | minutes | cells
+    pub unit: String,
+    /// Zone number the chain belongs to.
+    pub zone: u32,
+    /// The counter on leaving home.
+    pub before: f64,
+    /// The counter on arriving home.
+    pub after: f64,
+    /// The counter value of each check on the chain, in unlock order.
+    pub marks: Vec<f64>,
+}
+
+/// A stand-alone quest finished on the walk, see `apgo_core::recap::RecapQuest`.
+#[derive(Debug, uniffi::Record)]
+pub struct RecapQuestOut {
+    /// Display name of the quest.
+    pub name: String,
+    /// Name of the place the quest used.
+    pub place: String,
+    /// What the quest asked for, in the player's units.
+    pub goal: String,
+    /// When it was finished, Unix ms.
+    pub t_ms: i64,
+    /// Where the player was when it was finished, if a fix was known.
+    pub at: Option<GeoPoint>,
+    /// Solo only: the reward, when known.
+    pub reward: Option<String>,
+}
+
 /// The walk recap ("Welcome home"), see `apgo_core::recap::Recap`.
 #[derive(Debug, uniffi::Record)]
 pub struct RecapOut {
@@ -636,6 +681,12 @@ pub struct RecapOut {
     pub new_cells: u32,
     /// Names of the quests completed.
     pub quests_done: Vec<String>,
+    /// Steps that counted toward chains (slowed by the backpack).
+    pub counted_steps: i64,
+    /// The chains that grew on the walk, by unit then zone.
+    pub chains: Vec<RecapChainOut>,
+    /// The stand-alone quests finished on the walk, in order.
+    pub quests: Vec<RecapQuestOut>,
     /// Checks sent to the server.
     pub checks_sent: u32,
     /// Items received.
@@ -657,6 +708,32 @@ impl From<&Recap> for RecapOut {
             distance_m: r.distance_m,
             new_cells: r.new_cells,
             quests_done: r.quests_done.clone(),
+            counted_steps: r.counted_steps,
+            chains: r
+                .chains
+                .iter()
+                .map(|c| RecapChainOut {
+                    id: c.id.clone(),
+                    name: c.name.clone(),
+                    unit: unit_name(c.unit).into(),
+                    zone: c.zone,
+                    before: c.before,
+                    after: c.after,
+                    marks: c.marks.clone(),
+                })
+                .collect(),
+            quests: r
+                .quests
+                .iter()
+                .map(|q| RecapQuestOut {
+                    name: q.name.clone(),
+                    place: q.place.clone(),
+                    goal: q.goal.clone(),
+                    t_ms: q.t_ms,
+                    at: q.at.map(|p| GeoPoint { lat: p.lat, lon: p.lon }),
+                    reward: q.reward.clone(),
+                })
+                .collect(),
             checks_sent: r.checks_sent,
             items: r.items.clone(),
             zones_unlocked: r.zones_unlocked.clone(),
@@ -2325,12 +2402,7 @@ impl Engine {
                     kind_id: c.kind_id,
                     name: c.name,
                     family: c.family,
-                    unit: match c.unit {
-                        ChainUnit::Steps => "steps",
-                        ChainUnit::Minutes => "minutes",
-                        ChainUnit::Cells => "cells",
-                    }
-                    .into(),
+                    unit: unit_name(c.unit).into(),
                     counter: c.counter,
                     total: c.total,
                     rule: c.rule,
@@ -2664,6 +2736,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use apgo_core::game::OutingQuest;
     use apgo_core::geo::destination;
     use apgo_core::scan::{build_atlas, Feature};
 
@@ -2762,6 +2835,37 @@ mod tests {
         assert!(restarted.pending_recap().is_some(), "saved with the game");
         restarted.dismiss_recap();
         assert!(restarted.pending_recap().is_none());
+    }
+
+    #[test]
+    fn the_recap_carries_counted_steps_standalone_quests_and_grown_chains() {
+        let e = engine_with_game("recap-v2");
+        e.set_counting(false, 0);
+        e.set_counting(true, 1_000);
+        let name = e
+            .with_game(|g| {
+                // Two reach quests become a 500 + 1000 step chain that grew from 300 to 900 on the walk.
+                let zone = g.assignments[0].zone;
+                for (a, n) in g.assignments[1..3].iter_mut().zip([500, 1000]) {
+                    (a.zone, a.kind_id, a.target) = (zone, "step_up".into(), Target::Steps { n });
+                }
+                let chain = format!("{zone}:step_up");
+                g.counters.progress.insert(chain.clone(), 900.0);
+                let o = g.outing.as_mut().unwrap();
+                (o.steps, o.counted_steps) = (900, 700.0);
+                o.progress_at_start.insert(chain, 300.0);
+                let (id, name) = (g.assignments[0].location_id, g.assignments[0].quest_name.clone());
+                g.outing.as_mut().unwrap().quests.push(OutingQuest { location_id: id, t_ms: 5_000, at: Some(home()) });
+                name
+            })
+            .unwrap();
+        e.bank_at_home(600_000);
+        let r = e.pending_recap().expect("recap");
+        assert_eq!(r.counted_steps, 700);
+        let q = r.quests.iter().find(|q| q.name == name).expect("standalone quest listed");
+        assert_eq!((q.t_ms, q.at.as_ref().map(|p| p.lat)), (5_000, Some(home().lat)));
+        let c = r.chains.first().expect("a chain grew");
+        assert_eq!((c.unit.as_str(), c.before, c.after, c.marks.clone()), ("steps", 300.0, 900.0, vec![500.0, 1500.0]));
     }
 
     #[test]
