@@ -1,13 +1,15 @@
 //! Progressive quests: the quests of one kind in one zone that share a counter (steps, minutes away, map squares),
 //! shown as one bar with a mark for each check they unlock.
 
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::assign::{Assignment, Target};
 use crate::num::round_u64;
 
 /// What a chain counts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ChainUnit {
     /// Steps taken.
     Steps,

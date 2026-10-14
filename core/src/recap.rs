@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::chain::ChainUnit;
 use crate::geo::{polyline_len_m, Point};
 
 /// An outing shorter than this is never shown (a trip to the mailbox, Wi-Fi flicker at the door).
@@ -29,6 +30,25 @@ pub struct RecapQuest {
     pub reward: Option<String>,
 }
 
+/// One progressive chain that grew on the walk: its bar before and after, and where its checks fall.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecapChain {
+    /// `"{zone}:{kind_id}"`.
+    pub id: String,
+    /// Display name of the chain.
+    pub name: String,
+    /// What the counter counts.
+    pub unit: ChainUnit,
+    /// Zone number the chain belongs to.
+    pub zone: u32,
+    /// The counter on leaving home (0 when the chain did not exist yet).
+    pub before: f64,
+    /// The counter on arriving home.
+    pub after: f64,
+    /// The counter value of each check on the chain, in unlock order.
+    pub marks: Vec<f64>,
+}
+
 /// What one outing came to.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Recap {
@@ -47,6 +67,12 @@ pub struct Recap {
     /// The quests completed that stand alone (chain milestones are not listed), in the order they were finished.
     #[serde(default)]
     pub quests: Vec<RecapQuest>,
+    /// The chains that grew on the walk, by unit (steps, minutes, cells) then zone.
+    #[serde(default)]
+    pub chains: Vec<RecapChain>,
+    /// Steps that counted toward chains (slowed by the backpack), rounded.
+    #[serde(default)]
+    pub counted_steps: i64,
     /// Checks sent to the Archipelago server.
     pub checks_sent: u32,
     /// Items received.
@@ -63,7 +89,12 @@ impl Recap {
     /// Long enough, and something happened.
     #[must_use]
     pub fn worth_showing(&self) -> bool {
-        let happened = !self.quests_done.is_empty() || !self.items.is_empty() || !self.zones_unlocked.is_empty() || self.banked > 0 || self.steps >= MIN_STEPS;
+        let happened = !self.quests_done.is_empty()
+            || !self.items.is_empty()
+            || !self.zones_unlocked.is_empty()
+            || self.banked > 0
+            || !self.chains.is_empty()
+            || self.steps >= MIN_STEPS;
         self.end_ms - self.start_ms >= MIN_AWAY_MS && happened
     }
 
@@ -105,6 +136,17 @@ mod tests {
         assert!(Recap { items: vec!["i".into()], ..walk(5) }.worth_showing());
         assert!(Recap { zones_unlocked: vec![2], ..walk(5) }.worth_showing());
         assert!(Recap { banked: 1, ..walk(5) }.worth_showing());
+    }
+
+    #[test]
+    fn a_walk_that_only_moved_a_bar_is_worth_showing() {
+        let r = Recap {
+            start_ms: 0,
+            end_ms: 10 * 60_000,
+            chains: vec![RecapChain { id: "1:x".into(), name: "x".into(), unit: ChainUnit::Cells, zone: 1, before: 1.0, after: 2.0, marks: vec![5.0] }],
+            ..Recap::default()
+        };
+        assert!(r.worth_showing());
     }
 
     #[test]

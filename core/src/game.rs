@@ -26,7 +26,7 @@ use crate::loc::{imm::mode_cap_mps, DisplayPosition, Estimate, HeadingIn, Locato
 use crate::near_path::PathIndex;
 use crate::num::{count_f64, count_u32, i64_to_f64, round_i64, to_f32};
 use crate::realm::Realm;
-use crate::recap::{Recap, RecapQuest};
+use crate::recap::{Recap, RecapChain, RecapQuest};
 use crate::scan::Atlas;
 use crate::slot::{check_schema, SlotData};
 use crate::solo::badge_icon;
@@ -336,6 +336,12 @@ pub struct Outing {
     pub start_ms: i64,
     /// Raw steps walked so far (not slowed by the backpack).
     pub steps: i64,
+    /// Steps that counted toward chains so far: each reading at the backpack's rate of that moment.
+    #[serde(default)]
+    pub counted_steps: f64,
+    /// Every chain's counter on leaving, by chain id.
+    #[serde(default)]
+    pub progress_at_start: BTreeMap<String, f64>,
     /// `fog.cells.len()` on leaving.
     pub cells_at_start: usize,
     /// Quests finished on the walk, in order.
@@ -986,14 +992,15 @@ impl Game {
             Some(_) => total,
         };
         self.counters.steps_last = Some(total);
+        // An overloaded backpack slows the count (#142): steps are the only thing it slows.
+        let counted = i64_to_f64(gained) * self.step_factor();
         if let Some(o) = &mut self.outing {
             o.steps += gained;
+            o.counted_steps += counted;
         }
         if gained == 0 {
             return;
         }
-        // An overloaded backpack slows the count (#142): steps are the only thing it slows.
-        let counted = i64_to_f64(gained) * self.step_factor();
         for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Steps) {
             *self.counters.progress.entry(c.id).or_insert(0.0) += counted;
         }
@@ -1039,6 +1046,8 @@ impl Game {
             self.outing = Some(Outing {
                 start_ms: t_ms,
                 steps: 0,
+                counted_steps: 0.0,
+                progress_at_start: self.chains().iter().map(|c| (c.id.clone(), self.counter_at(c, t_ms))).collect(),
                 cells_at_start: self.fog.cells.len(),
                 quests: Vec::new(),
                 items_at_start: self.items.len(),
@@ -1223,10 +1232,35 @@ impl Game {
             })
             .collect();
         let checks_sent = if self.backend == Backend::Archipelago { u32::try_from(quests_done.len()).unwrap_or(u32::MAX) } else { 0 };
+        let unit_rank = |u: ChainUnit| match u {
+            ChainUnit::Steps => 0,
+            ChainUnit::Minutes => 1,
+            ChainUnit::Cells => 2,
+        };
+        let mut chains: Vec<RecapChain> = self
+            .chains()
+            .iter()
+            .filter_map(|c| {
+                let before = o.progress_at_start.get(&c.id).copied().unwrap_or(0.0);
+                let after = self.counter_at(c, t_ms);
+                (after > before).then(|| RecapChain {
+                    id: c.id.clone(),
+                    name: c.name.clone(),
+                    unit: c.unit,
+                    zone: c.zone,
+                    before,
+                    after,
+                    marks: c.marks.iter().map(|m| m.at).collect(),
+                })
+            })
+            .collect();
+        chains.sort_by_key(|c| (unit_rank(c.unit), c.zone));
         Recap {
             start_ms: o.start_ms,
             end_ms: t_ms,
             steps: o.steps,
+            chains,
+            counted_steps: round_i64(o.counted_steps),
             new_cells: u32::try_from(self.fog.cells.len().saturating_sub(o.cells_at_start)).unwrap_or(u32::MAX),
             quests_done,
             quests,
@@ -4651,6 +4685,61 @@ mod tests {
     fn left_home(g: &mut Game, t_ms: i64) {
         g.set_counting(false, 0);
         g.set_counting(true, t_ms);
+    }
+
+    #[test]
+    fn counted_steps_follow_the_backpack_at_each_reading_never_backwards() {
+        let (mut g, pts) = forager_game();
+        left_home(&mut g, 0);
+        g.on_steps(0, 1, None);
+        g.on_steps(1000, 2, None); // light bag: full rate
+        g.on_estimate(&fixat(pts[0], 600), None);
+        g.on_estimate(&fixat(pts[1], 1200), None);
+        g.bag_size = 0; // now overloaded
+        let f = g.step_factor();
+        assert!(f < 1.0);
+        g.on_steps(2000, 1_300_000, None);
+        let o = g.outing.clone().unwrap();
+        assert_eq!(o.steps, 2000);
+        assert!((o.counted_steps - (1000.0 + 1000.0 * f)).abs() < 1e-6, "{}", o.counted_steps);
+    }
+
+    #[test]
+    fn the_recap_has_each_grown_chain_before_and_after_in_unit_order() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }, Target::Steps { n: 1000 }]);
+        g.on_steps(0, 1, None);
+        g.on_steps(300, 2, None); // 300 before the walk
+        left_home(&mut g, 1_000);
+        g.on_steps(300, 1_001, None);
+        g.on_steps(900, 1_002, None);
+        let r = g.arrive_home(10 * 60_000).1.expect("a chain grew");
+        assert_eq!(r.chains.len(), 1);
+        let c = &r.chains[0];
+        assert_eq!((c.unit, c.before, c.after, c.marks.clone()), (ChainUnit::Steps, 300.0, 900.0, vec![500.0, 1500.0]));
+        assert_eq!(r.counted_steps, 600);
+    }
+
+    #[test]
+    fn time_away_bars_use_the_live_counter() {
+        let mut g = away_game(&[30.0, 60.0]);
+        left_home(&mut g, 0);
+        g.set_counting(false, 40 * 60_000);
+        let r = g.arrive_home(40 * 60_000).1.expect("time away grew");
+        let c = r.chains.iter().find(|c| c.unit == ChainUnit::Minutes).unwrap();
+        assert!((c.after - c.before - 40.0).abs() < 0.5, "{} -> {}", c.before, c.after);
+    }
+
+    #[test]
+    fn a_chain_with_no_start_value_counts_from_zero() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.on_steps(0, 1, None);
+        g.on_steps(200, 2, None);
+        left_home(&mut g, 1_000);
+        g.outing.as_mut().unwrap().progress_at_start.clear(); // as if the chain's zone unlocked mid-walk
+        g.on_steps(200, 1_001, None);
+        g.on_steps(400, 1_002, None);
+        let r = g.arrive_home(10 * 60_000).1.unwrap();
+        assert_eq!(r.chains[0].before, 0.0);
     }
 
     #[test]
