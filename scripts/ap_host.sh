@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Dev Archipelago server with OUR apworld, single player "Tester".
-#   [APGO_ZONES=walk,bike,drive] [APGO_GOALS="Letter Hunt,The Big One"] [APGO_REQ=require_all_goals] scripts/ap_host.sh start [trips]
+#   [APGO_ZONES=walk,bike,drive] [APGO_GOALS="Treasure Hunt,Completionist"] [APGO_REQ=require_all_goals] scripts/ap_host.sh start [trips]
 #                                      generate a seed and host it on :38281 (+ adb reverse to the phone)
 #   scripts/ap_host.sh serve           host the last generated seed again on its save (a server restart; nothing regenerated)
 #   scripts/ap_host.sh stop | status | log
@@ -47,7 +47,7 @@ case "${1:-}" in
     "$0" stop >/dev/null 2>&1 || true
     rm -rf "$dev"; mkdir -p "$dev/players" "$dev/out"
     zones="${APGO_ZONES:-walk,bike,drive}"
-    goals="${APGO_GOALS:-Letter Hunt}"
+    goals="${APGO_GOALS:-Treasure Hunt}"
     req="${APGO_REQ:-require_any_one_goal}"
     cat > "$dev/players/Tester.yaml" <<YAML
 name: Tester

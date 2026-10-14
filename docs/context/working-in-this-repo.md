@@ -54,7 +54,7 @@ owner: never switch branches or edit files there. A `git switch` by one session 
 | Phone | `adb connect 10.0.20.151:40843` then `ANDROID_SERIAL=10.0.20.151:40843 adb install -r ...`. When both are attached always set `ANDROID_SERIAL` |
 | Screenshot | `adb exec-out screencap -p > /tmp/x.png` then Read the PNG |
 | UI driver | `python3 scripts/android_ui.py texts \| tap "Label" [exact] \| tapn \| type \| wait` (honors `ANDROID_SERIAL`; prefix with `timeout 20`) |
-| Dev Archipelago server | `APGO_GOALS="Letter Hunt,The Big One" APGO_REQ=require_all_goals scripts/ap_host.sh start 60`, `scripts/ap_host.sh stop` |
+| Dev Archipelago server | `APGO_GOALS="Treasure Hunt,Completionist" APGO_REQ=require_all_goals scripts/ap_host.sh start 60`, `scripts/ap_host.sh stop` |
 | Parse a slot_data file with the app's reader | `cd core && cargo run -q --example parse_slot -- file.json` |
 | Pull and replay a walk (location bench) | `scripts/pull_diag.sh <out>`, `python3 scripts/diag_report.py <out>`, then `cd core && cargo run --release --example replay -- <out> --mode walk --compare baseline [--atlas <out>/files/atlas/<realm>.json] [--game <out>/files/games/<id>.json] [--params p.json] [--geojson out.geojson]` (keep pulls out of git: `location-estimation.md`) |
 | Let mock locations through (debug build, bench only) | `adb shell run-as dev.apgo2.app touch files/allow_mock`, then `adb shell am force-stop dev.apgo2.app` (read once at start) |
