@@ -12,6 +12,23 @@ pub const MIN_STEPS: i64 = 500;
 /// Route thinning tolerance in degrees of latitude (about 5 m).
 const THIN_DEG: f64 = 5.0 / 111_320.0;
 
+/// One quest finished on the walk, as the recap lists it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecapQuest {
+    /// Display name of the quest.
+    pub name: String,
+    /// Name of the place the quest used.
+    pub place: String,
+    /// What the quest asked for, in the player's units.
+    pub goal: String,
+    /// When it was finished, Unix ms.
+    pub t_ms: i64,
+    /// Where the player was when it was finished, if a fix was known.
+    pub at: Option<Point>,
+    /// The reward, when known: solo games only (Archipelago rewards belong to other players).
+    pub reward: Option<String>,
+}
+
 /// What one outing came to.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Recap {
@@ -27,6 +44,9 @@ pub struct Recap {
     pub new_cells: u32,
     /// Names of the quests completed.
     pub quests_done: Vec<String>,
+    /// The quests completed that stand alone (chain milestones are not listed), in the order they were finished.
+    #[serde(default)]
+    pub quests: Vec<RecapQuest>,
     /// Checks sent to the Archipelago server.
     pub checks_sent: u32,
     /// Items received.

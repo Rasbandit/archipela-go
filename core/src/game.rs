@@ -26,7 +26,7 @@ use crate::loc::{imm::mode_cap_mps, DisplayPosition, Estimate, HeadingIn, Locato
 use crate::near_path::PathIndex;
 use crate::num::{count_f64, count_u32, i64_to_f64, round_i64, to_f32};
 use crate::realm::Realm;
-use crate::recap::Recap;
+use crate::recap::{Recap, RecapQuest};
 use crate::scan::Atlas;
 use crate::slot::{check_schema, SlotData};
 use crate::solo::badge_icon;
@@ -317,9 +317,20 @@ pub struct ApServer {
     pub slot: String,
 }
 
+/// A quest finished during an outing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutingQuest {
+    /// Archipelago location id of the quest.
+    pub location_id: i64,
+    /// When it was finished, Unix ms.
+    pub t_ms: i64,
+    /// Where the player was, if a fix was known.
+    pub at: Option<Point>,
+}
+
 /// A walk away from home, open from leaving until arriving home (car rides in between do not close it). Snapshots, not a log:
 /// what changed is worked out on arrival (`arrive_home`). Saved, so a restart mid-walk keeps it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Outing {
     /// When the player left home, Unix ms.
     pub start_ms: i64,
@@ -327,8 +338,9 @@ pub struct Outing {
     pub steps: i64,
     /// `fog.cells.len()` on leaving.
     pub cells_at_start: usize,
-    /// Quests done on leaving.
-    pub done_at_start: BTreeSet<i64>,
+    /// Quests finished on the walk, in order.
+    #[serde(default)]
+    pub quests: Vec<OutingQuest>,
     /// `items.len()` on leaving.
     pub items_at_start: usize,
     /// Zones unlocked on leaving.
@@ -1028,7 +1040,7 @@ impl Game {
                 start_ms: t_ms,
                 steps: 0,
                 cells_at_start: self.fog.cells.len(),
-                done_at_start: self.done.clone(),
+                quests: Vec::new(),
                 items_at_start: self.items.len(),
                 zones_at_start: self.unlocked_set(),
                 banked_at_start: self.banked_total(),
@@ -1194,11 +1206,21 @@ impl Game {
 
     // What changed since the outing's snapshots.
     fn recap_of(&self, o: &Outing, t_ms: i64) -> Recap {
-        let quests_done: Vec<String> = self
-            .assignments
+        let assignment = |id: i64| self.assignments.iter().find(|a| a.location_id == id);
+        let quests_done: Vec<String> = o.quests.iter().filter_map(|q| assignment(q.location_id)).map(|a| a.quest_name.clone()).collect();
+        let members: BTreeSet<i64> = self.chains().iter().flat_map(|c| c.marks.iter().map(|m| m.location_id)).collect();
+        let quests = o
+            .quests
             .iter()
-            .filter(|a| self.done.contains(&a.location_id) && !o.done_at_start.contains(&a.location_id))
-            .map(|a| a.quest_name.clone())
+            .filter(|q| !members.contains(&q.location_id))
+            .filter_map(|q| {
+                let a = assignment(q.location_id)?;
+                let reward = match self.backend {
+                    Backend::Solo => self.solo_rewards.get(&q.location_id).cloned(),
+                    Backend::Archipelago => None,
+                };
+                Some(RecapQuest { name: a.quest_name.clone(), place: a.place.clone(), goal: a.target.goal_text(self.units), t_ms: q.t_ms, at: q.at, reward })
+            })
             .collect();
         let checks_sent = if self.backend == Backend::Archipelago { u32::try_from(quests_done.len()).unwrap_or(u32::MAX) } else { 0 };
         Recap {
@@ -1207,6 +1229,7 @@ impl Game {
             steps: o.steps,
             new_cells: u32::try_from(self.fog.cells.len().saturating_sub(o.cells_at_start)).unwrap_or(u32::MAX),
             quests_done,
+            quests,
             checks_sent,
             items: self.items.get(o.items_at_start..).unwrap_or_default().to_vec(),
             zones_unlocked: self.unlocked_set().difference(&o.zones_at_start).copied().collect(),
@@ -1639,6 +1662,9 @@ impl Game {
         if locked || !self.done.insert(id) {
             return ev;
         }
+        if let Some(o) = self.outing.as_mut() {
+            o.quests.push(OutingQuest { location_id: id, t_ms: now_ms, at: pos });
+        }
         self.trackers.remove(&id);
         if let Some(f) = self.forage.get_mut(&id) {
             f.clear(); // a done forager's items leave the map and never come back
@@ -1767,14 +1793,11 @@ impl Game {
         ev
     }
 
-    /// Mark quests the server says are already checked (reconnect). An open walk treats them as done before it started.
+    /// Mark quests the server says are already checked (reconnect). They are not walk quests: only `complete` records one.
     pub fn mark_checked(&mut self, ids: &[i64], now_ms: i64) {
         for id in ids {
             if self.assignments.iter().any(|a| a.location_id == *id) && self.done.insert(*id) {
                 self.stats.quest_days.insert(now_ms / DAY_MS);
-                if let Some(o) = self.outing.as_mut() {
-                    o.done_at_start.insert(*id);
-                }
             }
         }
     }
@@ -4703,6 +4726,44 @@ mod tests {
         let r = g.arrive_home(1_300_000).1.expect("three items brought home");
         assert_eq!(r.banked, 3);
         assert_eq!(r.quests_done, vec![g.assignments[0].quest_name.clone()]);
+    }
+
+    #[test]
+    fn a_quest_done_on_the_walk_is_recorded_with_its_time_and_place() {
+        let (mut g, pts) = forager_game();
+        left_home(&mut g, 0);
+        for (i, p) in pts.iter().enumerate() {
+            g.on_estimate(&fixat(*p, 600 + 600 * i64::try_from(i).unwrap()), None);
+        }
+        g.set_counting(false, 9_000_000);
+        let r = g.arrive_home(9_100_000).1.expect("a forager done");
+        let q = r.quests.iter().find(|q| !q.goal.is_empty()).expect("the forager is listed");
+        assert!(q.at.is_some() && q.t_ms > 0);
+        assert_eq!(q.reward.as_deref(), g.solo_rewards.get(&2000).map(String::as_str), "solo: the reward is known");
+    }
+
+    #[test]
+    fn chain_milestones_count_as_done_but_are_not_listed_as_quests() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        left_home(&mut g, 0);
+        g.on_steps(0, 1, None);
+        g.on_steps(600, 2, None);
+        let r = g.arrive_home(10 * 60_000).1.unwrap();
+        assert_eq!(r.quests_done.len(), 1);
+        assert!(r.quests.is_empty(), "the bar shows chain milestones");
+    }
+
+    #[test]
+    fn archipelago_quests_have_no_known_reward() {
+        let (mut g, pts) = forager_game();
+        g.backend = Backend::Archipelago;
+        left_home(&mut g, 0);
+        for (i, p) in pts.iter().enumerate() {
+            g.on_estimate(&fixat(*p, 600 + 600 * i64::try_from(i).unwrap()), None);
+        }
+        g.set_counting(false, 9_000_000);
+        let r = g.arrive_home(9_100_000).1.unwrap();
+        assert!(!r.quests.is_empty() && r.quests.iter().all(|q| q.reward.is_none()));
     }
 
     #[test]
