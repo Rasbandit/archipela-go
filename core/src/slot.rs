@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(d.goals, vec!["treasure_hunt".to_string()]);
         assert_eq!((d.goal_mode, d.goal_need), (GoalMode::Any, 1));
         assert_eq!(d.zones.len(), 3);
-        assert_eq!(d.zones[1].tool.as_deref(), Some("Bike"));
+        assert_eq!(d.zones[1].tool.as_deref(), Some("Running Shoes"));
         assert_eq!(d.trips.len(), 60);
         assert!(d.boss.is_some());
         assert_eq!(d.all_quests().len(), 61);

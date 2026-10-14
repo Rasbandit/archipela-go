@@ -9,7 +9,7 @@ MAX_ZONES = 6
 MIN_TIER = 1
 MAX_TIER = 10
 
-MODES = ("walk", "run", "bike", "drive")
+MODES = ("walk", "run")
 DIFFICULTIES = ("easy", "medium", "hard")
 GOALS = ("treasure_hunt", "all_trips")
 BOSS_GOALS = ("treasure_hunt",)  # goals that add the Boss Quest location
@@ -31,7 +31,7 @@ DIFFICULTY_BANDS: dict[str, tuple[int, int]] = {
 }
 
 # Nominal speeds, km/h, used by clients to turn effort minutes into distance.
-MODE_SPEED_KMH: dict[str, float] = {"walk": 4.5, "run": 9.0, "bike": 15.0, "drive": 35.0}
+MODE_SPEED_KMH: dict[str, float] = {"walk": 4.5, "run": 9.0}
 
 BOSS_FAMILY = "boss"
 FAMILY_MODES: dict[str, tuple[str, ...]] = {
@@ -40,17 +40,17 @@ FAMILY_MODES: dict[str, tuple[str, ...]] = {
     "landmark": MODES,
     "courier": MODES,
     "away": MODES,
-    "explore": ("walk", "run", "bike"),
-    "trail": ("walk", "run", "bike"),
-    "water": ("walk", "run", "bike"),
-    "park": ("walk", "run"),
-    "steps": ("walk", "run"),
+    "explore": MODES,
+    "trail": MODES,
+    "water": MODES,
+    "park": MODES,
+    "steps": MODES,
 }
 FAMILIES = tuple(FAMILY_MODES)  # player-selectable families; `boss` is goal-only
 REACH_WEIGHT = 3  # `reach` is picked this many times as often as any other family
 
 # Default tool item for each mode that needs one. Walking is always allowed.
-MODE_TOOLS: dict[str, str] = {"run": "Running Shoes", "bike": "Bike", "drive": "Car"}
+MODE_TOOLS: dict[str, str] = {"run": "Running Shoes"}
 
 # Location ID blocks: block = difficulty_index * len(MODES) + mode_index; Boss gets the block after.
 BLOCK_SIZE = 1000

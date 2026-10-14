@@ -1,7 +1,7 @@
 # Client Contract v4 (`schema_version` = 4)
 
 Normative description of what the apworld sends and what a client must do with it. Machine-readable form:
-`slot_data.schema.json`; a real example: `slot_data.sample.json` (3 zones walk/bike/drive, 60 trips, goal
+`slot_data.schema.json`; a real example: `slot_data.sample.json` (3 zones walk/run/walk, 60 trips, goal
 treasure_hunt, any one goal); a player YAML: `example.yaml`. If the schema and this file disagree, fix both together.
 
 Game name: `Archipela-Go 2: Electric Boogaloo`. Item and location IDs are offset by `8_902_400_000_000`
@@ -30,7 +30,7 @@ Game name: `Archipela-Go 2: Electric Boogaloo`. Item and location IDs are offset
 | `trips` | array | One quest per entry (below) |
 | `boss` | object or null | A quest entry; non-null when `treasure_hunt` is among the goals |
 
-Quest entry: `location_id` (int), `zone` (1-6), `mode` (`walk|run|bike|drive`), `difficulty`
+Quest entry: `location_id` (int), `zone` (1-6), `mode` (`walk|run`), `difficulty`
 (`easy|medium|hard`), `effort_tier` (1-10), `type` (family, or `boss`).
 
 ## Effort
@@ -38,15 +38,13 @@ Quest entry: `location_id` (int), `zone` (1-6), `mode` (`walk|run|bike|drive`), 
 `effort_min = effort_tier * minutes_per_tier` active minutes (Effort Reductions multiply by
 `(1 - reduction_percent/100) ** reductions_received`, rounded up to whole minutes).
 Bands: easy tiers 1-3, medium 4-7, hard 8-10. Nominal mode speeds for turning minutes into distance:
-walk 4.5, run 9, bike 15, drive 35 km/h. Never place a place closer than `min_distance_m`.
+walk 4.5, run 9 km/h. Never place a place closer than `min_distance_m`.
 
 ## Families (`type`) and modes
 
 | Family | Modes |
 | -- | -- |
-| reach, dwell, landmark, courier, away | walk, run, bike, drive |
-| explore, trail, water | walk, run, bike |
-| park, steps | walk, run |
+| reach, dwell, landmark, courier, away, explore, trail, water, park, steps | walk, run |
 | boss | the last zone's mode |
 
 The apworld picks the family; the client picks the concrete kind and place from the realm's atlas, falling
@@ -56,22 +54,33 @@ back to reach when nothing fits.
 
 A zone `k` is open when `Progressive Zone Key` count >= `zone_keys_needed` (= k-1) and, if `tool` is set, that
 tool item is held (and all earlier zones are open). Tools exist only for zones whose mode differs from zone
-1's and is run/bike/drive: `Running Shoes` (run), `Bike` (bike), `Car` (drive). Walking never needs a tool.
-Quests of a closed zone must not be sent.
+1's and is run: `Running Shoes`. Walking never needs a tool. Item ids `ID_OFFSET + 3` and `+ 4` (the old Bike and
+Car) are retired and never reused. Quests of a closed zone must not be sent.
 
 ## Locations
 
-Names `"{Difficulty} {Mode} Quest #{n}"` (e.g. `Hard Bike Quest #3`); ID = `ID_OFFSET + block*1000 + n`,
-`block = difficulty_index*4 + mode_index` (Easy, Medium, Hard; Walk, Run, Bike, Drive). `Boss Quest` is
-`ID_OFFSET + 12001`. Location groups (for `exclude_locations`, hints): Easy, Medium, Hard, Walk, Run, Bike,
-Drive, Boss (the boss is also in Hard).
+Names `"{Difficulty} {Mode} Quest #{n}"` (e.g. `Hard Run Quest #3`); ID = `ID_OFFSET + block*1000 + n`,
+`block = difficulty_index*2 + mode_index` (Easy, Medium, Hard; Walk, Run). `Boss Quest` is
+`ID_OFFSET + 6001`. Location groups (for `exclude_locations`, hints): Easy, Medium, Hard, Walk, Run, Boss (the
+boss is also in Hard). The apworld and the core pin the same id table:
+
+```text
+difficulty  mode  number  -> id - ID_OFFSET
+easy        walk     1    ->     1
+easy        run      7    ->  1007
+medium      walk     1    ->  2001
+medium      run      3    ->  3003
+hard        walk     5    ->  4005
+hard        run   1000    ->  6000
+Boss Quest                ->  6001
+```
 
 ## Items
 
 | Item | Class | Client behavior |
 | -- | -- | -- |
 | Progressive Zone Key | progression | Opens zones |
-| Running Shoes / Bike / Car | progression | Tools, see Zones |
+| Running Shoes | progression | Tools, see Zones |
 | Progressive Effort Reduction | useful | Reduces effort (not logic) |
 | Progressive Scouting Distance / Collection Distance | useful | Larger reveal / check radius |
 | Freeze, Fog Of War, Shuffle, Silence, Leash, Detour, Toll, Slow Trap | trap | App-implemented traps |

@@ -18,7 +18,7 @@ SCHEMA = json.loads(
 def build(
     modes: list[str] | None = None, *, boss: bool = True, **over: object
 ) -> dict[str, object]:
-    modes = modes or ["walk", "bike"]
+    modes = modes or ["walk", "run"]
     quests = generate_quests(
         rng=random.Random(2),
         zone_modes=modes,
@@ -59,14 +59,14 @@ def test_zones_and_boss_shape() -> None:
     data = build()
     assert data["zones"] == [
         {"id": 1, "mode": "walk", "zone_keys_needed": 0, "tool": None},
-        {"id": 2, "mode": "bike", "zone_keys_needed": 1, "tool": "Bike"},
+        {"id": 2, "mode": "run", "zone_keys_needed": 1, "tool": "Running Shoes"},
     ]
     boss = data["boss"]
     assert isinstance(boss, dict)
-    assert boss["location_id"] == ID_OFFSET + 12_001
+    assert boss["location_id"] == ID_OFFSET + 6001
     assert (boss["zone"], boss["mode"], boss["difficulty"], boss["effort_tier"], boss["type"]) == (
         2,
-        "bike",
+        "run",
         "hard",
         10,
         "boss",
@@ -112,7 +112,7 @@ def test_committed_sample_matches_schema() -> None:
     sample = json.loads((Path(__file__).parents[1] / "docs" / "slot_data.sample.json").read_text())
     jsonschema.validate(sample, SCHEMA)
     assert sample["boss"] is not None
-    assert [z["mode"] for z in sample["zones"]] == ["walk", "bike", "drive"]
+    assert [z["mode"] for z in sample["zones"]] == ["walk", "run", "walk"]
     assert len(sample["trips"]) == 60
 
 

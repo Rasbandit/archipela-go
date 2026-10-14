@@ -10,16 +10,14 @@ def test_identity_constants() -> None:
 def test_limits_and_enums() -> None:
     assert constants.MAX_TRIPS == 1000
     assert constants.MAX_ZONES == 6
-    assert constants.MODES == ("walk", "run", "bike", "drive")
-    assert constants.MODE_SPEED_KMH == {"walk": 4.5, "run": 9.0, "bike": 15.0, "drive": 35.0}
+    assert constants.MODES == ("walk", "run")
+    assert constants.MODE_SPEED_KMH == {"walk": 4.5, "run": 9.0}
+    assert constants.MODE_TOOLS == {"run": "Running Shoes"}
+    assert constants.BOSS_BLOCK == 6
 
 
 def test_family_table_matches_spec() -> None:
-    f = constants.FAMILY_MODES
-    for family in ("reach", "dwell", "landmark", "courier", "away"):
-        assert f[family] == constants.MODES
-    assert set(f["explore"]) == set(f["trail"]) == set(f["water"]) == {"walk", "run", "bike"}
-    assert set(f["park"]) == set(f["steps"]) == {"walk", "run"}
+    assert all(modes == constants.MODES for modes in constants.FAMILY_MODES.values())
     assert len(constants.FAMILIES) == 10
     assert "boss" not in constants.FAMILIES
 

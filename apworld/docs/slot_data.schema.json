@@ -118,8 +118,6 @@
           "tool": {
             "enum": [
               "Running Shoes",
-              "Bike",
-              "Car",
               null
             ]
           }
@@ -149,9 +147,7 @@
     "mode": {
       "enum": [
         "walk",
-        "run",
-        "bike",
-        "drive"
+        "run"
       ]
     },
     "quest": {

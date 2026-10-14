@@ -2,7 +2,9 @@ import random
 
 import pytest
 from worlds.ap_go2 import names
+from worlds.ap_go2.constants import ID_OFFSET
 from worlds.ap_go2.item_plan import ItemPlan, plan_items
+from worlds.ap_go2.items import ITEM_NAME_TO_ID
 from worlds.ap_go2.validation import min_trips
 
 ALL_ON = {"effort": True, "scouting": True, "collection": True}
@@ -13,7 +15,7 @@ def plan(**over: object) -> ItemPlan:
         "rng": random.Random(3),
         "locations": 40,
         "goal": "treasure_hunt",
-        "zone_modes": ["walk", "bike", "drive"],
+        "zone_modes": ["walk", "run", "walk"],
         "effort": False,
         "scouting": False,
         "collection": False,
@@ -24,7 +26,7 @@ def plan(**over: object) -> ItemPlan:
 
 
 def test_pool_size_equals_locations_across_inputs() -> None:
-    modes = ["walk", "run", "bike", "drive", "walk", "run"]
+    modes = ["walk", "run", "walk", "run", "walk", "run"]
     for goal in ("all_trips", "treasure_hunt"):
         for locations in (min_trips(goal, modes), 25, 100, 1001):
             for rate in (0, 30, 100):
@@ -38,9 +40,17 @@ def test_pool_size_equals_locations_across_inputs() -> None:
 def test_mandatory_items_present() -> None:
     counts = plan().counts
     assert counts[names.ZONE_KEY] == 2
-    assert counts["Bike"] == counts["Car"] == 1
-    assert "Running Shoes" not in counts
+    assert counts["Running Shoes"] == 1
+    assert "Bike" not in counts
+    assert "Car" not in counts
     assert all(counts[names.letter(c)] == 1 for c in "APGO")
+
+
+def test_bike_and_car_items_are_gone_and_their_ids_are_not_reused() -> None:
+    assert "Bike" not in ITEM_NAME_TO_ID
+    assert "Car" not in ITEM_NAME_TO_ID
+    assert ID_OFFSET + 3 not in ITEM_NAME_TO_ID.values()
+    assert ID_OFFSET + 4 not in ITEM_NAME_TO_ID.values()
 
 
 def test_completionist_has_no_letters() -> None:
@@ -49,7 +59,7 @@ def test_completionist_has_no_letters() -> None:
 
 
 def test_single_zone_has_no_keys_or_tools() -> None:
-    counts = plan(zone_modes=["bike"], goal="all_trips").counts
+    counts = plan(zone_modes=["run"], goal="all_trips").counts
     assert names.ZONE_KEY not in counts
     assert not any(t in counts for t in names.TOOLS)
 
@@ -65,7 +75,7 @@ def test_trap_rate_zero_has_no_traps_and_100_fills_free_slots() -> None:
     assert not set(plan(trap_rate=0).counts) & set(names.ALL_TRAPS)
     full = plan(trap_rate=100, locations=60).counts
     trap_total = sum(v for k, v in full.items() if k in names.ALL_TRAPS)
-    assert trap_total == 60 - 2 - 2 - 4
+    assert trap_total == 60 - 2 - 1 - 4  # keys, Running Shoes, letters
     assert not set(full) & set(names.FILLERS)
 
 
