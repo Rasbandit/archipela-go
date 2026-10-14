@@ -333,6 +333,9 @@ pub struct Outing {
     pub items_at_start: usize,
     /// Zones unlocked on leaving.
     pub zones_at_start: BTreeSet<u32>,
+    /// Forager items banked on leaving (all foragers). A fix inside the home radius banks before presence says "at home".
+    #[serde(default)]
+    pub banked_at_start: u32,
 }
 
 /// A game in progress: its quests, progress, rewards, fog, traps and goal. Saved as JSON.
@@ -1028,6 +1031,7 @@ impl Game {
                 done_at_start: self.done.clone(),
                 items_at_start: self.items.len(),
                 zones_at_start: self.unlocked_set(),
+                banked_at_start: self.banked_total(),
             });
         }
     }
@@ -1178,15 +1182,18 @@ impl Game {
     /// The player arrived home: bank what is carried (see `bank_at_home`) and close the walk. Returns the bank's events and the
     /// walk's recap when it is worth showing (route not set: the engine adds it from the journal). Safe to call again.
     pub fn arrive_home(&mut self, t_ms: i64) -> (Vec<Event>, Option<Recap>) {
-        let carried = self.carried_total();
         let ev = self.bank_at_home(t_ms);
-        let banked = carried.saturating_sub(self.carried_total());
-        let recap = self.outing.take().map(|o| self.recap_of(&o, t_ms, banked)).filter(Recap::worth_showing);
+        let recap = self.outing.take().map(|o| self.recap_of(&o, t_ms)).filter(Recap::worth_showing);
         (ev, recap)
     }
 
+    // Forager items banked so far, finished foragers included.
+    fn banked_total(&self) -> u32 {
+        self.collected.values().map(|c| c.banked).sum()
+    }
+
     // What changed since the outing's snapshots.
-    fn recap_of(&self, o: &Outing, t_ms: i64, banked: u32) -> Recap {
+    fn recap_of(&self, o: &Outing, t_ms: i64) -> Recap {
         let quests_done: Vec<String> = self
             .assignments
             .iter()
@@ -1203,7 +1210,7 @@ impl Game {
             checks_sent,
             items: self.items.get(o.items_at_start..).unwrap_or_default().to_vec(),
             zones_unlocked: self.unlocked_set().difference(&o.zones_at_start).copied().collect(),
-            banked,
+            banked: self.banked_total().saturating_sub(o.banked_at_start),
             ..Recap::default()
         }
     }
@@ -4679,6 +4686,26 @@ mod tests {
         let r = g.arrive_home(1_300_000).1.expect("two items brought home");
         assert_eq!(r.banked, 2);
         assert_eq!(carried_banked(&g), (0, 2));
+    }
+
+    #[test]
+    fn items_banked_by_a_fix_inside_the_home_radius_count_as_brought_home() {
+        let (mut g, pts) = forager_game();
+        left_home(&mut g, 0);
+        for (i, p) in pts[..3].iter().enumerate() {
+            g.on_estimate(&fixat(*p, 600 * (i as i64 + 1)), None);
+        }
+        assert_eq!(done_ids(&g.on_estimate(&fixat(home(), 1_250_000), None)), vec![2000], "the home fix banks and completes it");
+        g.set_counting(false, 1_260_000); // presence reaches "at home" after the fix
+        let r = g.arrive_home(1_300_000).1.expect("three items brought home");
+        assert_eq!(r.banked, 3);
+        assert_eq!(r.quests_done, vec![g.assignments[0].quest_name.clone()]);
+    }
+
+    #[test]
+    fn an_outing_saved_before_banked_at_start_still_loads() {
+        let old = serde_json::json!({ "start_ms": 1, "steps": 2, "cells_at_start": 0, "done_at_start": [], "items_at_start": 0, "zones_at_start": [] });
+        assert_eq!(serde_json::from_value::<Outing>(old).unwrap().banked_at_start, 0);
     }
 
     #[test]
