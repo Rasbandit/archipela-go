@@ -205,6 +205,7 @@ internal class PresenceController(
     private fun bankAtHome() {
         if (!model.engine.hasGame()) return
         model.handle(model.engine.bankAtHome(model.now()))
+        model.recaps.onArrivedHome()
         model.refreshPlay(withTrace = false)
     }
 

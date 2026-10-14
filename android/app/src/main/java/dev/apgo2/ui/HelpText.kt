@@ -1,5 +1,8 @@
 package dev.apgo2.ui
 
+import dev.apgo2.AwayFormat
+import uniffi.apgo_ffi.RecapOut
+
 /** One explanation: a short title and the text. All of the app's help copy is in this file, so wording can be fixed in one place. */
 internal data class HelpTopic(
     val title: String,
@@ -175,6 +178,15 @@ internal object Help {
             "Distance units",
             "How distances are shown. Auto uses the units of your phone's region.",
         )
+
+    // ---- walk recap
+    const val RECAP_NOTICE_TITLE = "Welcome home: see your walk"
+
+    fun recapNoticeText(r: RecapOut): String {
+        val time = "${AwayFormat.duration(r.endMs - r.startMs)} out"
+        val n = r.questsDone.size
+        return if (n == 0) time else "$time, $n ${if (n == 1) "quest" else "quests"} done"
+    }
 }
 
 /** Explanatory copy of the setup wizard and its Home card nag, kept here with the rest of the app's help text. */

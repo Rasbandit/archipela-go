@@ -47,6 +47,7 @@ internal class GameLibrary(
                 model.sim.resetClock()
                 model.log.clear()
                 model.refreshAll()
+                model.recaps.refresh()
                 model.nav.show(AppTab.PLAY)
                 model.status = "Game started!"
             }

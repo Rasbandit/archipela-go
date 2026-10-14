@@ -90,6 +90,11 @@ internal class AppModel(
     val units = UnitSettings(this)
     val stepCal = StepCalStore(ctx)
     val presence = PresenceController(this, ctx)
+
+    val recaps = RecapController(ctx, engine, presence)
+
+    /** The last walk's recap on show, until dismissed (see [RecapController]). */
+    val recap get() = recaps.recap
     val setup = SetupWizard(this)
     val scans = ScanCoordinator(this, scope)
     val realmOps = RealmManager(this)
@@ -340,6 +345,7 @@ internal class AppModel(
         val t = now()
         engine.logAppState(true, t)
         units.onForeground()
+        recaps.refresh()
         if (owed) refreshPlay()
         noteJournal()
         Diag.info("lifecycle", "foreground", "away_ms" to (left?.let { t - it } ?: -1L))
