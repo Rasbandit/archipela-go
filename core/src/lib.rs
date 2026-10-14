@@ -13,6 +13,7 @@ pub mod forage;
 pub mod game;
 pub mod geo;
 pub mod goal;
+pub mod home_watch;
 pub mod items;
 pub mod journal;
 pub mod line_width;
