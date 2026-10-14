@@ -134,6 +134,10 @@ internal object ApgoPalette {
     // Pickups (forager items): one cream for all, outlined in navy, so they never share a colour with a quest state
     val pickup = Color(0xFFFFF1CC)
 
+    // A quest's tool badge: navy once the tool is held, orange while it is still missing (never a quest-state grey or blue)
+    val toolHeld = navy
+    val toolMissing = Color(0xFFE65100)
+
     // Map and realm editor
     val me = Color(0xFF1565C0)
     val trace = Color(0xFFB39DDB) // where you walked: pale lavender, solid (transparency would darken overlaps); no quest state uses it

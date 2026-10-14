@@ -7,6 +7,7 @@ import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MarkerSpec
+import dev.apgo2.ui.ToolBadge
 import dev.apgo2.ui.Units
 import dev.apgo2.ui.circleRing
 import dev.apgo2.ui.hex
@@ -100,7 +101,11 @@ internal object GeoJson {
 }
 
 /** The name of this quest's pin image in the map style. */
-internal val QuestOut.mapImageKey: String get() = MarkerSpec.Quest(kindId, family, state, MapMarkers.pips(difficulty, boss)).key
+internal val QuestOut.mapImageKey: String
+    get() = MarkerSpec.Quest(kindId, family, state, MapMarkers.pips(difficulty, boss), toolBadge).key
+
+// The badge the core picked for this quest's pin; none for an open quest.
+private val QuestOut.toolBadge: ToolBadge? get() = pinBadge?.let { ToolBadge(it.icon, it.missing) }
 
 // A forager still under way shows its items on the map instead of one pin; the core decides (see `collect_out`).
 internal val QuestOut.showsItems: Boolean get() = collect?.onMap == true

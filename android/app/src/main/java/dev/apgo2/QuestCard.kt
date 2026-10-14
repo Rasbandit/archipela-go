@@ -66,6 +66,7 @@ import dev.apgo2.ui.Tone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.apgo_ffi.AboutOut
+import uniffi.apgo_ffi.BadgeOut
 import uniffi.apgo_ffi.BagOut
 import uniffi.apgo_ffi.PlaceOut
 import uniffi.apgo_ffi.ProgressOut
@@ -87,6 +88,7 @@ internal fun ColumnScope.QuestCard(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             CardHead(q)
             MetaRow(q)
+            if (q.badges.isNotEmpty()) BadgeRow(q.badges, q.badgeNote)
             if (q.cardDetail.isNotBlank()) {
                 Text(
                     q.cardDetail,
@@ -165,6 +167,19 @@ private fun MetaRow(q: QuestOut) {
         IconText(ApgoIcons.Clock, CardFormat.effort(q.effortMin), muted)
         IconText(ApgoIcons.mode(q.mode), q.mode, muted)
     }
+}
+
+// The tool badges of a quest or chain, each tool's icon and name (orange while still missing), then the core's note of what is missing.
+@Composable
+internal fun ColumnScope.BadgeRow(
+    badges: List<BadgeOut>,
+    note: String?,
+) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        badges.forEach { IconText(ApgoIcons.badge(it.icon), it.item, if (it.missing) ApgoPalette.toolMissing else muted) }
+    }
+    note?.let { FeedbackText(it, Tone.Warning) }
 }
 
 @Composable

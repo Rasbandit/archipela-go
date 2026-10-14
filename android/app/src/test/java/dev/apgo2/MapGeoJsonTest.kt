@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.MapMarkers
 import dev.apgo2.ui.MarkerSpec
+import dev.apgo2.ui.ToolBadge
 import dev.apgo2.ui.Units
 import dev.apgo2.ui.hex
 import org.json.JSONArray
@@ -15,6 +16,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.maplibre.android.geometry.LatLng
+import uniffi.apgo_ffi.BadgeOut
 import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.CollectItemOut
 import uniffi.apgo_ffi.CollectOut
@@ -125,6 +127,14 @@ class MapFeaturesTest {
         progressBlock = null,
         hasAbout = false,
     )
+
+    @Test fun aQuestsPinDrawsTheBadgeTheCorePicked() {
+        val pin = { q: QuestOut -> MapMarkers.parse(q.mapImageKey) as MarkerSpec.Quest }
+        val missing = BadgeOut("Running Shoes", "run", missing = true)
+        assertEquals(ToolBadge("run", missing = true), pin(quest(1, state = "locked").copy(pinBadge = missing)).tool)
+        assertEquals(ToolBadge("run", missing = false), pin(quest(2).copy(pinBadge = missing.copy(missing = false))).tool)
+        assertNull(pin(quest(3)).tool)
+    }
 
     @Test fun aForagerShowsOnePickupPerItemStillOutThereAndNoQuestPin() {
         val items = listOf(CollectItemOut(geo(1.0, 1.0), false), CollectItemOut(geo(2.0, 2.0), true), CollectItemOut(geo(3.0, 3.0), false))

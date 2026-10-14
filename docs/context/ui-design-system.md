@@ -17,7 +17,9 @@ widgets or write colours themselves.
   fails on literals outside `Palette.kt`. Name tokens by role (`onPin`, `onMap`, `onBrand`) so one edit changes every use. Quest state has one colour set, `ApgoPalette.quest(state)`: the list icon tint
   and the map pin's state badge both use it, so they cannot drift apart. What a quest *is* is shown by family colour and icon (`ApgoPalette.kind`), on the map and in the realm editor alike.
 - A map pin is only ever built by `MapMarkers.render(MarkerSpec)`: `Find` (realm editor: family colour, ring for favorite, grey for banned) and `Quest` (Play map: family colour,
-  corner badge for state: none = open, amber dot = in progress, green check = done, lock = locked; locked pins are grey) and `Item` (Play map: a pickup, i.e. a forager item: a small
+  corner badge for state: none = open, amber dot = in progress, green check = done, lock = locked; locked pins are grey; a badged quest also has its
+  `ToolBadge` on the top-right corner, orange `toolMissing` while the tool is missing, navy `toolHeld` once held. Draw pin decorations into the
+  bitmap: a separate symbol layer with `iconOffset` did not line up, because the offset does not follow the density-scaled pin bitmaps) and `Item` (Play map: a pickup, i.e. a forager item: a small
   round cream token, `ApgoPalette.pickup` with a navy outline and its `ApgoIcons.collectible` icon, never a pin and never a quest colour; a locked quest's fade
   (`itemOpacity`). Own `items` source under the quest pins, never clustered: hidden below zoom 14, cream dots to 16, tokens from 16, the selected quest's tokens
   at any zoom (`MapStyle.itemLayers`, zoom expressions only)) and `Me` (the player: person or arrow, hollow while bridged, grey when stale;

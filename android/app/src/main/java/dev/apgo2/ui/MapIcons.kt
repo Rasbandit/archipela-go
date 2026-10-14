@@ -208,6 +208,7 @@ internal fun renderQuestPin(
     fill: Color,
     badge: MapMarkers.Badge,
     pips: Int,
+    tool: ToolBadge? = null,
 ): Bitmap {
     val s = sizePx.toFloat()
     val h = s * MapMarkers.PIN_HEIGHT_RATIO
@@ -234,6 +235,15 @@ internal fun renderQuestPin(
             } else {
                 drawCircle(ApgoPalette.onPin, radius = r * 0.35f, center = c)
             }
+        }
+        // The tool badge sits on the head's other corner, top right, clear of the state badge below it.
+        tool?.let {
+            val r = s * 0.2f
+            val c = Offset(s - r, r)
+            drawCircle(ApgoPalette.onPin, radius = r, center = c)
+            drawCircle(if (it.missing) ApgoPalette.toolMissing else ApgoPalette.toolHeld, radius = r - s * 0.025f, center = c)
+            val g = r * 1.2f
+            icon(ApgoIcons.badge(it.icon), c.x - g / 2, g, ApgoPalette.onPin, width = 2.6f, top = c.y - g / 2)
         }
     }
 }

@@ -86,9 +86,10 @@ trips[], boss:  {location_id, zone, mode, difficulty,  (+ needs)
 ## PR (b): badges visible
 
 - `ui/ApgoIcons.kt`: `badge(item)`, one icon per badge item (Running Shoes -> the run icon). Colours are palette tokens.
-- `QuestCard.kt`: one chip per `needs` item; a `missing` one is dimmed with "Needs Running Shoes".
-- `QuestMap.kt`: a small badge overlay on the pin, done with a renderer expression on a feature property (no app-side
-  recompute).
+- `QuestCard.kt`: one chip per `needs` item; a `missing` one is orange, with "Needs Running Shoes" under it.
+- Map pin: the tool badge is drawn into the quest pin's bitmap (top-right corner, orange while missing, navy once held),
+  like the state badge below it. The pin image key carries the badge, so each look is drawn once and cached. A separate
+  symbol layer was tried and dropped: its icon offset did not track the density-scaled pin bitmaps.
 - `NewGame.kt` (solo): `run_quests` toggle and `run_share` slider; help text in `ui/HelpText.kt`.
 
 ## Old seeds and saves

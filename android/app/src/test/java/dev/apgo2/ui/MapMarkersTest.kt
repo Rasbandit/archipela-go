@@ -14,6 +14,8 @@ class MapMarkersTest {
                 MarkerSpec.Find("hydrant_hunter", "landmark", "favorite"),
                 MarkerSpec.Quest("street_smarts", "reach", "progress", pips = 1),
                 MarkerSpec.Quest("touch_grass", "park", "done", pips = 3),
+                MarkerSpec.Quest("street_smarts", "reach", "locked", pips = 2, tool = ToolBadge("run", missing = true)),
+                MarkerSpec.Quest("street_smarts", "reach", "open", pips = 2, tool = ToolBadge("tool", missing = false)),
                 MarkerSpec.Ring(listOf(1, 2, 0, 3)),
                 MarkerSpec.Item("pinecones"),
                 MarkerSpec.Item("shells"),
@@ -29,6 +31,8 @@ class MapMarkersTest {
         assertNull(MapMarkers.parse("quest|only|two"))
         assertNull(MapMarkers.parse(""))
         assertNull("an item key is its theme alone", MapMarkers.parse("item|shells|open"))
+        assertNull("a tool is held or missing", MapMarkers.parse("quest|a|reach|open|1|run|maybe"))
+        assertNull("a tool needs its state", MapMarkers.parse("quest|a|reach|open|1|run"))
     }
 
     @Test fun aPickupFadesWhileLockedInsteadOfTakingAQuestColour() {
