@@ -113,7 +113,7 @@ private const val ITEM_TOKENS_FROM_ZOOM = 16f
 private const val ITEM_FADE_ZOOMS = 0.5f
 private const val ITEM_DOT_RADIUS = 4f
 private const val ITEM_DOT_STROKE = 1.5f
-private const val BOLD_FONT = "Noto Sans Bold"
+internal const val BOLD_FONT = "Noto Sans Bold"
 
 // The quest states drawn on the map, each in its ApgoPalette.quest colour.
 private val PIN_STATES = listOf("progress", "open", "locked", "done")
