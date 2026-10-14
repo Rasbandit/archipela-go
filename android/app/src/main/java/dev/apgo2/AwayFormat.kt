@@ -22,6 +22,7 @@ internal object AwayFormat {
             "near_miss" to "Near a quest",
             "play_paused" to "Stopped playing",
             "presence" to "Presence",
+            "walk" to "Walk",
             "play_resumed" to "Resumed",
             APP_FOREGROUND to "App opened",
             APP_BACKGROUND to "App left the screen",

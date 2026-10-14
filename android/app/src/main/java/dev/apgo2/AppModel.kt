@@ -91,7 +91,7 @@ internal class AppModel(
     val stepCal = StepCalStore(ctx)
     val presence = PresenceController(this, ctx, scope)
 
-    val recaps = RecapController(ctx, engine, presence)
+    val recaps = RecapController(ctx, engine, presence, scope)
 
     /** The last walk's recap on show, until dismissed (see [RecapController]). */
     val recap get() = recaps.recap

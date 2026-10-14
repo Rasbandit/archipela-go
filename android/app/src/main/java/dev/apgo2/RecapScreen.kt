@@ -94,6 +94,7 @@ import uniffi.apgo_ffi.RecapQuestOut
 @Composable
 internal fun RecapScreen(
     r: RecapOut,
+    closeLabel: String,
     onDone: () -> Unit,
 ) {
     BackHandler(onBack = onDone)
@@ -125,7 +126,7 @@ internal fun RecapScreen(
                     }
                 }
             }
-            Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text(Help.RECAP_DONE) }
+            Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text(closeLabel) }
         }
     }
 }

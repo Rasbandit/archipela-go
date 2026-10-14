@@ -15,6 +15,7 @@ class AwayFormatTest {
     @Test fun kindsHaveReadableLabelsAndUnknownFallsBack() {
         assertEquals("Quests completed", AwayFormat.kindLabel("quest_done"))
         assertEquals("Bad GPS signal", AwayFormat.kindLabel("fix_rejected"))
+        assertEquals("Walk", AwayFormat.kindLabel("walk"))
         assertEquals("something_new", AwayFormat.kindLabel("something_new"))
     }
 

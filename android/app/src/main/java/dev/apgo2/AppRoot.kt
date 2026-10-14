@@ -128,7 +128,7 @@ private fun AppBody(
                 AppTab.SETTINGS -> SettingsScreen(m)
             }
             // Keyed by the walk, so a newer recap replacing the shown one rebuilds its map.
-            m.recap?.let { key(it.startMs, it.endMs) { RecapScreen(it, onDone = m.recaps::dismiss) } }
+            m.recap?.let { key(it.startMs, it.endMs) { RecapScreen(it, m.recaps.closeLabel, onDone = m.recaps::dismiss) } }
         }
     }
 }

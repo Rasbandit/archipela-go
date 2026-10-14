@@ -10,6 +10,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.apgo2.ui.Help
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.apgo_ffi.Engine
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.RecapOut
@@ -62,46 +66,76 @@ internal class RecapController(
     ctx: Context,
     private val engine: Engine,
     private val presence: PresenceController,
+    private val scope: CoroutineScope,
 ) {
     private val notice = RecapNotice(ctx)
 
     /** The recap on show, until dismissed. */
     var recap by mutableStateOf<RecapOut?>(null)
         private set
-    private var previewing = false
+
+    // A preview or a past walk: not the core's pending recap, so closing it never touches the core.
+    private var transient = false
+
+    /** What the recap screen's button says. */
+    val closeLabel: String get() = closeLabel(transient)
 
     /** The core closed a walk into a new recap (`RecapReady`): show it, or notify when off screen. It is announced once. */
     fun onRecapReady() {
         val r = engine.pendingRecap() ?: return
-        previewing = false
+        transient = false
         recap = r
         if (RecapNotice.shouldPost(presence.appVisible)) notice.post(r)
     }
 
     /** Re-read the core's pending recap (the app came back to the screen, or a game opened). */
     fun refresh() {
-        previewing = false
+        transient = false
         recap = engine.pendingRecap()
     }
 
     /** Debug only: show [r] (sample data) without touching the core. Dismissing it leaves any real pending recap alone. */
     fun preview(r: RecapOut) {
-        previewing = true
+        transient = true
         recap = r
     }
 
+    /** Show a past walk's [r] from the activity log. It never replaces a real pending recap and never touches the core on close. */
+    fun showHistory(r: RecapOut) {
+        if (!historyMayShow(shown = recap != null, transient = transient)) return
+        transient = true
+        recap = r
+    }
+
+    /** Open the recap of the walk that ended at [endMs]. The journal read runs off the main thread. */
+    fun openWalk(endMs: Long) {
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { engine.walkRecap(endMs) } }
+            r.onFailure { Diag.error("recap", "open walk failed", it) }
+            r.getOrNull()?.let(::showHistory)
+        }
+    }
+
     fun dismiss() {
-        if (dismissTouchesCore(previewing)) {
+        if (dismissTouchesCore(transient)) {
             engine.dismissRecap()
             notice.cancel()
         }
-        previewing = false
+        transient = false
         recap = null
     }
 
     companion object {
-        /** A previewed recap is made up, so dismissing it must not clear the core's pending recap. */
-        fun dismissTouchesCore(previewing: Boolean) = !previewing
+        /** A previewed or past recap is not the core's pending one, so dismissing it must not clear that. */
+        fun dismissTouchesCore(transient: Boolean) = !transient
+
+        fun closeLabel(transient: Boolean) = if (transient) Help.RECAP_CLOSE else Help.RECAP_DONE
+
+        /** History may open over nothing or another transient recap, never over a real pending one. */
+        fun historyMayShow(
+            shown: Boolean,
+            transient: Boolean,
+        ) = !shown || transient
     }
 }
 

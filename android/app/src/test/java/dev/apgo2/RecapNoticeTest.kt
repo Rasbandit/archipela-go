@@ -43,9 +43,21 @@ internal fun recap(
 )
 
 class RecapDismissTest {
-    // A previewed recap is sample data: dismissing it must never reach the core.
+    // A previewed or past recap is not the core's pending one: dismissing it must never reach the core.
     @Test fun dismissTouchesCoreOnlyForRealRecaps() {
-        assertTrue(RecapController.dismissTouchesCore(previewing = false))
-        assertFalse(RecapController.dismissTouchesCore(previewing = true))
+        assertTrue(RecapController.dismissTouchesCore(transient = false))
+        assertFalse(RecapController.dismissTouchesCore(transient = true))
+    }
+
+    @Test fun closeLabelIsDoneOnlyForTheRealRecap() {
+        assertEquals("Done", RecapController.closeLabel(transient = false))
+        assertEquals("Close", RecapController.closeLabel(transient = true))
+    }
+
+    // Opening a past walk must never replace a real pending recap that is on show.
+    @Test fun historyOpensOnlyOverNothingOrAnotherTransient() {
+        assertTrue(RecapController.historyMayShow(shown = false, transient = false))
+        assertTrue(RecapController.historyMayShow(shown = true, transient = true))
+        assertFalse(RecapController.historyMayShow(shown = true, transient = false))
     }
 }
