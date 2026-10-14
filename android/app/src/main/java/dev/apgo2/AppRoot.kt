@@ -126,6 +126,7 @@ private fun AppBody(
                 AppTab.ACTIVITY -> ActivityScreen(m)
                 AppTab.SETTINGS -> SettingsScreen(m)
             }
+            m.recap?.let { RecapScreen(it, onDone = m.recaps::dismiss) }
         }
     }
 }
