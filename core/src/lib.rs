@@ -24,6 +24,7 @@ pub mod num;
 pub mod overpass;
 pub mod poi_details;
 pub mod realm;
+pub mod recap;
 pub mod sampler;
 pub mod save_policy;
 pub mod scan;

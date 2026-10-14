@@ -18,14 +18,14 @@ map. A mix of a reward moment, a game debrief and a fitness log.
 
 - Arriving home: `PresenceController` calls `Engine::bank_at_home` when presence turns `AtHome` (`PresencePolicy.arrivedHome`).
 - Leaving home: `Game::set_counting(true, t)` when presence starts counting (also after a car ride ends).
-- The journal (`core/src/journal.rs`, SQLite, per game) keeps every accepted fix (`track`, `segments`) and an audit log of game
-  events with kinds such as `quest_done`, `check_sent`, `reward`, `item_received`, `zone_unlocked`.
+- The journal (`core/src/journal.rs`, SQLite, per game) keeps every accepted fix (`track`, `segments`); the recap uses it only for the route and distance.
 - `Fog::cells` holds the map squares seen in the whole game; `credit_steps` sees the raw step gain.
 - `geo` 0.33 is already a core dependency (length and `Simplify`).
 
 ## What is missing
 
-The game does not remember when the current walk started, so it cannot tell which events belong to it.
+The game does not remember when the current walk started, so it cannot tell what changed during it. The outing therefore holds a
+snapshot (`Outing`: done set, items count, unlocked zones, fog cell count) taken when leaving home, and the recap is the diff.
 
 ## Design
 
@@ -56,7 +56,7 @@ Events, not polling: the outing is two marks plus a counter that the step events
 A pure function, so it is easy to test with fixtures:
 
 ```rust
-pub fn build(end: &OutingEnd, events: &[JournalEvent], track: &[Vec<TrackPoint>]) -> Option<Recap>
+Game::arrive_home(..) -> Option<Recap>   // snapshot diff; the engine then calls Recap::set_route with the journal segments
 ```
 
 `Recap` (serde, stored in the game file):
@@ -67,31 +67,29 @@ pub fn build(end: &OutingEnd, events: &[JournalEvent], track: &[Vec<TrackPoint>]
 | `steps` | `outing.steps` |
 | `distance_m` | sum of the haversine lengths of the track segments (gaps are not bridged) |
 | `new_cells` | `Fog::cells.len()` now minus `cells_at_start` |
-| `quests_done: Vec<String>` | `quest_done` events (names) |
-| `checks_sent: u32` | `check_sent` events |
-| `items: Vec<String>` | `reward` / `item_received` events (item names) |
-| `zones_unlocked: Vec<u32>` | `zone_unlocked` events |
+| `quests_done: Vec<String>` | outing snapshot diff (see `Outing`): names of newly done quests |
+| `checks_sent: u32` | outing snapshot diff (see `Outing`): checks sent |
+| `items: Vec<String>` | outing snapshot diff (see `Outing`): items past `items_at_start` |
+| `zones_unlocked: Vec<u32>` | outing snapshot diff (see `Outing`): newly unlocked zones |
 | `banked: u32` | `OutingEnd::banked` |
 | `route: Vec<Vec<(f64, f64)>>` | track segments, each thinned with `geo::Simplify` (about 5 m tolerance) |
 
 `build` returns `None` when the walk is not worth a recap (the rule under Decisions). Thresholds are named constants
 (`MIN_AWAY_MS = 5 min`, `MIN_STEPS = 500`).
 
-New journal query `Journal::events(game, from_ms, to_ms)` returns the audit-log rows in the window.
-
 ### 3. Engine / FFI (`core/ffi/src/engine.rs`)
 
 - `Engine::bank_at_home` also ends the outing, reads the journal window, calls `recap::build` and stores the result as
   `game.recap: Option<Recap>` (`#[serde(default)]`; a newer recap replaces an unseen older one). The save happens at once, like the
   other lasting events.
-- It returns a new `EventOut::RecapReady` when a recap was stored, so the app knows to notify.
+- The app calls `pending_recap()` right after `bank_at_home`.
 - `Engine::pending_recap() -> Option<RecapOut>` and `Engine::dismiss_recap()`.
 - No journal (it failed to open): the recap is still built, with no route and no events from the log; steps, time and squares
   still work. Journal read failures are reported with `note` and never block arriving home.
 
 ### 4. Notification (Android)
 
-- On `RecapReady`: if the app is on screen, open the recap screen; otherwise post a notification on a new "Walk recap" channel
+- When `pending_recap()` returns a recap: if the app is on screen, open the recap screen; otherwise post a notification on a new "Walk recap" channel
   (default importance, no buzz). Text comes from the one help-text file.
 - Tapping the notification opens `MainActivity` with an extra that routes to the recap screen.
 - Android only draws and notifies; what goes in the recap and whether to show it is decided in the core.
@@ -119,14 +117,13 @@ New journal query `Journal::events(game, from_ms, to_ms)` returns the audit-log 
   - `recap::build`: below 5 min = `None`; 5 min with nothing happened and under 500 steps = `None`; each "something happened"
     trigger alone gives a recap; events outside the window are left out; distance over two segments does not bridge the gap;
     an empty track gives an empty route; simplified route keeps the first and last points.
-  - `Journal::events` window bounds (inclusive start, inclusive end) and per-game filtering.
-  - engine: `bank_at_home` stores a recap and returns `RecapReady`; a second call does not; `dismiss_recap` clears it.
+  - engine: `bank_at_home` stores a recap; a second call neither replaces it nor clears it; `dismiss_recap` clears it.
 - Android: emulator check with the dev simulator: walk out, do a quest, come home, see the notification and the screen.
 
 ## Build order (one task each, own commit, check in between)
 
 1. Outing bounds in `Game` (section 1).
-2. `Journal::events` + `recap::build` + the "worth it" rule (section 2).
-3. Engine/FFI wiring + `RecapReady` + notification (sections 3, 4).
+2. `Recap` value, route helpers and the "worth it" rule (section 2).
+3. Engine/FFI wiring + notification (sections 3, 4).
 4. Recap screen: stats and game results (section 5, no map).
 5. Recap screen: route map.
