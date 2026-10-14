@@ -50,7 +50,6 @@ class HelpTextTest {
                 questTypes,
                 goals,
                 goalRule,
-                goalTarget,
                 questCount,
                 difficulty,
                 minutesPerTier,
@@ -72,6 +71,10 @@ class HelpTextTest {
 
     @Test fun everyGoalIsExplainedUnderTheNameTheApworldUses() {
         assertEquals(goalNames, Help.goalDescriptions.mapValues { it.value.title })
+    }
+
+    @Test fun onlyTheTwoBetaGoalsAreExplained() {
+        assertEquals(listOf("treasure_hunt", "all_trips"), Help.goalDescriptions.keys.toList())
     }
 
     @Test fun everyQuestFamilyIsExplained() {

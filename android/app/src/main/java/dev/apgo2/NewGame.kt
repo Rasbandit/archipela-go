@@ -33,7 +33,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -68,7 +67,6 @@ private const val TRAP_RATE_PERCENT = 30u
 private const val REDUCTION_PERCENT = 8u
 private const val DEFAULT_TRIPS = 60f
 private const val DEFAULT_MINUTES_PER_TIER = 10f
-private const val MAX_TARGET_DIGITS = 4
 private const val DEFAULT_NEED = 2
 private const val BALANCED_PRESET = 1
 private val TRIPS_RANGE = 10f..300f
@@ -82,34 +80,8 @@ private val NEEDS_NO_FINDS = setOf("reach", "courier", "explore", "steps", "away
 // The win conditions, in the game's own order: id, title.
 private val GOALS =
     listOf(
-        "macguffin_short" to "Letter Hunt",
-        "macguffin_long" to "Letter Hunt XL",
-        "all_trips" to "Completionist",
-        "boss" to "The Big One",
         "treasure_hunt" to "Treasure Hunt",
-        "zone_conqueror" to "Zone Conqueror",
-        "well_rounded" to "Well Rounded",
-        "quest_dex" to "Quest-dex",
-        "marathon" to "Marathon",
-        "explorer" to "Explorer",
-        "streak" to "Daily Habit",
-        "boss_rush" to "Boss Rush",
-    )
-
-/** A goal that counts something: what it counts and the usual number. */
-private data class GoalNumber(
-    val unit: String,
-    val default: Int,
-)
-
-private val GOAL_NUMBERS =
-    mapOf(
-        "zone_conqueror" to GoalNumber("percent of every zone", 60),
-        "quest_dex" to GoalNumber("kinds of quest", 15),
-        "marathon" to GoalNumber("kilometers", 42),
-        "explorer" to GoalNumber("map cells", 300),
-        "streak" to GoalNumber("days in a row", 7),
-        "boss_rush" to GoalNumber("hard quests", 5),
+        "all_trips" to "Completionist",
     )
 
 private val TRAPS = listOf("freeze", "fog", "shuffle", "silence", "leash", "detour", "toll", "slow", "honor")
@@ -139,8 +111,7 @@ private data class ZoneDraft(
 private class NewGameForm {
     var name by mutableStateOf("My game")
     val zones = mutableStateListOf<ZoneDraft>()
-    val goals = mutableStateListOf("macguffin_short")
-    val targets = mutableStateMapOf<String, String>()
+    val goals = mutableStateListOf("treasure_hunt")
     var requirement by mutableStateOf(ANY)
     var need by mutableIntStateOf(DEFAULT_NEED)
     var trips by mutableFloatStateOf(DEFAULT_TRIPS)
@@ -174,7 +145,7 @@ private class NewGameForm {
     fun options(): SoloOptionsIn {
         val mix = MIXES[preset]
         return SoloOptionsIn(
-            goals = goals.map { GoalPickIn(it, targets[it]?.toUIntOrNull() ?: 0u) },
+            goals = goals.map { GoalPickIn(it, 0u) },
             goalRequirement = if (goals.size == 1) ANY else requirement,
             goalNeed = need.coerceIn(1, goals.size).toUInt(),
             numberOfTrips = trips.toInt().toUInt(),
@@ -244,9 +215,7 @@ internal fun NewGameScreen(
         )
         GoalsSection(
             form.goals,
-            form.targets,
             onToggle = form::toggleGoal,
-            onTarget = { id, v -> form.targets[id] = v },
             requirement = form.requirement,
             onRequirement = { form.requirement = it },
             need = form.need,
@@ -434,9 +403,7 @@ private fun QuestTypeChips(
 @Composable
 private fun GoalsSection(
     goals: List<String>,
-    targets: Map<String, String>,
     onToggle: (String) -> Unit,
-    onTarget: (String, String) -> Unit,
     requirement: String,
     onRequirement: (String) -> Unit,
     need: Int,
@@ -451,34 +418,18 @@ private fun GoalsSection(
                 ApgoChip(title, id in goals, { onToggle(id) }, textSize = 12.sp, icon = if (id in goals) ApgoIcons.Check else null)
             }
         }
-        // What each chosen goal means, and its number if it counts something.
-        goals.forEach { id -> GoalDetail(id, targets[id] ?: "") { onTarget(id, it) } }
+        // What each chosen goal means.
+        goals.forEach { GoalDetail(it) }
         if (goals.size >= 2) GoalRule(goals.size, requirement, onRequirement, need, onNeed)
     }
 }
 
 @Composable
-private fun GoalDetail(
-    id: String,
-    target: String,
-    onTarget: (String) -> Unit,
-) {
+private fun GoalDetail(id: String) {
     val title = GOALS.first { it.first == id }.second
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-            Help.goalDescriptions[id]?.let { HelpTip(it) }
-        }
-        GOAL_NUMBERS[id]?.let { n ->
-            OutlinedTextField(
-                target,
-                { onTarget(it.filter(Char::isDigit).take(MAX_TARGET_DIGITS)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("${n.unit} (usually ${n.default})") },
-                trailingIcon = { HelpTip(Help.goalTarget) },
-            )
-        }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Help.goalDescriptions[id]?.let { HelpTip(it) }
     }
 }
 
