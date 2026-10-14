@@ -60,6 +60,15 @@ class RecapFormatTest {
         )
     }
 
+    @Test fun subtitleShowsTheStartDayWhenTheWalkCrossesMidnight() {
+        val start = 1_760_485_200_000L // Tue 2025-10-14 23:40 UTC
+        val r = recap(minutes = 0).copy(startMs = start, endMs = start + 40 * 60_000L, distanceM = 3100.0)
+        assertEquals(
+            "Tue 10/14 · 11:40 PM – 12:20 AM · 3.1 km · 40 min",
+            RecapFormat.subtitle(r, time = utc("h:mm a"), day = utc("EEE M/d")),
+        )
+    }
+
     private fun forager(
         theme: String = "pinecones",
         need: UInt = 7u,

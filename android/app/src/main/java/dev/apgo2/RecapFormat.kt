@@ -19,10 +19,10 @@ internal object RecapFormat {
         time: DateFormat = DateFormat.getTimeInstance(DateFormat.SHORT),
         day: DateFormat = SimpleDateFormat("EEE M/d", Locale.getDefault()),
     ): String {
+        val dayText = day.format(Date(r.startMs))
         val span = "${time.format(Date(r.startMs))} \u2013 ${time.format(Date(r.endMs))}"
-        return "${day.format(
-            Date(r.endMs),
-        )} \u00b7 $span \u00b7 ${Units.distance(r.distanceM)} \u00b7 ${AwayFormat.duration(r.endMs - r.startMs)}"
+        val length = AwayFormat.duration(r.endMs - r.startMs)
+        return "$dayText \u00b7 $span \u00b7 ${Units.distance(r.distanceM)} \u00b7 $length"
     }
 
     /** "Pinecones · +2 banked · 5 / 7" for a forager's bar at the animated banked counter [banked]. */

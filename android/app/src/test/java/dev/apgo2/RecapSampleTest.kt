@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import dev.apgo2.ui.crossed
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -41,7 +42,7 @@ class RecapSampleTest {
         val (pine, leaves) = sample.foragers
         assertEquals(listOf(7u, 5u, 7u, 2u), listOf(pine.need, pine.bankedBefore, pine.bankedAfter, pine.picked))
         assertEquals(listOf(7u, 3u, 4u, 1u), listOf(leaves.need, leaves.bankedBefore, leaves.bankedAfter, leaves.picked))
-        assertTrue(pine.bankedBefore < pine.need && pine.bankedAfter >= pine.need)
-        assertTrue(leaves.bankedAfter < leaves.need)
+        assertEquals(listOf(0), crossed(listOf(pine.need.toFloat()), pine.bankedBefore.toFloat(), pine.bankedAfter.toFloat()))
+        assertEquals(emptyList<Int>(), crossed(listOf(leaves.need.toFloat()), leaves.bankedBefore.toFloat(), leaves.bankedAfter.toFloat()))
     }
 }
