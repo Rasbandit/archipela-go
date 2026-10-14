@@ -62,7 +62,7 @@ pub fn build(end: &OutingEnd, events: &[JournalEvent], track: &[Vec<TrackPoint>]
 `Recap` (serde, stored in the game file):
 
 | Field | Source |
-|-------|--------|
+| ----- | ------ |
 | `start_ms`, `end_ms` | outing bounds; time away = end - start |
 | `steps` | `outing.steps` |
 | `distance_m` | sum of the haversine lengths of the track segments (gaps are not bridged) |
