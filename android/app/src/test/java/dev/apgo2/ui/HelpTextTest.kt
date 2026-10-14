@@ -58,7 +58,7 @@ class HelpTextTest {
         with(Help) {
             listOf(
                 zones,
-                travelMode,
+                runQuests,
                 questTypes,
                 goals,
                 goalRule,
@@ -94,7 +94,7 @@ class HelpTextTest {
     }
 
     @Test fun travelHelpNeverMentionsBikesOrCars() {
-        for (topic in listOf(Help.zones, Help.travelMode)) {
+        for (topic in listOf(Help.zones, Help.runQuests)) {
             val text = topic.body.lowercase()
             for (word in listOf("bike", "biking", "car", "drive")) {
                 assertTrue("${topic.title} mentions $word", !Regex("""\b$word\b""").containsMatchIn(text))

@@ -2,7 +2,7 @@
 
 GAME_NAME = "Archipela-Go 2: Electric Boogaloo"
 ID_OFFSET = 8_902_400_000_000
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 MAX_TRIPS = 1000
 MAX_ZONES = 6
@@ -49,8 +49,8 @@ FAMILY_MODES: dict[str, tuple[str, ...]] = {
 FAMILIES = tuple(FAMILY_MODES)  # player-selectable families; `boss` is goal-only
 REACH_WEIGHT = 3  # `reach` is picked this many times as often as any other family
 
-# Default tool item for each mode that needs one. Walking is always allowed.
-MODE_TOOLS: dict[str, str] = {"run": "Running Shoes"}
+# Badges: the tool item a quest of this mode needs (slot_data `needs`). Walking needs none.
+BADGES: dict[str, str] = {"run": "Running Shoes"}
 
 # Location ID blocks: block = difficulty_index * len(MODES) + mode_index; Boss gets the block after.
 BLOCK_SIZE = 1000

@@ -614,7 +614,6 @@ private fun ZonesRow(zones: List<ZoneOut>) {
 private fun ZoneChip(z: ZoneOut) {
     val tint = ApgoPalette.tone(if (z.unlocked) Tone.Success else Tone.Muted)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        Icon(ApgoIcons.mode(z.mode), contentDescription = null, tint = tint, modifier = Modifier.size(13.dp))
         Text("Z${z.id}", fontSize = 11.sp, color = tint)
         Icon(
             if (z.unlocked) ApgoIcons.Unlocked else ApgoIcons.Locked,
@@ -626,11 +625,8 @@ private fun ZoneChip(z: ZoneOut) {
     }
 }
 
-// What a locked zone still needs: its keys and its tool, like "3key+Running Shoes".
-private fun unlockCost(z: ZoneOut): String {
-    val keys = if (z.keysNeeded > 0u) "${z.keysNeeded}key" else ""
-    return keys + (z.tool?.let { "+$it" } ?: "")
-}
+// What a locked zone still needs: its keys, like "3key".
+private fun unlockCost(z: ZoneOut): String = if (z.keysNeeded > 0u) "${z.keysNeeded}key" else ""
 
 @Composable
 private fun PlacesList(

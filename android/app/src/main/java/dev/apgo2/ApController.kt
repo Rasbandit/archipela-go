@@ -3,6 +3,7 @@ package dev.apgo2
 import android.content.Context
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
@@ -102,7 +103,7 @@ internal class ApController(
     // A line shown next to [status]; kept apart because tick() rewrites status from the session on every poll.
     var hint by mutableStateOf<String?>(null)
     var slotJson by mutableStateOf<String?>(null)
-    var zoneModes by mutableStateOf<List<String>>(emptyList())
+    var zoneCount by mutableIntStateOf(0)
 
     // The open game's saved server (null: solo, or from before servers were saved), for the Server button; read from the engine
     // when a game opens or refreshes, not on every recomposition.
@@ -351,8 +352,8 @@ internal class ApController(
         when (e) {
             is ApEvent.Connected -> {
                 slotJson = s.slotDataJson()
-                val (modes, refused) = readZoneModes(slotJson) { model.engine.slotZoneModes(it) }
-                zoneModes = modes
+                val (count, refused) = readZoneCount(slotJson) { model.engine.slotZoneCount(it) }
+                zoneCount = count
                 refused?.let { hint = it }
             }
 
@@ -413,15 +414,15 @@ internal class ApController(
     }
 }
 
-/** The zone modes of a connected seed and, when the core refuses it (an older seed), the core's reason to show the player. */
-internal fun readZoneModes(
+/** The zone count of a connected seed and, when the core refuses it (an older seed), the core's reason to show the player. */
+internal fun readZoneCount(
     slotJson: String?,
-    read: (String) -> List<String>,
-): Pair<List<String>, String?> =
+    read: (String) -> UInt,
+): Pair<Int, String?> =
     slotJson?.let { json ->
-        runCatching { read(json) }.fold({ it to null }, {
-            emptyList<String>() to
+        runCatching { read(json) }.fold({ it.toInt() to null }, {
+            0 to
                 ((it as? CoreException.Failed)?.detail ?: it.message ?: "This game cannot be played.")
         })
     }
-        ?: (emptyList<String>() to null)
+        ?: (0 to null)

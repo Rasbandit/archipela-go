@@ -9,6 +9,7 @@ from worlds.ap_go2.distribution import (
     difficulty_counts,
     generate_quests,
     pick_family,
+    run_count,
     split_trips,
 )
 from worlds.ap_go2.effort import difficulty_of
@@ -19,11 +20,12 @@ SHARES = (50, 35, 15)
 def quests(**over: object):
     args: dict[str, object] = {
         "rng": random.Random(1),
-        "zone_modes": ["walk"],
+        "zones": 1,
         "trips": 100,
         "shares": SHARES,
         "families": FAMILIES,
         "boss": False,
+        "run_share": 0,
     }
     return generate_quests(**(args | over))  # type: ignore[arg-type]
 
@@ -96,33 +98,68 @@ def test_quests_count_difficulty_and_tier_band() -> None:
 
 
 def test_quests_multi_zone_distribution() -> None:
-    result = quests(zone_modes=["walk", "run", "walk"], trips=100)
+    result = quests(zones=3, trips=100)
     per_zone = Counter(q.zone for q in result.trips)
     assert per_zone == {1: 34, 2: 33, 3: 33}
     for q in result.trips:
-        assert q.mode == ["walk", "run", "walk"][q.zone - 1]
         assert q.family in compatible_families(q.mode, FAMILIES)
 
 
 def test_quests_all_zone_counts() -> None:
     for zones in range(1, 7):
-        modes = [MODES[i % len(MODES)] for i in range(zones)]
-        result = quests(zone_modes=modes, trips=60)
+        result = quests(zones=zones, trips=60)
         assert len(result.trips) == 60
         assert {q.zone for q in result.trips} == set(range(1, zones + 1))
 
 
 def test_names_unique_and_numbered_per_block() -> None:
-    result = quests(zone_modes=["walk", "run", "walk", "run"], trips=200)
+    result = quests(zones=4, trips=200, run_share=30)
     all_names = [q.name for q in result.trips]
     assert len(set(all_names)) == 200
     blocks: dict[tuple[str, str], list[int]] = {}
     for q in result.trips:
         blocks.setdefault((q.difficulty, q.mode), []).append(q.number)
+    assert {m for _, m in blocks} == set(MODES)
     for numbers in blocks.values():
         assert sorted(numbers) == list(range(1, len(numbers) + 1))
     sample = result.trips[0]
     assert sample.name == names.quest_name(sample.difficulty, sample.mode, sample.number)
+
+
+def test_run_count_rounds_half_up_with_at_least_one() -> None:
+    assert run_count(100, 1, 0) == 0
+    assert run_count(100, 1, 20) == 20
+    assert run_count(10, 1, 25) == 3  # 2.5 rounds up
+    assert run_count(10, 1, 1) == 1  # never zero when on
+    assert run_count(4, 1, 50) == 2
+
+
+def test_run_count_leaves_every_zone_an_open_quest() -> None:
+    assert run_count(2, 1, 50) == 1
+    assert run_count(3, 3, 50) == 0  # one quest per zone: all stay open
+    assert run_count(6, 6, 1) == 0
+    assert run_count(7, 6, 50) == 1
+
+
+def test_run_quests_off_means_all_walk_and_no_needs() -> None:
+    result = quests(trips=100, run_share=0)
+    assert {q.mode for q in result.trips} == {"walk"}
+    assert all(q.needs == () for q in result.trips)
+
+
+def test_run_share_picks_run_quests_with_running_shoes() -> None:
+    result = quests(zones=3, trips=100, run_share=20)
+    runs = [q for q in result.trips if q.mode == "run"]
+    assert len(runs) == 20
+    assert all(q.needs == ("Running Shoes",) for q in runs)
+    assert all(q.needs == () for q in result.trips if q.mode == "walk")
+
+
+def test_first_quest_of_every_zone_stays_open() -> None:
+    for seed in range(30):
+        result = quests(rng=random.Random(seed), zones=6, trips=12, run_share=50)
+        firsts = {q.zone: q for q in reversed(result.trips)}
+        assert all(q.needs == () for q in firsts.values())
 
 
 def test_shares_100_0_0() -> None:
@@ -132,23 +169,24 @@ def test_shares_100_0_0() -> None:
 
 
 def test_boss_is_hard_tier10_in_last_zone() -> None:
-    result = quests(zone_modes=["walk", "run"], trips=20, boss=True)
+    result = quests(zones=2, trips=20, boss=True, run_share=50)
     assert len(result.trips) == 20
     boss = result.boss
     assert boss is not None
-    assert (boss.zone, boss.mode, boss.difficulty, boss.tier, boss.family) == (
+    assert (boss.zone, boss.mode, boss.difficulty, boss.tier, boss.family, boss.needs) == (
         2,
-        "run",
+        "walk",
         "hard",
         10,
         "boss",
+        (),
     )
     assert boss.name == names.BOSS_LOCATION
     assert boss.name not in {q.name for q in result.trips}
 
 
 def test_deterministic_for_same_seed() -> None:
-    assert quests(rng=random.Random(9)) == quests(rng=random.Random(9))
+    assert quests(rng=random.Random(9), run_share=20) == quests(rng=random.Random(9), run_share=20)
 
 
 def test_only_reach_when_no_other_family_enabled() -> None:

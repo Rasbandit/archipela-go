@@ -59,7 +59,7 @@ fn main() {
         top.iter().take(14).map(|(k, n)| format!("{}x{}", catalog.kind(k).unwrap().name, n)).collect::<Vec<_>>().join(", ")
     );
 
-    let opts = SoloOptions { zone_modes: vec![mode], number_of_trips: trips, goal: goal.clone(), ..SoloOptions::default() };
+    let opts = SoloOptions { run_quests: mode == Mode::Run, number_of_trips: trips, goal: goal.clone(), ..SoloOptions::default() };
     let sg = generate(&opts, 42).expect("generate");
     let realms = vec![(realm, atlas)];
     let mut g = Game::create(

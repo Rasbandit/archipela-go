@@ -15,7 +15,8 @@ def plan(**over: object) -> ItemPlan:
         "rng": random.Random(3),
         "locations": 40,
         "goal": "treasure_hunt",
-        "zone_modes": ["walk", "run", "walk"],
+        "zones": 3,
+        "tools": ["Running Shoes"],
         "effort": False,
         "scouting": False,
         "collection": False,
@@ -26,12 +27,12 @@ def plan(**over: object) -> ItemPlan:
 
 
 def test_pool_size_equals_locations_across_inputs() -> None:
-    modes = ["walk", "run", "walk", "run", "walk", "run"]
+    tools = ["Running Shoes"]
     for goal in ("all_trips", "treasure_hunt"):
-        for locations in (min_trips(goal, modes), 25, 100, 1001):
+        for locations in (min_trips(goal, 6, tools), 25, 100, 1001):
             for rate in (0, 30, 100):
                 result = plan(
-                    goal=goal, zone_modes=modes, locations=locations, trap_rate=rate, **ALL_ON
+                    goal=goal, zones=6, tools=tools, locations=locations, trap_rate=rate, **ALL_ON
                 )
                 assert sum(result.counts.values()) == locations
                 assert all(v > 0 for v in result.counts.values())
@@ -58,8 +59,8 @@ def test_completionist_has_no_letters() -> None:
     assert not any(n in counts for n in names.LETTER_NAMES)
 
 
-def test_single_zone_has_no_keys_or_tools() -> None:
-    counts = plan(zone_modes=["run"], goal="all_trips").counts
+def test_single_zone_without_run_quests_has_no_keys_or_tools() -> None:
+    counts = plan(zones=1, tools=[], goal="all_trips").counts
     assert names.ZONE_KEY not in counts
     assert not any(t in counts for t in names.TOOLS)
 

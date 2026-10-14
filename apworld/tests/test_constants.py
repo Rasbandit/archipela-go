@@ -4,7 +4,7 @@ from worlds.ap_go2 import constants
 def test_identity_constants() -> None:
     assert constants.GAME_NAME == "Archipela-Go 2: Electric Boogaloo"
     assert constants.ID_OFFSET == 8_902_400_000_000
-    assert constants.SCHEMA_VERSION == 4
+    assert constants.SCHEMA_VERSION == 5
 
 
 def test_limits_and_enums() -> None:
@@ -12,7 +12,8 @@ def test_limits_and_enums() -> None:
     assert constants.MAX_ZONES == 6
     assert constants.MODES == ("walk", "run")
     assert constants.MODE_SPEED_KMH == {"walk": 4.5, "run": 9.0}
-    assert constants.MODE_TOOLS == {"run": "Running Shoes"}
+    assert constants.BADGES == {"run": "Running Shoes"}
+    assert not hasattr(constants, "MODE_TOOLS")
     assert constants.BOSS_BLOCK == 6
 
 

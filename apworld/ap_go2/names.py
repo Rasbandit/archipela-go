@@ -1,12 +1,12 @@
 """Name constants and name builders. No Archipelago imports."""
 
-from .constants import MODE_TOOLS
+from .constants import BADGES
 
 ZONE_KEY = "Progressive Zone Key"
 EFFORT_REDUCTION = "Progressive Effort Reduction"
 SCOUTING = "Progressive Scouting Distance"
 COLLECTION = "Progressive Collection Distance"
-TOOLS = tuple(MODE_TOOLS.values())
+TOOLS = tuple(BADGES.values())
 VICTORY = "Victory"
 GOAL_LOCATION = "Goal"
 BOSS_LOCATION = "Boss Quest"

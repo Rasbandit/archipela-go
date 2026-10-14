@@ -44,13 +44,19 @@ pub fn trap_item(key: &str) -> Option<&'static str> {
     })
 }
 
-/// The tool item a zone in `mode` needs, if any (walking needs none).
+/// The badges: the mode whose quests carry one, its tool item, and the icon key the app draws for it. Mirrors the apworld's `BADGES`.
+pub const BADGES: [(Mode, &str, &str); 1] = [(Mode::Run, "Running Shoes", "run")];
+
+/// The badge (tool item) a quest in `mode` needs, if any (walking needs none).
 #[must_use]
-pub fn tool_for(mode: Mode) -> Option<&'static str> {
-    match mode {
-        Mode::Walk => None,
-        Mode::Run => Some("Running Shoes"),
-    }
+pub fn badge_for(mode: Mode) -> Option<&'static str> {
+    BADGES.iter().find(|b| b.0 == mode).map(|b| b.1)
+}
+
+/// The icon key of the badge `item` ("run"); "tool" for an item that is not a badge, so the app still draws something.
+#[must_use]
+pub fn badge_icon(item: &str) -> &'static str {
+    BADGES.iter().find(|b| b.1 == item).map_or("tool", |b| b.2)
 }
 
 fn mode_index(m: Mode) -> i64 {
@@ -87,8 +93,12 @@ pub struct SoloOptions {
     pub goal_need: u32,
     /// How many quest locations the game has.
     pub number_of_trips: u32,
-    /// Travel mode of each zone, in zone order.
-    pub zone_modes: Vec<Mode>,
+    /// How many zones (1 to 6); zone k needs k - 1 zone keys.
+    pub zone_count: u32,
+    /// Whether some quests are runs, which need Running Shoes.
+    pub run_quests: bool,
+    /// Percent of quests that are runs when `run_quests` is on (1 to 50).
+    pub run_share: u32,
     /// Weight of easy quests.
     pub easy_share: u32,
     /// Weight of medium quests.
@@ -129,7 +139,9 @@ impl Default for SoloOptions {
             goal_mode: GoalMode::All,
             goal_need: 0,
             number_of_trips: 100,
-            zone_modes: vec![Mode::Walk],
+            zone_count: 1,
+            run_quests: false,
+            run_share: 20,
             easy_share: 50,
             medium_share: 35,
             hard_share: 15,
@@ -203,10 +215,14 @@ fn split(total: u32, weights: &[u32]) -> Vec<u32> {
 /// Check that `o` describes a game that can be generated.
 ///
 /// # Errors
-/// Returns a message if the zone count, goal setup, difficulty shares, trip count or quest types are invalid, or there are too few trips for the mandatory items.
+/// Returns a message if the zone count, run share, goal setup, difficulty shares, trip count or quest types are invalid, or there are too few
+/// trips for the mandatory items.
 pub fn validate(o: &SoloOptions) -> Result<(), String> {
-    if o.zone_modes.is_empty() || o.zone_modes.len() > 6 {
-        return Err("zone_modes needs 1 to 6 zones".into());
+    if !(1..=6).contains(&o.zone_count) {
+        return Err(format!("zone_count must be 1 to 6, got {}", o.zone_count));
+    }
+    if o.run_quests && !(1..=50).contains(&o.run_share) {
+        return Err(format!("run_share must be 1 to 50, got {}", o.run_share));
     }
     check_goal_ids(&o.goal_list(), o.goal_mode, o.goal_need)?;
     if o.easy_share + o.medium_share + o.hard_share == 0 {
@@ -215,7 +231,7 @@ pub fn validate(o: &SoloOptions) -> Result<(), String> {
     if !(1..=1000).contains(&o.number_of_trips) {
         return Err("number_of_trips must be 1..1000".into());
     }
-    let zones = count_u32(o.zone_modes.len());
+    let zones = o.zone_count;
     let tools = count_u32(tool_names(o).len());
     let mandatory = count_u32(letters_for_goals(&o.goal_list()).len()) + (zones - 1) + tools;
     if o.number_of_trips < mandatory.max(zones) {
@@ -227,21 +243,25 @@ pub fn validate(o: &SoloOptions) -> Result<(), String> {
     Ok(())
 }
 
-/// Tools needed by zones >= 2 whose mode differs from zone 1's (walk never needs one).
+/// The badge items the pool holds: Running Shoes when run quests are on and there is room for at least one.
 #[must_use]
 pub fn tool_names(o: &SoloOptions) -> Vec<&'static str> {
-    let first = o.zone_modes[0];
-    let mut v: Vec<&'static str> = Vec::new();
-    for m in o.zone_modes.iter().skip(1) {
-        if *m != first {
-            if let Some(t) = tool_for(*m) {
-                if !v.contains(&t) {
-                    v.push(t);
-                }
-            }
-        }
+    if o.run_quests && run_count(o.number_of_trips, o.zone_count, o.run_share) > 0 {
+        badge_for(Mode::Run).into_iter().collect()
+    } else {
+        Vec::new()
     }
-    v
+}
+
+/// How many of `trips` quests are runs for `share` percent (half up, at least 1 when on); mirrors the apworld's `run_count`.
+///
+/// Capped so the first quest of every zone stays open (walk, no badge).
+#[must_use]
+pub fn run_count(trips: u32, zones: u32, share: u32) -> u32 {
+    if share == 0 {
+        return 0;
+    }
+    ((trips * share + 50) / 100).max(1).min(trips.saturating_sub(zones))
 }
 
 /// Generate a solo game from `o`: the zones, quest locations and what each location gives.
@@ -254,24 +274,14 @@ pub fn tool_names(o: &SoloOptions) -> Vec<&'static str> {
 pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
     validate(o)?;
     let mut rng = StdRng::seed_from_u64(seed);
-    let zn = o.zone_modes.len();
-    let first = o.zone_modes[0];
+    let zn = o.zone_count as usize;
 
-    let zones: Vec<ZoneSlot> = o
-        .zone_modes
-        .iter()
-        .enumerate()
-        .map(|(i, m)| ZoneSlot {
-            id: count_u32(i) + 1,
-            mode: *m,
-            zone_keys_needed: count_u32(i),
-            tool: if i > 0 && *m != first { tool_for(*m).map(String::from) } else { None },
-        })
-        .collect();
+    let zones: Vec<ZoneSlot> = (0..o.zone_count).map(|i| ZoneSlot { id: i + 1, zone_keys_needed: i }).collect();
 
+    // ---- quest slots: zone, difficulty, tier and family; the mode is picked after, as in the apworld ----
     let per_zone = split(o.number_of_trips, &vec![1; zn]);
-    let mut counters: BTreeMap<(usize, i64), i64> = BTreeMap::new();
-    let mut trips: Vec<QuestSlot> = Vec::new();
+    let mut slots: Vec<(u32, usize, u8, &str)> = Vec::new();
+    let mut firsts: Vec<usize> = Vec::new();
     for (zi, zone) in zones.iter().enumerate() {
         // A zone's own list wins; an empty or missing one means the game's list. Walking to a point is always allowed.
         let mut quest_types: Vec<String> = o.zone_quest_types.get(zi).filter(|v| !v.is_empty()).unwrap_or(&o.quest_types).clone();
@@ -283,43 +293,50 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
         for f in FAMILIES.iter().filter(|f| quest_types.iter().any(|q| q == **f)) {
             fams.extend(std::iter::repeat_n(*f, if *f == "reach" { REACH_WEIGHT } else { 1 }));
         }
+        firsts.push(slots.len());
         for (di, n) in counts.iter().enumerate() {
             for _ in 0..*n {
                 let tier = rng.random_range(BANDS[di].0..=BANDS[di].1);
                 let family = fams.choose(&mut rng).copied().unwrap_or("reach");
-                let c = counters.entry((di, block(di, zone.mode))).or_insert(0);
-                *c += 1;
-                trips.push(QuestSlot {
-                    location_id: quest_location_id(di, zone.mode, *c),
-                    zone: zone.id,
-                    mode: zone.mode,
-                    difficulty: DIFFICULTIES[di].into(),
-                    effort_tier: tier,
-                    family: family.into(),
-                });
+                slots.push((zone.id, di, tier, family));
             }
         }
+    }
+    let share = if o.run_quests { o.run_share } else { 0 };
+    let candidates: Vec<usize> = (0..slots.len()).filter(|i| !firsts.contains(i)).collect();
+    let runs: Vec<usize> = candidates.sample(&mut rng, run_count(o.number_of_trips, o.zone_count, share) as usize).copied().collect();
+
+    let mut counters: BTreeMap<(usize, i64), i64> = BTreeMap::new();
+    let mut trips: Vec<QuestSlot> = Vec::new();
+    for (i, (zone, di, tier, family)) in slots.into_iter().enumerate() {
+        let mode = if runs.contains(&i) { Mode::Run } else { Mode::Walk };
+        let c = counters.entry((di, block(di, mode))).or_insert(0);
+        *c += 1;
+        trips.push(QuestSlot {
+            location_id: quest_location_id(di, mode, *c),
+            zone,
+            mode,
+            difficulty: DIFFICULTIES[di].into(),
+            effort_tier: tier,
+            family: family.into(),
+            needs: badge_for(mode).map(String::from).into_iter().collect(),
+        });
     }
     let boss = zones.last().filter(|_| has_treasure_hunt(&o.goal_list())).map(|last| QuestSlot {
         location_id: boss_location_id(),
         zone: last.id,
-        mode: last.mode,
+        mode: Mode::Walk,
         difficulty: "hard".into(),
         effort_tier: 10,
         family: "boss".into(),
+        needs: vec![],
     });
 
     // ---- item pool (mirrors the apworld item plan) ----
     let total_locs = count_u32(trips.len()) + u32::from(boss.is_some());
-    let mut unlock: Vec<(usize, String)> = Vec::new(); // (zone index that needs it, item)
-    for k in 2..=zn {
-        unlock.push((k, "Progressive Zone Key".into()));
-        if let Some(t) = zones[k - 1].tool.as_deref() {
-            if !unlock.iter().any(|(_, n)| n == t) {
-                unlock.push((k, t.into()));
-            }
-        }
-    }
+    // (zone index that needs it, item); the badge is needed from zone 1 on, so it goes after the keys anywhere open.
+    let mut unlock: Vec<(usize, String)> = (2..=zn).map(|k| (k, "Progressive Zone Key".to_string())).collect();
+    unlock.extend(tool_names(o).into_iter().map(|t| (zn + 1, t.to_string())));
     let letters: Vec<String> = letters_for_goals(&o.goal_list()).chars().map(|c| format!("Letter {c}")).collect();
     let mut free = i64::from(total_locs) - count_i64(unlock.len()) - count_i64(letters.len());
     let mut other: Vec<String> = Vec::new();
@@ -358,23 +375,28 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
         }
     }
 
-    // ---- fill: unlock items go to zones that are already reachable, so the game is beatable by construction ----
-    let mut locs: Vec<(i64, u32, bool)> = trips.iter().map(|t| (t.location_id, t.zone, false)).collect();
+    // ---- fill: unlock items go to open quests (no badge) of zones already reachable, so the game is beatable by construction ----
+    // (location id, zone, may hold an unlock item: not the boss and no badge)
+    let mut locs: Vec<(i64, u32, bool)> = trips.iter().map(|t| (t.location_id, t.zone, t.needs.is_empty())).collect();
     if let Some(b) = &boss {
-        locs.push((b.location_id, b.zone, true));
+        locs.push((b.location_id, b.zone, false));
     }
     let mut rewards: BTreeMap<i64, String> = BTreeMap::new();
-    let place = |item: &str, max_zone: u32, rewards: &mut BTreeMap<i64, String>, rng: &mut StdRng| -> Result<(), String> {
-        let open: Vec<i64> = locs.iter().filter(|(id, z, boss)| *z <= max_zone && !*boss && !rewards.contains_key(id)).map(|(id, _, _)| *id).collect();
+    let place = |item: &str, max_zone: u32, unlock: bool, rewards: &mut BTreeMap<i64, String>, rng: &mut StdRng| -> Result<(), String> {
+        let open: Vec<i64> = locs
+            .iter()
+            .filter(|(id, z, holds)| *z <= max_zone && (*holds || !unlock) && !rewards.contains_key(id) && *id != boss_location_id())
+            .map(|(id, _, _)| *id)
+            .collect();
         let id = *open.choose(rng).ok_or("not enough quests to hold the keys and tools; add more trips")?;
         rewards.insert(id, item.to_string());
         Ok(())
     };
     for (zone_needing, item) in &unlock {
-        place(item, count_u32(*zone_needing) - 1, &mut rewards, &mut rng)?;
+        place(item, count_u32(*zone_needing) - 1, true, &mut rewards, &mut rng)?;
     }
     for l in &letters {
-        place(l, count_u32(zn), &mut rewards, &mut rng)?;
+        place(l, count_u32(zn), false, &mut rewards, &mut rng)?;
     }
     other.shuffle(&mut rng);
     for (id, _, _) in &locs {
@@ -414,7 +436,7 @@ pub fn is_beatable(g: &SoloGame) -> bool {
                 continue;
             }
             let keys = *have.get("Progressive Zone Key").unwrap_or(&0);
-            let open = g.slot.zone(q.zone).is_some_and(|z| keys >= z.zone_keys_needed && z.tool.as_ref().is_none_or(|t| have.contains_key(t)));
+            let open = g.slot.zone(q.zone).is_some_and(|z| keys >= z.zone_keys_needed) && q.needs.iter().all(|n| have.contains_key(n));
             if open {
                 collected.push(q.location_id);
                 *have.entry(g.rewards[&q.location_id].clone()).or_insert(0) += 1;
@@ -433,8 +455,13 @@ pub fn is_beatable(g: &SoloGame) -> bool {
 mod tests {
     use super::*;
 
-    fn opts(zones: &[Mode], trips: u32, goal: &str) -> SoloOptions {
-        SoloOptions { zone_modes: zones.to_vec(), number_of_trips: trips, goal: goal.into(), ..SoloOptions::default() }
+    fn opts(zones: u32, trips: u32, goal: &str) -> SoloOptions {
+        SoloOptions { zone_count: zones, number_of_trips: trips, goal: goal.into(), ..SoloOptions::default() }
+    }
+
+    /// `opts` with run quests on at `share` percent.
+    fn runs(zones: u32, trips: u32, goal: &str, share: u32) -> SoloOptions {
+        SoloOptions { run_quests: true, run_share: share, ..opts(zones, trips, goal) }
     }
 
     #[test]
@@ -449,7 +476,7 @@ mod tests {
 
     #[test]
     fn several_goals_together_ask_for_everything_each_one_needs() {
-        let mut o = opts(&[Mode::Walk], 60, "all_trips");
+        let mut o = opts(1, 60, "all_trips");
         o.goals = vec!["treasure_hunt".to_string(), "all_trips".to_string()];
         o.goal_mode = GoalMode::All;
         let g = generate(&o, 3).unwrap();
@@ -463,7 +490,7 @@ mod tests {
 
     #[test]
     fn a_goal_list_is_checked_like_a_single_goal() {
-        let mut o = opts(&[Mode::Walk], 60, "treasure_hunt");
+        let mut o = opts(1, 60, "treasure_hunt");
         o.goals = vec!["nonsense".to_string()];
         assert!(validate(&o).is_err());
         o.goals = vec!["treasure_hunt".to_string(), "all_trips".to_string()];
@@ -476,7 +503,7 @@ mod tests {
 
     #[test]
     fn each_zone_can_have_its_own_quest_types() {
-        let mut o = opts(&[Mode::Walk, Mode::Walk], 80, "all_trips");
+        let mut o = opts(2, 80, "all_trips");
         o.zone_quest_types = vec![vec!["park".into()], vec!["dwell".into()]];
         let g = generate(&o, 5).unwrap();
         let fams = |zone: u32| -> std::collections::BTreeSet<String> { g.slot.trips.iter().filter(|q| q.zone == zone).map(|q| q.family.clone()).collect() };
@@ -488,7 +515,7 @@ mod tests {
 
     #[test]
     fn a_zone_with_no_quest_types_of_its_own_uses_the_games_list() {
-        let mut o = opts(&[Mode::Walk, Mode::Walk], 80, "all_trips");
+        let mut o = opts(2, 80, "all_trips");
         o.quest_types = vec!["trail".into()];
         o.zone_quest_types = vec![vec![], vec!["dwell".into()]];
         let g = generate(&o, 5).unwrap();
@@ -514,18 +541,74 @@ mod tests {
     }
 
     #[test]
-    fn a_run_zone_needs_running_shoes_and_walking_needs_nothing() {
-        assert_eq!(tool_for(Mode::Walk), None);
-        assert_eq!(tool_for(Mode::Run), Some("Running Shoes"));
-        let g = generate(&opts(&[Mode::Walk, Mode::Run], 40, "treasure_hunt"), 2).unwrap();
-        assert_eq!(g.slot.zones[1].tool.as_deref(), Some("Running Shoes"));
+    fn run_quests_need_running_shoes_and_walking_needs_nothing() {
+        assert_eq!(badge_for(Mode::Walk), None);
+        assert_eq!(badge_for(Mode::Run), Some("Running Shoes"));
+        let g = generate(&runs(2, 40, "treasure_hunt", 25), 2).unwrap();
+        let run: Vec<&QuestSlot> = g.slot.trips.iter().filter(|q| q.mode == Mode::Run).collect();
+        assert_eq!(run.len(), 10);
+        assert!(run.iter().all(|q| q.needs == ["Running Shoes"]));
+        assert!(g.slot.trips.iter().filter(|q| q.mode == Mode::Walk).all(|q| q.needs.is_empty()));
         assert_eq!(g.slot.boss.as_ref().unwrap().location_id, boss_location_id());
+        assert!(g.slot.boss.as_ref().unwrap().needs.is_empty() && g.slot.boss.as_ref().unwrap().mode == Mode::Walk);
+        assert_eq!(g.rewards.values().filter(|v| *v == "Running Shoes").count(), 1);
         assert!(is_beatable(&g));
     }
 
     #[test]
+    fn run_quests_are_off_by_default_and_then_need_no_shoes() {
+        let g = generate(&opts(3, 60, "all_trips"), 4).unwrap();
+        assert!(g.slot.trips.iter().all(|q| q.mode == Mode::Walk && q.needs.is_empty()));
+        assert!(!g.rewards.values().any(|v| v == "Running Shoes"));
+    }
+
+    #[test]
+    fn the_run_share_is_only_checked_when_run_quests_are_on() {
+        let off = SoloOptions { run_share: 0, ..opts(1, 20, "all_trips") };
+        assert!(generate(&off, 1).is_ok(), "an unused share does not matter");
+        assert!(generate(&SoloOptions { run_quests: true, ..off }, 1).unwrap_err().contains("run_share"));
+    }
+
+    #[test]
+    fn no_shoes_are_asked_for_when_no_run_quest_fits() {
+        let one_each = runs(3, 3, "all_trips", 50); // one quest per zone: each is its zone's open first quest
+        assert_eq!(tool_names(&one_each), Vec::<&str>::new());
+        let g = generate(&one_each, 1).unwrap();
+        assert!(g.slot.trips.iter().all(|q| q.needs.is_empty()) && !g.rewards.values().any(|v| v == "Running Shoes"));
+        assert_eq!(tool_names(&runs(3, 4, "all_trips", 50)), vec!["Running Shoes"]);
+    }
+
+    #[test]
+    fn each_badge_has_an_icon_key_for_the_app() {
+        assert_eq!(badge_icon("Running Shoes"), "run");
+        assert_eq!(badge_icon("Gloves"), "tool", "an unknown tool still gets an icon");
+    }
+
+    #[test]
+    fn run_count_mirrors_the_apworld() {
+        assert_eq!(run_count(100, 1, 0), 0);
+        assert_eq!(run_count(100, 1, 20), 20);
+        assert_eq!(run_count(10, 1, 25), 3, "2.5 rounds up");
+        assert_eq!(run_count(10, 1, 1), 1, "never zero when on");
+        assert_eq!(run_count(2, 1, 50), 1);
+        assert_eq!(run_count(3, 3, 50), 0, "one quest per zone: all stay open");
+        assert_eq!(run_count(7, 6, 50), 1);
+    }
+
+    #[test]
+    fn the_first_quest_of_every_zone_stays_open() {
+        for seed in 0..30 {
+            let g = generate(&runs(6, 12, "all_trips", 50), seed).unwrap();
+            for z in 1..=6 {
+                let first = g.slot.trips.iter().find(|q| q.zone == z).unwrap();
+                assert!(first.needs.is_empty(), "seed {seed} zone {z}");
+            }
+        }
+    }
+
+    #[test]
     fn counts_ids_and_difficulty_bands_follow_the_apworld_layout() {
-        let g = generate(&opts(&[Mode::Walk, Mode::Run, Mode::Walk], 100, "treasure_hunt"), 7).unwrap();
+        let g = generate(&runs(3, 100, "treasure_hunt", 20), 7).unwrap();
         assert_eq!(g.slot.trips.len(), 100);
         assert!(g.slot.boss.is_some());
         let mut ids: Vec<i64> = g.slot.all_quests().iter().map(|q| q.location_id).collect();
@@ -542,59 +625,61 @@ mod tests {
         let shares: Vec<usize> = ["easy", "medium", "hard"].iter().map(|d| g.slot.trips.iter().filter(|q| q.difficulty == *d).count()).collect();
         assert_eq!(shares.iter().sum::<usize>(), 100);
         assert!(shares[0] > shares[1] && shares[1] > shares[2], "50/35/15 mix, got {shares:?}");
-        assert_eq!(g.slot.zones[1].tool.as_deref(), Some("Running Shoes"));
-        assert_eq!(g.slot.zones[2].tool, None, "walking needs no tool");
+        assert_eq!(g.slot.trips.iter().filter(|q| q.mode == Mode::Run).count(), 20);
         assert_eq!(g.slot.zones[2].zone_keys_needed, 2);
     }
 
     #[test]
     fn reward_table_matches_the_pool_and_is_always_beatable() {
-        for (zones, trips, goal) in [
-            (vec![Mode::Walk], 20, "treasure_hunt"),
-            (vec![Mode::Walk, Mode::Run], 40, "treasure_hunt"),
-            (vec![Mode::Walk, Mode::Run, Mode::Walk, Mode::Run], 60, "treasure_hunt"),
-            (vec![Mode::Run, Mode::Walk, Mode::Walk], 30, "all_trips"),
-            (vec![Mode::Walk; 6], 80, "all_trips"),
+        for (o, label) in [
+            (opts(1, 20, "treasure_hunt"), "1 zone"),
+            (runs(2, 40, "treasure_hunt", 20), "2 zones, runs"),
+            (runs(4, 60, "treasure_hunt", 50), "4 zones, half runs"),
+            (runs(6, 10, "treasure_hunt", 50), "6 zones, smallest"),
+            (opts(3, 30, "all_trips"), "3 zones"),
+            (opts(6, 80, "all_trips"), "6 zones"),
         ] {
             for seed in 0..25 {
-                let g = generate(&opts(&zones, trips, goal), seed).unwrap_or_else(|e| panic!("{zones:?} {goal} seed {seed}: {e}"));
+                let g = generate(&o, seed).unwrap_or_else(|e| panic!("{label} seed {seed}: {e}"));
                 assert_eq!(g.rewards.len(), g.slot.all_quests().len());
-                assert!(is_beatable(&g), "{zones:?} {goal} seed {seed} is not beatable");
+                assert!(is_beatable(&g), "{label} seed {seed} is not beatable");
                 let count = |n: &str| g.rewards.values().filter(|v| *v == n).count();
-                assert_eq!(count("Progressive Zone Key"), zones.len() - 1);
-                assert_eq!(g.rewards.values().filter(|v| v.starts_with("Letter ")).count(), letters_for_goals(&opts(&zones, trips, goal).goal_list()).len());
+                assert_eq!(count("Progressive Zone Key"), o.zone_count as usize - 1);
+                assert_eq!(g.rewards.values().filter(|v| v.starts_with("Letter ")).count(), letters_for_goals(&o.goal_list()).len());
             }
         }
     }
 
     #[test]
-    fn unlock_items_never_sit_behind_the_zone_they_unlock() {
-        let g = generate(&opts(&[Mode::Walk, Mode::Run, Mode::Walk], 30, "all_trips"), 3).unwrap();
-        let zone_of = |id: i64| g.slot.all_quests().iter().find(|q| q.location_id == id).unwrap().zone;
-        let keys: Vec<u32> = g.rewards.iter().filter(|(_, v)| *v == "Progressive Zone Key").map(|(k, _)| zone_of(*k)).collect();
-        assert!(keys.iter().all(|z| *z < 3), "keys are in zones 1-2: {keys:?}");
-        let shoes = g.rewards.iter().find(|(_, v)| *v == "Running Shoes").map(|(k, _)| zone_of(*k)).unwrap();
-        assert_eq!(shoes, 1, "the first tool needed for zone 2 must be in zone 1");
+    fn unlock_items_sit_on_open_quests_before_the_zone_they_unlock() {
+        let g = generate(&runs(3, 30, "all_trips", 50), 3).unwrap();
+        let quest = |id: i64| *g.slot.all_quests().iter().find(|q| q.location_id == id).unwrap();
+        let keys: Vec<&QuestSlot> = g.rewards.iter().filter(|(_, v)| *v == "Progressive Zone Key").map(|(k, _)| quest(*k)).collect();
+        assert!(keys.iter().all(|q| q.zone < 3 && q.needs.is_empty()), "keys are on open quests in zones 1-2");
+        let shoes = g.rewards.iter().find(|(_, v)| *v == "Running Shoes").map(|(k, _)| quest(*k)).unwrap();
+        assert!(shoes.needs.is_empty(), "the shoes are never behind themselves");
     }
 
     #[test]
     fn options_are_validated_with_clear_errors() {
-        assert!(generate(&opts(&[], 20, "treasure_hunt"), 1).unwrap_err().contains("zone_modes"));
-        assert!(generate(&opts(&[Mode::Walk], 3, "treasure_hunt"), 1).unwrap_err().contains("too small"));
-        let mut o = opts(&[Mode::Walk], 20, "all_trips");
+        assert!(generate(&opts(0, 20, "treasure_hunt"), 1).unwrap_err().contains("zone_count"));
+        assert!(generate(&opts(7, 20, "treasure_hunt"), 1).unwrap_err().contains("zone_count"));
+        assert!(generate(&runs(1, 20, "all_trips", 51), 1).unwrap_err().contains("run_share"));
+        assert!(generate(&opts(1, 3, "treasure_hunt"), 1).unwrap_err().contains("too small"));
+        let mut o = opts(1, 20, "all_trips");
         o.easy_share = 0;
         o.medium_share = 0;
         o.hard_share = 0;
         assert!(generate(&o, 1).unwrap_err().contains("share"));
-        assert!(generate(&opts(&[Mode::Walk], 20, "nope"), 1).unwrap_err().contains("goal"));
-        let mut q = opts(&[Mode::Walk], 20, "all_trips");
+        assert!(generate(&opts(1, 20, "nope"), 1).unwrap_err().contains("goal"));
+        let mut q = opts(1, 20, "all_trips");
         q.quest_types = vec!["teleport".into()];
         assert!(generate(&q, 1).unwrap_err().contains("quest type"));
     }
 
     #[test]
     fn deterministic_and_round_trips_through_slot_data_json() {
-        let o = opts(&[Mode::Walk, Mode::Run], 50, "all_trips");
+        let o = runs(2, 50, "all_trips", 20);
         let (a, b) = (generate(&o, 11).unwrap(), generate(&o, 11).unwrap());
         assert_eq!(a.rewards, b.rewards);
         let json = serde_json::to_string(&a.slot).unwrap();
@@ -604,7 +689,7 @@ mod tests {
 
     #[test]
     fn extreme_shares_and_big_games_work() {
-        let mut o = opts(&[Mode::Walk; 6], 1000, "all_trips");
+        let mut o = opts(6, 1000, "all_trips");
         o.easy_share = 0;
         o.hard_share = 100;
         o.medium_share = 0;

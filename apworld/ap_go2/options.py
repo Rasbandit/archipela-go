@@ -6,7 +6,6 @@ from Options import (  # type: ignore[import-not-found]
     Choice,
     DeathLink,
     OptionGroup,
-    OptionList,
     OptionSet,
     PerGameCommonOptions,
     Range,
@@ -14,7 +13,7 @@ from Options import (  # type: ignore[import-not-found]
 )
 from schema import And, Schema  # type: ignore[import-not-found]
 
-from .constants import FAMILIES, GOAL_NAMES, MAX_TRIPS
+from .constants import FAMILIES, GOAL_NAMES, MAX_TRIPS, MAX_ZONES
 from .names import TRAP_KEYS
 
 
@@ -72,11 +71,28 @@ class NumberOfTrips(Range):
     default = 100
 
 
-class ZoneModes(OptionList):
-    """Ordered zones, each walk or run (1 to 6). Zone 1 is free; the rest need keys."""
+class ZoneCount(Range):
+    """How many zones (1 to 6). Zone 1 is free; each later zone needs one more Zone Key."""
 
-    display_name = "Zone Modes"
-    default = ["walk"]
+    display_name = "Zone Count"
+    range_start = 1
+    range_end = MAX_ZONES
+    default = 1
+
+
+class RunQuests(Toggle):
+    """Some quests become runs. A run quest carries the Running Shoes badge: it needs that item."""
+
+    display_name = "Run Quests"
+
+
+class RunShare(Range):
+    """Percent of quests that are runs when Run Quests is on (at least one)."""
+
+    display_name = "Run Share"
+    range_start = 1
+    range_end = 50
+    default = 20
 
 
 class EasyShare(Range):
@@ -194,7 +210,9 @@ class ApGo2Options(PerGameCommonOptions):
     goal_requirement: GoalRequirement
     goals_required: GoalsRequired
     number_of_trips: NumberOfTrips
-    zone_modes: ZoneModes
+    zone_count: ZoneCount
+    run_quests: RunQuests
+    run_share: RunShare
     easy_share: EasyShare
     medium_share: MediumShare
     hard_share: HardShare

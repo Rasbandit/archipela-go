@@ -12,14 +12,14 @@ from test.bases import WorldTestBase  # type: ignore[import-not-found]
 from worlds.ap_go2 import names
 from worlds.ap_go2.constants import GAME_NAME, GOAL_NAMES, GOALS
 from worlds.ap_go2.locations import LOCATION_NAME_GROUPS
-from worlds.ap_go2.options import ApGo2Options, GoalSelection, GoalsRequired
+from worlds.ap_go2.options import ApGo2Options, GoalSelection, GoalsRequired, RunShare, ZoneCount
 from worlds.AutoWorld import AutoWorldRegister  # type: ignore[import-not-found]
 from worlds.generic.Rules import exclusion_rules
 
 SCHEMA = json.loads(
     (Path(__file__).parents[2] / "docs" / "slot_data.schema.json").read_text(encoding="utf-8")
 )
-MULTI = ["walk", "run", "walk"]
+MULTI = {"zone_count": 3, "run_quests": True}
 
 
 class Base(WorldTestBase):
@@ -36,6 +36,11 @@ class Base(WorldTestBase):
 
 class TestDefaultSeed(Base):
     options = {"number_of_trips": 100}  # noqa: RUF012  # WorldTestBase reads a plain class dict
+
+    def test_run_quests_are_off_by_default(self) -> None:
+        assert not self.get_items_by_name("Running Shoes")
+        assert {q.mode for q in self.world.quests.trips} == {"walk"}
+        assert all(t["needs"] == [] for t in self.world.fill_slot_data()["trips"])
 
     def test_goal_needs_all_letters(self) -> None:
         state = CollectionState(self.multiworld)
@@ -57,7 +62,7 @@ class TestDefaultSeed(Base):
 
 class TestThreeZonesLong(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
-        "zone_modes": MULTI,
+        **MULTI,
         "goal_selection": [GOAL_NAMES["treasure_hunt"]],
         "number_of_trips": 60,
         "enable_effort_reductions": True,
@@ -82,13 +87,22 @@ class TestThreeZonesLong(Base):
         assert self.zone_reachable(one_key, 2)
         assert not self.zone_reachable(one_key, 3)
 
-    def test_zones_gated_by_tools(self) -> None:
-        for tool, zone in (("Running Shoes", 2),):
-            state = CollectionState(self.multiworld)
-            self.collect_all_but([tool, names.VICTORY], state)
-            assert not self.zone_reachable(state, zone)
-            state.collect(self.get_items_by_name(tool)[0])
-            assert self.zone_reachable(state, zone)
+    def test_run_quests_need_running_shoes(self) -> None:
+        runs = [q.name for q in self.world.quests.trips if q.mode == "run"]
+        walks = [q.name for q in self.world.quests.trips if q.mode == "walk"]
+        assert len(runs) == 12  # 20 % of 60
+        state = CollectionState(self.multiworld)
+        self.collect_all_but(["Running Shoes", names.VICTORY], state)
+        assert all(self.zone_reachable(state, z) for z in (1, 2, 3))
+        assert not any(state.can_reach_location(n, self.player) for n in runs)
+        assert all(state.can_reach_location(n, self.player) for n in walks)
+        state.collect(self.get_items_by_name("Running Shoes")[0])
+        assert all(state.can_reach_location(n, self.player) for n in runs)
+
+    def test_zones_need_no_tool(self) -> None:
+        state = CollectionState(self.multiworld)
+        self.collect_all_but(["Running Shoes", names.VICTORY], state)
+        assert self.zone_reachable(state, 3)
 
     def test_only_running_shoes_and_no_retired_tools(self) -> None:
         assert len(self.get_items_by_name("Running Shoes")) == 1
@@ -98,13 +112,21 @@ class TestThreeZonesLong(Base):
     def test_slot_data(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
-        assert [z["tool"] for z in data["zones"]] == [None, "Running Shoes", None]
+        assert data["zones"] == [
+            {"id": 1, "zone_keys_needed": 0},
+            {"id": 2, "zone_keys_needed": 1},
+            {"id": 3, "zone_keys_needed": 2},
+        ]
         assert {t["zone"] for t in data["trips"]} == {1, 2, 3}
+        runs = [t for t in data["trips"] if t["mode"] == "run"]
+        assert runs
+        assert all(t["needs"] == ["Running Shoes"] for t in runs)
 
 
 class TestBossInLastZone(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
-        "zone_modes": ["walk", "run"],
+        "zone_count": 2,
+        "run_quests": True,
         "goal_selection": [GOAL_NAMES["treasure_hunt"]],
         "number_of_trips": 30,
     }
@@ -128,7 +150,8 @@ class TestBossInLastZone(Base):
 
 class TestTreasureHunt(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
-        "zone_modes": ["walk", "run"],
+        "zone_count": 2,
+        "run_quests": True,
         "goal_selection": [GOAL_NAMES["treasure_hunt"]],
         "number_of_trips": 30,
     }
@@ -152,13 +175,14 @@ class TestTreasureHunt(Base):
 class TestAllTrips(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "goal_selection": [GOAL_NAMES["all_trips"]],
-        "zone_modes": ["run", "walk"],
+        "zone_count": 2,
         "number_of_trips": 20,
     }
 
-    def test_run_walk_needs_only_key(self) -> None:
+    def test_without_run_quests_only_a_key_is_needed(self) -> None:
+        assert not self.get_items_by_name("Running Shoes")
         data = self.world.fill_slot_data()
-        assert [z["tool"] for z in data["zones"]] == [None, None]
+        assert all(t["needs"] == [] for t in data["trips"])
         assert not self.goal_reachable(CollectionState(self.multiworld))
         assert self.goal_reachable(self.multiworld.get_all_state(use_cache=False))
 
@@ -190,7 +214,8 @@ def _make_goal_test(goal: str) -> type:
     class _T(Base):
         options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
             "goal_selection": [GOAL_NAMES[goal]],
-            "zone_modes": ["walk", "run"],
+            "zone_count": 2,
+            "run_quests": True,
             "number_of_trips": 40,
         }
 
@@ -209,7 +234,7 @@ globals().update({f"TestGoal_{g}": _make_goal_test(g) for g in GOALS})
 
 
 class TestExcludeHard(Base):
-    options = {"number_of_trips": 80, "exclude_locations": ["Hard"], "zone_modes": MULTI}  # noqa: RUF012  # WorldTestBase reads a plain class dict
+    options = {"number_of_trips": 80, "exclude_locations": ["Hard"], **MULTI}  # noqa: RUF012  # WorldTestBase reads a plain class dict
 
     def test_no_progression_on_hard(self) -> None:
         # WorldTestBase skips Main's option verification (which expands groups) and exclusion step.
@@ -238,7 +263,8 @@ class TestEffortReductionsOptional(Base):
 class TestLargeSeed(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "number_of_trips": 1000,
-        "zone_modes": ["walk", "run", "walk", "run", "walk", "run"],
+        "zone_count": 6,
+        "run_quests": True,
         "goal_selection": [GOAL_NAMES["treasure_hunt"]],
     }
 
@@ -258,14 +284,14 @@ class TestInvalidSettings(WorldTestBase):
         with pytest.raises(OptionError, match=fragment):
             self.world_setup()
 
-    def test_empty_zone_modes(self) -> None:
-        self.assert_rejected({"zone_modes": []}, "zone_modes")
-
-    def test_unknown_mode(self) -> None:
-        self.assert_rejected({"zone_modes": ["swim"]}, "zone_modes")
-
-    def test_too_many_zones(self) -> None:
-        self.assert_rejected({"zone_modes": ["walk"] * 7}, "zone_modes")
+    def test_zone_count_and_run_share_ranges(self) -> None:
+        # Archipelago's Range raises a bare Exception.
+        with pytest.raises(Exception, match="minimum 1"):
+            ZoneCount.from_any(0)
+        with pytest.raises(Exception, match="maximum 6"):
+            ZoneCount.from_any(7)
+        with pytest.raises(Exception, match="maximum 50"):
+            RunShare.from_any(51)
 
     def test_all_shares_zero(self) -> None:
         self.assert_rejected({"easy_share": 0, "medium_share": 0, "hard_share": 0}, "share")
@@ -275,7 +301,7 @@ class TestInvalidSettings(WorldTestBase):
             {"goal_selection": [GOAL_NAMES["treasure_hunt"]], "number_of_trips": 3},
             "number_of_trips",
         )
-        self.assert_rejected({"zone_modes": MULTI, "number_of_trips": 2}, "number_of_trips")
+        self.assert_rejected({**MULTI, "number_of_trips": 2}, "number_of_trips")
 
     def test_unknown_family(self) -> None:
         self.assert_rejected({"quest_types": ["reach", "teleport"]}, "quest_types")
@@ -313,7 +339,8 @@ class TestSeveralGoalsAny(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "goal_selection": ["Treasure Hunt", "Completionist"],
         "goal_requirement": "require_any_one_goal",
-        "zone_modes": ["walk", "run"],
+        "zone_count": 2,
+        "run_quests": True,
         "number_of_trips": 40,
     }
 
@@ -433,3 +460,35 @@ class TestBothGoalsAtLeastTwo(Base):
     def test_beatable(self) -> None:
         self.collect_all_but([])
         self.assertBeatable(beatable=True)
+
+
+class TestExtremeRunShareFills(Base):
+    """Smallest Treasure Hunt for 6 zones with half the quests runs: fill must still succeed."""
+
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
+        "zone_count": 6,
+        "run_quests": True,
+        "run_share": 50,
+        "goal_selection": [GOAL_NAMES["treasure_hunt"]],
+        "number_of_trips": 10,
+    }
+
+    def test_fills_and_is_beatable(self) -> None:
+        assert sum(q.mode == "run" for q in self.world.quests.trips) == 4  # capped: 10 - 6 zones
+        distribute_items_restrictive(self.multiworld)
+        assert self.multiworld.can_beat_game(CollectionState(self.multiworld))
+
+
+class TestRunQuestsWithNoRoomForARun(Base):
+    """Run quests on, but each quest opens its zone: no run fits, so no shoes are needed."""
+
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
+        "zone_count": 3,
+        "run_quests": True,
+        "goal_selection": [GOAL_NAMES["all_trips"]],
+        "number_of_trips": 3,
+    }
+
+    def test_no_run_quests_and_no_running_shoes(self) -> None:
+        assert all(q.needs == () for q in self.world.quests.trips)
+        assert not self.get_items_by_name("Running Shoes")

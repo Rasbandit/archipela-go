@@ -15,7 +15,7 @@ use apgo_core::geo::{distance_m, simplify_spaced, Point};
 use apgo_core::home_watch::{HomeState, HomeWatch};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::loc::calib::StepCal;
-use apgo_core::loc::{mode_at, DisplayPosition, DisplaySource, Estimate, HeadingSource, Provider, RawFix, Verdict};
+use apgo_core::loc::{DisplayPosition, DisplaySource, Estimate, HeadingSource, Provider, RawFix, Verdict};
 use apgo_core::marks::Mark;
 use apgo_core::num::count_u32;
 use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
@@ -232,8 +232,12 @@ pub struct SoloOptionsIn {
     pub goal_need: u32,
     /// How many quest locations the game has.
     pub number_of_trips: u32,
-    /// Travel mode of each zone, in zone order.
-    pub zone_modes: Vec<String>,
+    /// How many zones (1 to 6).
+    pub zone_count: u32,
+    /// Whether some quests are runs, which need Running Shoes.
+    pub run_quests: bool,
+    /// Percent of quests that are runs when `run_quests` is on (1 to 50).
+    pub run_share: u32,
     /// Weight of easy quests.
     pub easy_share: u32,
     /// Weight of medium quests.
@@ -267,7 +271,6 @@ pub struct SoloOptionsIn {
 }
 
 fn to_core(o: SoloOptionsIn) -> Result<SoloOptions, CoreError> {
-    let zone_modes = o.zone_modes.iter().map(|m| Mode::parse(m).ok_or_else(|| err(format!("unknown mode {m}")))).collect::<Result<Vec<_>, _>>()?;
     let goal_mode = match o.goal_requirement.as_str() {
         "any" => apgo_core::slot::GoalMode::Any,
         "all" => apgo_core::slot::GoalMode::All,
@@ -281,7 +284,9 @@ fn to_core(o: SoloOptionsIn) -> Result<SoloOptions, CoreError> {
         goal_need: o.goal_need,
         zone_quest_types: o.zone_quest_types,
         number_of_trips: o.number_of_trips,
-        zone_modes,
+        zone_count: o.zone_count,
+        run_quests: o.run_quests,
+        run_share: o.run_share,
         easy_share: o.easy_share,
         medium_share: o.medium_share,
         hard_share: o.hard_share,
@@ -306,6 +311,21 @@ pub struct GameInfo {
     pub id: String,
     /// Display name of the game.
     pub name: String,
+}
+
+/// One badge (a tool a quest or chain needs), worded and iconed by the core.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BadgeOut {
+    /// The tool item ("Running Shoes").
+    pub item: String,
+    /// Which icon to draw: "run", or "tool" for any other.
+    pub icon: String,
+    /// Whether the player does not hold it yet.
+    pub missing: bool,
+}
+
+fn badge_out(b: apgo_core::game::BadgeView) -> BadgeOut {
+    BadgeOut { item: b.item, icon: b.icon, missing: b.missing }
 }
 
 /// One milestone of a progressive chain.
@@ -344,6 +364,10 @@ pub struct ChainOut {
     pub rule: String,
     /// The milestones in order.
     pub marks: Vec<MarkOut>,
+    /// The chain's badges (the chain counts nothing while any is missing).
+    pub badges: Vec<BadgeOut>,
+    /// What it still needs ("Needs Running Shoes"); `None` when nothing is missing.
+    pub badge_note: Option<String>,
 }
 
 /// A quest as the UI shows it.
@@ -369,6 +393,12 @@ pub struct QuestOut {
     pub effort_min: f64,
     /// How the player travels there: walk or run.
     pub mode: String,
+    /// The quest's badges: tools that must all be held before it can be played (it is locked while any is missing).
+    pub badges: Vec<BadgeOut>,
+    /// The badge its map pin shows; `None` for an open quest.
+    pub pin_badge: Option<BadgeOut>,
+    /// What it still needs, for the card ("Needs Running Shoes"); `None` when nothing is missing.
+    pub badge_note: Option<String>,
     /// locked | hidden | open | progress | done
     pub state: String,
     /// Progress from 0 to 1.
@@ -535,14 +565,10 @@ fn pin_at(collect: Option<&CollectOut>, state: QuestState, anchor: Option<Point>
 pub struct ZoneOut {
     /// Zone number.
     pub id: u32,
-    /// How the player travels in the zone: walk or run.
-    pub mode: String,
     /// Whether the player can enter the zone.
     pub unlocked: bool,
     /// Zone keys needed to open the zone.
     pub keys_needed: u32,
-    /// Name of the tool item the zone needs, if any.
-    pub tool: Option<String>,
     /// Name of the realm the zone is played in.
     pub realm_name: String,
     /// The realm this zone is played in (the Play map shows only the realms of the open game).
@@ -983,11 +1009,6 @@ fn raw_fix(f: &FixIn, simulated: bool, sim_allowed: bool) -> RawFix {
     }
 }
 
-/// The travel mode for the filter on the next fix (ruling E2): the zone mode at the last estimate, at the raw fix only before the first one.
-fn fix_mode(zones: &[(Shape, Mode)], last_est: Option<Point>, raw: Point) -> Option<Mode> {
-    mode_at(zones, last_est.unwrap_or(raw))
-}
-
 /// Whether an accepted estimate goes into the journal: 5 s or 5 m after the last point written, or at once when the clock jumped (a switch
 /// between simulated and real fixes, or a time before the last point: the simulator's clock runs ahead).
 fn journal_due(last: Option<&TrackPoint>, p: &TrackPoint) -> bool {
@@ -999,8 +1020,8 @@ fn journal_due(last: Option<&TrackPoint>, p: &TrackPoint) -> bool {
 /// What the engine keeps of the open game's zone realms, so per-fix checks and `zones()` read no realm file.
 #[derive(Default)]
 struct ZoneCache {
-    /// Each zone's realm shape and travel mode; zones whose realm is gone are left out.
-    modes: Vec<(Shape, Mode)>,
+    /// Each zone's realm shape; zones whose realm is gone are left out.
+    shapes: Vec<Shape>,
     /// Each zone realm's name, one per zone realm of the game (empty for a realm that is gone).
     names: Vec<String>,
 }
@@ -1008,8 +1029,8 @@ struct ZoneCache {
 /// The zone cache of `game` from its zone realms as saved now (`realms`, one per zone realm, `None` for one that is gone).
 fn zone_cache_of(game: &Game, realms: Vec<Option<Realm>>) -> ZoneCache {
     let names = realms.iter().map(|r| r.as_ref().map(|r| r.name.clone()).unwrap_or_default()).collect();
-    let modes = game.slot.zones.iter().zip(realms).filter_map(|(z, r)| r.map(|r| (r.shape, z.mode))).collect();
-    ZoneCache { modes, names }
+    let shapes = realms.into_iter().take(game.slot.zones.len()).flatten().map(|r| r.shape).collect();
+    ZoneCache { shapes, names }
 }
 
 /// The `fix_rejected` line for an estimate that may not count, if it is one of those.
@@ -1359,7 +1380,7 @@ impl Engine {
     /// Distance in metres from a point to the nearest zone area of the open game (0 inside), or `None` with no game.
     fn zone_distance_m(&self, p: Point) -> Option<f64> {
         let zones = self.zones.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        zones.modes.iter().map(|(s, _)| s.distance_m(p)).reduce(f64::min)
+        zones.shapes.iter().map(|s| s.distance_m(p)).reduce(f64::min)
     }
 
     /// Remember where the last fix's estimate was relative to the open game's zones (`None`: no zones), for presence.
@@ -1813,7 +1834,7 @@ impl Engine {
         allow_parking: bool,
     ) -> Result<(), CoreError> {
         let opts = to_core(o)?;
-        if zone_realms.len() != opts.zone_modes.len() {
+        if zone_realms.len() != opts.zone_count as usize {
             return Err(err("pick one realm per zone"));
         }
         let generated = generate(&opts, seed).map_err(err)?;
@@ -1891,13 +1912,12 @@ impl Engine {
         Ok(())
     }
 
-    /// The zone modes a connected Archipelago game needs, so the app can ask for matching realms.
-    /// The travel mode of each zone in `slot_json`.
+    /// How many zones a connected Archipelago game has, so the app can ask for one realm each.
     ///
     /// # Errors
     /// Returns an error if the `slot_data` is invalid.
-    pub fn slot_zone_modes(&self, slot_json: String) -> Result<Vec<String>, CoreError> {
-        Ok(SlotData::from_json(&slot_json).map_err(err)?.zones.iter().map(|z| z.mode.name().to_string()).collect())
+    pub fn slot_zone_count(&self, slot_json: String) -> Result<u32, CoreError> {
+        Ok(count_u32(SlotData::from_json(&slot_json).map_err(err)?.zones.len()))
     }
 
     /// Every saved game.
@@ -2009,6 +2029,9 @@ impl Engine {
                         tier: q.tier,
                         effort_min: q.effort_min,
                         mode: q.mode.name().into(),
+                        badges: q.badges.into_iter().map(badge_out).collect(),
+                        pin_badge: q.pin_badge.map(badge_out),
+                        badge_note: q.badge_note,
                         state: match q.state {
                             QuestState::Locked => "locked",
                             QuestState::Hidden => "hidden",
@@ -2102,10 +2125,8 @@ impl Engine {
                 .enumerate()
                 .map(|(i, z)| ZoneOut {
                     id: z.id,
-                    mode: z.mode.name().into(),
                     unlocked: g.zone_unlocked(z.id),
                     keys_needed: z.zone_keys_needed,
-                    tool: z.tool.clone(),
                     realm_name: names.get(i).cloned().unwrap_or_default(),
                     realm_id: g.zone_realms.get(i).cloned().unwrap_or_default(),
                 })
@@ -2122,7 +2143,7 @@ impl Engine {
             let mut letters: Vec<char> = g.items.iter().filter_map(|i| i.strip_prefix("Letter ").and_then(|s| s.chars().next())).collect();
             letters.sort_unstable();
             let tools: Vec<String> =
-                Mode::ALL.iter().filter_map(|m| apgo_core::solo::tool_for(*m)).filter(|t| g.items.iter().any(|i| i == t)).map(ToString::to_string).collect();
+                Mode::ALL.iter().filter_map(|m| apgo_core::solo::badge_for(*m)).filter(|t| g.items.iter().any(|i| i == t)).map(ToString::to_string).collect();
             HudOut {
                 away_running: g.away_running(),
                 goals: g
@@ -2166,11 +2187,6 @@ impl Engine {
             }
         }
         let Some((game_id, ev, entries, near, est)) = self.with_game(|g| {
-            // Ruling E2: the mode (set before the filter runs) and the zone come from estimates, the raw fix only before the first one.
-            let mode = fix_mode(&self.zones.lock().unwrap_or_else(std::sync::PoisonError::into_inner).modes, g.last_estimate().map(|e| e.point()), raw.point());
-            if let Some(m) = mode {
-                g.set_travel_mode(m);
-            }
             // One pass over the zone shapes per fix, at this fix's own estimate: the proximity presence reads next.
             let ev = g.on_fix_with_zone(&raw, steps, |p| self.set_proximity(self.zone_distance_m(p)));
             // No estimate yet: the fix was unusable and places nobody (presence still learns roughly where it was).
@@ -2263,6 +2279,8 @@ impl Engine {
                     total: c.total,
                     rule: c.rule,
                     marks: c.marks.into_iter().map(|m| MarkOut { at: m.at, location_id: m.location_id, reached: m.reached, reward: m.reward }).collect(),
+                    badges: c.badges.into_iter().map(badge_out).collect(),
+                    badge_note: c.badge_note,
                 })
                 .collect()
         })
@@ -2595,7 +2613,9 @@ mod tests {
         let streets = (-10..=10).flat_map(|n| (-10..=10).map(move |k| destination(destination(home(), 0.0, f64::from(n) * 150.0), 90.0, f64::from(k) * 150.0)));
         e.store().save_atlas(&build_atlas("r0", 0, vec![], streets.collect(), &e.catalog)).unwrap();
         let opts = SoloOptions {
-            zone_modes: vec![Mode::Walk],
+            zone_count: 1,
+            run_quests: false,
+            run_share: 20,
             number_of_trips: 5,
             goal: "all_trips".into(),
             quest_types: vec!["reach".into()],
@@ -3142,7 +3162,9 @@ mod tests {
         atlas.ways = apgo_core::loc::bench::grid_ways(corner, 11, 100.0);
         e.store().save_atlas(&atlas).unwrap();
         let o = SoloOptions {
-            zone_modes: vec![Mode::Walk],
+            zone_count: 1,
+            run_quests: false,
+            run_share: 20,
             number_of_trips: 6,
             goal: "all_trips".into(),
             quest_types: vec!["reach".into()],
@@ -3357,18 +3379,6 @@ mod tests {
         assert!(e.on_fix(fix_in("gps"), None, false).is_empty());
         assert!(e.on_steps(10, 1, Some(1.8)).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn the_travel_mode_comes_from_the_last_estimate_and_from_the_raw_fix_only_before_the_first() {
-        // Ruling E2: a Walk zone here, a Run zone 10 km north.
-        let walk = Point::new(40.0, -111.0);
-        let run = destination(walk, 0.0, 10_000.0);
-        let zones = [(Shape::Circle { center: walk, radius_m: 500.0 }, Mode::Walk), (Shape::Circle { center: run, radius_m: 500.0 }, Mode::Run)];
-        assert_eq!(fix_mode(&zones, None, walk), Some(Mode::Walk), "the first fix: its raw position");
-        assert_eq!(fix_mode(&zones, Some(run), walk), Some(Mode::Run), "later: the last estimate, never the raw fix");
-        assert_eq!(fix_mode(&zones, Some(destination(walk, 0.0, 5_000.0)), walk), Some(Mode::Run), "between zones: fastest");
-        assert_eq!(fix_mode(&[], None, walk), None);
     }
 
     #[test]

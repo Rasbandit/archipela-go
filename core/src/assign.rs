@@ -24,7 +24,7 @@ pub struct SlotIn {
     pub location_id: i64,
     /// Zone number the quest belongs to.
     pub zone: u32,
-    /// How the player travels in that zone.
+    /// How the player travels to this quest.
     pub mode: Mode,
     /// Quest family wanted for the slot.
     pub family: String,
@@ -32,6 +32,8 @@ pub struct SlotIn {
     pub tier: u8,
     /// Whether this is the realm's boss quest.
     pub boss: bool,
+    /// The quest's badges (`slot_data` `needs`): items that must all be held before it can be played.
+    pub needs: Vec<String>,
 }
 
 /// What the player has to do to complete a quest, with the numbers it needs.
@@ -147,8 +149,10 @@ pub struct Assignment {
     pub location_id: i64,
     /// Zone number the quest belongs to.
     pub zone: u32,
-    /// How the player travels in that zone.
+    /// How the player travels to this quest.
     pub mode: Mode,
+    /// The quest's badges (`slot_data` `needs`): items that must all be held before it can be played.
+    pub needs: Vec<String>,
     /// Quest family of the chosen kind.
     pub family: String,
     /// Catalog id of the chosen kind.
@@ -245,12 +249,10 @@ fn to_line_m(p: Point, pts: &[Point]) -> f64 {
     pts.windows(2).map(|w| distance_to_segment_m(p, w[0], w[1])).fold(f64::INFINITY, f64::min)
 }
 
-/// A zone prepared for quest assignment: its travel mode, realm and scanned map data.
+/// A zone prepared for quest assignment: its realm and scanned map data.
 pub struct ZoneCtx<'a> {
     /// Zone number.
     pub zone: u32,
-    /// How the player travels in this zone.
-    pub mode: Mode,
     /// The realm the zone belongs to.
     pub realm: &'a Realm,
     /// Scanned places and streets of the realm.
@@ -636,7 +638,7 @@ fn feature_target(
 #[allow(clippy::many_single_char_names)] // short names for zone/pool/params mirror the geometry vocabulary used across this module
 fn free_candidate(
     k: &Kind,
-    z: &ZoneCtx<'_>,
+    mode: Mode,
     pool: &[Point],
     index: &PathIndex,
     p: &AssignParams,
@@ -644,7 +646,6 @@ fn free_candidate(
     rng: &mut StdRng,
     used_pts: &[Point],
 ) -> Option<(Target, f64, String)> {
-    let mode = z.mode;
     let far_from_used = |q: Point| used_pts.iter().all(|u| distance_m(*u, q) >= SPACING_M);
     match &k.verify {
         Verify::Reach { radius_m } if k.sector => {
@@ -703,8 +704,8 @@ fn free_candidate(
 }
 
 /// Whether kind `k` may be placed in slot `s` of zone `z`.
-fn offered(k: &Kind, s: &SlotIn, z: &ZoneCtx<'_>, p: &AssignParams) -> bool {
-    k.allows(z.mode)
+fn offered(k: &Kind, s: &SlotIn, p: &AssignParams) -> bool {
+    k.allows(s.mode)
         && k.family != "boss"
         && (s.boss || k.family == s.family)
         && !(p.avoid_stairs && k.id == "stairmaster")
@@ -723,7 +724,7 @@ fn one(
     used_pts: &mut Vec<Point>,
 ) -> Assignment {
     let want = mid(s.tier, p.minutes_per_tier);
-    let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| offered(k, s, z, p)).collect();
+    let kinds: Vec<&Kind> = catalog.kinds.iter().filter(|k| offered(k, s, p)).collect();
     let mut cands: Vec<Cand> = Vec::new();
     for k in &kinds {
         if k.geom != Geom::None {
@@ -739,7 +740,7 @@ fn one(
                     continue;
                 }
                 let spaced = |q: Point| used_pts.iter().all(|u| distance_m(*u, q) >= SPACING_M);
-                if let Some((target, effort)) = feature_target(k, fi, f, zp, z.mode, p.home, want, &spaced) {
+                if let Some((target, effort)) = feature_target(k, fi, f, zp, s.mode, p.home, want, &spaced) {
                     cands.push(Cand {
                         // A favorite counts as a better fit than it is, so it is picked when it is anywhere near the right effort.
                         score: (effort - want).abs() - if z.atlas.favorites.contains(&f.id) { FAVORITE_BONUS_MIN } else { 0.0 },
@@ -752,7 +753,7 @@ fn one(
                     });
                 }
             }
-        } else if let Some((target, effort, place)) = free_candidate(k, z, &zp.pool, &zp.index, p, want, rng, used_pts) {
+        } else if let Some((target, effort, place)) = free_candidate(k, s.mode, &zp.pool, &zp.index, p, want, rng, used_pts) {
             // Generic quests are the backup: prefer real places when the realm has them.
             cands.push(Cand {
                 score: (effort - want).abs() + if s.boss { 6.0 } else { 3.0 },
@@ -770,8 +771,8 @@ fn one(
         fallback = true;
         if let Some(k) = catalog.kind("street_smarts") {
             // A sparse zone can run out of street points spaced apart from the other quests: then share one rather than leave the streets.
-            let found =
-                free_candidate(k, z, &zp.pool, &zp.index, p, want, rng, used_pts).or_else(|| free_candidate(k, z, &zp.pool, &zp.index, p, want, rng, &[]));
+            let found = free_candidate(k, s.mode, &zp.pool, &zp.index, p, want, rng, used_pts)
+                .or_else(|| free_candidate(k, s.mode, &zp.pool, &zp.index, p, want, rng, &[]));
             if let Some((target, effort, place)) = found {
                 cands.push(Cand { score: 0.0, kind: k.clone(), target, effort, place, feature_id: None, favorite: false });
             }
@@ -806,7 +807,8 @@ fn one(
     Assignment {
         location_id: s.location_id,
         zone: s.zone,
-        mode: z.mode,
+        mode: s.mode,
+        needs: s.needs.clone(),
         family: s.family.clone(),
         kind_id,
         quest_name,
@@ -849,6 +851,7 @@ pub fn assign(slots: &[SlotIn], zones: &[ZoneCtx<'_>], catalog: &Catalog, p: &As
 /// open slots nearest home first; when nothing was picked, item 0 is the nearest home, so the quest still shows in the fog on the way out.
 /// `None` for any other target, or when the zone cannot supply the new points: the caller then leaves the quest as it is.
 #[must_use]
+#[allow(clippy::too_many_arguments)] // the quest's tier and mode set the band, the zone and index the street points
 pub fn replace_unpicked(
     t: &Target,
     picked: &BTreeSet<u16>,
@@ -856,12 +859,13 @@ pub fn replace_unpicked(
     index: &PathIndex,
     p: &AssignParams,
     tier: u8,
+    mode: Mode,
     rng: &mut StdRng,
 ) -> Option<Target> {
     let Target::Collect { pts, need, r, theme } = t else { return None };
     let is_picked = |i: usize| u16::try_from(i).is_ok_and(|i| picked.contains(&i));
     let keep: Vec<Point> = pts.iter().enumerate().filter(|(i, _)| is_picked(*i)).map(|(_, q)| *q).collect();
-    let (min_m, far_m) = item_band(p, *r, mid(tier, p.minutes_per_tier), z.mode);
+    let (min_m, far_m) = item_band(p, *r, mid(tier, p.minutes_per_tier), mode);
     let pool = quest_pool(z, p);
     let mut fresh = place_items(&pool, index, p.home, min_m, far_m, pts.len() - keep.len(), &keep, rng)?;
     fresh.sort_by(|a, b| distance_m(p.home, *b).total_cmp(&distance_m(p.home, *a))); // descending, so pop() gives the nearest
@@ -869,10 +873,10 @@ pub fn replace_unpicked(
     Some(Target::Collect { pts, need: *need, r: *r, theme: theme.clone() })
 }
 
-/// Street points of zone `z` where new items of a forager (tier `tier`, pick-up radius `r`) may appear: the band its items were placed
+/// Street points of zone `z` where new items of a forager (tier `tier`, pick-up radius `r`, travelled in `mode`) may appear: the band its items were placed
 /// in (see [`place_items`]).
-pub(crate) fn forage_pool(z: &ZoneCtx<'_>, p: &AssignParams, tier: u8, r: f64) -> Vec<Point> {
-    let (min_m, far_m) = item_band(p, r, mid(tier, p.minutes_per_tier), z.mode);
+pub(crate) fn forage_pool(z: &ZoneCtx<'_>, p: &AssignParams, tier: u8, r: f64, mode: Mode) -> Vec<Point> {
+    let (min_m, far_m) = item_band(p, r, mid(tier, p.minutes_per_tier), mode);
     let far_m = far_m.max(min_m + 2.0 * ITEM_SPACING_M);
     quest_pool(z, p).into_iter().filter(|q| (min_m..=far_m * 1.5).contains(&distance_m(p.home, *q))).collect()
 }
@@ -956,10 +960,10 @@ mod tests {
         let mut checked = 0;
         for k in cat.kinds.iter().filter(|k| k.geom == Geom::None && k.family != "boss") {
             for mode in &k.modes {
-                let z = ZoneCtx { zone: 1, mode: *mode, realm: &r, atlas: &a };
+                let z = ZoneCtx { zone: 1, realm: &r, atlas: &a };
                 let pool = street_pool(&z, SurfacePref::Any);
                 let mut rng = StdRng::seed_from_u64(1);
-                let (target, _, _) = free_candidate(k, &z, &pool, &zone_index(&z, &pool, SurfacePref::Any), &params(1), 20.0, &mut rng, &[])
+                let (target, _, _) = free_candidate(k, Mode::Walk, &pool, &zone_index(&z, &pool, SurfacePref::Any), &params(1), 20.0, &mut rng, &[])
                     .unwrap_or_else(|| panic!("{} gives no free quest", k.id));
                 assert_eq!(k.is_progressive(), crate::chain::is_chain_target(&target), "{} in {mode:?}", k.id);
                 checked += 1;
@@ -969,14 +973,14 @@ mod tests {
     }
 
     fn slot(i: i64, fam: &str, tier: u8, mode: Mode) -> SlotIn {
-        SlotIn { location_id: i, zone: 1, mode, family: fam.into(), tier, boss: false }
+        SlotIn { location_id: i, zone: 1, mode, family: fam.into(), tier, boss: false, needs: vec![] }
     }
 
     #[test]
     fn reach_slots_land_in_their_effort_band_and_respect_min_distance() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, false));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=10).map(|t| slot(i64::from(t), "reach", t, Mode::Walk)).collect();
         let out = assign(&slots, &z, &cat, &params(1));
         assert_eq!(out.len(), 10);
@@ -993,7 +997,7 @@ mod tests {
     fn quests_on_real_places_remember_the_feature_and_free_ones_do_not() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let mut slots: Vec<SlotIn> = (1..=6).map(|i| slot(i, "dwell", 2 + (i % 4) as u8, Mode::Walk)).collect();
         slots.push(slot(7, "steps", 1, Mode::Walk));
         let out = assign(&slots, &z, &cat, &params(3));
@@ -1007,7 +1011,7 @@ mod tests {
     fn an_old_quest_finds_its_place_again_for_points_parks_and_trails() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let mut slots: Vec<SlotIn> = (1..=4).map(|i| slot(i, "dwell", 2 + (i % 3) as u8, Mode::Walk)).collect();
         slots.push(slot(5, "park", 3, Mode::Walk));
         slots.push(slot(6, "trail", 4, Mode::Walk));
@@ -1028,6 +1032,7 @@ mod tests {
             location_id: 1,
             zone: 1,
             mode: Mode::Walk,
+            needs: vec![],
             family: "trail".into(),
             kind_id: kind.into(),
             quest_name: "q".into(),
@@ -1094,7 +1099,7 @@ mod tests {
     fn a_street_quest_or_a_moved_spot_finds_no_place() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let out = assign(&[slot(1, "dwell", 3, Mode::Walk), slot(2, "reach", 2, Mode::Walk)], &z, &cat, &params(3));
         let bench = out.iter().find(|o| o.kind_id == "bench_warmer").expect("a bench quest");
         let Target::Dwell { p, r, minutes } = bench.target.clone() else { panic!("a bench is a dwell") };
@@ -1109,7 +1114,7 @@ mod tests {
     fn quests_on_places_keep_what_the_place_is_and_whether_there_is_more_to_tell() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let out = assign(&[slot(1, "dwell", 3, Mode::Walk), slot(2, "steps", 1, Mode::Walk)], &z, &cat, &params(3));
         let bench = out.iter().find(|o| o.kind_id == "bench_warmer").expect("a bench quest");
         assert_eq!((bench.place_type.as_deref(), bench.has_about), (Some("Bench"), false));
@@ -1121,7 +1126,7 @@ mod tests {
     fn an_assignment_saved_before_feature_ids_loads_without_one() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let out = assign(&[slot(1, "dwell", 3, Mode::Walk)], &z, &cat, &params(3));
         let mut v = serde_json::to_value(&out[0]).unwrap();
         v.as_object_mut().unwrap().remove("feature_id");
@@ -1133,7 +1138,7 @@ mod tests {
     fn dwell_slots_use_real_benches_when_available_and_never_reuse_a_feature() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=12).map(|i| slot(i, "dwell", 2 + (i % 4) as u8, Mode::Walk)).collect();
         let out = assign(&slots, &z, &cat, &params(3));
         assert!(out.iter().any(|o| o.kind_id == "bench_warmer" && matches!(o.target, Target::Dwell { .. })));
@@ -1157,7 +1162,7 @@ mod tests {
         }
         a.apply_marks(&marks);
         assert!(!a.offers(&cat, &[Mode::Walk]).contains_key("bench_warmer"), "a kind with every place banned is no longer on offer");
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=12).map(|i| slot(i, "dwell", 2 + (i % 4) as u8, Mode::Walk)).collect();
         let out = assign(&slots, &z, &cat, &params(3));
         assert!(out.iter().all(|o| o.kind_id != "bench_warmer"));
@@ -1175,7 +1180,7 @@ mod tests {
         marks.set("n2", Mark::Favorite);
         a.apply_marks(&marks);
         for seed in 1..=20 {
-            let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+            let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
             let out = assign(&[slot(1, "dwell", 3, Mode::Walk)], &z, &cat, &params(seed));
             let Target::Dwell { p, .. } = &out[0].target else { panic!("expected a bench dwell, got {:?}", out[0].target) };
             assert!(distance_m(*p, destination(home(), 180.0, 1440.0)) < 5.0, "seed {seed} did not pick the favorite");
@@ -1200,7 +1205,7 @@ mod tests {
             let mut ways: Vec<Vec<Point>> = atlas(&cat, false).streets.into_iter().map(|p| vec![p]).collect();
             ways.push((0..=(len / 60.0) as i32).map(|i| destination(destination(home(), 90.0, 300.0), 90.0, 60.0 * f64::from(i))).collect());
             let a = atlas_of(vec![trail("Long Ridge", len)], ways, &cat);
-            let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+            let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
             assign(&[slot(1, "trail", 3, Mode::Walk)], &z, &cat, &params(1)).remove(0)
         };
         let long = make(4000.0);
@@ -1230,7 +1235,7 @@ mod tests {
     fn family_with_no_places_falls_back_to_a_street_quest_and_says_so() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, false));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let out = assign(&[slot(1, "landmark", 3, Mode::Walk)], &z, &cat, &params(1));
         assert!(out[0].fallback && out[0].kind_id == "street_smarts");
     }
@@ -1239,7 +1244,7 @@ mod tests {
     fn parks_trails_and_courier_produce_the_right_target_shapes() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let out = assign(
             &[
                 slot(1, "park", 3, Mode::Walk),
@@ -1267,9 +1272,9 @@ mod tests {
     fn boss_gets_a_big_effort_and_run_zones_only_get_run_kinds() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Run), atlas(&cat, true));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Run, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let mut slots: Vec<SlotIn> = (1..=15).map(|i| slot(i, if i % 2 == 0 { "landmark" } else { "dwell" }, 3, Mode::Run)).collect();
-        slots.push(SlotIn { location_id: 99, zone: 1, mode: Mode::Run, family: "boss".into(), tier: 10, boss: true });
+        slots.push(SlotIn { location_id: 99, zone: 1, mode: Mode::Run, family: "boss".into(), tier: 10, boss: true, needs: vec![] });
         let out = assign(&slots, &z, &cat, &params(5));
         for o in &out {
             let k = cat.kind(&o.kind_id);
@@ -1293,7 +1298,7 @@ mod tests {
         let all = std::mem::take(&mut a.streets);
         a.streets = all.iter().copied().filter(|p| p.lon >= home().lon).collect();
         a.streets_rough = all.iter().copied().filter(|p| p.lon < home().lon).collect();
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=14).map(|i| slot(i, "reach", 2 + (i % 5) as u8, Mode::Walk)).collect();
         let lon_of = |o: &Assignment| if let Target::Point { p, .. } = &o.target { p.lon } else { f64::NAN };
         let mut p = params(2);
@@ -1316,7 +1321,7 @@ mod tests {
         // every street point west of home is on a parking aisle: easy to tell apart
         let mut a = atlas(&cat, false);
         a.streets_parking = a.streets.iter().copied().filter(|p| p.lon < home().lon).collect();
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=14).map(|i| slot(i, "reach", 2 + (i % 5) as u8, Mode::Walk)).collect();
         let lon_of = |o: &Assignment| if let Target::Point { p, .. } = &o.target { p.lon } else { f64::NAN };
         let mut p = params(2);
@@ -1342,7 +1347,7 @@ mod tests {
         );
         let base = atlas(&cat, false);
         let a = crate::scan::build_atlas("r", 0, vec![dirt], base.streets, &cat);
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots = vec![slot(1, "trail", 6, Mode::Walk)];
         let mut p = params(1);
         assert!(matches!(assign(&slots, &z, &cat, &p)[0].target, Target::Line { .. }), "a dirt trail is fine when any surface is accepted");
@@ -1355,7 +1360,7 @@ mod tests {
             Feature { id: "L:stairmaster:S:0".into(), point: o2, name: None, tags: BTreeMap::default(), geometry: vec![o2, destination(o2, 0.0, 200.0)] };
         b.features.push(stairs);
         b.matches.insert("stairmaster".into(), vec![b.features.len() - 1]);
-        let zb = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &b }];
+        let zb = [ZoneCtx { zone: 1, realm: &r, atlas: &b }];
         let mut p2 = params(1);
         p2.avoid_stairs = true;
         assert_ne!(assign(&[slot(1, "trail", 3, Mode::Walk)], &zb, &cat, &p2)[0].kind_id, "stairmaster");
@@ -1365,12 +1370,12 @@ mod tests {
     fn deterministic_for_a_seed_and_robust_to_empty_atlas() {
         let cat = Catalog::builtin();
         let (r, a) = (realm(Mode::Walk), atlas(&cat, true));
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=8).map(|i| slot(i, "dwell", 3, Mode::Walk)).collect();
         let key = |v: &Vec<Assignment>| v.iter().map(|x| format!("{}{:?}", x.kind_id, x.target)).collect::<Vec<_>>();
         assert_eq!(key(&assign(&slots, &z, &cat, &params(9))), key(&assign(&slots, &z, &cat, &params(9))));
         let empty = Atlas::default();
-        let z2 = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &empty }];
+        let z2 = [ZoneCtx { zone: 1, realm: &r, atlas: &empty }];
         let out = assign(&slots, &z2, &cat, &params(9));
         assert_eq!(out.len(), 8, "an empty atlas must still yield playable (fallback) quests");
     }
@@ -1456,7 +1461,7 @@ mod tests {
         let mut fp = atlas_of(vec![], vec![(0..9).map(|i| at(mid, f64::from(i) * 50.0 - 200.0, 15.0)).collect()], &cat);
         a.streets.append(&mut fp.streets);
         a.street_runs.append(&mut fp.street_runs);
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=6).map(|i| slot(i, "park", 1 + i as u8, Mode::Walk)).collect();
         let mut seen = 0;
         for seed in 1..=6 {
@@ -1532,10 +1537,10 @@ mod tests {
             for fam in crate::solo::FAMILIES {
                 for tier in [1, 3, 5, 8, 10] {
                     let id = out.len() as i64 + 1;
-                    out.push(SlotIn { location_id: id, zone, mode, family: fam.into(), tier, boss: false });
+                    out.push(SlotIn { location_id: id, zone, mode, family: fam.into(), tier, boss: false, needs: vec![] });
                 }
             }
-            out.push(SlotIn { location_id: out.len() as i64 + 1, zone, mode, family: "boss".into(), tier: 10, boss: true });
+            out.push(SlotIn { location_id: out.len() as i64 + 1, zone, mode, family: "boss".into(), tier: 10, boss: true, needs: vec![] });
         }
         out
     }
@@ -1546,7 +1551,7 @@ mod tests {
         let r = realm(Mode::Walk);
         let a = town(&cat);
         let zones: Vec<ZoneCtx<'_>> =
-            [Mode::Walk, Mode::Run].into_iter().enumerate().map(|(i, mode)| ZoneCtx { zone: i as u32 + 1, mode, realm: &r, atlas: &a }).collect();
+            [Mode::Walk, Mode::Run].into_iter().enumerate().map(|(i, _)| ZoneCtx { zone: i as u32 + 1, realm: &r, atlas: &a }).collect();
         let slots = every_slot();
         let mut kinds = BTreeSet::new();
         for seed in 1..=4 {
@@ -1569,7 +1574,7 @@ mod tests {
         // only 8 street points (fewer than the old 20-point threshold), along one short street 600 m east of home
         let streets: Vec<Point> = (0..8).map(|i| at(home(), 0.0, 600.0 + 60.0 * f64::from(i))).collect();
         let a = atlas_of(vec![], vec![streets], &cat);
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=12).map(|i| slot(i, ["reach", "dwell", "courier"][(i % 3) as usize], 2 + (i % 5) as u8, Mode::Walk)).collect();
         let out = assign(&slots, &z, &cat, &params(4));
         assert_eq!(out.len(), slots.len(), "every slot still gets a quest");
@@ -1592,7 +1597,7 @@ mod tests {
         let mut a = atlas_of(vec![park], ways, &cat);
         a.retain_streets(&keep);
         assert!(gap_to_paths(c, &a) > 200.0, "the fixture centre is far from any path");
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let mut used = 0;
         for seed in 1..=6 {
             for o in assign(&slots, &z, &cat, &params(seed)) {
@@ -1606,7 +1611,7 @@ mod tests {
         let (park, keep) = park_hole(c, 250.0, 320.0);
         let mut a = atlas_of(vec![park], town_streets(4000.0), &cat);
         a.retain_streets(&keep);
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         for seed in 1..=6 {
             assert!(assign(&slots, &z, &cat, &params(seed)).iter().all(|o| o.place != "Big Park"), "seed {seed} used an unreachable park");
         }
@@ -1625,13 +1630,13 @@ mod tests {
         let r = realm(Mode::Walk);
         let a = crate::scan::build_atlas("r", 0, vec![], fine_streets(3700.0), &cat);
         for (mode, tier, need) in [(Mode::Walk, 1, 3), (Mode::Walk, 2, 5), (Mode::Run, 3, 7), (Mode::Walk, 4, 10), (Mode::Walk, 7, 10)] {
-            let z = ZoneCtx { zone: 1, mode, realm: &r, atlas: &a };
+            let z = ZoneCtx { zone: 1, realm: &r, atlas: &a };
             let pool = street_pool(&z, SurfacePref::Any);
             let mut p = params(3);
             p.min_distance_m = 0.0; // the home-radius floor must hold on its own (Review Focus 3)
             let want = mid(tier, p.minutes_per_tier);
             let (t, effort, place) =
-                free_candidate(k, &z, &pool, &zone_index(&z, &pool, p.surface), &p, want, &mut StdRng::seed_from_u64(3), &[]).expect("a dense town has room");
+                free_candidate(k, mode, &pool, &zone_index(&z, &pool, p.surface), &p, want, &mut StdRng::seed_from_u64(3), &[]).expect("a dense town has room");
             let Target::Collect { pts, need: n, r: pick, theme } = &t else { panic!("{t:?}") };
             assert_eq!(*n, need, "{mode:?} tier {tier} (tiers above 4 use the last value)");
             assert_eq!(pts.len(), 2 * need as usize);
@@ -1665,16 +1670,16 @@ mod tests {
         let r = realm(Mode::Walk);
         let streets: Vec<Point> = (0..8).map(|i| at(home(), 0.0, 600.0 + 60.0 * f64::from(i))).collect();
         let a = crate::scan::build_atlas("r", 0, vec![], streets, &cat);
-        let z = ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a };
+        let z = ZoneCtx { zone: 1, realm: &r, atlas: &a };
         let pool = street_pool(&z, SurfacePref::Any);
         let k = cat.kind("forager").unwrap();
         assert!(
-            free_candidate(k, &z, &pool, &zone_index(&z, &pool, SurfacePref::Any), &params(1), 25.0, &mut StdRng::seed_from_u64(1), &[]).is_none(),
+            free_candidate(k, Mode::Walk, &pool, &zone_index(&z, &pool, SurfacePref::Any), &params(1), 25.0, &mut StdRng::seed_from_u64(1), &[]).is_none(),
             "8 points cannot hold 14 items 60 m apart"
         );
         let slots: Vec<SlotIn> = (1..=8).map(|i| slot(i, "courier", 1 + (i % 4) as u8, Mode::Walk)).collect();
         for seed in 1..=4 {
-            let out = assign(&slots, &[ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }], &cat, &params(seed));
+            let out = assign(&slots, &[ZoneCtx { zone: 1, realm: &r, atlas: &a }], &cat, &params(seed));
             assert_eq!(out.len(), slots.len());
             assert!(out.iter().all(|o| o.kind_id != "forager"), "seed {seed}");
         }
@@ -1693,9 +1698,17 @@ mod tests {
         let (r, a) = (realm(Mode::Walk), atlas(&cat, false));
         let mut seen = 0;
         for seed in 1..=8 {
-            let zones = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }, ZoneCtx { zone: 2, mode: Mode::Run, realm: &r, atlas: &a }];
+            let zones = [ZoneCtx { zone: 1, realm: &r, atlas: &a }, ZoneCtx { zone: 2, realm: &r, atlas: &a }];
             let mut slots: Vec<SlotIn> = (1..=4).map(|t| slot(i64::from(t), "courier", t, Mode::Walk)).collect();
-            slots.extend((1..=4).map(|t| SlotIn { location_id: 10 + i64::from(t), zone: 2, mode: Mode::Run, family: "courier".into(), tier: t, boss: false }));
+            slots.extend((1..=4).map(|t| SlotIn {
+                location_id: 10 + i64::from(t),
+                zone: 2,
+                mode: Mode::Run,
+                family: "courier".into(),
+                tier: t,
+                boss: false,
+                needs: vec![],
+            }));
             for o in assign(&slots, &zones, &cat, &params(seed)) {
                 if o.kind_id != "forager" {
                     continue;
@@ -1722,7 +1735,7 @@ mod tests {
             let spot = at(home(), 20.0, 300.0 + gap * 10.5);
             let mut a = atlas_of(vec![feature("n1", &[("amenity", "bench")], spot, vec![])], vec![street_east(gap, 40)], &cat);
             a.street_stride = stride;
-            let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+            let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
             let used = (1..=10).any(|seed| {
                 assign(&[slot(1, "dwell", 2, Mode::Walk)], &z, &cat, &params(seed))
                     .iter()
@@ -1744,12 +1757,12 @@ mod tests {
         };
         let slots: Vec<SlotIn> = (1..=3).map(|i| slot(i, "water", 2 + i as u8, Mode::Walk)).collect();
         let a = atlas_of(vec![river(100.0)], vec![street_east(60.0, 60)], &cat);
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         for seed in 1..=4 {
             assert!(assign(&slots, &z, &cat, &params(seed)).iter().all(|o| o.place != "Back River"), "a river barely beside a path is not a quest");
         }
         let a = atlas_of(vec![river(900.0)], vec![street_east(60.0, 60)], &cat);
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let mut used = 0;
         for seed in 1..=4 {
             for o in assign(&slots, &z, &cat, &params(seed)) {
@@ -1770,7 +1783,7 @@ mod tests {
         let south: Vec<Point> = (0..7).map(|i| at(home(), -10.0, f64::from(i) * 60.0 - 180.0)).collect();
         let north: Vec<Point> = (0..7).map(|i| at(home(), 425.0, f64::from(i) * 60.0 - 180.0)).collect();
         let a = atlas_of(vec![park], vec![south, north], &cat);
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=3).map(|i| slot(i, "park", 2 + i as u8, Mode::Walk)).collect();
         let mut used = 0;
         for seed in 1..=6 {
@@ -1798,7 +1811,7 @@ mod tests {
         ];
         let streets: Vec<Point> = (0..6).map(|i| at(home(), 1000.0 + 60.0 * f64::from(i), 300.0)).collect();
         let a = atlas_of(parks, vec![streets], &cat);
-        let z = [ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a }];
+        let z = [ZoneCtx { zone: 1, realm: &r, atlas: &a }];
         let slots: Vec<SlotIn> = (1..=2).map(|i| slot(i, "park", 3, Mode::Walk)).collect();
         let mut both = 0;
         for seed in 1..=8 {
@@ -1819,15 +1832,16 @@ mod tests {
         let cat = Catalog::builtin();
         let r = realm(Mode::Walk);
         let a = atlas(&cat, false);
-        let z = ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a };
+        let z = ZoneCtx { zone: 1, realm: &r, atlas: &a };
         let pool = street_pool(&z, SurfacePref::Any);
         let p = params(5);
         let index = zone_index(&z, &pool, p.surface);
         let (t, _, _) =
-            free_candidate(cat.kind("forager").unwrap(), &z, &pool, &index, &p, mid(2, p.minutes_per_tier), &mut StdRng::seed_from_u64(5), &[]).unwrap();
+            free_candidate(cat.kind("forager").unwrap(), Mode::Walk, &pool, &index, &p, mid(2, p.minutes_per_tier), &mut StdRng::seed_from_u64(5), &[])
+                .unwrap();
         let Target::Collect { pts: old, need: n0, r: r0, theme: th0 } = &t else { panic!("{t:?}") };
         let picked = BTreeSet::from([0u16, 3]);
-        let fresh = replace_unpicked(&t, &picked, &z, &index, &p, 2, &mut StdRng::seed_from_u64(77)).expect("a dense zone has room");
+        let fresh = replace_unpicked(&t, &picked, &z, &index, &p, 2, Mode::Walk, &mut StdRng::seed_from_u64(77)).expect("a dense zone has room");
         let Target::Collect { pts, need, r: pick, theme } = &fresh else { panic!("{fresh:?}") };
         assert_eq!((need, theme), (n0, th0));
         assert!((pick - r0).abs() < f64::EPSILON);
@@ -1844,7 +1858,10 @@ mod tests {
         }
         let unpicked: Vec<f64> = (0..pts.len()).filter(|i| !picked.contains(&(*i as u16))).map(|i| distance_m(home(), pts[i])).collect();
         assert!(unpicked.windows(2).all(|w| w[0] <= w[1]), "nearest home first when placed: {unpicked:?}");
-        assert!(replace_unpicked(&Target::Point { p: home(), r: 40.0 }, &picked, &z, &index, &p, 2, &mut StdRng::seed_from_u64(1)).is_none(), "only foragers");
+        assert!(
+            replace_unpicked(&Target::Point { p: home(), r: 40.0 }, &picked, &z, &index, &p, 2, Mode::Walk, &mut StdRng::seed_from_u64(1)).is_none(),
+            "only foragers"
+        );
     }
 
     #[test]
@@ -1853,16 +1870,16 @@ mod tests {
         let r = realm(Mode::Walk);
         let streets: Vec<Point> = (0..8).map(|i| at(home(), 0.0, 600.0 + 60.0 * f64::from(i))).collect();
         let a = crate::scan::build_atlas("r", 0, vec![], streets, &cat);
-        let z = ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &a };
+        let z = ZoneCtx { zone: 1, realm: &r, atlas: &a };
         let pool = street_pool(&z, SurfacePref::Any);
         let index = zone_index(&z, &pool, SurfacePref::Any);
         let t = Target::Collect { pts: (0..6).map(|i| at(home(), 900.0 + 100.0 * f64::from(i), 0.0)).collect(), need: 3, r: 25.0, theme: "gems".into() };
-        assert!(replace_unpicked(&t, &BTreeSet::new(), &z, &index, &params(1), 1, &mut StdRng::seed_from_u64(1)).is_none());
+        assert!(replace_unpicked(&t, &BTreeSet::new(), &z, &index, &params(1), 1, Mode::Walk, &mut StdRng::seed_from_u64(1)).is_none());
         let empty = Atlas::default();
-        let ez = ZoneCtx { zone: 1, mode: Mode::Walk, realm: &r, atlas: &empty };
+        let ez = ZoneCtx { zone: 1, realm: &r, atlas: &empty };
         let epool = street_pool(&ez, SurfacePref::Any);
         let eindex = zone_index(&ez, &epool, SurfacePref::Any);
-        assert!(replace_unpicked(&t, &BTreeSet::new(), &ez, &eindex, &params(1), 1, &mut StdRng::seed_from_u64(1)).is_none(), "an empty atlas");
+        assert!(replace_unpicked(&t, &BTreeSet::new(), &ez, &eindex, &params(1), 1, Mode::Walk, &mut StdRng::seed_from_u64(1)).is_none(), "an empty atlas");
     }
 }
 

@@ -8,7 +8,6 @@ from worlds.ap_go2.validation import (
     letters_needed_by_logic,
     mandatory_count,
     min_trips,
-    normalize_zone_modes,
     validate_settings,
 )
 
@@ -17,7 +16,8 @@ def ok(**over: object) -> dict[str, object]:
     base: dict[str, object] = {
         "goal": "all_trips",
         "trips": 20,
-        "zone_modes": ["walk"],
+        "zones": 1,
+        "tools": [],
         "shares": (50, 35, 15),
         "families": FAMILIES,
         "traps": TRAP_KEYS,
@@ -25,7 +25,7 @@ def ok(**over: object) -> dict[str, object]:
     return base | over
 
 
-def check(**over: object) -> list[str]:
+def check(**over: object) -> None:
     return validate_settings(**ok(**over))  # type: ignore[arg-type]
 
 
@@ -44,26 +44,20 @@ def test_every_goal_validates() -> None:
         check(goal=g, trips=40)
 
 
-def test_valid_settings_pass_and_normalize() -> None:
-    assert check() == ["walk"]
-    assert check(zone_modes=["Walk ", "RUN"]) == ["walk", "run"]
+def test_valid_settings_pass() -> None:
+    check()
+    check(zones=3, tools=["Running Shoes"])
 
 
-@pytest.mark.parametrize("modes", [[], ["walk"] * 7, ["swim"], ["walk", ""]])
-def test_rejects_bad_zone_modes(modes: list[str]) -> None:
-    with pytest.raises(ValueError, match="zone_modes"):
-        check(zone_modes=modes)
-
-
-@pytest.mark.parametrize("mode", ["bike", "drive", "car"])
-def test_bike_and_drive_are_gone(mode: str) -> None:
-    with pytest.raises(ValueError, match=rf"unknown modes \['{mode}'\]; valid: walk, run"):
-        check(zone_modes=["walk", mode])
+@pytest.mark.parametrize("zones", [0, 7])
+def test_rejects_bad_zone_count(zones: int) -> None:
+    with pytest.raises(ValueError, match="zone_count"):
+        check(zones=zones)
 
 
 def test_accepts_one_to_six_zones() -> None:
     for n in range(1, 7):
-        assert len(normalize_zone_modes(["walk"] * n)) == n
+        check(zones=n)
 
 
 def test_rejects_all_zero_shares() -> None:
@@ -85,37 +79,32 @@ def test_rejects_unknown_family_and_trap_and_goal() -> None:
 
 
 def test_mandatory_counts_keys_tools_letters() -> None:
-    assert mandatory_count("all_trips", ["walk"]) == 0
-    assert mandatory_count("treasure_hunt", ["walk"]) == 4
-    # 2 keys + Running Shoes (zone 1 walk)
-    assert mandatory_count("all_trips", ["walk", "run", "walk"]) == 3
-    # zone 1 mode needs no tool; walk needs none
-    assert mandatory_count("all_trips", ["run", "run", "walk"]) == 2
-    assert (
-        mandatory_count("treasure_hunt", ["walk", "run", "walk", "run", "walk", "run"]) == 4 + 5 + 1
-    )
+    assert mandatory_count("all_trips", 1, []) == 0
+    assert mandatory_count("treasure_hunt", 1, []) == 4
+    assert mandatory_count("all_trips", 3, []) == 2
+    assert mandatory_count("all_trips", 1, ["Running Shoes"]) == 1
+    assert mandatory_count("treasure_hunt", 6, ["Running Shoes"]) == 4 + 5 + 1
 
 
 def test_min_trips_accounts_for_unlock_chain() -> None:
-    assert min_trips("all_trips", ["walk"]) == 1
-    assert min_trips("treasure_hunt", ["walk"]) == 4
-    modes = ["walk", "run", "walk", "run", "walk", "run"]
-    n = min_trips("treasure_hunt", modes)
-    assert n >= 10
-    check(goal="treasure_hunt", zone_modes=modes, trips=n)
+    assert min_trips("all_trips", 1, []) == 1
+    assert min_trips("treasure_hunt", 1, []) == 4
+    n = min_trips("treasure_hunt", 6, ["Running Shoes"])
+    assert n == 10
+    check(goal="treasure_hunt", zones=6, tools=["Running Shoes"], trips=n)
     with pytest.raises(ValueError, match="number_of_trips"):
-        check(goal="treasure_hunt", zone_modes=modes, trips=n - 1)
+        check(goal="treasure_hunt", zones=6, tools=["Running Shoes"], trips=n - 1)
 
 
 def test_rejects_too_few_trips() -> None:
     with pytest.raises(ValueError, match="number_of_trips"):
         check(goal="treasure_hunt", trips=3)
     with pytest.raises(ValueError, match="number_of_trips"):
-        check(zone_modes=["walk", "run", "walk"], trips=2)
+        check(zones=3, trips=2)
 
 
 def test_zones_need_quests_in_each() -> None:
-    assert min_trips("all_trips", ["walk", "walk", "walk"]) >= 3
+    assert min_trips("all_trips", 3, []) == 3
 
 
 def test_letters_for_several_goals_take_the_most_demanding() -> None:
@@ -147,7 +136,7 @@ def test_the_number_of_goals_required_must_fit() -> None:
 
 
 def test_several_goals_are_validated_together() -> None:
-    assert check(goal=["treasure_hunt", "all_trips"], trips=40) == ["walk"]
+    check(goal=["treasure_hunt", "all_trips"], trips=40)
     with pytest.raises(ValueError, match="goal"):
         check(goal=["treasure_hunt", "nope"])
     with pytest.raises(ValueError, match="at least one goal"):

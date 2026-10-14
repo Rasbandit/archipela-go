@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from . import names
-from .constants import BOSS_FAMILY, DIFFICULTIES, FAMILY_MODES, MAX_TIER, REACH_WEIGHT
+from .constants import BADGES, BOSS_FAMILY, DIFFICULTIES, FAMILY_MODES, MAX_TIER, REACH_WEIGHT
 from .effort import tier_range
 
 
@@ -20,6 +20,7 @@ class Quest:
     difficulty: str
     tier: int
     family: str
+    needs: tuple[str, ...] = ()  # tool items that must be held to claim it (its badges)
 
 
 @dataclass(frozen=True)
@@ -64,47 +65,68 @@ def pick_family(rng: random.Random, mode: str, enabled: Sequence[str]) -> str:
     return rng.choices(pool, weights=weights, k=1)[0]
 
 
+def run_count(trips: int, zones: int, share: int) -> int:
+    """Run quests for `share` percent of `trips` (half up, at least 1 when on).
+
+    Capped so the first quest of every zone stays open (walk, no badge).
+    """
+    if share <= 0:
+        return 0
+    return min(max(1, (trips * share + 50) // 100), trips - zones)
+
+
 def generate_quests(  # noqa: PLR0913  # keyword-only, one argument per player option
     *,
     rng: random.Random,
-    zone_modes: Sequence[str],
+    zones: int,
     trips: int,
     shares: Sequence[int],
     families: Sequence[str],
     boss: bool,
+    run_share: int,
 ) -> QuestPlan:
-    """All quests of a seed. Names are numbered per (difficulty, mode) block in creation order."""
+    """All quests of a seed. Names are numbered per (difficulty, mode) block in creation order.
+
+    Every quest is walk except `run_count` of them, picked at random among all but each zone's
+    first quest; a run quest needs its badge (Running Shoes).
+    """
     enabled = list(dict.fromkeys(["reach", *families]))
+    slots: list[tuple[int, str]] = []
+    firsts: set[int] = set()
+    for zone, count in enumerate(split_trips(trips, zones), start=1):
+        order = [d for d, n in difficulty_counts(count, shares).items() for _ in range(n)]
+        rng.shuffle(order)
+        firsts.add(len(slots))
+        slots += [(zone, d) for d in order]
+    candidates = [i for i in range(len(slots)) if i not in firsts]
+    runs = set(rng.sample(candidates, run_count(trips, zones, run_share)))
+
     counters: dict[tuple[str, str], int] = {}
     quests: list[Quest] = []
-    for zone, (mode, count) in enumerate(
-        zip(zone_modes, split_trips(trips, len(zone_modes)), strict=True), start=1
-    ):
-        slots = [d for d, n in difficulty_counts(count, shares).items() for _ in range(n)]
-        rng.shuffle(slots)
-        for difficulty in slots:
-            low, high = tier_range(difficulty)
-            number = counters.get((difficulty, mode), 0) + 1
-            counters[difficulty, mode] = number
-            quests.append(
-                Quest(
-                    name=names.quest_name(difficulty, mode, number),
-                    number=number,
-                    zone=zone,
-                    mode=mode,
-                    difficulty=difficulty,
-                    tier=rng.randint(low, high),
-                    family=pick_family(rng, mode, enabled),
-                )
+    for i, (zone, difficulty) in enumerate(slots):
+        mode = "run" if i in runs else "walk"
+        low, high = tier_range(difficulty)
+        number = counters.get((difficulty, mode), 0) + 1
+        counters[difficulty, mode] = number
+        quests.append(
+            Quest(
+                name=names.quest_name(difficulty, mode, number),
+                number=number,
+                zone=zone,
+                mode=mode,
+                difficulty=difficulty,
+                tier=rng.randint(low, high),
+                family=pick_family(rng, mode, enabled),
+                needs=(BADGES[mode],) if mode in BADGES else (),
             )
+        )
     boss_quest = None
     if boss:
-        last = len(zone_modes)
         boss_quest = Quest(
             name=names.BOSS_LOCATION,
             number=1,
-            zone=last,
-            mode=zone_modes[-1],
+            zone=zones,
+            mode="walk",
             difficulty="hard",
             tier=MAX_TIER,
             family=BOSS_FAMILY,

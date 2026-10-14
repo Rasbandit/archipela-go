@@ -6,7 +6,9 @@ game: "Archipela-Go 2: Electric Boogaloo"
   goal_requirement: require_any_one_goal
   goals_required: 2
   number_of_trips: 60
-  zone_modes: [walk, run]
+  zone_count: 2
+  run_quests: true
+  run_share: 20
   easy_share: 50
   medium_share: 35
   hard_share: 15

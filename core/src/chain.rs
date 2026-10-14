@@ -29,7 +29,7 @@ pub struct Milestone {
 /// A group of progressive quests of one kind in one zone that share a counter.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chain {
-    /// `"{zone}:{kind_id}"`.
+    /// `"{zone}:{kind_id}"`, plus `":{needs joined by +}"` for a badged chain.
     pub id: String,
     /// Zone number the chain belongs to.
     pub zone: u32,
@@ -41,6 +41,8 @@ pub struct Chain {
     pub unit: ChainUnit,
     /// The checks on the chain, in unlock order.
     pub marks: Vec<Milestone>,
+    /// The badges every quest of the chain needs.
+    pub needs: Vec<String>,
 }
 
 /// The unit and amount a quest contributes to a chain; `None` for quests that are not progressive.
@@ -129,18 +131,19 @@ impl Chain {
 /// One quest in a chain before sorting: location id, quest name, unit, amount.
 type Member = (i64, String, ChainUnit, f64);
 
-/// Group the progressive quests by zone and kind. Members are ordered by their own amount (ties by location id); each mark is the running total.
+/// Group the progressive quests by zone, kind and badges (a chain is locked as a whole, so its quests share their `needs`). Members are ordered
+/// by their own amount (ties by location id); each mark is the running total.
 #[must_use]
 pub fn derive(assignments: &[Assignment]) -> Vec<Chain> {
-    let mut groups: BTreeMap<(u32, String), Vec<Member>> = BTreeMap::new();
+    let mut groups: BTreeMap<(u32, String, Vec<String>), Vec<Member>> = BTreeMap::new();
     for a in assignments {
         if let Some((unit, amount)) = amount_of(&a.target) {
-            groups.entry((a.zone, a.kind_id.clone())).or_default().push((a.location_id, a.quest_name.clone(), unit, amount));
+            groups.entry((a.zone, a.kind_id.clone(), a.needs.clone())).or_default().push((a.location_id, a.quest_name.clone(), unit, amount));
         }
     }
     groups
         .into_iter()
-        .map(|((zone, kind_id), mut members)| {
+        .map(|((zone, kind_id, needs), mut members)| {
             members.sort_by(|a, b| a.3.total_cmp(&b.3).then(a.0.cmp(&b.0)));
             let (name, unit) = (members[0].1.clone(), members[0].2);
             let mut running = 0.0;
@@ -151,7 +154,8 @@ pub fn derive(assignments: &[Assignment]) -> Vec<Chain> {
                     Milestone { location_id: *location_id, at: running }
                 })
                 .collect();
-            Chain { id: format!("{zone}:{kind_id}"), zone, kind_id, name, unit, marks }
+            let id = if needs.is_empty() { format!("{zone}:{kind_id}") } else { format!("{zone}:{kind_id}:{}", needs.join("+")) };
+            Chain { id, zone, kind_id, name, unit, marks, needs }
         })
         .collect()
 }
@@ -174,6 +178,7 @@ mod tests {
             location_id: id,
             zone,
             mode: Mode::Walk,
+            needs: vec![],
             family: "steps".into(),
             kind_id: kind.into(),
             quest_name: kind.replace('_', " "),
@@ -216,6 +221,18 @@ mod tests {
             vec![Milestone { location_id: 10, at: 500.0 }, Milestone { location_id: 20, at: 3000.0 }, Milestone { location_id: 30, at: 8500.0 }]
         );
         assert_eq!(c.total(), 8500.0);
+    }
+
+    #[test]
+    fn badged_quests_make_their_own_chain_so_a_chain_is_locked_as_a_whole() {
+        let shoes = vec!["Running Shoes".to_string()];
+        let run = Assignment { mode: Mode::Run, needs: shoes.clone(), ..steps(2, 800) };
+        let chains = derive(&[steps(1, 500), run]);
+        assert_eq!(chains.len(), 2);
+        let (walk, run) = (&chains[0], &chains[1]);
+        assert_eq!((walk.id.as_str(), walk.needs.is_empty()), ("1:step_up", true));
+        assert_eq!((run.id.as_str(), &run.needs), ("1:step_up:Running Shoes", &shoes));
+        assert_eq!(run.marks, vec![Milestone { location_id: 2, at: 800.0 }]);
     }
 
     #[test]

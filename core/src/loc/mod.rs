@@ -18,9 +18,7 @@ pub use params::LocParams;
 
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::Mode;
 use crate::geo::Point;
-use crate::realm::Shape;
 
 /// An estimate this uncertain (68 % radius, metres) or worse may not complete or advance a quest. The old raw-fix limit, now on the estimate.
 pub const MAX_UNCERTAINTY_M: f64 = 35.0;
@@ -371,18 +369,9 @@ pub struct DisplayPosition {
     pub bridged_origin: bool,
 }
 
-/// The travel mode at `p`: the mode of a zone that contains it (the fastest if several do), else the fastest mode of all `zones`, so a
-/// runner between zones is never judged as a walker. `None` with no zones.
-#[must_use]
-pub fn mode_at(zones: &[(Shape, Mode)], p: Point) -> Option<Mode> {
-    let inside = zones.iter().filter(|(s, _)| s.distance_m(p) == 0.0).map(|(_, m)| *m).max();
-    inside.or_else(|| zones.iter().map(|(_, m)| *m).max())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::realm::Shape;
 
     #[test]
     fn an_estimate_is_uncertain_when_only_its_uncertainty_keeps_it_from_counting() {
@@ -438,15 +427,5 @@ mod tests {
         let e = Estimate::exact(40.0, -111.0, 5_000);
         assert!(e.accepted && e.verdict == Verdict::Used && e.source == Source::Gps);
         assert!((e.uncertainty_m - 3.0).abs() < 1e-9 && e.point() == Point::new(40.0, -111.0));
-    }
-
-    #[test]
-    fn the_mode_is_the_containing_zones_else_the_fastest_of_the_game() {
-        let c = |lat: f64| Shape::Circle { center: Point::new(lat, 0.0), radius_m: 500.0 };
-        let zones = [(c(0.0), Mode::Walk), (c(1.0), Mode::Run)];
-        assert_eq!(mode_at(&zones, Point::new(0.0, 0.0)), Some(Mode::Walk));
-        assert_eq!(mode_at(&zones, Point::new(1.0, 0.0)), Some(Mode::Run));
-        assert_eq!(mode_at(&zones, Point::new(0.5, 0.0)), Some(Mode::Run), "between zones: the fastest mode");
-        assert_eq!(mode_at(&[], Point::new(0.5, 0.0)), None);
     }
 }

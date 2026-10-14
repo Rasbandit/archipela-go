@@ -8,7 +8,9 @@ _Last verified: 2026-10-07_
 
 Design proposal from owner brainstorm; not yet in the apworld. Next spec candidate. Builds on `archipelago-game-model.md`.
 
-**Superseded in part (2026-10-08):** Car and Bike are purged; modes are walk and run (`Running Shoes` gates run). See `economy-eggs-buddies.md`.
+**Superseded in part (2026-10-08):** Car and Bike are purged; modes are walk and run (`Running Shoes` gates run).
+
+**Superseded (2026-10-14, Beta 2):** zones have no mode or tool any more, only keys. Run is per quest: a run quest carries the Running Shoes badge (slot_data `needs`, schema 5). See `economy-eggs-buddies.md`.
 
 ## Owner Decisions (2026-10-07)
 

@@ -36,10 +36,22 @@ def test_boss_id() -> None:
 
 
 def test_groups() -> None:
-    assert set(LOCATION_NAME_GROUPS) == {"Easy", "Medium", "Hard", "Walk", "Run", "Boss"}
+    assert set(LOCATION_NAME_GROUPS) == {
+        "Easy",
+        "Medium",
+        "Hard",
+        "Walk",
+        "Run",
+        "Boss",
+        "Running Shoes",
+    }
     assert "Easy Run Quest #3" in LOCATION_NAME_GROUPS["Easy"]
     assert "Easy Run Quest #3" in LOCATION_NAME_GROUPS["Run"]
     assert "Easy Run Quest #3" not in LOCATION_NAME_GROUPS["Hard"]
     assert LOCATION_NAME_GROUPS["Boss"] == {names.BOSS_LOCATION}
     assert names.BOSS_LOCATION in LOCATION_NAME_GROUPS["Hard"]
     assert all(g <= set(LOCATION_NAME_TO_ID) for g in LOCATION_NAME_GROUPS.values())
+
+
+def test_one_group_per_badge_holds_the_quests_it_locks() -> None:
+    assert LOCATION_NAME_GROUPS["Running Shoes"] == LOCATION_NAME_GROUPS["Run"]

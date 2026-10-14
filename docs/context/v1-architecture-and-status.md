@@ -13,11 +13,11 @@ Win conditions: Treasure Hunt and Completionist (Beta 1, 2026-10-13, cut the oth
 
 | Path | What |
 | -- | -- |
-| `apworld/` | Python apworld **0.4.0**, slot_data **schema 4** (`goals`, `goal_requirement`, `goal_need`). 210 tests. Contract: `apworld/docs/contract.md` |
+| `apworld/` | Python apworld **0.5.0**, slot_data **schema 5** (`goals`, `goal_requirement`, `goal_need`, per-quest `needs`). 210 tests. Contract: `apworld/docs/contract.md` |
 | `core/` (`apgo-core`) | Rust engine: catalog, realms (+marks, +icon), scan + **tile grid** (`tilegrid.rs`), assign, verify, goal, fog, traps, solo, game, yaml. 132 tests + 1 regression |
 | `core/ffi/` | UniFFI `Engine` (realms, finds, marks, stats, scan plan/progress, games, play) and `ApSession` (Archipelago via a patched `archipelago_rs`, see `core/vendor/PATCHES.md`) |
 | `android/` | Kotlin/Compose. `AppModel`, `Screens.kt` (Realms list/editor/home picker, Play), `NewGame.kt`, `QuestMap.kt` (MapLibre), `ui/` design system |
-| `scripts/` | `android_core.sh`, `emu.sh`, `android_ui.py` (adb UI driver), `ap_host.sh` (dev Archipelago server, env `APGO_GOALS`, `APGO_REQ`, `APGO_ZONES`), `e2e_*.sh` (STALE, see below) |
+| `scripts/` | `android_core.sh`, `emu.sh`, `android_ui.py` (adb UI driver), `ap_host.sh` (dev Archipelago server, env `APGO_GOALS`, `APGO_REQ`, `APGO_ZONES` (a count), `APGO_RUN_SHARE`), `e2e_*.sh` (STALE, see below) |
 | `docs/context/` | Everything below; index in `CLAUDE.md` |
 
 ## Screens (all verified on the emulator; phone = Pixel 8 Pro over wireless adb)
@@ -26,7 +26,7 @@ Win conditions: Treasure Hunt and Completionist (Beta 1, 2026-10-13, cut the oth
 - **Realm editor** (full-screen map, autosave, Undo/Redo, no Save/Cancel, Done button): left toolbar = Circle|Polygon pill + Details; Area shows a stats box
   (area, farthest from home, walkable, streets, trails, finds, parks, unpaved); Details shows name, icon, search, finds list with favorite/ban, callout bubbles.
 - **Home picker**: full-screen map, draggable house pin, tap to place, "Use my location".
-- **New Game** (no tab: opened from the "New game" button on the empty Play screen, over Play; any tab or Back closes it; `AppNav`): zones added once (card = travel mode + quest types with live counts), several goals + rule, tooltips everywhere (`ui/Help*.kt`), Archipelago join.
+- **New Game** (no tab: opened from the "New game" button on the empty Play screen, over Play; any tab or Back closes it; `AppNav`): zones added once (card = quest types with live counts), several goals + rule, a Run quests switch and share slider, tooltips everywhere (`ui/Help*.kt`), Archipelago join.
 - **Play**: map with kind icons, per-goal progress, quest list, dev simulator buttons.
   Forager quests use live items and the shared backpack (`core/src/forage.rs`, spec
   `docs/superpowers/specs/2026-10-12-forager-backpack-design.md`); `Engine::bag` feeds the card's backpack row and the panel's
