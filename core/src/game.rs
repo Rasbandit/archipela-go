@@ -994,14 +994,15 @@ impl Game {
         self.counters.steps_last = Some(total);
         // An overloaded backpack slows the count (#142): steps are the only thing it slows.
         let counted = i64_to_f64(gained) * self.step_factor();
+        let bars: Vec<Chain> = if gained == 0 { Vec::new() } else { self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Steps).collect() };
         if let Some(o) = &mut self.outing {
             o.steps += gained;
-            o.counted_steps += counted;
+            // "Counted" is what a steps bar received: nothing when no unlocked steps chain was credited.
+            if !bars.is_empty() {
+                o.counted_steps += counted;
+            }
         }
-        if gained == 0 {
-            return;
-        }
-        for c in self.unlocked_chains().into_iter().filter(|c| c.unit == ChainUnit::Steps) {
+        for c in bars {
             *self.counters.progress.entry(c.id).or_insert(0.0) += counted;
         }
     }
@@ -4691,6 +4692,7 @@ mod tests {
     #[test]
     fn counted_steps_follow_the_backpack_at_each_reading_never_backwards() {
         let (mut g, pts) = forager_game();
+        g.assignments.push(chain::tests_support::member(1000, 1, "step_up", Target::Steps { n: 50_000 })); // a steps bar to receive them
         left_home(&mut g, 0);
         g.on_steps(0, 1, None);
         g.on_steps(1000, 2, None); // light bag: full rate
@@ -4703,6 +4705,16 @@ mod tests {
         let o = g.outing.clone().unwrap();
         assert_eq!(o.steps, 2000);
         assert!((o.counted_steps - (1000.0 + 1000.0 * f)).abs() < 1e-6, "{}", o.counted_steps);
+    }
+
+    #[test]
+    fn counted_steps_stay_zero_without_an_unlocked_steps_chain() {
+        let mut g = away_game(&[30.0]); // a time-away chain only: no steps bar to receive them
+        left_home(&mut g, 0);
+        g.on_steps(0, 1, None);
+        g.on_steps(700, 2, None);
+        let o = g.outing.clone().unwrap();
+        assert_eq!((o.steps, o.counted_steps), (700, 0.0), "raw steps grow, counted equals what a steps bar received");
     }
 
     #[test]
