@@ -8,11 +8,7 @@ from .distribution import split_trips
 from .names import TRAP_KEYS, letter
 from .zones import build_zones, items_to_enter, required_tools
 
-_LETTERS = {
-    "macguffin_short": "APGO",
-    "macguffin_long": "ARCHIPELAGO",
-    "treasure_hunt": "APGO",
-}
+_LETTERS = {"treasure_hunt": "APGO"}
 
 
 def as_goals(goal: str | Iterable[str]) -> tuple[str, ...]:
@@ -21,10 +17,9 @@ def as_goals(goal: str | Iterable[str]) -> tuple[str, ...]:
 
 
 def goal_letter_counts(goal: str | Iterable[str]) -> dict[str, int]:
-    """Letter items the goal(s) need: macguffin goals and treasure_hunt (empty otherwise).
+    """Letter items the goal(s) need: APGO for treasure_hunt, empty otherwise.
 
-    For several goals the pool must hold what the most demanding one needs: the long word contains
-    every letter of the short one, so taking the largest count of each letter is enough.
+    For several goals the pool holds the largest count of each letter any of them needs.
     """
     need: Counter[str] = Counter()
     for g in as_goals(goal):

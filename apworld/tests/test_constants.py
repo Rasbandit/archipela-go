@@ -11,9 +11,6 @@ def test_limits_and_enums() -> None:
     assert constants.MAX_TRIPS == 1000
     assert constants.MAX_ZONES == 6
     assert constants.MODES == ("walk", "run", "bike", "drive")
-    assert len(constants.GOALS) == 12
-    assert constants.GOALS[0] == "macguffin_short"
-    assert constants.BOSS_GOALS == ("boss", "treasure_hunt")
     assert constants.MODE_SPEED_KMH == {"walk": 4.5, "run": 9.0, "bike": 15.0, "drive": 35.0}
 
 
@@ -25,3 +22,11 @@ def test_family_table_matches_spec() -> None:
     assert set(f["park"]) == set(f["steps"]) == {"walk", "run"}
     assert len(constants.FAMILIES) == 10
     assert "boss" not in constants.FAMILIES
+
+
+def test_only_the_two_beta_goals_exist() -> None:
+    assert constants.GOALS == ("treasure_hunt", "all_trips")
+    assert constants.GOAL_NAMES == {"treasure_hunt": "Treasure Hunt", "all_trips": "Completionist"}
+    assert constants.BOSS_GOALS == ("treasure_hunt",)
+    assert constants.GOAL_TARGET_OPTIONS == {}
+    assert not hasattr(constants, "LETTER_GOALS")

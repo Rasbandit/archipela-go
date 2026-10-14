@@ -31,27 +31,12 @@ def check(**over: object) -> list[str]:
 
 def test_letter_counts() -> None:
     assert goal_letter_counts("all_trips") == {}
-    assert goal_letter_counts("boss") == {}
-    assert goal_letter_counts("treasure_hunt") == goal_letter_counts("macguffin_short")
-    for g in (
-        "zone_conqueror",
-        "well_rounded",
-        "quest_dex",
-        "marathon",
-        "explorer",
-        "streak",
-        "boss_rush",
-    ):
-        assert goal_letter_counts(g) == {}
-    assert goal_letter_counts("macguffin_short") == {
+    assert goal_letter_counts("treasure_hunt") == {
         "Letter A": 1,
         "Letter P": 1,
         "Letter G": 1,
         "Letter O": 1,
     }
-    long = goal_letter_counts("macguffin_long")
-    assert sum(long.values()) == 11
-    assert long["Letter A"] == 2
 
 
 def test_every_goal_validates() -> None:
@@ -95,31 +80,31 @@ def test_rejects_unknown_family_and_trap_and_goal() -> None:
 
 def test_mandatory_counts_keys_tools_letters() -> None:
     assert mandatory_count("all_trips", ["walk"]) == 0
-    assert mandatory_count("macguffin_short", ["walk"]) == 4
+    assert mandatory_count("treasure_hunt", ["walk"]) == 4
     # 2 keys + Bike + Car (zone 1 walk)
     assert mandatory_count("all_trips", ["walk", "bike", "drive"]) == 4
     # zone 1 mode needs no tool; walk needs none
     assert mandatory_count("all_trips", ["bike", "bike", "walk"]) == 2
     assert (
-        mandatory_count("macguffin_long", ["walk", "run", "bike", "drive", "walk", "run"])
-        == 11 + 5 + 3
+        mandatory_count("treasure_hunt", ["walk", "run", "bike", "drive", "walk", "run"])
+        == 4 + 5 + 3
     )
 
 
 def test_min_trips_accounts_for_unlock_chain() -> None:
     assert min_trips("all_trips", ["walk"]) == 1
-    assert min_trips("macguffin_long", ["walk"]) == 11
+    assert min_trips("treasure_hunt", ["walk"]) == 4
     modes = ["walk", "run", "bike", "drive", "walk", "run"]
-    n = min_trips("macguffin_long", modes)
-    assert n >= 19
-    check(goal="macguffin_long", zone_modes=modes, trips=n)
+    n = min_trips("treasure_hunt", modes)
+    assert n >= 12
+    check(goal="treasure_hunt", zone_modes=modes, trips=n)
     with pytest.raises(ValueError, match="number_of_trips"):
-        check(goal="macguffin_long", zone_modes=modes, trips=n - 1)
+        check(goal="treasure_hunt", zone_modes=modes, trips=n - 1)
 
 
 def test_rejects_too_few_trips() -> None:
     with pytest.raises(ValueError, match="number_of_trips"):
-        check(goal="macguffin_long", trips=10)
+        check(goal="treasure_hunt", trips=3)
     with pytest.raises(ValueError, match="number_of_trips"):
         check(zone_modes=["walk", "bike", "drive"], trips=2)
 
@@ -129,18 +114,7 @@ def test_zones_need_quests_in_each() -> None:
 
 
 def test_letters_for_several_goals_take_the_most_demanding() -> None:
-    both = goal_letter_counts(["macguffin_short", "macguffin_long"])
-    assert both == goal_letter_counts("macguffin_long")
-    assert goal_letter_counts(["boss", "quest_dex"]) == {}
-    assert goal_letter_counts(["treasure_hunt", "boss"]) == goal_letter_counts("macguffin_short")
-
-
-def test_a_goal_selection_maps_names_to_ids_in_game_order() -> None:
-    assert goal_ids_from_selection(["Quest-dex", "letter hunt", "The Big One"]) == [
-        "macguffin_short",
-        "boss",
-        "quest_dex",
-    ]
+    assert goal_letter_counts(["treasure_hunt", "all_trips"]) == goal_letter_counts("treasure_hunt")
 
 
 def test_a_goal_selection_must_be_real_and_not_empty() -> None:
@@ -151,25 +125,49 @@ def test_a_goal_selection_must_be_real_and_not_empty() -> None:
 
 
 def test_letters_are_logic_only_when_unavoidable() -> None:
-    assert letters_needed_by_logic(["macguffin_short"], "any")
-    assert letters_needed_by_logic(["macguffin_short", "macguffin_long"], "any")
-    assert not letters_needed_by_logic(["macguffin_short", "boss"], "any")
-    assert not letters_needed_by_logic(["macguffin_short", "boss"], "at_least")
-    assert letters_needed_by_logic(["macguffin_short", "boss"], "all")
+    assert letters_needed_by_logic(["treasure_hunt"], "any")
+    assert not letters_needed_by_logic(["treasure_hunt", "all_trips"], "any")
+    assert not letters_needed_by_logic(["treasure_hunt", "all_trips"], "at_least")
+    assert letters_needed_by_logic(["treasure_hunt", "all_trips"], "all")
 
 
 def test_the_number_of_goals_required_must_fit() -> None:
-    check_requirement(["boss", "quest_dex"], "at_least", 2)
-    check_requirement(["boss"], "any", 99)  # unused unless at_least
+    check_requirement(["treasure_hunt", "all_trips"], "at_least", 2)
+    check_requirement(["treasure_hunt"], "any", 99)  # unused unless at_least
     with pytest.raises(ValueError, match="goals_required"):
-        check_requirement(["boss", "quest_dex"], "at_least", 3)
+        check_requirement(["treasure_hunt", "all_trips"], "at_least", 3)
     with pytest.raises(ValueError, match="requirement"):
-        check_requirement(["boss"], "sometimes", 1)
+        check_requirement(["treasure_hunt"], "sometimes", 1)
 
 
 def test_several_goals_are_validated_together() -> None:
-    assert check(goal=["boss", "macguffin_long"], trips=40) == ["walk"]
+    assert check(goal=["treasure_hunt", "all_trips"], trips=40) == ["walk"]
     with pytest.raises(ValueError, match="goal"):
-        check(goal=["boss", "nope"])
+        check(goal=["treasure_hunt", "nope"])
     with pytest.raises(ValueError, match="at least one goal"):
         check(goal=[])
+
+
+REMOVED_GOAL_NAMES = [
+    "Letter Hunt",
+    "Letter Hunt XL",
+    "The Big One",
+    "Zone Conqueror",
+    "Well Rounded",
+    "Quest-dex",
+    "Marathon",
+    "Explorer",
+    "Daily Habit",
+    "Boss Rush",
+]
+
+
+@pytest.mark.parametrize("name", REMOVED_GOAL_NAMES)
+def test_removed_goals_are_unknown(name: str) -> None:
+    with pytest.raises(ValueError, match="unknown goal"):
+        goal_ids_from_selection([name])
+
+
+def test_the_two_goals_are_read_from_their_yaml_names() -> None:
+    picked = goal_ids_from_selection(["completionist", "Treasure Hunt"])
+    assert picked == ["treasure_hunt", "all_trips"]

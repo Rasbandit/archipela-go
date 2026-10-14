@@ -15,7 +15,7 @@ from worlds.AutoWorld import WebWorld, World  # type: ignore[import-not-found]
 from worlds.generic.Rules import set_rule  # type: ignore[import-not-found]
 
 from . import names
-from .constants import BOSS_GOALS, GAME_NAME, GOAL_TARGET_OPTIONS, LETTER_GOALS
+from .constants import BOSS_GOALS, GAME_NAME, GOAL_TARGET_OPTIONS
 from .distribution import QuestPlan, generate_quests
 from .item_plan import ItemPlan, plan_items
 from .items import ITEM_NAME_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE
@@ -150,7 +150,7 @@ class ApGo2World(World):  # type: ignore[misc]
 
         # Letters are demanded only when unavoidable (see letters_needed_by_logic).
         letters = letters_needed_by_logic(self.goals, self.goal_requirement)
-        home = menu if all(g in LETTER_GOALS for g in self.goals) else regions[-1]
+        home = regions[-1]
         goal = ApGo2Location(self.player, names.GOAL_LOCATION, None, home)
         goal.place_locked_item(
             ApGo2Item(names.VICTORY, ItemClassification.progression, None, self.player)

@@ -191,7 +191,7 @@ mod tests {
     fn real_apworld_sample_parses() {
         let d = SlotData::from_json(SAMPLE).unwrap();
         assert_eq!(d.schema_version, 3);
-        assert_eq!(d.goal_list(), vec![GoalSpec { id: "boss".into(), target: 0 }]);
+        assert_eq!(d.goal_list(), vec![GoalSpec { id: "treasure_hunt".into(), target: 0 }]);
         assert_eq!((d.goal_mode, d.goal_need), (GoalMode::Any, 1));
         assert_eq!(d.zones.len(), 3);
         assert_eq!(d.zones[1].tool.as_deref(), Some("Bike"));
@@ -205,9 +205,9 @@ mod tests {
     fn schema_2_single_goal_data_is_still_understood() {
         let v2 = SAMPLE
             .replace("\"schema_version\": 3", "\"schema_version\": 2")
-            .replace("\"goals\": [", "\"goal\": \"boss\", \"goal_target\": 0, \"was_goals\": [");
+            .replace("\"goals\": [", "\"goal\": \"treasure_hunt\", \"goal_target\": 0, \"was_goals\": [");
         let d = SlotData::from_json(&v2).unwrap();
-        assert_eq!(d.goal_list(), vec![GoalSpec { id: "boss".into(), target: 0 }]);
+        assert_eq!(d.goal_list(), vec![GoalSpec { id: "treasure_hunt".into(), target: 0 }]);
     }
 
     #[test]

@@ -28,7 +28,7 @@ def build(
         boss=boss,
     )
     args: dict[str, object] = {
-        "goals": [("boss" if boss else "all_trips", 0)],
+        "goals": [("treasure_hunt" if boss else "all_trips", 0)],
         "goal_requirement": "any",
         "goal_need": 1,
         "minutes_per_tier": 10,
@@ -117,14 +117,13 @@ def test_committed_sample_matches_schema() -> None:
 
 def test_several_goals_keep_their_order_and_targets() -> None:
     data = build(
-        goals=[("quest_dex", 9), ("marathon", 42), ("boss", 0)],
+        goals=[("treasure_hunt", 0), ("all_trips", 0)],
         goal_requirement="at_least",
         goal_need=2,
     )
     jsonschema.validate(data, SCHEMA)
     assert data["goals"] == [
-        {"id": "quest_dex", "target": 9},
-        {"id": "marathon", "target": 42},
-        {"id": "boss", "target": 0},
+        {"id": "treasure_hunt", "target": 0},
+        {"id": "all_trips", "target": 0},
     ]
     assert (data["goal_requirement"], data["goal_need"]) == ("at_least", 2)

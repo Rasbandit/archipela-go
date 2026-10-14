@@ -12,7 +12,7 @@ def plan(**over: object) -> ItemPlan:
     args: dict[str, object] = {
         "rng": random.Random(3),
         "locations": 40,
-        "goal": "macguffin_short",
+        "goal": "treasure_hunt",
         "zone_modes": ["walk", "bike", "drive"],
         "effort": False,
         "scouting": False,
@@ -25,7 +25,7 @@ def plan(**over: object) -> ItemPlan:
 
 def test_pool_size_equals_locations_across_inputs() -> None:
     modes = ["walk", "run", "bike", "drive", "walk", "run"]
-    for goal in ("all_trips", "macguffin_short", "macguffin_long", "boss"):
+    for goal in ("all_trips", "treasure_hunt"):
         for locations in (min_trips(goal, modes), 25, 100, 1001):
             for rate in (0, 30, 100):
                 result = plan(
@@ -43,8 +43,8 @@ def test_mandatory_items_present() -> None:
     assert all(counts[names.letter(c)] == 1 for c in "APGO")
 
 
-def test_boss_goal_has_no_letters() -> None:
-    counts = plan(goal="boss").counts
+def test_completionist_has_no_letters() -> None:
+    counts = plan(goal="all_trips").counts
     assert not any(n in counts for n in names.LETTER_NAMES)
 
 
