@@ -796,6 +796,8 @@ pub enum EventOut {
         /// The message.
         text: String,
     },
+    /// Arriving home closed a walk into a new recap (`pending_recap`): show it, or notify while off screen. Not sent again for it.
+    RecapReady,
 }
 
 /// `traps` and `blocked` as one line, each once; `None` when there is neither.
@@ -2442,15 +2444,17 @@ impl Engine {
     }
 
     /// The phone arrived home (home Wi-Fi or the home circle): forager quests bank what they carry and the walk closes into its
-    /// recap (see `Game::arrive_home`), kept with the game until dismissed. Safe to call again.
+    /// recap (see `Game::arrive_home`), kept with the game until dismissed; `RecapReady` says this call stored a new one. Safe to call
+    /// again.
     pub fn bank_at_home(&self, t_ms: i64) -> Vec<EventOut> {
         // Read the trace first (no game lock held), so closing the outing, storing the recap and saving happen in one pass.
         let Some((game_id, start)) = self.with_game(|g| (g.id.clone(), g.outing.as_ref().map(|o| o.start_ms))) else {
             return Vec::new();
         };
         let segs = start.map_or_else(Vec::new, |from| self.read_segments(&game_id, from, t_ms));
-        let Some((id, ev, entries)) = self.with_game(|g| {
+        let Some((id, ev, entries, ready)) = self.with_game(|g| {
             let (ev, recap) = g.arrive_home(t_ms);
+            let ready = recap.is_some();
             if let Some(mut r) = recap {
                 if g.id == game_id {
                     r.set_route(&segs.iter().map(|s| s.iter().map(|p| Point::new(p.lat, p.lon)).collect()).collect::<Vec<_>>());
@@ -2463,12 +2467,16 @@ impl Engine {
                 self.save_if_due(g, t_ms, true);
             }
             let entries = g.journal_events(&ev, t_ms, None);
-            (g.id.clone(), ev, entries)
+            (g.id.clone(), ev, entries, ready)
         }) else {
             return Vec::new();
         };
         self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&id, e)));
-        self.events_out(ev)
+        let mut out = self.events_out(ev);
+        if ready {
+            out.push(EventOut::RecapReady);
+        }
+        out
     }
 
     /// The last walk's recap, until dismissed.
@@ -2821,11 +2829,12 @@ mod tests {
             })
         });
         e.set_counting(false, 599_000);
-        e.bank_at_home(600_000);
+        let ready = |ev: &[EventOut]| ev.iter().filter(|x| matches!(x, EventOut::RecapReady)).count();
+        assert_eq!(ready(&e.bank_at_home(600_000)), 1, "this arrival stored a new recap");
         let r = e.pending_recap().expect("a 10 min walk with 900 steps");
         assert_eq!((r.steps, r.route.len(), r.route[0].len()), (900, 1, 2), "a straight line thins to its ends");
         assert!((r.distance_m - 100.0).abs() < 1.0);
-        e.bank_at_home(610_000);
+        assert_eq!(ready(&e.bank_at_home(610_000)), 0, "no walk to close: the old recap is not announced again");
         assert!(e.pending_recap().is_some_and(|r| r.end_ms == 600_000), "a second arrival keeps the recap");
         let restarted = Engine::new(e.dir.to_string_lossy().into_owned());
         restarted.open_game("g1".into()).unwrap();

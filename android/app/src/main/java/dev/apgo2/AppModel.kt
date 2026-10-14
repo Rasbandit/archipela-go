@@ -356,32 +356,14 @@ internal class AppModel(
         noteJournal()
         events.forEach { Diag.info("event", it.toString().take(EVENT_LOG_CHARS)) }
         for (e in events) {
+            logLine(e)?.let(::say)
             when (e) {
-                is EventOut.QuestDone -> {
-                    say("Done: ${e.name}")
-                }
-
-                is EventOut.Reward -> {
-                    say("Found: ${e.item}")
-                }
-
-                is EventOut.ZoneUnlocked -> {
-                    say("Zone ${e.zone} unlocked!")
-                }
-
                 is EventOut.Trap -> {
-                    say(e.message)
                     if (e.alert) trapAlert.fire(e.item, e.message)
                 }
 
-                is EventOut.Discovered -> {}
-
                 is EventOut.GoalAchieved -> {
                     onGoal(e.label)
-                }
-
-                is EventOut.Info -> {
-                    say(e.text)
                 }
 
                 is EventOut.SendCheck -> {
@@ -391,9 +373,26 @@ internal class AppModel(
                 is EventOut.ShuffleRequested -> {
                     runCatching { engine.reroll(emptyList(), Random.nextLong().toULong() shr 1) }
                 }
+
+                is EventOut.RecapReady -> {
+                    recaps.onRecapReady()
+                }
+
+                is EventOut.QuestDone, is EventOut.Reward, is EventOut.ZoneUnlocked, is EventOut.Discovered, is EventOut.Info -> {}
             }
         }
     }
+
+    // The on-screen log line for an event, if it has one.
+    private fun logLine(e: EventOut): String? =
+        when (e) {
+            is EventOut.QuestDone -> "Done: ${e.name}"
+            is EventOut.Reward -> "Found: ${e.item}"
+            is EventOut.ZoneUnlocked -> "Zone ${e.zone} unlocked!"
+            is EventOut.Trap -> e.message
+            is EventOut.Info -> e.text
+            else -> null
+        }
 
     private fun onGoal(label: String) {
         say("GOAL ACHIEVED: $label")

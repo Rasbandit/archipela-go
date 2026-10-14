@@ -207,8 +207,7 @@ internal class PresenceController(
     private fun bankAtHome() {
         if (!model.engine.hasGame()) return
         val t = model.now()
-        model.handle(model.engine.bankAtHome(t))
-        model.recaps.onArrivedHome(t)
+        model.handle(model.engine.bankAtHome(t)) // a new recap comes back as RecapReady
         model.refreshPlay(withTrace = false)
     }
 

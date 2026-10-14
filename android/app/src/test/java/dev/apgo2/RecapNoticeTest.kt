@@ -13,13 +13,6 @@ class RecapNoticeTest {
         assertFalse(RecapNotice.shouldPost(appVisible = true))
     }
 
-    // A later arrival with no walk keeps the old recap: it was already announced, so it is not posted again.
-    @Test fun onlyTheRecapThisArrivalClosedIsNew() {
-        val r = recap(minutes = 42)
-        assertTrue(RecapNotice.isNew(r, arrivedMs = 42 * 60_000))
-        assertFalse(RecapNotice.isNew(r, arrivedMs = 90 * 60_000))
-    }
-
     @Test fun textSaysHowLongAndHowManyQuests() {
         val r = recap(minutes = 42, quests = listOf("A", "B"))
         assertEquals("42 min out, 2 quests done", Help.recapNoticeText(r))
