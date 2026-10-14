@@ -26,6 +26,7 @@ use crate::loc::{imm::mode_cap_mps, DisplayPosition, Estimate, HeadingIn, Locato
 use crate::near_path::PathIndex;
 use crate::num::{count_f64, count_u32, i64_to_f64, round_i64, to_f32};
 use crate::realm::Realm;
+use crate::recap::Recap;
 use crate::scan::Atlas;
 use crate::slot::{check_schema, SlotData};
 use crate::solo::badge_icon;
@@ -410,7 +411,7 @@ pub struct Game {
     pub outing: Option<Outing>,
     /// The recap of the last walk, until the player dismisses it.
     #[serde(default)]
-    pub recap: Option<crate::recap::Recap>,
+    pub recap: Option<Recap>,
     /// Forager quests: location id -> the street points new items may appear on, from the last streets build (not saved: the next
     /// build fills it again; until then top-ups wait).
     #[serde(skip)]
@@ -1172,6 +1173,39 @@ impl Game {
         }
         let home = self.home;
         reached.into_iter().flat_map(|id| self.complete(id, t_ms, Some(home))).collect()
+    }
+
+    /// The player arrived home: bank what is carried (see `bank_at_home`) and close the walk. Returns the bank's events and the
+    /// walk's recap when it is worth showing (route not set: the engine adds it from the journal). Safe to call again.
+    pub fn arrive_home(&mut self, t_ms: i64) -> (Vec<Event>, Option<Recap>) {
+        let carried = self.carried_total();
+        let ev = self.bank_at_home(t_ms);
+        let banked = carried.saturating_sub(self.carried_total());
+        let recap = self.outing.take().map(|o| self.recap_of(&o, t_ms, banked)).filter(Recap::worth_showing);
+        (ev, recap)
+    }
+
+    // What changed since the outing's snapshots.
+    fn recap_of(&self, o: &Outing, t_ms: i64, banked: u32) -> Recap {
+        let quests_done: Vec<String> = self
+            .assignments
+            .iter()
+            .filter(|a| self.done.contains(&a.location_id) && !o.done_at_start.contains(&a.location_id))
+            .map(|a| a.quest_name.clone())
+            .collect();
+        let checks_sent = if self.backend == Backend::Archipelago { u32::try_from(quests_done.len()).unwrap_or(u32::MAX) } else { 0 };
+        Recap {
+            start_ms: o.start_ms,
+            end_ms: t_ms,
+            steps: o.steps,
+            new_cells: u32::try_from(self.fog.cells.len().saturating_sub(o.cells_at_start)).unwrap_or(u32::MAX),
+            quests_done,
+            checks_sent,
+            items: self.items.get(o.items_at_start..).unwrap_or_default().to_vec(),
+            zones_unlocked: self.unlocked_set().difference(&o.zones_at_start).copied().collect(),
+            banked,
+            ..Recap::default()
+        }
     }
 
     /// Credit time away up to `t_ms` (from the mark, to every time-away chain of an unlocked zone, not while a trap blocks
@@ -4579,5 +4613,83 @@ mod tests {
     fn a_new_game_starts_with_empty_counters_and_no_time_away() {
         let g = game(&reach_only(&[Mode::Walk, Mode::Run], 20, "all_trips"), Backend::Solo, 4);
         assert!(g.counters.progress.is_empty() && g.counters.steps_last.is_none() && g.counters.away_mark.is_none());
+    }
+
+    fn left_home(g: &mut Game, t_ms: i64) {
+        g.set_counting(false, 0);
+        g.set_counting(true, t_ms);
+    }
+
+    #[test]
+    fn arriving_home_after_a_walk_gives_its_recap_once() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        left_home(&mut g, 0);
+        g.on_steps(0, 1, None);
+        g.on_steps(600, 2, None); // the 500-step member is done; solo reward "Hydrate!"
+        let (_, r) = g.arrive_home(10 * 60_000);
+        let r = r.expect("worth showing");
+        assert_eq!((r.start_ms, r.end_ms, r.steps), (0, 600_000, 600));
+        assert_eq!(r.quests_done.len(), 1);
+        assert_eq!(r.items, vec!["Hydrate!".to_string()]);
+        assert_eq!(r.checks_sent, 0, "a solo game sends no checks");
+        assert!(g.outing.is_none());
+        assert!(g.arrive_home(11 * 60_000).1.is_none(), "a second arrival has no outing to close");
+    }
+
+    #[test]
+    fn a_short_or_idle_outing_closes_without_a_recap() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 5000 }]);
+        left_home(&mut g, 0);
+        g.on_steps(0, 1, None);
+        g.on_steps(600, 2, None);
+        assert!(g.arrive_home(4 * 60_000).1.is_none(), "under 5 min");
+        assert!(g.outing.is_none(), "closed all the same");
+        left_home(&mut g, 10 * 60_000);
+        assert!(g.outing.is_some(), "a new outing opened");
+        assert!(g.arrive_home(30 * 60_000).1.is_none(), "long, nothing happened");
+    }
+
+    #[test]
+    fn a_zone_unlocked_on_the_walk_is_in_the_recap() {
+        let mut g = cartographer_game();
+        lock_zone_1(&mut g);
+        left_home(&mut g, 0);
+        g.receive_item("Progressive Zone Key", 1_000, None);
+        let r = g.arrive_home(10 * 60_000).1.expect("a zone opened");
+        assert_eq!(r.zones_unlocked, vec![1]);
+    }
+
+    #[test]
+    fn a_shrunk_item_list_gives_no_items_instead_of_panicking() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.items = vec!["a".into(), "b".into()];
+        left_home(&mut g, 0);
+        g.items.clear(); // the server's list was replaced by a shorter one
+        g.outing.as_mut().unwrap().steps = 900;
+        assert!(g.arrive_home(10 * 60_000).1.is_some_and(|r| r.items.is_empty()));
+    }
+
+    #[test]
+    fn arriving_home_banks_and_the_recap_counts_what_was_banked() {
+        let (mut g, pts) = forager_game();
+        left_home(&mut g, 0);
+        g.on_estimate(&fixat(pts[0], 600), None);
+        g.on_estimate(&fixat(pts[1], 1200), None);
+        g.set_counting(false, 1_250_000); // home Wi-Fi
+        let r = g.arrive_home(1_300_000).1.expect("two items brought home");
+        assert_eq!(r.banked, 2);
+        assert_eq!(carried_banked(&g), (0, 2));
+    }
+
+    #[test]
+    fn a_trap_blocking_the_bank_still_closes_the_walk() {
+        let (mut g, pts) = forager_game();
+        left_home(&mut g, 0);
+        g.on_estimate(&fixat(pts[0], 600), None);
+        g.outing.as_mut().unwrap().steps = 900;
+        freeze(&mut g); // a Freeze Trap blocks checks, so banking
+        let r = g.arrive_home(1_300_000).1.expect("steps alone are worth it");
+        assert_eq!(r.banked, 0, "nothing banked under the trap");
+        assert!(g.outing.is_none());
     }
 }
