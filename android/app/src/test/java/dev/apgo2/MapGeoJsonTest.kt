@@ -380,6 +380,20 @@ class MapFeaturesTest {
         assertEquals(2, t.single().coords().length())
     }
 
+    @Test fun questPinsAreNumberedByRowAndMarkTheSelectedOne() {
+        fun q(at: GeoPoint?) = uniffi.apgo_ffi.RecapQuestOut("Q", "P", "g", 0L, at, null)
+        val pins = RecapFeatures.questPins(listOf(q(GeoPoint(1.0, 2.0)), q(null), q(GeoPoint(3.0, 4.0))), selected = 2)
+        assertEquals(2, pins.size)
+        assertEquals(listOf(1, 3), pins.map { it.getJSONObject("properties").getInt("n") })
+        assertEquals(listOf(false, true), pins.map { it.getJSONObject("properties").getBoolean("selected") })
+        assertEquals(
+            listOf(false, false),
+            RecapFeatures.questPins(listOf(q(GeoPoint(1.0, 2.0)), q(GeoPoint(3.0, 4.0))), null).map {
+                it.getJSONObject("properties").getBoolean("selected")
+            },
+        )
+    }
+
     @Test fun aRouteIsOneLinePerStretchAndSkipsLonePoints() {
         val a = GeoPoint(40.0, -111.0)
         val b = GeoPoint(40.001, -111.0)
