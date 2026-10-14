@@ -109,6 +109,20 @@ Details and roadmap: `docs/superpowers/specs/2026-10-13-progression-beta-design.
 | Location ids renumbered (`block = difficulty * 2 + mode`, Boss 6001); item ids +3/+4 retired, never reused | Ids follow `len(MODES)`; both sides pin one id table |
 | The filter keeps the fast model's noise (`sigma_a_fast`), drops the bike/drive priors and rates | The fast model runs in every zone; the rest was dead |
 
+## 2026-10-14 Beta 2: badge system (decisions)
+
+Spec: `docs/superpowers/specs/2026-10-14-beta-2-badges-design.md` (#185).
+
+| Decision | Why |
+| -- | -- |
+| slot_data schema 5: each quest has `needs` (a list of item names); zones lose `mode` and `tool`; the core reads 5 only | An app that ignored `needs` would let locked quests be claimed |
+| Run is per quest, not per zone: YAML `zone_modes` became `zone_count`; `run_quests` + `run_share` (1-50 %, default 20) | One lock mechanism per item; the run count stays stable when more tools arrive |
+| `badge_shares` waits for Beta 5 | Nothing to split while Running Shoes is the only tool |
+| A badged quest without its tool is Locked (no tracking, nothing to claim) | Reuses the zone lock path; "without the tool the reward cannot be claimed" |
+| The first quest of every zone is never a run; keys and the shoes sit on open quests (solo) | Every zone has an open quest, so fill never dead-ends |
+| The travel mode is the game's (the fastest of its quests), set once; the per-fix zone mode lookup is gone | Zones have no mode any more; one less per-fix pass |
+| Chains group by zone, kind and badges | A chain is locked as a whole, so its quests must share `needs` |
+
 ## 2026-10-08 Licence (decision)
 
 | Decision | Why |

@@ -13,7 +13,7 @@ in this step is **Running Shoes**, on run quests, when YAML `run_quests` is on.
 | Decision | Why |
 | -- | -- |
 | slot_data **schema 5**; the core supports only 5; apworld version 0.5.0 | An app built for 4 would ignore `needs` and let locked quests be claimed. Full cut, no shims |
-| Run moves from zones to quests. Zones lose `mode` and `tool`; only keys gate a zone | One lock mechanism per item. Running Shoes gating zones *and* quests would be two rules for one item |
+| Run moves from zones to quests. Zones lose `mode` and `tool`; only keys gate a zone | One lock mechanism per item. Running Shoes gating zones and quests would be two rules for one item |
 | YAML `zone_modes` is replaced by **`zone_count`** (1-6, default 1) | Zones no longer have a mode; multiple zones stay dormant (tabled) |
 | `MODES` stays `("walk", "run")`; **location ids unchanged** | The id table in `apworld/tests/test_locations.py` and `core/src/solo.rs` does not move |
 | `needs` is a **list**; the core tests the full subset | Two-badge quests (roadmap rule 2) work the day the generator emits them; no later schema bump |
@@ -21,6 +21,9 @@ in this step is **Running Shoes**, on run quests, when YAML `run_quests` is on.
 | **`run_share`** (1-50 %, default 20) instead of `badge_shares` | Run is an opt-in pace rule, so its count must not shrink as tools arrive. `badge_shares` lands in Beta 5 with the tools it splits (YAGNI) |
 | A badged quest without its tool is **Locked** (same state as a locked zone) | Reuses the existing Locked path; matches the roadmap rule "without the tool the reward cannot be claimed" |
 | `MODE_TOOLS` / `tool_for` become one badge table | One place for Gloves, Satchel... in Beta 5 |
+| The game's travel mode is the fastest of its quests, set once (found while building) | Zones have no mode; the per-fix zone lookup (`loc::mode_at`) is gone |
+| Chains group by zone, kind and `needs` (found while building) | A chain is locked as a whole, so its quests must share their badges |
+| The first quest of every zone is never a run; `run_count` is capped at `trips - zones` | Every zone keeps an open quest, so fill never dead-ends |
 
 ## Out of scope
 

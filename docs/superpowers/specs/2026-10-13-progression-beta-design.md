@@ -130,7 +130,7 @@ Each step is its own spec, plan and PRs. Order: 1, then 2, then (3, 4) and (5, 6
 | # | Sub-project | Scope | Depends on | Existing issues |
 | -- | -- | -- | -- | -- |
 | 1 | Cleanup | Remove Bike/Car (modes, items, catalog, UI); one zone by default; goals down to Treasure Hunt + Completionist | none | |
-| 2 | Badge system | slot_data `needs` per quest (schema 4), badge location groups, core gate, badge on card and pin; Running Shoes as the first badge; YAML `run_quests`, `badge_shares` | 1 | #53, #96 |
+| 2 | Badge system | slot_data `needs` per quest (schema 5), badge location groups, core gate, badge on card and pin; Running Shoes as the first badge; YAML `run_quests`, `run_share` (`badge_shares` moves to step 5) | 1 | #53, #96 |
 | 3 | Resources | one stash of 4 resources, resource bundles replace `Hydrate!`/`Take a Breather!` as filler, tool-gated map pickups, forager variants | 2 | #55 |
 | 4 | Shop | spend resources; contents; AP Shop Slots decision | 3 | #56 |
 | 5 | Quest shapes | one per PR: Gloves (forager + gloved courier), Satchel (courier + fetch & return), Dowsing Rod (Hot & Cold), Magnet (Lost & Found) | 2 (and #183) | #183 |

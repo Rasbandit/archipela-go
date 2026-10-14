@@ -13,11 +13,11 @@ Win conditions: Treasure Hunt and Completionist (Beta 1, 2026-10-13, cut the oth
 
 | Path | What |
 | -- | -- |
-| `apworld/` | Python apworld **0.4.0**, slot_data **schema 4** (`goals`, `goal_requirement`, `goal_need`). 210 tests. Contract: `apworld/docs/contract.md` |
+| `apworld/` | Python apworld **0.5.0**, slot_data **schema 5** (`goals`, `goal_requirement`, `goal_need`, per-quest `needs`). 210 tests. Contract: `apworld/docs/contract.md` |
 | `core/` (`apgo-core`) | Rust engine: catalog, realms (+marks, +icon), scan + **tile grid** (`tilegrid.rs`), assign, verify, goal, fog, traps, solo, game, yaml. 132 tests + 1 regression |
 | `core/ffi/` | UniFFI `Engine` (realms, finds, marks, stats, scan plan/progress, games, play) and `ApSession` (Archipelago via a patched `archipelago_rs`, see `core/vendor/PATCHES.md`) |
 | `android/` | Kotlin/Compose. `AppModel`, `Screens.kt` (Realms list/editor/home picker, Play), `NewGame.kt`, `QuestMap.kt` (MapLibre), `ui/` design system |
-| `scripts/` | `android_core.sh`, `emu.sh`, `android_ui.py` (adb UI driver), `ap_host.sh` (dev Archipelago server, env `APGO_GOALS`, `APGO_REQ`, `APGO_ZONES`), `e2e_*.sh` (STALE, see below) |
+| `scripts/` | `android_core.sh`, `emu.sh`, `android_ui.py` (adb UI driver), `ap_host.sh` (dev Archipelago server, env `APGO_GOALS`, `APGO_REQ`, `APGO_ZONES` (a count), `APGO_RUN_SHARE`), `e2e_*.sh` (STALE, see below) |
 | `docs/context/` | Everything below; index in `CLAUDE.md` |
 
 ## Screens (all verified on the emulator; phone = Pixel 8 Pro over wireless adb)
