@@ -16,7 +16,7 @@ use super::Locator;
 pub(super) fn show_match(prev: Option<usize>, m: Option<MatchOut>, est: &Estimate, graph: Option<&StreetGraph>, p: &LocParams) -> Option<usize> {
     let m = m.filter(|_| est.source != Source::Bridged)?;
     let seg = m.seg?;
-    let gate = p.match_show_min_m.max(2.0 * est.uncertainty_m / ACC_TO_SIGMA);
+    let gate = show_gate(est, p);
     let d = distance_m(m.point, est.point());
     let connected = |a: usize, b: usize| {
         a == b
@@ -30,6 +30,11 @@ pub(super) fn show_match(prev: Option<usize>, m: Option<MatchOut>, est: &Estimat
     let enter = m.confidence >= p.match_show_confidence && d <= gate;
     let stay = prev.is_some_and(|s| connected(s, seg)) && m.confidence > p.match_stay_confidence && d <= p.match_stay_gate_factor * gate;
     (enter || stay).then_some(seg)
+}
+
+/// How far a shown match may sit from the estimate: `max(match_show_min_m, 2 sigma)`, metres.
+fn show_gate(est: &Estimate, p: &LocParams) -> f64 {
+    p.match_show_min_m.max(2.0 * est.uncertainty_m / ACC_TO_SIGMA)
 }
 
 impl Locator {
@@ -74,11 +79,18 @@ impl Locator {
             _ => est.point(),
         };
         // On a confident match the pin is the current (predicted) estimate placed on the matched street (ruling T19-R2), so it glides
-        // with the estimate instead of waiting for the matcher's next input.
-        let shown = match (matched.and_then(|m| m.seg), &self.graph) {
-            (Some(seg), Some(g)) if seg < g.segment_count() => g.along(seg, ahead, mode_mask(self.mode)),
-            _ => ahead,
-        };
+        // with the estimate instead of waiting for the matcher's next input. A street the estimate has left (round a corner, before the
+        // matcher's next input) never holds the pin farther from it than the show gate (issue #177).
+        let placed = match (matched.and_then(|m| m.seg), &self.graph) {
+            (Some(seg), Some(g)) if seg < g.segment_count() => {
+                let mask = mode_mask(self.mode);
+                Some(g.beside(seg, g.along(seg, ahead, mask), ahead, mask, p.match_side_max_m))
+            }
+            _ => None,
+        }
+        .filter(|q| distance_m(*q, ahead) <= show_gate(&est, p));
+        let matched = matched.filter(|_| placed.is_some());
+        let shown = placed.unwrap_or(ahead);
         let bridged = est.source == Source::Bridged;
         let source = if age > p.stale_after_ms {
             DisplaySource::Stale
@@ -269,8 +281,11 @@ mod tests {
 
     #[test]
     fn a_confident_match_moves_the_pin_onto_the_street_but_never_the_estimate() {
+        // Footways: a walker beside a road keeps their side instead (issue #176).
+        let footways: Vec<_> =
+            crate::loc::bench::grid_ways(o(), 5, 100.0).into_iter().map(|w| crate::scan::WayGeom { class: crate::scan::way_class::FOOT, ..w }).collect();
         let mut l = Locator::default();
-        l.set_graph(StreetGraph::from_ways(&crate::loc::bench::grid_ways(o(), 5, 100.0)).map(Arc::new));
+        l.set_graph(StreetGraph::from_ways(&footways).map(Arc::new));
         let street = destination(o(), 0.0, 100.0);
         for t in 0..60 {
             l.on_fix(&fix(destination(destination(street, 90.0, 1.4 * i64_to_f64(t)), 0.0, 4.0), t, 4.0));
@@ -429,6 +444,84 @@ mod tests {
             }
             last = Some(at);
         }
+    }
+
+    /// A walker 7 m south of a straight way of `class` running east (issue #176): the shown pins after the first 20 s and the trace.
+    fn walk_beside(class: u8) -> (Vec<(DisplayPosition, Point)>, Vec<Point>) {
+        let way = crate::scan::WayGeom { id: 1, class, pts: vec![o(), destination(o(), 90.0, 400.0)] };
+        let mut l = Locator::default();
+        l.set_graph(StreetGraph::from_ways(&[way]).map(Arc::new));
+        let side = destination(o(), 180.0, 7.0);
+        let mut pins = vec![];
+        for t in 0..120 {
+            let walked = destination(side, 90.0, 20.0 + 1.4 * i64_to_f64(t));
+            l.on_fix(&fix(walked, t, 4.0));
+            if t >= 20 {
+                pins.push((l.display(t * 1000).unwrap(), walked));
+            }
+        }
+        (pins, l.trace_matched().1.concat())
+    }
+
+    #[test]
+    fn a_walker_well_off_a_road_is_not_pulled_toward_it() {
+        // The show gate measures the estimate's distance from the street, not from the side point kept beside a road (issue #176):
+        // 16 m off is past the 10 m gate, so the pin stays with the walker instead of being pulled 4 m toward the road.
+        let way =
+            crate::scan::WayGeom { id: 1, class: crate::scan::way_class::FOOT | crate::scan::way_class::CAR, pts: vec![o(), destination(o(), 90.0, 400.0)] };
+        let mut l = Locator::default();
+        l.set_graph(StreetGraph::from_ways(&[way]).map(Arc::new));
+        let side = destination(o(), 180.0, 16.0);
+        for t in 0..120 {
+            let walked = destination(side, 90.0, 20.0 + 1.4 * i64_to_f64(t));
+            l.on_fix(&fix(walked, t, 4.0));
+            if t >= 20 {
+                let d = l.display(t * 1000).unwrap();
+                let off = distance_m(Point::new(d.lat, d.lon), walked);
+                assert!(!d.matched && off <= 2.0, "pin {off} m from the walker: {d:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_shown_street_the_estimate_has_left_round_a_corner_does_not_hold_the_pin() {
+        // Issue #177: with the screen off (a fix every 5 s) the matcher's answer is still the old street for an input or two after a
+        // corner; the pin waited at the corner, 11-13 m from an estimate already on the new footway. A snap never moves the pin farther
+        // from the estimate than the show gate.
+        let corner = destination(o(), 90.0, 100.0);
+        let way = crate::scan::WayGeom { id: 1, class: crate::scan::way_class::FOOT, pts: vec![o(), corner, destination(corner, 0.0, 100.0)] };
+        let mut l = Locator::default();
+        l.set_graph(StreetGraph::from_ways(&[way]).map(Arc::new));
+        for t in 0..60 {
+            l.on_fix(&fix(destination(o(), 90.0, 1.4 * i64_to_f64(t)), t, 4.0));
+        }
+        assert!(l.display(59_000).unwrap().matched, "on the east street");
+        let round = destination(corner, 0.0, 13.0);
+        l.last = Some(Estimate { uncertainty_m: 2.0, motion: Motion::Stationary, ..Estimate::exact(round.lat, round.lon, 64_000) });
+        let d = l.display(64_000).unwrap();
+        let off = distance_m(Point::new(d.lat, d.lon), round);
+        assert!(off <= l.params().match_show_min_m, "the pin is {off} m from the estimate: {d:?}");
+    }
+
+    #[test]
+    fn beside_a_road_a_walker_keeps_their_side_but_a_footway_snaps() {
+        // Issue #176: a sidewalk OSM does not map leaves only the road centreline; snapping a walker onto it put the pin 5-8 m into the
+        // road. On a road (car class) in a Walk zone the pin and the trace keep the walker's side; a footway is where people walk.
+        use crate::scan::way_class::{BIKE, CAR, FOOT};
+        let side = destination(o(), 180.0, 7.0);
+        let side_line = |p: Point| distance_m(p, Point::new(side.lat, p.lon));
+        let (pins, trace) = walk_beside(FOOT | BIKE | CAR);
+        for (d, walked) in &pins {
+            let shown = Point::new(d.lat, d.lon);
+            assert!(d.matched, "the road is still the match: {d:?}");
+            assert!(distance_m(shown, *walked) <= 2.0, "pin {} m from the walker", distance_m(shown, *walked));
+        }
+        assert!(trace.iter().skip(5).all(|q| side_line(*q) <= 2.0), "trace on the walker's side: {trace:?}");
+        let (pins, trace) = walk_beside(FOOT);
+        for (d, _) in &pins {
+            assert!(d.matched && side_line(Point::new(d.lat, d.lon)) >= 6.0, "a footway still snaps: {d:?}");
+        }
+        assert!(trace.iter().skip(5).all(|q| side_line(*q) >= 6.0), "footway trace snaps");
     }
 
     #[test]

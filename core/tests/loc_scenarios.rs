@@ -446,9 +446,13 @@ fn at_a_corner_the_matched_street_is_the_new_one_within_three_seconds_median() {
     for seed in 0..SEEDS {
         let r = s.generate(seed);
         let out = run_scenario(&r, &ReplayOpts { graph: Some(graph.clone()), ..opts(Mode::Walk) });
+        // The matched segment, not the shown point: a walker beside a road keeps their side (issue #176).
+        let on_north = |q: Point| q.lat > corner.lat - 1e-6 && (q.lon - corner.lon).abs() * 111_195.0 * corner.lat.to_radians().cos() < 1.0;
         let on_north_street = |k: usize| {
-            out.matches[k]
-                .is_some_and(|m| m.point.lat > corner.lat + 1e-6 && (m.point.lon - corner.lon).abs() * 111_195.0 * corner.lat.to_radians().cos() < 1.0)
+            out.matches[k].and_then(|m| m.seg).is_some_and(|seg| {
+                let len = graph.seg(seg).len_m;
+                on_north(graph.geo_at(seg, 0.0)) && on_north(graph.geo_at(seg, len)) && graph.geo_at(seg, len / 2.0).lat > corner.lat
+            })
         };
         let k = (0..out.shown.len())
             .find(|&k| out.shown[k].t_ms > turn_t && on_north_street(k))

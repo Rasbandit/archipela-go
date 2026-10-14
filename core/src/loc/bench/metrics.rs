@@ -66,10 +66,13 @@ pub fn interp(reference: &[TruthPoint], t_ms: i64) -> Point {
     Point::new(a.p.lat + (b.p.lat - a.p.lat) * f, a.p.lon + (b.p.lon - a.p.lon) * f)
 }
 
-/// RMS and 95th percentile of the distance from each shown position to the reference at the same time, metres.
+/// RMS and 95th percentile of the distance from each shown position to the reference at the same time, metres. Only shown positions
+/// inside the reference's time span count: a real walk's reference starts at its first good fix, and clamping earlier positions to
+/// it scores the walk since then as error (#178).
 #[must_use]
 pub fn position_error(reference: &[TruthPoint], shown: &[Shown]) -> (f64, f64) {
-    let e: Vec<f64> = shown.iter().map(|s| distance_m(s.p, interp(reference, s.t_ms))).collect();
+    let (Some(first), Some(last)) = (reference.first(), reference.last()) else { return (0.0, f64::NAN) };
+    let e: Vec<f64> = shown.iter().filter(|s| (first.t_ms..=last.t_ms).contains(&s.t_ms)).map(|s| distance_m(s.p, interp(reference, s.t_ms))).collect();
     let rms = (e.iter().map(|x| x * x).sum::<f64>() / count_f64(e.len().max(1))).sqrt();
     (rms, percentile(&e, 0.95))
 }
@@ -327,7 +330,10 @@ pub fn columns(cards: &[&Scorecard]) -> String {
     out
 }
 
-/// Map matching on a replay: share of positions shown on a street, segment changes per minute, share off-network.
+/// A shown pin's offset from its estimate changing by more than this between two displays is a visible jump, metres (issue #177).
+pub const PIN_JUMP_M: f64 = 3.0;
+
+/// Map matching on a replay: share of positions shown on a street, segment changes per minute, share off-network, pin jumps per minute.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MatchingStats {
     /// Share of displays with a shown match, each display sampled at its estimate's own time (age 0: no prediction ahead, review M5).
@@ -336,6 +342,9 @@ pub struct MatchingStats {
     pub switches_per_min: f64,
     /// Share of matches that are off-network.
     pub off_share: f64,
+    /// Displays per minute whose offset from the estimate changed by more than `PIN_JUMP_M` since the one before: the pin snapping
+    /// onto a street or off it, which the estimate's own movement does not explain.
+    pub pin_jumps_per_min: f64,
 }
 
 /// [`MatchingStats`] of a replay.
@@ -349,10 +358,20 @@ pub fn matching_stats(r: &crate::loc::bench::Replay) -> MatchingStats {
         (Some(a), Some(b)) => (i64_to_f64(b.t_ms - a.t_ms) / 60_000.0).max(1.0 / 60.0),
         _ => 1.0,
     };
+    let offset = |d: &crate::loc::DisplayPosition| {
+        let (est, pin) = (Point::new(d.est_lat, d.est_lon), Point::new(d.lat, d.lon));
+        let (m, b) = (distance_m(est, pin), bearing_deg(est, pin).to_radians());
+        (m * b.sin(), m * b.cos())
+    };
+    let jumps = r.displays.windows(2).filter(|w| {
+        let (a, b) = (offset(&w[0]), offset(&w[1]));
+        (a.0 - b.0).hypot(a.1 - b.1) > PIN_JUMP_M
+    });
     MatchingStats {
         matched_share: matched / n,
         switches_per_min: switches / minutes,
         off_share: count_f64(segs.iter().filter(|s| s.is_none()).count()) / count_f64(segs.len().max(1)),
+        pin_jumps_per_min: count_f64(jumps.count()) / minutes,
     }
 }
 
@@ -398,6 +417,19 @@ mod tests {
         assert!(rms < 1e-6 && p95 < 1e-6);
         assert_eq!(false_jumps(&r, &s), 0);
         assert_eq!(arrival_lag_s(&r, &s, r[80].p, 25.0), Some(0.0));
+    }
+
+    #[test]
+    fn shown_positions_outside_the_reference_span_are_not_scored() {
+        // A real walk's reference starts at its first good fix; a coarse cold-start fix 40 s earlier has no reference to compare with
+        // (issue #178: clamping it to the first reference point scored 40 s of walking as error).
+        let r: Vec<TruthPoint> = line(120, 1.4).into_iter().skip(40).collect();
+        let mut s = shown_from(&line(120, 1.4), 0);
+        s[0].p = destination(s[0].p, 0.0, 60.0);
+        let (rms, p95) = position_error(&r, &s);
+        assert!(rms < 1e-6 && p95 < 1e-6, "rms {rms} p95 {p95}");
+        let (rms, _) = position_error(&r, &s[..10]);
+        assert!(rms.abs() < 1e-9, "nothing in the span: no error, not NaN ({rms})");
     }
 
     #[test]
@@ -497,7 +529,7 @@ mod tests {
         use crate::loc::bench::Replay;
         use crate::loc::matcher::MatchOut;
         use crate::loc::{DisplayPosition, Estimate};
-        assert_eq!(matching_stats(&Replay::default()), MatchingStats { matched_share: 0.0, switches_per_min: 0.0, off_share: 0.0 });
+        assert_eq!(matching_stats(&Replay::default()), MatchingStats { matched_share: 0.0, switches_per_min: 0.0, off_share: 0.0, pin_jumps_per_min: 0.0 });
         let at = |seg: Option<usize>| Some(MatchOut { point: Point::new(40.0, -111.0), confidence: 0.9, seg });
         let shown = |t_ms: i64| Shown {
             t_ms,
@@ -518,5 +550,20 @@ mod tests {
         assert!((s.matched_share - 0.75).abs() < 1e-9, "{s:?}");
         assert!((s.switches_per_min - 2.0).abs() < 1e-9, "two changes in one minute: {s:?}");
         assert!((s.off_share - 1.0 / 3.0).abs() < 1e-9, "one of the three answers is off-network: {s:?}");
+        assert!(s.pin_jumps_per_min.abs() < 1e-9, "the pin never left its estimate: {s:?}");
+        // Issue #177: the pin snapping 5 m off its estimate and back is two jumps; a 2 m change and the estimate moving are none.
+        let est = Point::new(40.0, -111.0);
+        let pin = |north_m: f64| {
+            let p = destination(est, 0.0, north_m);
+            DisplayPosition { lat: p.lat, lon: p.lon, est_lat: est.lat, est_lon: est.lon, ..DisplayPosition::default() }
+        };
+        let walking = |k: usize, d: DisplayPosition| {
+            let moved = destination(est, 90.0, 10.0 * count_f64(k));
+            let shift = |lat: f64, lon: f64| (lat + moved.lat - est.lat, lon + moved.lon - est.lon);
+            let ((lat, lon), (est_lat, est_lon)) = (shift(d.lat, d.lon), shift(d.est_lat, d.est_lon));
+            DisplayPosition { lat, lon, est_lat, est_lon, ..d }
+        };
+        let jumpy = Replay { displays: [pin(0.0), pin(2.0), pin(7.0), pin(0.0)].into_iter().enumerate().map(|(k, d)| walking(k, d)).collect(), ..r };
+        assert!((matching_stats(&jumpy).pin_jumps_per_min - 2.0).abs() < 1e-9, "{:?}", matching_stats(&jumpy));
     }
 }

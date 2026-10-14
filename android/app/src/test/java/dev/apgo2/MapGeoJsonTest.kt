@@ -211,6 +211,48 @@ class MapFeaturesTest {
         assertEquals(setOf(q.mapImageKey), listOf(q).pinImages)
     }
 
+    @Test fun theHomeCircleIsOneRingAtItsRadiusAndNothingWithoutOne() {
+        assertTrue(MeFeatures.homeZone(null).isEmpty())
+        val f = MeFeatures.homeZone(CircleOut(GeoPoint(40.0, -111.0), 50.0)).single()
+        assertEquals("Polygon", f.geomType())
+        val ring = f.coords().getJSONArray(0)
+        for (i in 0 until ring.length()) {
+            val p = ring.getJSONArray(i)
+            val m = metres(40.0, -111.0, p.getDouble(1), p.getDouble(0))
+            assertEquals("point $i", 50.0, m, 1.0)
+        }
+    }
+
+    @Test fun theTraceHeadJoinsTheTraceEndToThePinUnlessFarAwayOrStale() {
+        // The trace reloads every 10 s and ends at the matcher's newest input: the head keeps the line touching the pin meanwhile.
+        val end = LatLng(40.0, -111.0)
+        val pin = { north: Double, state: String ->
+            MePin(40.0 + north / 111_195.0, -111.0, 3f, null, MarkerSpec.Me(false, state), animateMs = 1_000)
+        }
+        val head = MeFeatures.traceHead(end, pin(12.0, "gps")).single()
+        assertEquals("LineString", head.geomType())
+        val c = head.coords()
+        assertEquals(2, c.length())
+        assertEquals(-111.0, c.getJSONArray(0).getDouble(0), 1e-9)
+        assertEquals(40.0 + 12.0 / 111_195.0, c.getJSONArray(1).getDouble(1), 1e-9)
+        assertEquals("a bridged pin is joined too", 1, MeFeatures.traceHead(end, pin(12.0, "bridged")).size)
+        assertTrue("no trace yet", MeFeatures.traceHead(null, pin(12.0, "gps")).isEmpty())
+        assertTrue("no pin", MeFeatures.traceHead(end, null).isEmpty())
+        assertTrue("a stale pin is not where you are", MeFeatures.traceHead(end, pin(12.0, "stale")).isEmpty())
+        assertTrue("far off: a restart broke the trace", MeFeatures.traceHead(end, pin(TRACE_HEAD_MAX_M + 5.0, "gps")).isEmpty())
+    }
+
+    private fun metres(
+        lat1: Double,
+        lon1: Double,
+        lat2: Double,
+        lon2: Double,
+    ): Double {
+        val dy = (lat2 - lat1) * 111_195.0
+        val dx = (lon2 - lon1) * 111_195.0 * kotlin.math.cos(Math.toRadians(lat1))
+        return kotlin.math.hypot(dx, dy)
+    }
+
     private fun realm(
         name: String,
         circle: CircleOut? = null,

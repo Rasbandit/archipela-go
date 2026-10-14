@@ -30,14 +30,22 @@ Before leaving: Realms > tap the **Home Base** tile. At home, in step 2 tick the
 the phone's Bluetooth settings first, then tick it in step 3 (needs the Nearby devices permission). Open the game and read the chip next to the game name:
 
 - **Tracking**: inside a zone, GPS every 5 s once you move 10 m (none while standing), progress counts.
-- **At home, paused**: on a home network; GPS is off and nothing counts.
+- **At home, paused**: on a home network, or inside the 50 m circle round the home pin; GPS is off and nothing counts.
 - **In car, not counting**: a tagged car device is connected; GPS is off and nothing counts.
 - **Outside zones, saving battery**: far from every zone; GPS every 90 s once you move 50 m, progress still counts.
 - **Not playing**: no game open or tracking paused.
 Verified on the emulator with the old Presence screen (home Wi-Fi only): add/remove network, At home (GPS unregistered, mock fixes ignored), back to Tracking after removing the network. The new setup flow (tap the Home Base tile, steps 1-3) ran on the emulator and on the Pixel 8 Pro: step 2 listed the connected and nearby networks with only location permission (no NEARBY_WIFI_DEVICES needed). Pausing at home with it is still to be checked outdoors.
 **Untested until an outdoor run: car Bluetooth (no paired device on the emulator) and the outside-zone duty cycle with real movement.** Check: leave the home Wi-Fi
 and walk off (leaving is immediate; arriving back needs 45 s of Wi-Fi), start/stop the car connection, walk out of a zone and back in.
-Where to look afterwards: Activity tab, kind **Presence** ("Home Wi-Fi connected: paused", "Tracking", "Outside every zone: saving battery"); in the diag, lines with
+**Home circle (2026-10-13, `core/src/home_watch.rs`).** With a home pin, a Wi-Fi drop no longer leaves home: it starts a GPS check
+(GNSS every second, at most 60 s), and so does a walk at home (30 steps in 30 s; the step counter runs at home in 10 s batches).
+Only a fix clearly outside the 50 m circle (distance minus accuracy) leaves; one clearly inside ends the check (no new check from
+steps for 2 min); an unclear check falls back to home. Two fixes clearly inside bring you home while out. Fixes while home or
+checking reach no game, journal point or trace. Without a pin or a readable step counter (GPS is off at home, so only steps can
+see a walk out), home Wi-Fi alone decides as before. The emulator has no step counter, so it never uses the circle. To check outdoors: sit at home
+with Wi-Fi off (no points, chip "At home"), walk out (tracking within about 30 s of the walk starting plus the 50 m), walk back in.
+Diag: `rawstate` presence lines and `"gps":"Check"` while checking.
+Where to look afterwards: Activity tab, kind **Presence** ("At home: paused", "Tracking", "Outside every zone: saving battery"); in the diag, lines with
 `"tag":"presence"` (`msg` = state, `counting`, `gps` mode) and the extra heartbeat fields `presence` and `counting` (no heartbeats while AtHome/InCar: GPS is off, so nothing arrives).
 
 ## Bring the data back

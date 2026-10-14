@@ -39,10 +39,14 @@ internal object StepRate {
         inZone: Boolean,
         leaving: Boolean = false,
         onScreen: Boolean = true,
+        homeCircle: Boolean = false,
     ): Int? =
         when {
             // Nothing counts with no game open.
             state == PresenceState.Stopped -> null
+
+            // At home with a home pin the core watches for a walk (a burst of steps starts its GPS check of the home circle).
+            state == PresenceState.AtHome && homeCircle -> STEP_BATCH_US
 
             // At home or in the car nothing counts either, except while leaving: the first reading is the core's leave mark, so the
             // steps walked until leaving is confirmed are credited then (backfill).
@@ -72,10 +76,16 @@ internal object StepRate {
         inZone: Boolean,
         leaving: Boolean,
         onScreen: Boolean,
+        homeCircle: Boolean = false,
     ): Boolean =
         when {
             state == PresenceState.Stopped -> false
+
+            // A walk starting at home must reach the core with the screen off; standing still sends no readings, so no wake-ups.
+            state == PresenceState.AtHome && homeCircle -> true
+
             state == PresenceState.AtHome || state == PresenceState.InCar -> leaving
+
             else -> inZone && !onScreen
         }
 }
@@ -97,6 +107,9 @@ internal class Sensors(
     private val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private var stepListener: SensorEventListener? = null
     private var stepsAllowed = false
+
+    /** Whether steps can be read (permission granted and a step counter present): the core's home circle needs them. */
+    val stepsAvailable: Boolean get() = stepsAllowed && sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) != null
     private var stepBatchUs: Int? = null
     private var stepWakeUp = false
     private var gnssCallback: GnssStatus.Callback? = null

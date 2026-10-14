@@ -375,7 +375,10 @@ private fun GameHeader(
         Column {
             Text("${hud.gameName}  ·  ${hud.backend}", fontSize = 12.sp)
             Text(
-                PresenceText.chip(m.presence.decision.state, m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty()),
+                PresenceText.chip(
+                    m.presence.decision.state,
+                    m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty() || m.presence.homeZone != null,
+                ),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -444,6 +447,7 @@ private fun PlayMap(
                 m.selected = id
             },
             home = m.home?.let { LatLng(it.lat, it.lon) },
+            homeZone = m.presence.homeZone,
             trace = trace,
             traceOld = traceOld,
             lastPlace = m.lastPlace,

@@ -57,6 +57,7 @@ import uniffi.apgo_ffi.lineWidthStops
 // How things look on the map. Sizes are in map pixels, opacities 0..1, icon sizes are factors of the bitmap.
 // Line widths scale with zoom and come from the core (lineWidthStops), so iOS draws them the same.
 private const val REALM_FILL_OPACITY = 0.07f
+private const val HOME_ZONE_FILL_OPACITY = 0.1f
 
 // Area quests fill in as they progress: empty until started, strongest while in progress, faint once done.
 private const val AREA_FILL_PROGRESS = 0.22f
@@ -64,6 +65,7 @@ private const val AREA_FILL_DONE = 0.1f
 
 // A park's outline: thin, in its state colour, always dashed (in line widths: dash, gap).
 private val PARK_DASH = arrayOf(3f, 2f)
+private val HOME_ZONE_DASH = arrayOf(2f, 2f)
 
 // A route (trail): its state colour on a white casing; done routes fade.
 private const val DONE_ROUTE_OPACITY = 0.5f
@@ -123,6 +125,8 @@ internal object MapSource {
     const val LINES = "lines"
     const val TRACE_OLD = "trace-old"
     const val TRACE = "trace"
+    const val TRACE_HEAD = "trace-head"
+    const val HOME_ZONE = "home-zone"
     const val QUESTS = "quests"
     const val QUEST_SEL = "quest-sel"
     const val ITEMS = "items"
@@ -138,10 +142,12 @@ internal object MapSource {
     val ALL =
         listOf(
             REALMS,
+            HOME_ZONE,
             AREAS,
             LINES,
             TRACE_OLD,
             TRACE,
+            TRACE_HEAD,
             ITEMS,
             QUESTS,
             QUEST_SEL,
@@ -197,7 +203,10 @@ internal object MapStyle {
         MapSource.ALL.forEach { id ->
             style.addSource(if (id in MapSource.CLUSTERED) GeoJsonSource(id, empty, clusterOptions()) else GeoJsonSource(id, empty))
         }
-        addLayers(style, realmLayers() + traceLayers() + itemLayers() + questLayers() + findLayers() + draftLayers() + markLayers())
+        addLayers(
+            style,
+            realmLayers() + homeZoneLayers() + traceLayers() + itemLayers() + questLayers() + findLayers() + draftLayers() + markLayers(),
+        )
         addLayers(style, radiusLayers())
         // Home is a house on green. You are MapLibre's location component (see MapHolder.showMe), drawn just below home: when you
         // are both in the same spot the house is the one you see.
@@ -229,6 +238,15 @@ internal object MapStyle {
             FillLayer("areas-fill", MapSource.AREAS).withProperties(fillColor(stateColor()), fillOpacity(areaFillOpacity())),
         )
 
+    // The home circle (presence: inside it you are home): a faint home-green fill with a dashed ring, under the trace and pins.
+    private fun homeZoneLayers() =
+        listOf(
+            FillLayer("home-zone-fill", MapSource.HOME_ZONE)
+                .withProperties(fillColor(ApgoPalette.home.hex()), fillOpacity(HOME_ZONE_FILL_OPACITY)),
+            LineLayer("home-zone-line", MapSource.HOME_ZONE)
+                .withProperties(lineColor(ApgoPalette.home.hex()), scaledWidth(LineKind.PARK_OUTLINE), lineDasharray(HOME_ZONE_DASH)),
+        )
+
     private fun areaFillOpacity() =
         Expression.match(
             Expression.get(MapProp.STATE),
@@ -252,6 +270,8 @@ internal object MapStyle {
             // Two sources, one look: the older trace is set rarely, so a refresh re-sends only this session's lines.
             traceLine("trace-old-layer", MapSource.TRACE_OLD),
             traceLine("trace-layer", MapSource.TRACE),
+            // The trace's newest point to the pin, sent with every pin move (MeFeatures.traceHead): the line always reaches you.
+            traceLine("trace-head-layer", MapSource.TRACE_HEAD),
             // Parks: a thin dashed outline; only its state colour tells the state, as on pins. The fill shows progress (realmLayers).
             LineLayer("park-line", MapSource.LINES)
                 .withFilter(isPark())

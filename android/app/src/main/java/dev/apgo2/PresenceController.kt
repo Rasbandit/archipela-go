@@ -22,7 +22,9 @@ import dev.apgo2.presence.PresenceState
 import dev.apgo2.presence.Signals
 import dev.apgo2.presence.WifiId
 import dev.apgo2.presence.Zone
+import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.PositionOut
+import uniffi.apgo_ffi.PresenceHome
 
 private const val SETTLE_MARGIN_MS = 50L // a look scheduled for the exact due time must not land a hair early
 private const val SEED_TIMEOUT_MS = 3_000L
@@ -69,6 +71,14 @@ internal class PresenceController(
     private val seeding = PresenceSeeding(SEED_TIMEOUT_MS)
     private var monitorBluetooth: Boolean? = null
 
+    // The core's home answer as of the last evaluation, and whether it was started for this monitor run.
+    private var homeState = PresenceHome.AWAY
+    private var homeStarted = false
+
+    /** The home circle presence uses (the map draws it), or `null` while home Wi-Fi alone decides. Set on every evaluation. */
+    var homeZone by mutableStateOf<CircleOut?>(null)
+        private set
+
     /**
      * Start the Wi-Fi/Bluetooth watcher once location permission is there, and again only when the Bluetooth grant changes.
      * It is never stopped within the process life: it belongs to the model (like the sensors), not to the activity, so rotation or
@@ -78,6 +88,7 @@ internal class PresenceController(
     fun ensureMonitor(bluetoothGranted: Boolean) {
         if (monitorBluetooth == bluetoothGranted) return
         monitorBluetooth = null // recorded again only if the start succeeds
+        homeStarted = false // the core decides home afresh from the new readings
         monitor.stop()
         seeding.restart(SystemClock.elapsedRealtime())
         runCatching { monitor.start() }
@@ -125,11 +136,21 @@ internal class PresenceController(
         checkHomeOffer(t)
         val home = if (seeding.complete) homeDebounce.feed(rawHome(), t) else rawHome()
         val car = if (seeding.complete) carDebounce.feed(rawCar(), t) else rawCar()
-        // A debounced change gets no event of its own (GPS may be off), so look once more exactly when it settles.
+        homeState = coreHome(home, t)
+        // A debounced change or the end of a home check gets no event of its own (GPS may be off): look once more exactly then.
         main.removeCallbacks(reevaluate)
-        val settle = listOfNotNull(homeDebounce.settlesInMs(t), carDebounce.settlesInMs(t)).minOrNull()
+        val checkEnds = model.engine.presenceDueMs()?.let { (it - t).coerceAtLeast(0) }
+        val settle = listOfNotNull(homeDebounce.settlesInMs(t), carDebounce.settlesInMs(t), checkEnds).minOrNull()
         if (seeding.complete && settle != null) main.postDelayed(reevaluate, settle + SETTLE_MARGIN_MS)
-        val d = PresencePolicy.decide(Signals(playing = model.hud != null, homeWifi = home, carBluetooth = car, zone = zone))
+        val signals =
+            Signals(
+                playing = model.hud != null,
+                home = homeState != PresenceHome.AWAY,
+                carBluetooth = car,
+                zone = zone,
+                checking = homeState == PresenceHome.CHECKING,
+            )
+        val d = PresencePolicy.decide(signals)
         // Every run, not only on change: a game that replaces an open one starts counting again. The core ignores an unchanged value.
         model.engine.setCounting(d.counting, t)
         model.due.schedule() // leaving or reaching home moves the next due time
@@ -144,6 +165,29 @@ internal class PresenceController(
         applyLocation()
     }
 
+    // The core decides home from home Wi-Fi (debounced here) and the circle round the home pin; it learns of fixes and steps itself.
+    // It acts only on a changed Wi-Fi reading, so passing it every time is safe.
+    private fun coreHome(
+        wifi: Boolean?,
+        t: Long,
+    ): PresenceHome {
+        val e = model.engine
+        e.presenceSetWalkSensor(model.sensors.stepsAvailable)
+        homeZone = e.presenceCircle()
+        e.presenceWifi(wifi, t)
+        if (!homeStarted) {
+            e.presenceStart(t)
+            homeStarted = true
+        }
+        e.presenceTick(t)
+        return e.presenceState()
+    }
+
+    /** A step batch reached the core: a walk at home may have started its GPS check, so decide again only if its answer moved. */
+    fun onSteps() {
+        if (homeStarted && model.engine.presenceState() != homeState) evaluate()
+    }
+
     // The presence state changed: log it, bank on arriving home, and let a newly opened game ask for a cold-start fix.
     private fun onStateChange(
         prev: PresenceState,
@@ -153,11 +197,11 @@ internal class PresenceController(
         Diag.info(TAG, d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
         if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
         model.noteJournal()
-        if (PresencePolicy.arrivedHome(prev, d.state) && model.hud != null) bankAtHome()
+        if (PresencePolicy.arrivedHome(prev, d.state, d.gps == GpsMode.Check) && model.hud != null) bankAtHome()
         if (prev == PresenceState.Stopped) model.sensors.allowColdStart()
     }
 
-    // Presence arrived home (home Wi-Fi): forager quests bank what they carry, even with no GPS fix.
+    // Presence arrived home (home Wi-Fi or the home circle): forager quests bank what they carry, even with no GPS fix.
     private fun bankAtHome() {
         if (!model.engine.hasGame()) return
         model.handle(model.engine.bankAtHome(model.now()))
@@ -206,9 +250,10 @@ internal class PresenceController(
         // Home or car signal gone but not yet confirmed: count steps from the door (backfilled once it is).
         val leaving = StepRate.leaving(decision.state, homeDebounce.pending, carDebounce.pending)
         val onScreen = screenOn && appVisible
+        val homeCircle = homeZone != null
         model.sensors.setStepBatch(
-            StepRate.batchUs(decision.state, inZone, leaving, onScreen),
-            StepRate.wakeUp(decision.state, inZone, leaving, onScreen),
+            StepRate.batchUs(decision.state, inZone, leaving, onScreen, homeCircle),
+            StepRate.wakeUp(decision.state, inZone, leaving, onScreen, homeCircle),
         )
     }
 
@@ -289,7 +334,7 @@ internal class PresenceController(
 
     private fun presenceText(s: PresenceState) =
         when (s) {
-            PresenceState.AtHome -> "Home Wi-Fi connected: paused"
+            PresenceState.AtHome -> "At home: paused"
             PresenceState.InCar -> "Car Bluetooth connected: not counting"
             PresenceState.OutsideZones -> "Outside every zone: saving battery"
             PresenceState.InZone -> "Tracking"

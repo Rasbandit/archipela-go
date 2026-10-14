@@ -23,6 +23,13 @@ class StepRateTest {
         assertNull(StepRate.batchUs(PresenceState.InCar, inZone = false))
     }
 
+    @Test fun atHomeWithAHomeCircleTheCounterWatchesForAWalkAndWakesThePhone() {
+        // A burst of steps starts the core's GPS check (home circle): readings must arrive with the screen off too. No steps, no wake-up.
+        assertEquals(10_000_000, StepRate.batchUs(PresenceState.AtHome, inZone = false, homeCircle = true))
+        assertEquals(true, StepRate.wakeUp(PresenceState.AtHome, inZone = false, leaving = false, onScreen = false, homeCircle = true))
+        assertNull("the car is not home", StepRate.batchUs(PresenceState.InCar, inZone = false, homeCircle = true))
+    }
+
     @Test fun leavingHomeOrTheCarStartsTheCounterBeforeItIsConfirmed() {
         // Wi-Fi or Bluetooth dropped, the 45 s debounce still runs: the first reading is the core's leave mark (backfill).
         assertEquals(10_000_000, StepRate.batchUs(PresenceState.AtHome, inZone = false, leaving = true))

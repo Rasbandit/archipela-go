@@ -448,6 +448,23 @@ impl StreetGraph {
         Cand { seg, off_m: t * sg.len_m, d_m: dist(en, proj) }
     }
 
+    /// Where to show a player whose estimate `est` lies beside `on`, the point matched on `seg`: on a road (car class) in a Walk or Run
+    /// zone (`mask` foot only) the estimate itself, at most `side_max_m` from `on`, so a walker on a sidewalk OSM does not map keeps
+    /// their side of the road (issue #176); elsewhere `on`, where footways, paths and a cyclist's or driver's streets snap.
+    #[must_use]
+    pub fn beside(&self, seg: usize, on: Point, est: Point, mask: u8, side_max_m: f64) -> Point {
+        let road = seg < self.segs.len() && self.segs[seg].class & way_class::CAR != 0;
+        if mask != way_class::FOOT || !road {
+            return on;
+        }
+        let d = crate::geo::distance_m(on, est);
+        if d <= side_max_m {
+            est
+        } else {
+            crate::geo::destination(on, crate::geo::bearing_deg(on, est), side_max_m)
+        }
+    }
+
     /// The point of the street at `seg` nearest `p`. While `p` lies past the far end of the segment reached, it goes on along the segment
     /// there (usable with `mask`) that continues most nearly straight, within [`STRAIGHT_ON_DEG`], for at most [`CARRY_SEGMENTS`] segments
     /// or [`CARRY_M`] metres; with none, it stays at the end (ruling T19-R2, review I1).

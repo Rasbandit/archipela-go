@@ -951,6 +951,14 @@ impl Game {
         }
     }
 
+    /// The walk out began at step `total` at `t_ms` (the home watch saw it): steps from there count once counting resumes, not the
+    /// pacing indoors that may have set the mark before. Ignored while counting is on (no pause to resume from).
+    pub fn set_leave_mark(&mut self, total: i64, t_ms: i64) {
+        if !self.counting {
+            self.leave_mark = Some((total, t_ms));
+        }
+    }
+
     // A step reading while counting is off: the first one of a fresh stretch is the leave mark; a stale one is replaced.
     fn note_leave_steps(&mut self, total: i64, t_ms: i64) {
         if self.leave_mark.is_none_or(|(_, at)| t_ms.saturating_sub(at) > LEAVE_MARK_MAX_MS) {
@@ -2899,6 +2907,24 @@ mod tests {
         assert_eq!(g.counters.progress.get("1:step_up").copied().unwrap_or(0.0), 0.0);
         assert!(g.on_steps(5_100, 3, None).is_empty());
         assert_eq!(g.counters.progress["1:step_up"], 100.0);
+    }
+
+    #[test]
+    fn a_leave_mark_from_the_walk_out_replaces_steps_paced_indoors() {
+        // With the home circle the counter runs at home: the core's home watch knows where the walk out began, and only steps from
+        // there count, not the pacing indoors that set the game's own mark.
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.set_counting(false, 0);
+        g.on_steps(1_000, 10_000, None); // pacing indoors: the game's own mark
+        g.set_leave_mark(1_300, 50_000); // the walk out began here
+        g.set_counting(true, 80_000);
+        g.on_steps(1_400, 90_000, None);
+        assert_eq!(g.counters.progress["1:step_up"], 100.0);
+        g.set_leave_mark(0, 95_000);
+        g.set_counting(false, 100_000);
+        g.set_counting(true, 101_000);
+        g.on_steps(1_500, 102_000, None);
+        assert_eq!(g.counters.progress["1:step_up"], 100.0, "a mark given while counting was on is not kept for the next pause");
     }
 
     #[test]

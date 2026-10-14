@@ -4,12 +4,17 @@ internal enum class Zone { Inside, Near, Far, Unknown }
 
 internal enum class PresenceState { Stopped, InCar, AtHome, InZone, OutsideZones }
 
-/** What the phone currently knows. `null` for a signal means unavailable or not permitted: treated as "not present". */
+/**
+ * What the phone currently knows. `null` for a signal means unavailable or not permitted: treated as "not present". [home] is the
+ * core's answer (home Wi-Fi, or the circle round the home pin); [checking] means it is still telling with GPS whether a walk or a
+ * Wi-Fi drop left the circle.
+ */
 internal data class Signals(
     val playing: Boolean,
-    val homeWifi: Boolean?,
+    val home: Boolean?,
     val carBluetooth: Boolean?,
     val zone: Zone,
+    val checking: Boolean = false,
 )
 
 internal sealed interface GpsMode {
@@ -17,6 +22,9 @@ internal sealed interface GpsMode {
 
     /** In a zone: the fast rate, picked by the screen in `GpsPolicy.inZone` (no distance filter: the core needs a steady stream). */
     data object Precise : GpsMode
+
+    /** At home, telling whether the player left the home circle: GNSS every second, unbatched, until the core decides (60 s at most). */
+    data object Check : GpsMode
 
     data class Rate(
         val intervalMs: Long,
@@ -48,16 +56,20 @@ internal object PresencePolicy {
         when {
             !s.playing -> Decision(PresenceState.Stopped, GpsMode.Off, counting = false)
             s.carBluetooth == true -> Decision(PresenceState.InCar, GpsMode.Off, counting = false)
-            s.homeWifi == true -> Decision(PresenceState.AtHome, GpsMode.Off, counting = false)
+            s.home == true -> Decision(PresenceState.AtHome, if (s.checking) GpsMode.Check else GpsMode.Off, counting = false)
             s.zone == Zone.Far -> Decision(PresenceState.OutsideZones, GpsMode.Rate(COARSE_MS, FAR_MOVE_M), counting = true)
             else -> Decision(PresenceState.InZone, GpsMode.Precise, counting = true)
         }
 
-    /** Whether presence just arrived home (home Wi-Fi joined): the moment forager quests bank what they carry. */
+    /**
+     * Whether presence just arrived home (home Wi-Fi joined, or back inside the home circle): forager quests bank what they carry.
+     * A home check ([checking]: the core still telling with GPS, e.g. started away with no home Wi-Fi) is not arriving.
+     */
     fun arrivedHome(
         before: PresenceState,
         after: PresenceState,
-    ): Boolean = after == PresenceState.AtHome && before != PresenceState.AtHome
+        checking: Boolean = false,
+    ): Boolean = after == PresenceState.AtHome && before != PresenceState.AtHome && !checking
 }
 
 /**
