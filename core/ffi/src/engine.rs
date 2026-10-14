@@ -1291,6 +1291,16 @@ impl Engine {
             .collect()
     }
 
+    /// The journal's trace segments of a game between two times; empty without a journal or when it cannot be read.
+    fn read_segments(&self, game_id: &str, from_ms: i64, to_ms: i64) -> Vec<Vec<TrackPoint>> {
+        let Some(j) = self.journal.as_ref() else { return Vec::new() };
+        let read = j.lock().unwrap_or_else(std::sync::PoisonError::into_inner).segments(game_id, from_ms, to_ms, DEFAULT_MAX_GAP_MS);
+        read.unwrap_or_else(|e| {
+            self.note(format!("journal read failed: {e}"));
+            Vec::new()
+        })
+    }
+
     /// Queue a message for the app's diagnostics log. Keeps the newest 200.
     fn note(&self, msg: String) {
         let mut q = self.diag.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -2362,36 +2372,33 @@ impl Engine {
     /// The phone arrived home (home Wi-Fi or the home circle): forager quests bank what they carry and the walk closes into its
     /// recap (see `Game::arrive_home`), kept with the game until dismissed. Safe to call again.
     pub fn bank_at_home(&self, t_ms: i64) -> Vec<EventOut> {
-        let Some((game_id, ev, entries, recap)) = self.with_game(|g| {
-            let (ev, recap) = g.arrive_home(t_ms);
-            self.save_if_due(g, t_ms, true);
-            let entries = g.journal_events(&ev, t_ms, None);
-            (g.id.clone(), ev, entries, recap)
-        }) else {
+        // Read the trace first (no game lock held), so closing the outing, storing the recap and saving happen in one pass.
+        let Some((game_id, start)) = self.with_game(|g| (g.id.clone(), g.outing.as_ref().map(|o| o.start_ms))) else {
             return Vec::new();
         };
-        self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&game_id, e)));
-        if let Some(mut r) = recap {
-            let segs = self
-                .journal
-                .as_ref()
-                .map(|j| j.lock().unwrap_or_else(std::sync::PoisonError::into_inner).segments(&game_id, r.start_ms, r.end_ms, DEFAULT_MAX_GAP_MS));
-            let segs = match segs {
-                Some(Ok(s)) => s,
-                Some(Err(e)) => {
-                    self.note(format!("journal read failed: {e}"));
-                    Vec::new()
+        let segs = start.map_or_else(Vec::new, |from| self.read_segments(&game_id, from, t_ms));
+        let Some((id, ev, entries)) = self.with_game(|g| {
+            let (ev, recap) = g.arrive_home(t_ms);
+            let stored = recap.is_some_and(|mut r| {
+                if g.id == game_id {
+                    r.set_route(&segs.iter().map(|s| s.iter().map(|p| Point::new(p.lat, p.lon)).collect()).collect::<Vec<_>>());
                 }
-                None => Vec::new(),
-            };
-            r.set_route(&segs.iter().map(|s| s.iter().map(|p| Point::new(p.lat, p.lon)).collect()).collect::<Vec<_>>());
-            self.with_game(|g| {
                 g.recap = Some(r);
+                true
+            });
+            if stored {
                 if let Err(e) = g.save(&self.dir) {
                     self.note(format!("could not save game {}: {e}", g.id));
                 }
-            });
-        }
+            } else {
+                self.save_if_due(g, t_ms, true);
+            }
+            let entries = g.journal_events(&ev, t_ms, None);
+            (g.id.clone(), ev, entries)
+        }) else {
+            return Vec::new();
+        };
+        self.journal_do(|j| entries.iter().try_for_each(|e| j.log(&id, e)));
         self.events_out(ev)
     }
 
