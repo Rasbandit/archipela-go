@@ -125,10 +125,11 @@ def test_a_goal_selection_must_be_real_and_not_empty() -> None:
 
 
 def test_letters_are_logic_only_when_unavoidable() -> None:
-    assert letters_needed_by_logic(["treasure_hunt"], "any")
-    assert not letters_needed_by_logic(["treasure_hunt", "all_trips"], "any")
-    assert not letters_needed_by_logic(["treasure_hunt", "all_trips"], "at_least")
-    assert letters_needed_by_logic(["treasure_hunt", "all_trips"], "all")
+    # The second argument is how many goals must be finished (any: 1, all: all, at least N: N).
+    assert letters_needed_by_logic(["treasure_hunt"], 1)
+    assert not letters_needed_by_logic(["all_trips"], 1)
+    assert not letters_needed_by_logic(["treasure_hunt", "all_trips"], 1)
+    assert letters_needed_by_logic(["treasure_hunt", "all_trips"], 2)
 
 
 def test_the_number_of_goals_required_must_fit() -> None:

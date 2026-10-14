@@ -409,6 +409,13 @@ class TestBothGoalsAtLeastTwo(Base):
         assert [g["id"] for g in data["goals"]] == ["treasure_hunt", "all_trips"]
         assert (data["goal_requirement"], data["goal_need"]) == ("at_least", 2)
 
+    def test_both_goals_are_needed_so_letters_are_logic(self) -> None:
+        state = CollectionState(self.multiworld)
+        self.collect_all_but(["Letter O", names.VICTORY], state)
+        assert not self.goal_reachable(state)
+        state.collect(self.get_items_by_name("Letter O")[0])
+        assert self.goal_reachable(state)
+
     def test_beatable(self) -> None:
         self.collect_all_but([])
         self.assertBeatable(beatable=True)

@@ -149,7 +149,7 @@ class ApGo2World(World):  # type: ignore[misc]
             )
 
         # Letters are demanded only when unavoidable (see letters_needed_by_logic).
-        letters = letters_needed_by_logic(self.goals, self.goal_requirement)
+        letters = letters_needed_by_logic(self.goals, self.goal_need)
         home = regions[-1]
         goal = ApGo2Location(self.player, names.GOAL_LOCATION, None, home)
         goal.place_locked_item(

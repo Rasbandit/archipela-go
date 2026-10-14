@@ -213,6 +213,11 @@ mod tests {
         let s = multi(&["treasure_hunt", "all_trips"], GoalMode::AtLeast, 2);
         assert!(!eval(&s, &[9], &APGO).achieved, "only one goal is done");
         assert!(eval(&s, &[1, 2, 3, 4, 9], &APGO).achieved, "both are done");
+        let one = multi(&["treasure_hunt", "all_trips"], GoalMode::AtLeast, 1);
+        let st = eval(&one, &[1, 2, 3, 4, 9], &[]); // Completionist done, no letters
+        assert!(st.achieved, "1 of 2 is won by Completionist alone, unlike All");
+        assert!((st.progress - 1.0).abs() < 1e-6, "the closest 1 goal counts, got {}", st.progress);
+        assert!(!eval(&multi(&["treasure_hunt", "all_trips"], GoalMode::All, 0), &[1, 2, 3, 4, 9], &[]).achieved);
     }
 
     #[test]

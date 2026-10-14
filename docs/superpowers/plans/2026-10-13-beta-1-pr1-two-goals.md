@@ -25,7 +25,7 @@
 ## Review Focus
 
 - A YAML naming a removed goal (e.g. `goal_selection: [Letter Hunt]`) must fail generation with a clear "unknown goal" `OptionError`, not a crash. Test in Task 1.
-- A YAML still carrying a removed target option (e.g. `goal_streak_days: 7`) is an unknown option to Archipelago; generation must fail loudly, not silently ignore it. Covered by Archipelago itself; Task 1 removes the options so the example YAML no longer lists them.
+- A YAML still carrying a removed target option (e.g. `goal_streak_days: 7`) gets Archipelago's own "not a valid option name" warning and generation continues (Archipelago's convention; corrected after review). Task 1 removes the options so the example YAML no longer lists them.
 - Two goals with `require_at_least_n_goals` and `goals_required: 2` must generate and be beatable; `goals_required: 3` must be refused. Test in Task 1 (apworld) and Task 2 (core `check_goal_specs`).
 - Slot data naming a removed goal must be refused by the core (`check_goal_specs` "unknown goal"), not shown as "Unknown goal". Test in Task 2.
 - The app's own solo games (core `solo.rs`) with the default options must generate Treasure Hunt with 4 letters and a Boss Quest and be beatable. Test in Task 2.

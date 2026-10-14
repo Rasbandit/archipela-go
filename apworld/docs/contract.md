@@ -98,8 +98,10 @@ ids (targets are 0).
 | all_trips | every quest done |
 
 Archipelago logic only requires the last zone for the client-evaluated goals; the client decides when they are satisfied. Letters
-are demanded by logic only when finishing them is unavoidable: Treasure Hunt is the only goal, or all goals are required (the
-pool always holds APGO when Treasure Hunt is selected). Progress for several goals: `any` shows the closest goal, `all`
+are demanded by logic only when finishing them is unavoidable: the selected goals that need no letters cannot make up
+`goal_need` on their own (e.g. Treasure Hunt alone, or both goals with all / at least 2). The pool always holds APGO when
+Treasure Hunt is selected. A YAML that still names a removed option (e.g. `goal_streak_days`) only gets Archipelago's
+"not a valid option name" warning; a removed goal in `goal_selection` is an error. Progress for several goals: `any` shows the closest goal, `all`
 the average, `at_least` the average of the closest `goal_need`.
 
 ## DeathLink and return_home
