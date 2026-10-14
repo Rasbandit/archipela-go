@@ -30,11 +30,11 @@ internal object RecapFormat {
         }
     }
 
-    /** "2,140 → 6,230 total" for a chain's bar at counter [value]. */
+    /** "6,230 total (was 2,140)" for a chain's bar at counter [value]. */
     fun barTotal(
         c: RecapChainOut,
         value: Double,
-    ): String = "${count(c.before.roundToLong())} → ${count(value.roundToLong())} total"
+    ): String = "${count(value.roundToLong())} total (was ${count(c.before.roundToLong())})"
 
     /** The next milestone past [value], or that they are all done. */
     fun barNext(

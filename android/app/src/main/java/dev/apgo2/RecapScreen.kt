@@ -66,6 +66,7 @@ import kotlinx.coroutines.delay
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -231,7 +232,8 @@ private const val LEGEND_DP = 10
 
 private const val MAP_HEIGHT_DP = 200
 private const val MAP_CORNER_DP = 12
-private const val MAP_PADDING_PX = 48
+private const val MAP_PADDING_DP = 28f
+private const val MAP_PADDING_BOTTOM_DP = 44f
 private const val SINGLE_POINT_ZOOM = 16.0
 private const val PIN_TAP_DP = 12f
 private const val PIN_SOURCE = "recap-pins"
@@ -250,6 +252,21 @@ private fun tapArea(
     at: PointF,
     density: Float,
 ): RectF = (PIN_TAP_DP * density).let { RectF(at.x - it, at.y - it, at.x + it, at.y + it) }
+
+// Fit the route and pins with room for a selected pin all round and the credit at the bottom; one point gets a street zoom.
+private fun fitCamera(
+    map: MapLibreMap,
+    points: List<LatLng>,
+    density: Float,
+) {
+    if (points.size == 1) {
+        map.moveCamera(CameraUpdateFactory.newLatLngZoom(points.single(), SINGLE_POINT_ZOOM))
+    } else if (points.size > 1) {
+        val side = (MAP_PADDING_DP * density).toInt()
+        val bottom = (MAP_PADDING_BOTTOM_DP * density).toInt()
+        map.moveCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.fromLatLngs(points), side, side, side, bottom))
+    }
+}
 
 private fun pinData(
     quests: List<RecapQuestOut>,
@@ -317,11 +334,7 @@ private fun RecapMap(
                         style.addSource(GeoJsonSource(PIN_SOURCE))
                         pinLayers().forEach(style::addLayer)
                         val points = RecapFeatures.cameraPoints(route, quests).map { LatLng(it.lat, it.lon) }
-                        when (points.size) {
-                            0 -> Unit
-                            1 -> map.moveCamera(CameraUpdateFactory.newLatLngZoom(points.single(), SINGLE_POINT_ZOOM))
-                            else -> map.moveCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.fromLatLngs(points), MAP_PADDING_PX))
-                        }
+                        fitCamera(map, points, density)
                         styleReady.value = style
                     }
                 }

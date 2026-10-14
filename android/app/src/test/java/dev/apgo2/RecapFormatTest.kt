@@ -30,7 +30,7 @@ class RecapFormatTest {
     @Test fun barTextsForAStepsChain() {
         val c = chain("steps")
         assertEquals("+4,090 steps", RecapFormat.barGain(c, 6230.0))
-        assertEquals("2,140 → 6,230 total", RecapFormat.barTotal(c, 6230.0))
+        assertEquals("6,230 total (was 2,140)", RecapFormat.barTotal(c, 6230.0))
         assertEquals("next: 7,500", RecapFormat.barNext(c, 6230.0))
         assertEquals("All milestones reached", RecapFormat.barNext(c, 10_000.0))
     }
