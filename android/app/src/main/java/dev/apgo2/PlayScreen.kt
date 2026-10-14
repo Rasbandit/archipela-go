@@ -377,7 +377,7 @@ private fun GameHeader(
             Text(
                 PresenceText.chip(
                     m.presence.decision.state,
-                    m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty() || m.engine.presenceHasCircle(),
+                    m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty() || m.presence.homeZone != null,
                 ),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.primary,
@@ -447,8 +447,7 @@ private fun PlayMap(
                 m.selected = id
             },
             home = m.home?.let { LatLng(it.lat, it.lon) },
-            // The circle in use moves with the pin and comes and goes with the step counter: read again when either may have changed.
-            homeZone = remember(m.home, m.presence.decision) { m.engine.presenceCircle() },
+            homeZone = m.presence.homeZone,
             trace = trace,
             traceOld = traceOld,
             lastPlace = m.lastPlace,

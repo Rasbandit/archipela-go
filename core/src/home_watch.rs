@@ -38,6 +38,8 @@ struct Check {
     until_ms: i64,
     fallback: HomeState,
     from_ms: i64,
+    /// The step total at `from_ms`, when a walk burst started the check.
+    from_steps: Option<i64>,
 }
 
 /// Home Wi-Fi and the home circle, decided from events (no timer but the one check deadline, [`HomeWatch::due_ms`]).
@@ -56,6 +58,10 @@ pub struct HomeWatch {
     quiet_until_ms: i64,
     inside_fixes: u8,
     left_at_ms: Option<i64>,
+    /// The step total where the walk out began, when a walk burst started the check that left.
+    left_steps: Option<i64>,
+    /// The time of the newest event seen, for a change that comes with none (the circle going away).
+    last_t_ms: i64,
 }
 
 impl Default for HomeWatch {
@@ -71,6 +77,8 @@ impl Default for HomeWatch {
             quiet_until_ms: i64::MIN,
             inside_fixes: 0,
             left_at_ms: None,
+            left_steps: None,
+            last_t_ms: 0,
         }
     }
 }
@@ -94,14 +102,16 @@ impl HomeWatch {
         self.center.filter(|_| self.walk_sensor)
     }
 
-    // No circle any more: a running check ends as Wi-Fi alone would have it.
+    // No circle any more: a running check, or a home only the circle kept, ends as Wi-Fi alone would have it.
     fn circle_changed(&mut self) {
-        if self.circle().is_none() && self.started && self.state == HomeState::Checking {
-            if self.wifi == Some(true) {
-                self.go_home(i64::MIN);
-            } else {
-                self.go_away(self.check.map_or(0, |c| c.from_ms));
-            }
+        if self.circle().is_some() || !self.started || self.state == HomeState::Away {
+            return;
+        }
+        if self.wifi == Some(true) {
+            self.go_home(i64::MIN);
+        } else {
+            let from = self.check.filter(|_| self.state == HomeState::Checking).map_or(self.last_t_ms, |c| c.from_ms);
+            self.go_away(from, None);
         }
     }
 
@@ -109,6 +119,7 @@ impl HomeWatch {
     /// (as before the circle: no home Wi-Fi means playing unless a fix shows the player home). A restart keeps a home the circle
     /// decided: a check indoors often finds no clear fix and would fall back to away.
     pub fn start(&mut self, t_ms: i64) {
+        self.last_t_ms = t_ms;
         let circle_home = self.started && self.state == HomeState::Home && self.circle().is_some();
         self.started = true;
         if circle_home {
@@ -117,9 +128,9 @@ impl HomeWatch {
         if self.wifi == Some(true) {
             self.go_home(i64::MIN);
         } else if self.circle().is_some() {
-            self.begin_check(t_ms, HomeState::Away, t_ms);
+            self.begin_check(t_ms, HomeState::Away, t_ms, None);
         } else {
-            self.go_away(t_ms);
+            self.go_away(t_ms, None);
         }
     }
 
@@ -128,6 +139,7 @@ impl HomeWatch {
     pub fn on_wifi(&mut self, home: Option<bool>, t_ms: i64) {
         let changed = self.wifi != home;
         self.wifi = home;
+        self.last_t_ms = t_ms;
         if !self.started || !changed {
             return;
         }
@@ -135,9 +147,9 @@ impl HomeWatch {
             self.go_home(i64::MIN);
         } else if self.state == HomeState::Home {
             if self.circle().is_some() {
-                self.begin_check(t_ms, HomeState::Home, t_ms);
+                self.begin_check(t_ms, HomeState::Home, t_ms, None);
             } else {
-                self.go_away(t_ms);
+                self.go_away(t_ms, None);
             }
         }
     }
@@ -145,6 +157,7 @@ impl HomeWatch {
     /// A step-counter total (cumulative) at the sensor event's time. At home, [`WALK_BURST_STEPS`] within [`WALK_BURST_MS`] start a
     /// check (unless one just found the player home).
     pub fn on_steps(&mut self, total: i64, t_ms: i64) {
+        self.last_t_ms = t_ms;
         if self.state != HomeState::Home || self.circle().is_none() {
             return;
         }
@@ -157,13 +170,14 @@ impl HomeWatch {
         }
         let Some(&(first_ms, base)) = self.steps.front() else { return };
         if total - base >= WALK_BURST_STEPS && t_ms >= self.quiet_until_ms {
-            self.begin_check(t_ms, HomeState::Home, first_ms);
+            self.begin_check(t_ms, HomeState::Home, first_ms, Some(base));
         }
     }
 
     /// A real fix (never simulated): `accuracy_m` is its 68 % radius. Only a fix clearly outside the circle (by more than its accuracy)
     /// leaves, and only one clearly inside counts as inside.
     pub fn on_fix(&mut self, p: Point, accuracy_m: f64, t_ms: i64) {
+        self.last_t_ms = t_ms;
         let Some(center) = self.circle().filter(|_| self.started) else { return };
         if !(p.lat.is_finite() && p.lon.is_finite() && accuracy_m.is_finite() && accuracy_m >= 0.0) {
             return;
@@ -171,9 +185,12 @@ impl HomeWatch {
         let d = distance_m(p, center);
         let (outside, inside) = (d - accuracy_m > HOME_CIRCLE_M, d + accuracy_m <= HOME_CIRCLE_M);
         match self.state {
-            HomeState::Checking if outside => self.go_away(self.check.map_or(t_ms, |c| c.from_ms)),
+            HomeState::Checking if outside => {
+                let (from, steps) = self.check.map_or((t_ms, None), |c| (c.from_ms, c.from_steps));
+                self.go_away(from, steps);
+            }
             HomeState::Checking if inside => self.go_home(t_ms + RECHECK_AFTER_MS),
-            HomeState::Home if outside && self.wifi != Some(true) => self.go_away(t_ms),
+            HomeState::Home if outside && self.wifi != Some(true) => self.go_away(t_ms, None),
             HomeState::Away if inside => {
                 self.inside_fixes += 1;
                 if self.inside_fixes >= ARRIVE_FIXES {
@@ -187,11 +204,12 @@ impl HomeWatch {
 
     /// The check deadline passed by `t_ms`: fall back (home: GPS off again; away: as Wi-Fi alone would have it).
     pub fn tick(&mut self, t_ms: i64) {
+        self.last_t_ms = t_ms;
         let Some(c) = self.check.filter(|c| self.state == HomeState::Checking && t_ms >= c.until_ms) else { return };
         if c.fallback == HomeState::Home {
             self.go_home(t_ms + RECHECK_AFTER_MS);
         } else {
-            self.go_away(c.from_ms);
+            self.go_away(c.from_ms, None);
         }
     }
 
@@ -219,9 +237,15 @@ impl HomeWatch {
         self.left_at_ms.filter(|_| self.state == HomeState::Away)
     }
 
-    fn begin_check(&mut self, t_ms: i64, fallback: HomeState, from_ms: i64) {
+    /// Where the walk out began as (step total, time), while away after a check a walk burst started: the steps to credit from.
+    #[must_use]
+    pub fn left_steps(&self) -> Option<(i64, i64)> {
+        self.left_steps.zip(self.left_at_ms).filter(|_| self.state == HomeState::Away)
+    }
+
+    fn begin_check(&mut self, t_ms: i64, fallback: HomeState, from_ms: i64, from_steps: Option<i64>) {
         self.state = HomeState::Checking;
-        self.check = Some(Check { until_ms: t_ms + CHECK_MS, fallback, from_ms });
+        self.check = Some(Check { until_ms: t_ms + CHECK_MS, fallback, from_ms, from_steps });
         self.steps.clear();
     }
 
@@ -231,15 +255,17 @@ impl HomeWatch {
         self.steps.clear();
         self.inside_fixes = 0;
         self.left_at_ms = None;
+        self.left_steps = None;
         self.quiet_until_ms = quiet_until_ms;
     }
 
-    fn go_away(&mut self, left_at_ms: i64) {
+    fn go_away(&mut self, left_at_ms: i64, left_steps: Option<i64>) {
         self.state = HomeState::Away;
         self.check = None;
         self.steps.clear();
         self.inside_fixes = 0;
         self.left_at_ms = Some(left_at_ms);
+        self.left_steps = left_steps;
     }
 }
 
@@ -354,6 +380,7 @@ mod tests {
         w.on_fix(out(60.0), 5.0, 140_000);
         assert_eq!(w.state(), HomeState::Away);
         assert_eq!(w.left_at_ms(), Some(101_000), "the walk began with the burst's first step");
+        assert_eq!(w.left_steps(), Some((1002, 101_000)), "and the step total there, so only the walk's steps count");
     }
 
     #[test]
@@ -437,6 +464,23 @@ mod tests {
         w.start(10_000);
         assert_eq!(w.state(), HomeState::Home);
         assert_eq!(w.due_ms(), None, "no check, GPS stays off");
+    }
+
+    #[test]
+    fn losing_the_circle_while_it_alone_keeps_the_player_home_leaves() {
+        // No home Wi-Fi: only the circle said home. Without it (step permission revoked, pin cleared) GPS would stay off for good.
+        let mut w = HomeWatch::default();
+        w.set_walk_sensor(true);
+        w.set_center(Some(home()));
+        w.start(0);
+        w.on_fix(out(5.0), 10.0, 2_000);
+        assert_eq!(w.state(), HomeState::Home);
+        w.set_walk_sensor(false);
+        assert_eq!(w.state(), HomeState::Away);
+        assert_eq!(w.left_at_ms(), Some(2_000), "from the last thing the watch saw");
+        let mut wifi = at_home();
+        wifi.set_center(None);
+        assert_eq!(wifi.state(), HomeState::Home, "home Wi-Fi still says home");
     }
 
     #[test]

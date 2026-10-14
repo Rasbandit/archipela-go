@@ -750,6 +750,17 @@ pub struct AuditEventOut {
 /// The seed name an Archipelago game was given before games remembered their server's `seed/slot`.
 const LEGACY_AP_SEED: &str = "archipelago";
 
+/// Where the player is with respect to home (`Engine::presence_state`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PresenceHome {
+    /// Home: GPS off, nothing counts.
+    Home,
+    /// Telling with GPS whether a walk or a Wi-Fi drop left the home circle: nothing counts yet.
+    Checking,
+    /// Away from home.
+    Away,
+}
+
 /// Whether the open game belongs to the connected Archipelago server ([`Engine::ap_server_match`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum ServerMatch {
@@ -1757,14 +1768,13 @@ impl Engine {
         self.watch().tick(t_ms);
     }
 
-    /// Where the player is: "home" (GPS off, nothing counts), "checking" (GPS on to tell, nothing counts) or "away".
-    pub fn presence_state(&self) -> String {
+    /// Where the player is with respect to home.
+    pub fn presence_state(&self) -> PresenceHome {
         match self.watch().state() {
-            HomeState::Home => "home",
-            HomeState::Checking => "checking",
-            HomeState::Away => "away",
+            HomeState::Home => PresenceHome::Home,
+            HomeState::Checking => PresenceHome::Checking,
+            HomeState::Away => PresenceHome::Away,
         }
-        .into()
     }
 
     /// When a running GPS check gives up: schedule one wake-up then and call [`Self::presence_tick`].
@@ -1775,11 +1785,6 @@ impl Engine {
     /// Whether the phone reports steps (a step counter it may read): the home circle needs them to see a walk out.
     pub fn presence_set_walk_sensor(&self, on: bool) {
         self.watch().set_walk_sensor(on);
-    }
-
-    /// Whether the home circle is in use (a saved home pin and a step counter); without it home Wi-Fi alone decides.
-    pub fn presence_has_circle(&self) -> bool {
-        self.watch().has_center()
     }
 
     /// The home circle in use, to draw on the map; `None` when home Wi-Fi alone decides.
@@ -2441,7 +2446,14 @@ impl Engine {
 
     /// Presence rules (home Wi-Fi, car) turn counting off and on.
     pub fn set_counting(&self, on: bool, t_ms: i64) {
-        self.with_game(|g| g.set_counting(on, t_ms));
+        // Leaving by the home circle: credit steps from where the walk out began, not from pacing indoors (the counter runs at home).
+        let left = self.watch().left_steps().filter(|_| on);
+        self.with_game(|g| {
+            if let Some((total, at)) = left {
+                g.set_leave_mark(total, at);
+            }
+            g.set_counting(on, t_ms);
+        });
     }
 
     /// When the next time-away mark falls due if nothing changes: the app schedules one wake-up then and calls [`Self::tick`].
@@ -3041,21 +3053,19 @@ mod tests {
     fn with_a_home_pin_a_wifi_drop_only_checks_and_fixes_at_home_are_never_recorded() {
         // The owner's phone drops home Wi-Fi for minutes: GPS may look once, but nothing at home reaches the game, journal or trace.
         let e = engine_with_game("homewatch");
-        assert!(!e.presence_has_circle(), "no home pin yet");
+        assert!(e.presence_circle().is_none(), "no home pin yet: nothing to draw");
         e.set_home(gp(home())).unwrap();
-        assert!(!e.presence_has_circle(), "no step counter yet");
-        assert!(e.presence_circle().is_none(), "nothing to draw");
+        assert!(e.presence_circle().is_none(), "no step counter yet");
         e.presence_set_walk_sensor(true);
-        assert!(e.presence_has_circle());
         let drawn = e.presence_circle().unwrap();
         assert_eq!((pt(&drawn.center), drawn.radius_m), (home(), apgo_core::home_watch::HOME_CIRCLE_M), "the map draws the circle in use");
         e.presence_wifi(Some(true), FIX_T_MS);
         e.presence_start(FIX_T_MS);
-        assert_eq!(e.presence_state(), "home");
+        assert_eq!(e.presence_state(), PresenceHome::Home);
         e.presence_wifi(None, FIX_T_MS + 1000);
-        assert_eq!((e.presence_state().as_str(), e.presence_due_ms()), ("checking", Some(FIX_T_MS + 1000 + apgo_core::home_watch::CHECK_MS)));
+        assert_eq!((e.presence_state(), e.presence_due_ms()), (PresenceHome::Checking, Some(FIX_T_MS + 1000 + apgo_core::home_watch::CHECK_MS)));
         e.on_fix(fix_at(destination(home(), 90.0, 10.0), FIX_T_MS + 2000), None, false);
-        assert_eq!(e.presence_state(), "home");
+        assert_eq!(e.presence_state(), PresenceHome::Home);
         assert_eq!(journaled(&e), 0, "no point at home");
         assert!(e.trace_matched().runs.iter().all(|r| r.points.is_empty()), "no trace at home");
     }
@@ -3070,11 +3080,11 @@ mod tests {
         for s in 1..=16 {
             e.on_steps(1000 + 2 * s, FIX_T_MS + s * 1000, None);
         }
-        assert_eq!(e.presence_state(), "checking", "a walk burst asks GPS to look");
+        assert_eq!(e.presence_state(), PresenceHome::Checking, "a walk burst asks GPS to look");
         e.on_fix(fix_at(destination(home(), 90.0, 50.0), FIX_T_MS + 20_000), None, false); // 45-55 m: unclear
-        assert_eq!((e.presence_state().as_str(), journaled(&e)), ("checking", 0), "still in the circle: nothing recorded");
+        assert_eq!((e.presence_state(), journaled(&e)), (PresenceHome::Checking, 0), "still in the circle: nothing recorded");
         e.on_fix(fix_at(destination(home(), 90.0, 70.0), FIX_T_MS + 40_000), None, false);
-        assert_eq!(e.presence_state(), "away");
+        assert_eq!(e.presence_state(), PresenceHome::Away);
         assert_eq!(e.presence_left_at_ms(), Some(FIX_T_MS + 1000), "the walk began at its first step");
         assert_eq!(journaled(&e), 1, "the first fix outside is recorded");
     }
@@ -3087,9 +3097,9 @@ mod tests {
         e.presence_start(FIX_T_MS);
         e.on_fix(fix_at(destination(home(), 90.0, 500.0), FIX_T_MS + 1000), None, true);
         // A release build believes no simulated fix: there it is a real fix 500 m out.
-        assert_eq!(e.presence_state(), if SIM_ALLOWED { "checking" } else { "away" });
+        assert_eq!(e.presence_state(), if SIM_ALLOWED { PresenceHome::Checking } else { PresenceHome::Away });
         e.presence_tick(FIX_T_MS + apgo_core::home_watch::CHECK_MS);
-        assert_eq!(e.presence_state(), "away", "no home Wi-Fi and no clear fix: playing, as before the circle");
+        assert_eq!(e.presence_state(), PresenceHome::Away, "no home Wi-Fi and no clear fix: playing, as before the circle");
     }
 
     fn fix_at(p: Point, t_ms: i64) -> FixIn {

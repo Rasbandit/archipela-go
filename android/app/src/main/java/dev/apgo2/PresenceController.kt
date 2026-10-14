@@ -22,7 +22,9 @@ import dev.apgo2.presence.PresenceState
 import dev.apgo2.presence.Signals
 import dev.apgo2.presence.WifiId
 import dev.apgo2.presence.Zone
+import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.PositionOut
+import uniffi.apgo_ffi.PresenceHome
 
 private const val SETTLE_MARGIN_MS = 50L // a look scheduled for the exact due time must not land a hair early
 private const val SEED_TIMEOUT_MS = 3_000L
@@ -69,9 +71,13 @@ internal class PresenceController(
     private val seeding = PresenceSeeding(SEED_TIMEOUT_MS)
     private var monitorBluetooth: Boolean? = null
 
-    // The core's home answer ("home", "checking", "away") as of the last evaluation, and whether it was started for this monitor run.
-    private var homeState = "away"
+    // The core's home answer as of the last evaluation, and whether it was started for this monitor run.
+    private var homeState = PresenceHome.AWAY
     private var homeStarted = false
+
+    /** The home circle presence uses (the map draws it), or `null` while home Wi-Fi alone decides. Set on every evaluation. */
+    var homeZone by mutableStateOf<CircleOut?>(null)
+        private set
 
     /**
      * Start the Wi-Fi/Bluetooth watcher once location permission is there, and again only when the Bluetooth grant changes.
@@ -139,10 +145,10 @@ internal class PresenceController(
         val signals =
             Signals(
                 playing = model.hud != null,
-                home = homeState != "away",
+                home = homeState != PresenceHome.AWAY,
                 carBluetooth = car,
                 zone = zone,
-                checking = homeState == "checking",
+                checking = homeState == PresenceHome.CHECKING,
             )
         val d = PresencePolicy.decide(signals)
         // Every run, not only on change: a game that replaces an open one starts counting again. The core ignores an unchanged value.
@@ -164,9 +170,10 @@ internal class PresenceController(
     private fun coreHome(
         wifi: Boolean?,
         t: Long,
-    ): String {
+    ): PresenceHome {
         val e = model.engine
         e.presenceSetWalkSensor(model.sensors.stepsAvailable)
+        homeZone = e.presenceCircle()
         e.presenceWifi(wifi, t)
         if (!homeStarted) {
             e.presenceStart(t)
@@ -243,7 +250,7 @@ internal class PresenceController(
         // Home or car signal gone but not yet confirmed: count steps from the door (backfilled once it is).
         val leaving = StepRate.leaving(decision.state, homeDebounce.pending, carDebounce.pending)
         val onScreen = screenOn && appVisible
-        val homeCircle = model.engine.presenceHasCircle()
+        val homeCircle = homeZone != null
         model.sensors.setStepBatch(
             StepRate.batchUs(decision.state, inZone, leaving, onScreen, homeCircle),
             StepRate.wakeUp(decision.state, inZone, leaving, onScreen, homeCircle),
