@@ -5,7 +5,7 @@ _Last verified: 2026-10-07 (end of the big UI session). "Verified" = run; "Not d
 ## What exists
 
 A real-world quest game. The player saves **realms** (places, a circle or polygon), the app **scans** each realm's map data into **finds**, and a **game**
-builds **zones** (a realm played by walk/run/bike) filled with quests from a 76-kind catalog. It plays **solo** or as an **Archipelago** client.
+builds **zones** (a realm played walking or running) filled with quests from a 74-kind catalog. It plays **solo** or as an **Archipelago** client.
 Win conditions: Treasure Hunt and Completionist (Beta 1, 2026-10-13, cut the other ten; see
 `docs/superpowers/specs/2026-10-13-progression-beta-design.md`), one or both, combined any / all / at least N.
 
@@ -13,7 +13,7 @@ Win conditions: Treasure Hunt and Completionist (Beta 1, 2026-10-13, cut the oth
 
 | Path | What |
 | -- | -- |
-| `apworld/` | Python apworld **0.3.0**, slot_data **schema 3** (`goals`, `goal_requirement`, `goal_need`). 210 tests. Contract: `apworld/docs/contract.md` |
+| `apworld/` | Python apworld **0.4.0**, slot_data **schema 4** (`goals`, `goal_requirement`, `goal_need`). 210 tests. Contract: `apworld/docs/contract.md` |
 | `core/` (`apgo-core`) | Rust engine: catalog, realms (+marks, +icon), scan + **tile grid** (`tilegrid.rs`), assign, verify, goal, fog, traps, solo, game, yaml. 132 tests + 1 regression |
 | `core/ffi/` | UniFFI `Engine` (realms, finds, marks, stats, scan plan/progress, games, play) and `ApSession` (Archipelago via a patched `archipelago_rs`, see `core/vendor/PATCHES.md`) |
 | `android/` | Kotlin/Compose. `AppModel`, `Screens.kt` (Realms list/editor/home picker, Play), `NewGame.kt`, `QuestMap.kt` (MapLibre), `ui/` design system |
@@ -64,15 +64,15 @@ Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone 
 
 ## Key design facts
 
-- Difficulty = active minutes; tier = ceil(minutes / minutes_per_tier); Easy 1-3, Medium 4-7, Hard 8-10. Locations `"{Easy|Medium|Hard} {Walk|Run|Bike|Drive} Quest #n"`.
-- **Travel mode belongs to the zone/game, not the realm.** Any realm can serve any mode. Car is hidden in the UI (core still has `Drive`).
+- Difficulty = active minutes; tier = ceil(minutes / minutes_per_tier); Easy 1-3, Medium 4-7, Hard 8-10. Locations `"{Easy|Medium|Hard} {Walk|Run} Quest #n"`.
+- **Travel mode belongs to the zone/game, not the realm.** Any realm can serve any mode. Modes are walk and run only (Bike and Drive were removed in Beta 1).
 - A realm stores a circle and a polygon (one active, one `spare`); old files with `mode`/`modes` still load.
 - Scan data is cached per **0.02 degree grid tile** (`http-cache/q-<hash>.json`, 30 days) and shared by every realm; moving a realm fetches only new tiles. Details in `scan-and-tile-cache.md`.
 - Every read of an atlas is restricted to the realm's current zone (`Atlas::restrict_to`); favorites/bans live in `marks/<realm>.json` per realm.
 - Trail finds are consolidated (30 m link, length gates, id-as-name ignored); a trail quest asks for the share of the line that fits the effort.
 - Walkable length = sum of unique street segments (sidewalks/crossings excluded), not points.
 - **Near-a-path rule (#51)**: every point a player must reach (Reach/Dwell targets, DwellArea marker, Courier A and B, RoundTrip far point, boss, Line start, Freeze thaw and Detour waypoint, found at trigger time in the zones' full street index the engine attaches on open) is within `near_path::NEAR_PATH_M` (30 m) of a scanned street/path (`atlas.streets` + `streets_rough`, as the surface preference allows), measured to the street between samples (`Atlas::street_links`, from the per-way `street_runs`/`rough_runs` a scan records; only straight pieces, 0.95-1.05 x 60 m x stride; an atlas without runs has no links, reports `needs_rescan()`, FFI `realm_needs_rescan`), at least the minimum distance from home and 40 m from other quests. `near_path::PathIndex` (30 m grid buckets of points and segments) does `near_path`/`within`, `nearest`/`nearest_on_path`, `snap_into_area[_where]` (polygon places: a path spot inside, else beside the edge), `start_near_path` (loops rotate, open lines are cut) and `share_near`; a line quest's coverage is capped at its share of samples beside a path and the line is dropped under 25 %. Places that cannot be reached from a path are not offered. A sparse zone uses the few street points it has (no grid fallback any more); when they run out a street quest shares a point, and only an empty pool gives the flagged home fallback. Applies to new games and rerolls; saved games keep their quests. Reuse `PathIndex` for future collectibles (#5).
-- **Forager (#5)**: courier-family kind `forager` (walk, run, bike), verify `Collect`. `2 * need` items (need 3/5/7/10 by tier, 10 above
+- **Forager (#5)**: courier-family kind `forager` (walk, run), verify `Collect`. `2 * need` items (need 3/5/7/10 by tier, 10 above
   tier 4) are street-pool points at least 60 m apart and at least `max(min_distance_m, 125 m)` from home, spread out to the effort
   distance (`dist_for(want / 2)`), nearest first (the fog anchor). Pickup 25 m; banking on any accepted fix within `verify::HOME_RADIUS_M`,
   and on joining home Wi-Fi (`PresenceController` calls `Engine::bank_at_home` on the change to `AtHome`).

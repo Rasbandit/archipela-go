@@ -100,6 +100,15 @@ Details and roadmap: `docs/superpowers/specs/2026-10-13-progression-beta-design.
 | Goals: Treasure Map (Map Pieces N of M + a dig needing Dowsing Rod and Trowel), Toolmaster (a quest per tool badge), Completionist; Letters and 9 other goals removed | A macguffin-only goal can sit wholly in sphere 1; tools in the goal rule force progression |
 | Tabled: Camera, critters, shop chains, time-window quests, traps, Compass, Stamps, money tiers, eggs, treehouse | See the spec's Tabled list |
 
+## 2026-10-14 Beta 1 PR 2: walk and run (decisions)
+
+| Decision | Why |
+| -- | -- |
+| `Mode::Bike`/`Drive`, the Bike/Car items and the `pedal_pusher`/`plug_in` kinds deleted; no migration | Owner: do not carry old things forward; every existing game is a dev game |
+| slot_data schema 4: `goals` is a list of ids (`target` gone); the core reads 4 only | The target was always 0 |
+| Location ids renumbered (`block = difficulty * 2 + mode`, Boss 6001); item ids +3/+4 retired, never reused | Ids follow `len(MODES)`; both sides pin one id table |
+| The filter keeps the fast model's noise (`sigma_a_fast`), drops the bike/drive priors and rates | The fast model runs in every zone; the rest was dead |
+
 ## 2026-10-08 Licence (decision)
 
 | Decision | Why |

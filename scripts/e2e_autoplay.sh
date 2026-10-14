@@ -10,7 +10,7 @@ for i in $(seq 1 "$max"); do
   sleep 4
   t="$(ui texts)"
   hud="$(echo "$t" | grep -oE "Quests [0-9]+/[0-9]+ · keys [0-9]+ · [^·]+" | head -1)"
-  zones="$(echo "$t" | grep -oE "Z[0-9] (walk|run|bike|car) [^ ]+" | tr '\n' ' ')"
+  zones="$(echo "$t" | grep -oE "Z[0-9] (walk|run) [^ ]+" | tr '\n' ' ')"
   [ $((i % 5)) -eq 0 ] && echo "[$i] $hud | $zones"
   case "$t" in *"You won"* | *"GOAL ACHIEVED"*) echo "[$i] WON: $hud"; exit 0 ;; esac
 done

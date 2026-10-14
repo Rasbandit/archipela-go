@@ -137,7 +137,6 @@ building, each by a ruling in the plan's ledger:
 - Fog takes accepted or bridged estimates only (not every non-predicted one). An estimate turns `predicted` after 6 s without a fix.
 - The arrow may use the compass while moving when there is no course yet (sparse fixes), not only when standing.
 - Matcher input is every moving estimate (2 m / 1 s), not 5 m / 5 s; the street graph cell is 80 m, not 30 m.
-- Bike and Drive have no 30 s coast cap of their own: the display ages them to `predicted` and then `stale` at 30 s.
 - A simulated fix resets the filter, so it adds no odometer distance (the old teleports added straight-line distance).
 - Only the FFI's `simulated` argument makes a simulated fix, and only in a debug build of the core (`cfg!(debug_assertions)`, so a
   release library never believes a fix whatever the host passes); a provider named `sim` is `Other`. A simulated fix still needs a
@@ -160,12 +159,12 @@ building, each by a ruling in the plan's ledger:
 ## Bench
 
 - CI scenarios: `core/tests/loc_scenarios.rs`, 20 seeds each (`SEEDS`); a threshold holds on every seed unless it says p90. It covers
-  straight walk (RMS 2.5 m, p95 4.5 m), corner, standing, spike and burst, relocation, bike stops, BALANCED stress, walk-in arrival,
+  straight walk (RMS 2.5 m, p95 4.5 m), corner, standing, spike and burst, relocation, BALANCED stress, walk-in arrival,
   driving in a walk zone, matched corner, step relearn after a carry change, steady walk and fix gap and stop keeping the step scale,
   60 s gap with a turn, pocket offset, carry change in the gap, a mover without steps leaving a quiet hold, among others. Three
   `#[ignore]` timing harnesses: `timing_of_on_fix`, `timing_of_a_bridge_step_batch` and (in `matcher.rs`)
   `trace_work_per_input_stays_under_a_millisecond` (0.08 ms worst on the host).
-- Replay: `cd core && cargo run --release --example replay -- <input> [--mode walk|run|bike|drive] [--from-ms N] [--to-ms N]
+- Replay: `cd core && cargo run --release --example replay -- <input> [--mode walk|run] [--from-ms N] [--to-ms N]
   [--game games/<id>.json] [--atlas files/atlas/<realm>.json]... [--params p.json] [--compare baseline] [--geojson out.geojson]
   [--csv out.csv]`. Input is a pulled directory with `diag/raw/*.jsonl` (raw fixes with speed, bearing, steps and compass), one
   raw `.jsonl`, or a `journal.db` (position, time, accuracy only). Run it on a copy: opening the journal touches its `-shm`.
@@ -237,10 +236,10 @@ the next wake (about 5 s in a zone, from the wake-up compass and steps). A `gnss
 
 ## Map pin
 
-Where the pin sits on a match (`StreetGraph::beside`, `display`): footways, paths and sidewalks snap; a road (car class) in a Walk or
-Run zone keeps the estimate, at most `match_side_max_m` (12 m) from the centreline, because OSM maps few US sidewalks and snapping
+Where the pin sits on a match (`StreetGraph::beside`, `display`): footways, paths and sidewalks snap; a road (car class) in a
+zone keeps the estimate, at most `match_side_max_m` (12 m) from the centreline, because OSM maps few US sidewalks and snapping
 onto the centreline put walkers 5-8 m into the road (#176). The matcher's answer (`MatchOut::point`) and the trace follow the same
-rule; Bike and Drive snap onto roads. A snapped pin is never farther from the estimate than the show gate `max(10 m, 2 sigma)`: at
+rule. A snapped pin is never farther from the estimate than the show gate `max(10 m, 2 sigma)`: at
 5 s fixes the shown segment lags a corner by an input or two, and the pin waited at the corner 11-13 m from the estimate (#177).
 
 `Engine::position(now_ms)` after every fix, step batch and heading change; `MePins.from` turns it into a pin and `MapHolder.showMe`
@@ -261,7 +260,7 @@ and the same `Locator` and parameters.
 
 | Concern | iOS | Maps to |
 | --- | --- | --- |
-| Fixes in a zone | `CLLocationUpdate.liveUpdates(.fitness)` for Walk/Run, `.otherNavigation` for Bike; **never** `.automotiveNavigation` (Core Location road-snaps it before our filter) | `on_fix(FixIn, ..)`, provider `ios` |
+| Fixes in a zone | `CLLocationUpdate.liveUpdates(.fitness)` for Walk/Run; **never** `.automotiveNavigation` (Core Location road-snaps it before our filter) | `on_fix(FixIn, ..)`, provider `ios` |
 | Background | `CLBackgroundActivitySession` (iOS 17+), `UIBackgroundModes: location` | foreground service |
 | Precise location | `requestTemporaryFullAccuracyAuthorization(withPurposeKey:)` when `accuracyAuthorization == .reducedAccuracy` | fine location permission |
 | Outside zones, home, car | Coarser updates or none; home is decided in the core (`HomeWatch`: home Wi-Fi from the host, the home circle, a GPS check on a walk); car and zone rules stay in the host | `PresencePolicy`, `presence_*` |

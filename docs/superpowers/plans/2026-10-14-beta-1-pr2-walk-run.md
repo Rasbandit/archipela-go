@@ -39,7 +39,7 @@ Location ids renumber because the block formula is `difficulty_index * len(MODES
 
 ### Location id table (both sides pin this)
 
-```
+```text
 difficulty  mode  number  -> id - ID_OFFSET
 easy        walk     1    ->     1
 easy        run      7    ->  1007
