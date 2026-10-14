@@ -7,7 +7,7 @@ use crate::units::{distance_rounded, Round, UnitSystem};
 #[must_use]
 pub fn blurb(item: &str, units: UnitSystem) -> String {
     let text = match item {
-        i if i.starts_with("Letter ") => "A letter for the Letter Hunt goal: collect them all to spell the word.",
+        i if i.starts_with("Letter ") => "A letter for the Treasure Hunt goal: collect A, P, G and O, then claim the treasure.",
         "Progressive Zone Key" => "A key: collect enough of them to open the next zone.",
         "Bike" | "Car" => "A travel tool: it unlocks the zone that needs it (ride a bike there).",
         "Progressive Effort Reduction" => "Meant to make quests easier (shorter effort). Not applied yet in this version.",
@@ -37,7 +37,7 @@ mod tests {
     #[test]
     fn every_kind_of_item_in_the_pool_is_explained() {
         for (item, needle) in [
-            ("Letter P", "Letter Hunt"),
+            ("Letter P", "Treasure Hunt"),
             ("Progressive Zone Key", "zone"),
             ("Bike", "bike"),
             ("Progressive Effort Reduction", "not applied"),

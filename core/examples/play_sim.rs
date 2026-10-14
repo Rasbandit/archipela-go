@@ -185,5 +185,5 @@ fn main() {
     if !stuck.is_empty() {
         println!("not completed: {}", stuck.join("; "));
     }
-    println!("final: {}", g.goal_status(t).label);
+    println!("final: {}", g.goal_status().label);
 }

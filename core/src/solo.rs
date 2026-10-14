@@ -17,20 +17,7 @@ pub const ID_OFFSET: i64 = 8_902_400_000_000;
 /// Number of ids reserved for each kind of thing (a block).
 pub const BLOCK_SIZE: i64 = 1000;
 /// Ids of the win conditions a game can use.
-pub const GOALS: [&str; 12] = [
-    "macguffin_short",
-    "macguffin_long",
-    "all_trips",
-    "boss",
-    "treasure_hunt",
-    "zone_conqueror",
-    "well_rounded",
-    "quest_dex",
-    "marathon",
-    "explorer",
-    "streak",
-    "boss_rush",
-];
+pub const GOALS: [&str; 2] = ["treasure_hunt", "all_trips"];
 /// Ids of the quest families.
 pub const FAMILIES: [&str; 10] = ["reach", "dwell", "landmark", "trail", "park", "water", "courier", "explore", "steps", "away"];
 const DIFFICULTIES: [&str; 3] = ["easy", "medium", "hard"];
@@ -87,8 +74,6 @@ fn mode_index(m: Mode) -> i64 {
 pub struct SoloOptions {
     /// The win condition. When `goals` is not empty it takes over (and these two are only the single-goal form).
     pub goal: String,
-    /// Parameter of the single goal.
-    pub goal_target: u32,
     /// The win conditions; when not empty they replace `goal`.
     pub goals: Vec<GoalSpec>,
     /// How the goals combine into winning.
@@ -134,8 +119,7 @@ pub struct SoloOptions {
 impl Default for SoloOptions {
     fn default() -> Self {
         Self {
-            goal: "macguffin_short".into(),
-            goal_target: 0,
+            goal: "treasure_hunt".into(),
             goals: vec![],
             goal_mode: GoalMode::All,
             goal_need: 0,
@@ -169,25 +153,18 @@ pub struct SoloGame {
     pub rewards: BTreeMap<i64, String>,
 }
 
-fn letters_for(goal: &str) -> &'static str {
-    match goal {
-        "macguffin_long" => "ARCHIPELAGO",
-        "macguffin_short" | "treasure_hunt" => "APGO",
-        _ => "",
-    }
+/// Treasure Hunt is the one goal with letters (A, P, G, O) and a Boss Quest.
+fn has_treasure_hunt(goals: &[GoalSpec]) -> bool {
+    goals.iter().any(|g| g.id == "treasure_hunt")
 }
 
-fn has_boss(goal: &str) -> bool {
-    matches!(goal, "boss" | "treasure_hunt")
-}
-
-/// The letters a set of goals needs: the long word covers the short one, so the longest asked for is enough.
+/// The letters a set of goals needs.
 fn letters_for_goals(goals: &[GoalSpec]) -> &'static str {
-    goals.iter().map(|g| letters_for(&g.id)).max_by_key(|l| l.len()).unwrap_or("")
-}
-
-fn has_boss_goal(goals: &[GoalSpec]) -> bool {
-    goals.iter().any(|g| has_boss(&g.id))
+    if has_treasure_hunt(goals) {
+        "APGO"
+    } else {
+        ""
+    }
 }
 
 impl SoloOptions {
@@ -195,7 +172,7 @@ impl SoloOptions {
     #[must_use]
     pub fn goal_list(&self) -> Vec<GoalSpec> {
         if self.goals.is_empty() {
-            vec![GoalSpec { id: self.goal.clone(), target: self.goal_target }]
+            vec![GoalSpec { id: self.goal.clone(), target: 0 }]
         } else {
             self.goals.clone()
         }
@@ -319,7 +296,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
             }
         }
     }
-    let boss = zones.last().filter(|_| has_boss_goal(&o.goal_list())).map(|last| QuestSlot {
+    let boss = zones.last().filter(|_| has_treasure_hunt(&o.goal_list())).map(|last| QuestSlot {
         location_id: ID_OFFSET + 12 * BLOCK_SIZE + 1,
         zone: last.id,
         mode: last.mode,
@@ -459,25 +436,35 @@ mod tests {
     }
 
     #[test]
+    fn only_the_two_beta_goals_exist_and_treasure_hunt_is_the_default() {
+        assert_eq!(GOALS, ["treasure_hunt", "all_trips"]);
+        assert_eq!(SoloOptions::default().goal, "treasure_hunt");
+        let g = generate(&SoloOptions::default(), 1).unwrap();
+        assert!(g.slot.boss.is_some(), "Treasure Hunt needs its Boss Quest");
+        assert_eq!(g.rewards.values().filter(|r| r.starts_with("Letter ")).count(), 4);
+        assert!(is_beatable(&g));
+    }
+
+    #[test]
     fn several_goals_together_ask_for_everything_each_one_needs() {
-        let mut o = opts(&[Mode::Walk], 60, "macguffin_short");
-        o.goals = vec![GoalSpec { id: "macguffin_long".into(), target: 0 }, GoalSpec { id: "boss".into(), target: 0 }];
+        let mut o = opts(&[Mode::Walk], 60, "all_trips");
+        o.goals = vec![GoalSpec { id: "treasure_hunt".into(), target: 0 }, GoalSpec { id: "all_trips".into(), target: 0 }];
         o.goal_mode = GoalMode::All;
         let g = generate(&o, 3).unwrap();
-        assert!(g.slot.boss.is_some(), "the boss goal needs a boss quest");
+        assert!(g.slot.boss.is_some(), "Treasure Hunt needs a boss quest");
         let letters = g.rewards.values().filter(|r| r.starts_with("Letter ")).count();
-        assert_eq!(letters, "ARCHIPELAGO".len(), "the long word needs all its letters");
+        assert_eq!(letters, "APGO".len(), "Treasure Hunt needs its letters");
         assert_eq!(g.slot.goals.len(), 2);
         assert_eq!(g.slot.goal_mode, GoalMode::All);
-        assert_eq!(g.slot.goals[0].id, "macguffin_long");
+        assert_eq!(g.slot.goals[0].id, "treasure_hunt");
     }
 
     #[test]
     fn a_goal_list_is_checked_like_a_single_goal() {
-        let mut o = opts(&[Mode::Walk], 60, "boss");
+        let mut o = opts(&[Mode::Walk], 60, "treasure_hunt");
         o.goals = vec![GoalSpec { id: "nonsense".into(), target: 0 }];
         assert!(validate(&o).is_err());
-        o.goals = vec![GoalSpec { id: "boss".into(), target: 0 }, GoalSpec { id: "quest_dex".into(), target: 4 }];
+        o.goals = vec![GoalSpec { id: "treasure_hunt".into(), target: 0 }, GoalSpec { id: "all_trips".into(), target: 0 }];
         o.goal_mode = GoalMode::AtLeast;
         o.goal_need = 3;
         assert!(validate(&o).unwrap_err().contains("goal"), "3 of 2 goals is impossible");
@@ -509,7 +496,7 @@ mod tests {
 
     #[test]
     fn counts_ids_and_difficulty_bands_follow_the_apworld_layout() {
-        let g = generate(&opts(&[Mode::Walk, Mode::Bike, Mode::Drive], 100, "boss"), 7).unwrap();
+        let g = generate(&opts(&[Mode::Walk, Mode::Bike, Mode::Drive], 100, "treasure_hunt"), 7).unwrap();
         assert_eq!(g.slot.trips.len(), 100);
         assert!(g.slot.boss.is_some());
         let mut ids: Vec<i64> = g.slot.all_quests().iter().map(|q| q.location_id).collect();
@@ -533,10 +520,10 @@ mod tests {
     #[test]
     fn reward_table_matches_the_pool_and_is_always_beatable() {
         for (zones, trips, goal) in [
-            (vec![Mode::Walk], 20, "macguffin_short"),
-            (vec![Mode::Walk, Mode::Bike], 40, "macguffin_long"),
+            (vec![Mode::Walk], 20, "treasure_hunt"),
+            (vec![Mode::Walk, Mode::Bike], 40, "treasure_hunt"),
             (vec![Mode::Walk, Mode::Run, Mode::Bike, Mode::Drive], 60, "treasure_hunt"),
-            (vec![Mode::Bike, Mode::Walk, Mode::Walk], 30, "zone_conqueror"),
+            (vec![Mode::Bike, Mode::Walk, Mode::Walk], 30, "all_trips"),
             (vec![Mode::Walk; 6], 80, "all_trips"),
         ] {
             for seed in 0..25 {
@@ -545,7 +532,7 @@ mod tests {
                 assert!(is_beatable(&g), "{zones:?} {goal} seed {seed} is not beatable");
                 let count = |n: &str| g.rewards.values().filter(|v| *v == n).count();
                 assert_eq!(count("Progressive Zone Key"), zones.len() - 1);
-                assert_eq!(g.rewards.values().filter(|v| v.starts_with("Letter ")).count(), letters_for(goal).len());
+                assert_eq!(g.rewards.values().filter(|v| v.starts_with("Letter ")).count(), letters_for_goals(&opts(&zones, trips, goal).goal_list()).len());
             }
         }
     }
@@ -562,8 +549,8 @@ mod tests {
 
     #[test]
     fn options_are_validated_with_clear_errors() {
-        assert!(generate(&opts(&[], 20, "boss"), 1).unwrap_err().contains("zone_modes"));
-        assert!(generate(&opts(&[Mode::Walk], 3, "macguffin_long"), 1).unwrap_err().contains("too small"));
+        assert!(generate(&opts(&[], 20, "treasure_hunt"), 1).unwrap_err().contains("zone_modes"));
+        assert!(generate(&opts(&[Mode::Walk], 3, "treasure_hunt"), 1).unwrap_err().contains("too small"));
         let mut o = opts(&[Mode::Walk], 20, "all_trips");
         o.easy_share = 0;
         o.medium_share = 0;
@@ -577,7 +564,7 @@ mod tests {
 
     #[test]
     fn deterministic_and_round_trips_through_slot_data_json() {
-        let o = opts(&[Mode::Walk, Mode::Bike], 50, "streak");
+        let o = opts(&[Mode::Walk, Mode::Bike], 50, "all_trips");
         let (a, b) = (generate(&o, 11).unwrap(), generate(&o, 11).unwrap());
         assert_eq!(a.rewards, b.rewards);
         let json = serde_json::to_string(&a.slot).unwrap();
@@ -587,7 +574,7 @@ mod tests {
 
     #[test]
     fn extreme_shares_and_big_games_work() {
-        let mut o = opts(&[Mode::Walk; 6], 1000, "boss_rush");
+        let mut o = opts(&[Mode::Walk; 6], 1000, "all_trips");
         o.easy_share = 0;
         o.hard_share = 100;
         o.medium_share = 0;

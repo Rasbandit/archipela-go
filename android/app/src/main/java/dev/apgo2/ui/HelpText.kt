@@ -64,25 +64,10 @@ internal object Help {
             "With several goals you choose how they count. Any one: the first goal you finish wins. All: you must finish every goal. " +
                 "At least N: finishing any N of them wins.",
         )
-    val goalTarget =
-        HelpTopic(
-            "Goal number",
-            "Some goals count something. This is the number to reach. Leave it as it is to use the goal's usual number.",
-        )
     val goalDescriptions: Map<String, HelpTopic> =
         mapOf(
-            "macguffin_short" to HelpTopic("Letter Hunt", "Collect the four letters of APGO. They are hidden as rewards in your quests."),
-            "macguffin_long" to HelpTopic("Letter Hunt XL", "Collect every letter of ARCHIPELAGO. A longer hunt."),
-            "all_trips" to HelpTopic("Completionist", "Finish every quest in the game."),
-            "boss" to HelpTopic("The Big One", "Finish the boss quest: one big quest in the last zone."),
             "treasure_hunt" to HelpTopic("Treasure Hunt", "Collect APGO, then finish the boss quest to claim the treasure."),
-            "zone_conqueror" to HelpTopic("Zone Conqueror", "Finish a percentage of the quests in every zone. Set the percentage below."),
-            "well_rounded" to HelpTopic("Well Rounded", "Finish at least one quest of every type this game uses."),
-            "quest_dex" to HelpTopic("Quest-dex", "Finish many different kinds of quest, not just many quests. Gotta do them all."),
-            "marathon" to HelpTopic("Marathon", "Travel a total distance on quests. Set the kilometers below."),
-            "explorer" to HelpTopic("Explorer", "Reveal map cells by getting close to them. Pairs well with fog of war."),
-            "streak" to HelpTopic("Daily Habit", "Finish at least one quest on this many days in a row."),
-            "boss_rush" to HelpTopic("Boss Rush", "Finish this many Hard quests."),
+            "all_trips" to HelpTopic("Completionist", "Finish every quest in the game."),
         )
 
     // ---- game tuning

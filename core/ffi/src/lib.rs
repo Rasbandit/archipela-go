@@ -142,6 +142,15 @@ impl std::fmt::Display for CoreError {
 
 impl std::error::Error for CoreError {}
 
+/// The goals of a game's `slot_data` in words, by their player names ("Treasure Hunt, Completionist (any one)"); `None` if the
+/// `slot_data` cannot be read.
+#[uniffi::export]
+#[must_use]
+#[allow(clippy::needless_pass_by_value)] // uniffi requires owned args
+pub fn goal_summary(slot_json: String) -> Option<String> {
+    apgo_core::slot::SlotData::from_json(&slot_json).ok().map(|s| apgo_core::goal::goal_summary(&s))
+}
+
 /// The core version as text.
 #[uniffi::export]
 #[must_use]
@@ -522,6 +531,18 @@ pub fn line_width_stops(kind: LineKind) -> Vec<WidthStop> {
 #[must_use]
 pub const fn line_width_curve_base() -> f32 {
     apgo_core::line_width::CURVE_BASE
+}
+
+#[cfg(test)]
+mod goal_summary_tests {
+    use super::goal_summary;
+
+    #[test]
+    fn names_the_goals_of_real_slot_data_and_refuses_garbage() {
+        let sample = include_str!("../../../apworld/docs/slot_data.sample.json");
+        assert_eq!(goal_summary(sample.to_string()).as_deref(), Some("Treasure Hunt"));
+        assert_eq!(goal_summary("not json".into()), None);
+    }
 }
 
 #[cfg(test)]

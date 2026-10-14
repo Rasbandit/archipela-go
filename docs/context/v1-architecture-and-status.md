@@ -6,7 +6,8 @@ _Last verified: 2026-10-07 (end of the big UI session). "Verified" = run; "Not d
 
 A real-world quest game. The player saves **realms** (places, a circle or polygon), the app **scans** each realm's map data into **finds**, and a **game**
 builds **zones** (a realm played by walk/run/bike) filled with quests from a 76-kind catalog. It plays **solo** or as an **Archipelago** client.
-Win conditions: 12 goals, one or several, combined any / all / at least N.
+Win conditions: Treasure Hunt and Completionist (Beta 1, 2026-10-13, cut the other ten; see
+`docs/superpowers/specs/2026-10-13-progression-beta-design.md`), one or both, combined any / all / at least N.
 
 ## Layout
 

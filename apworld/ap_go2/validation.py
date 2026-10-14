@@ -8,11 +8,7 @@ from .distribution import split_trips
 from .names import TRAP_KEYS, letter
 from .zones import build_zones, items_to_enter, required_tools
 
-_LETTERS = {
-    "macguffin_short": "APGO",
-    "macguffin_long": "ARCHIPELAGO",
-    "treasure_hunt": "APGO",
-}
+_LETTERS = {"treasure_hunt": "APGO"}
 
 
 def as_goals(goal: str | Iterable[str]) -> tuple[str, ...]:
@@ -21,10 +17,9 @@ def as_goals(goal: str | Iterable[str]) -> tuple[str, ...]:
 
 
 def goal_letter_counts(goal: str | Iterable[str]) -> dict[str, int]:
-    """Letter items the goal(s) need: macguffin goals and treasure_hunt (empty otherwise).
+    """Letter items the goal(s) need: APGO for treasure_hunt, empty otherwise.
 
-    For several goals the pool must hold what the most demanding one needs: the long word contains
-    every letter of the short one, so taking the largest count of each letter is enough.
+    For several goals the pool holds the largest count of each letter any of them needs.
     """
     need: Counter[str] = Counter()
     for g in as_goals(goal):
@@ -49,15 +44,15 @@ def goal_ids_from_selection(selection: Iterable[str]) -> list[str]:
     return [g for g in GOALS if g in chosen]
 
 
-def letters_needed_by_logic(goals: Sequence[str], requirement: str) -> dict[str, int]:
+def letters_needed_by_logic(goals: Sequence[str], need: int) -> dict[str, int]:
     """Letters the generator may demand before the goal counts as reachable.
 
-    Letters can only be required when finishing them is unavoidable: every selected goal needs
-    letters, or all goals are required. Otherwise a player could win another way. (The pool
-    still holds them all.)
+    `need` is how many of `goals` must be finished (1 for any, all of them for all, N for at
+    least N). Letters are unavoidable when the goals that need no letters cannot make up `need`
+    on their own; otherwise a player could win another way. (The pool still holds them all.)
     """
-    letters_are_unavoidable = requirement == "all" or all(g in _LETTERS for g in goals)
-    return goal_letter_counts(goals) if letters_are_unavoidable else {}
+    without_letters = sum(1 for g in goals if g not in _LETTERS)
+    return goal_letter_counts(goals) if without_letters < need else {}
 
 
 def check_requirement(goals: Sequence[str], requirement: str, need: int) -> None:

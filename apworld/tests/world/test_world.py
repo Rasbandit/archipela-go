@@ -12,7 +12,7 @@ from test.bases import WorldTestBase  # type: ignore[import-not-found]
 from worlds.ap_go2 import names
 from worlds.ap_go2.constants import GAME_NAME, GOAL_NAMES, GOALS
 from worlds.ap_go2.locations import LOCATION_NAME_GROUPS
-from worlds.ap_go2.options import GoalSelection
+from worlds.ap_go2.options import ApGo2Options, GoalSelection, GoalsRequired
 from worlds.AutoWorld import AutoWorldRegister  # type: ignore[import-not-found]
 from worlds.generic.Rules import exclusion_rules
 
@@ -46,19 +46,19 @@ class TestDefaultSeed(Base):
         assert self.goal_reachable(state)
 
     def test_pool_equals_locations(self) -> None:
-        assert len(self.multiworld.itempool) == 100
+        assert len(self.multiworld.itempool) == 101  # 100 trips + the Boss Quest
 
     def test_slot_data_valid(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
         assert len(data["trips"]) == 100
-        assert data["boss"] is None
+        assert data["boss"] is not None
 
 
 class TestThreeZonesLong(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "zone_modes": MULTI,
-        "goal_selection": [GOAL_NAMES["macguffin_short"]],
+        "goal_selection": [GOAL_NAMES["treasure_hunt"]],
         "number_of_trips": 60,
         "enable_effort_reductions": True,
         "enable_scouting_distance_bonuses": True,
@@ -100,10 +100,10 @@ class TestThreeZonesLong(Base):
         assert {t["zone"] for t in data["trips"]} == {1, 2, 3}
 
 
-class TestBossGoal(Base):
+class TestBossInLastZone(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "zone_modes": ["walk", "bike"],
-        "goal_selection": [GOAL_NAMES["boss"]],
+        "goal_selection": [GOAL_NAMES["treasure_hunt"]],
         "number_of_trips": 30,
     }
 
@@ -112,7 +112,6 @@ class TestBossGoal(Base):
         boss = self.multiworld.get_location(names.BOSS_LOCATION, self.player)
         assert boss.parent_region is not None
         assert boss.parent_region.name == "Zone 2"
-        assert not self.get_items_by_name("Letter A")
 
     def test_goal_needs_last_zone(self) -> None:
         assert not self.goal_reachable(CollectionState(self.multiworld))
@@ -238,11 +237,11 @@ class TestLargeSeed(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
         "number_of_trips": 1000,
         "zone_modes": ["walk", "run", "bike", "drive", "walk", "run"],
-        "goal_selection": [GOAL_NAMES["macguffin_long"]],
+        "goal_selection": [GOAL_NAMES["treasure_hunt"]],
     }
 
     def test_generates_and_fills(self) -> None:
-        assert len(self.multiworld.itempool) == 1000
+        assert len(self.multiworld.itempool) == 1001  # 1000 trips + the Boss Quest
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
         assert len(data["trips"]) == 1000
@@ -271,7 +270,7 @@ class TestInvalidSettings(WorldTestBase):
 
     def test_too_few_trips(self) -> None:
         self.assert_rejected(
-            {"goal_selection": [GOAL_NAMES["macguffin_long"]], "number_of_trips": 5},
+            {"goal_selection": [GOAL_NAMES["treasure_hunt"]], "number_of_trips": 3},
             "number_of_trips",
         )
         self.assert_rejected({"zone_modes": MULTI, "number_of_trips": 2}, "number_of_trips")
@@ -293,19 +292,24 @@ class TestInvalidSettings(WorldTestBase):
     def test_more_goals_required_than_selected(self) -> None:
         self.assert_rejected(
             {
-                "goal_selection": ["Marathon", "Explorer"],
+                "goal_selection": ["Treasure Hunt"],
                 "goal_requirement": "require_at_least_n_goals",
-                "goals_required": 3,
+                "goals_required": 2,
             },
             "goals_required",
         )
 
+    def test_goals_required_above_the_goal_count_is_out_of_range(self) -> None:
+        # Archipelago's Range raises a bare Exception.
+        with pytest.raises(Exception, match="maximum 2"):
+            GoalsRequired.from_any(3)
+
 
 class TestSeveralGoalsAny(Base):
-    """Any one of: letters or the boss. Letters can be skipped, so logic must not demand them."""
+    """Any one of: Treasure Hunt or Completionist. Letters can be skipped, so logic skips them."""
 
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
-        "goal_selection": ["Letter Hunt", "The Big One"],
+        "goal_selection": ["Treasure Hunt", "Completionist"],
         "goal_requirement": "require_any_one_goal",
         "zone_modes": ["walk", "bike"],
         "number_of_trips": 40,
@@ -323,15 +327,14 @@ class TestSeveralGoalsAny(Base):
     def test_slot_data_lists_both_goals(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
-        assert [g["id"] for g in data["goals"]] == ["macguffin_short", "boss"]
+        assert [g["id"] for g in data["goals"]] == ["treasure_hunt", "all_trips"]
         assert (data["goal_requirement"], data["goal_need"]) == ("any", 1)
 
 
 class TestSeveralGoalsAll(Base):
     options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
-        "goal_selection": ["Letter Hunt", "Quest-dex"],
+        "goal_selection": ["Treasure Hunt", "Completionist"],
         "goal_requirement": "require_all_goals",
-        "goal_quest_dex_kinds": 9,
         "number_of_trips": 40,
     }
 
@@ -342,35 +345,11 @@ class TestSeveralGoalsAll(Base):
         state.collect(self.get_items_by_name("Letter O")[0])
         assert self.goal_reachable(state)
 
-    def test_targets_follow_their_own_option(self) -> None:
+    def test_targets_are_zero(self) -> None:
         data = self.world.fill_slot_data()
         jsonschema.validate(data, SCHEMA)
-        assert {g["id"]: g["target"] for g in data["goals"]} == {
-            "macguffin_short": 0,
-            "quest_dex": 9,
-        }
+        assert {g["id"]: g["target"] for g in data["goals"]} == {"treasure_hunt": 0, "all_trips": 0}
         assert (data["goal_requirement"], data["goal_need"]) == ("all", 2)
-
-
-class TestSeveralGoalsAtLeast(Base):
-    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
-        "goal_selection": ["Marathon", "Explorer", "Daily Habit"],
-        "goal_requirement": "require_at_least_n_goals",
-        "goals_required": 2,
-        "goal_marathon_kilometers": 10,
-        "number_of_trips": 30,
-    }
-
-    def test_slot_data_carries_the_count_and_each_target(self) -> None:
-        data = self.world.fill_slot_data()
-        jsonschema.validate(data, SCHEMA)
-        assert (data["goal_requirement"], data["goal_need"]) == ("at_least", 2)
-        targets = {g["id"]: g["target"] for g in data["goals"]}
-        assert targets == {"marathon": 10, "explorer": 300, "streak": 7}
-
-    def test_beatable(self) -> None:
-        self.collect_all_but([])
-        self.assertBeatable(beatable=True)
 
 
 class TestOptionVerification(WorldTestBase):
@@ -387,5 +366,68 @@ class TestOptionVerification(WorldTestBase):
         self.verify(list(GOAL_NAMES.values()))
 
     def test_a_misspelled_goal_is_rejected_with_the_valid_names(self) -> None:
-        with pytest.raises(OptionError, match="Quest-dex"):
-            self.verify(["Quest dex"])
+        with pytest.raises(OptionError, match="Treasure Hunt"):
+            self.verify(["Treasure Hnut"])
+
+    def test_a_removed_goal_is_rejected(self) -> None:
+        with pytest.raises(OptionError, match="Completionist"):
+            self.verify(["Letter Hunt"])
+
+
+def test_goal_selection_defaults_to_treasure_hunt_and_target_options_are_gone() -> None:
+    assert GoalSelection.default == frozenset({"Treasure Hunt"})
+    fields = set(ApGo2Options.__dataclass_fields__)
+    kept = {"goal_selection", "goal_requirement"}
+    assert not {f for f in fields if f.startswith("goal_") and f not in kept}
+
+
+def test_goals_required_defaults_to_one_so_the_default_selection_fits() -> None:
+    assert GoalsRequired.default == 1
+
+
+class TestAtLeastWithDefaultSelection(Base):
+    options = {"goal_requirement": "require_at_least_n_goals", "number_of_trips": 20}  # noqa: RUF012  # WorldTestBase reads a plain class dict
+
+    def test_generates_with_one_goal_needed(self) -> None:
+        data = self.world.fill_slot_data()
+        assert (data["goal_requirement"], data["goal_need"]) == ("at_least", 1)
+
+
+def test_removed_goal_names_are_not_valid_keys() -> None:
+    valid: frozenset[str] = frozenset(GoalSelection.valid_keys)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # Archipelago's OptionSet types it loosely
+    assert valid == frozenset({"Treasure Hunt", "Completionist"})
+
+
+class TestCompletionistOnly(Base):
+    options = {"goal_selection": ["Completionist"], "number_of_trips": 30}  # noqa: RUF012  # WorldTestBase reads a plain class dict
+
+    def test_no_letters_and_no_boss(self) -> None:
+        names_in_pool = {i.name for i in self.multiworld.itempool}
+        assert not {n for n in names_in_pool if n.startswith("Letter ")}
+        assert self.world.fill_slot_data()["boss"] is None
+
+
+class TestBothGoalsAtLeastTwo(Base):
+    options = {  # noqa: RUF012  # WorldTestBase reads a plain class dict
+        "goal_selection": ["Treasure Hunt", "Completionist"],
+        "goal_requirement": "require_at_least_n_goals",
+        "goals_required": 2,
+        "number_of_trips": 30,
+    }
+
+    def test_slot_data_lists_both_goals(self) -> None:
+        data = self.world.fill_slot_data()
+        jsonschema.validate(data, SCHEMA)
+        assert [g["id"] for g in data["goals"]] == ["treasure_hunt", "all_trips"]
+        assert (data["goal_requirement"], data["goal_need"]) == ("at_least", 2)
+
+    def test_both_goals_are_needed_so_letters_are_logic(self) -> None:
+        state = CollectionState(self.multiworld)
+        self.collect_all_but(["Letter O", names.VICTORY], state)
+        assert not self.goal_reachable(state)
+        state.collect(self.get_items_by_name("Letter O")[0])
+        assert self.goal_reachable(state)
+
+    def test_beatable(self) -> None:
+        self.collect_all_but([])
+        self.assertBeatable(beatable=True)

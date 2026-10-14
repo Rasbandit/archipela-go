@@ -13,7 +13,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import uniffi.apgo_ffi.ApEvent
 import uniffi.apgo_ffi.ApPoll
 import uniffi.apgo_ffi.ApReconnect
@@ -341,27 +340,8 @@ internal class ApController(
         }
     }
 
-    /** The goals of the connected game in words ("Letter Hunt, The Big One (any one)"), from slot_data v3 (or the single goal of v2). */
-    fun goalSummary(): String? =
-        slotJson?.let { json ->
-            runCatching {
-                val o = JSONObject(json)
-                val goals = o.optJSONArray("goals")
-                if (goals == null) {
-                    o.optString("goal").ifBlank { null }
-                } else {
-                    val names = (0 until goals.length()).map { goals.getJSONObject(it).getString("id").replace('_', ' ') }
-                    if (names.size == 1) names[0] else "${names.joinToString(", ")} (${goalRule(o)})"
-                }
-            }.getOrNull()
-        }
-
-    private fun goalRule(o: JSONObject) =
-        when (o.optString("goal_requirement")) {
-            "all" -> "all"
-            "at_least" -> "at least ${o.optInt("goal_need")}"
-            else -> "any one"
-        }
+    /** The goals of the connected game in words ("Treasure Hunt, Completionist (any one)"), worded by the core. */
+    fun goalSummary(): String? = slotJson?.let { uniffi.apgo_ffi.goalSummary(it) }
 
     private fun handle(
         s: ApSession,

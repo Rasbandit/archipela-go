@@ -2,7 +2,7 @@
   "schema_version": 3,
   "goals": [
     {
-      "id": "boss",
+      "id": "treasure_hunt",
       "target": 0
     }
   ],

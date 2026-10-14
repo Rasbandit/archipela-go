@@ -11,52 +11,20 @@ MAX_TIER = 10
 
 MODES = ("walk", "run", "bike", "drive")
 DIFFICULTIES = ("easy", "medium", "hard")
-GOALS = (
-    "macguffin_short",
-    "macguffin_long",
-    "all_trips",
-    "boss",
-    "treasure_hunt",
-    "zone_conqueror",
-    "well_rounded",
-    "quest_dex",
-    "marathon",
-    "explorer",
-    "streak",
-    "boss_rush",
-)
-BOSS_GOALS = ("boss", "treasure_hunt")  # goals that add the Boss Quest location
-LETTER_GOALS = ("macguffin_short", "macguffin_long")  # goals won by collecting letters alone
+GOALS = ("treasure_hunt", "all_trips")
+BOSS_GOALS = ("treasure_hunt",)  # goals that add the Boss Quest location
 
 # Player-facing names of the goals, as written in a YAML's goal_selection.
 GOAL_NAMES: dict[str, str] = {
-    "macguffin_short": "Letter Hunt",
-    "macguffin_long": "Letter Hunt XL",
-    "all_trips": "Completionist",
-    "boss": "The Big One",
     "treasure_hunt": "Treasure Hunt",
-    "zone_conqueror": "Zone Conqueror",
-    "well_rounded": "Well Rounded",
-    "quest_dex": "Quest-dex",
-    "marathon": "Marathon",
-    "explorer": "Explorer",
-    "streak": "Daily Habit",
-    "boss_rush": "Boss Rush",
+    "all_trips": "Completionist",
 }
 
-# Goals that count something, and the option holding that count.
-GOAL_TARGET_OPTIONS: dict[str, str] = {
-    "zone_conqueror": "goal_zone_conqueror_percent",
-    "quest_dex": "goal_quest_dex_kinds",
-    "marathon": "goal_marathon_kilometers",
-    "explorer": "goal_explorer_cells",
-    "streak": "goal_streak_days",
-    "boss_rush": "goal_boss_rush_hard_quests",
-}
+# Goals that count something, and the option holding that count. None in the beta.
+GOAL_TARGET_OPTIONS: dict[str, str] = {}
 
 # How the chosen goals combine into winning (slot_data `goal_requirement`).
 REQUIREMENTS = ("any", "all", "at_least")
-MAX_GOAL_TARGET = 1000
 
 # Inclusive effort-tier band of each difficulty.
 DIFFICULTY_BANDS: dict[str, tuple[int, int]] = {

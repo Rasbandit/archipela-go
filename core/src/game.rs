@@ -613,29 +613,20 @@ impl Game {
         self.slot.zones.iter().map(|z| z.id).filter(|z| self.zone_unlocked(*z)).collect()
     }
 
-    fn goal_ctx(&self, now_ms: i64) -> GoalCtx<'_> {
-        GoalCtx {
-            slot: &self.slot,
-            assignments: &self.assignments,
-            done: &self.done,
-            items: &self.items,
-            distance_m: self.stats.distance_m,
-            cells_discovered: self.fog.cells.len(),
-            streak_days: streak(&self.stats.quest_days, now_ms / DAY_MS),
-            units: self.units,
-        }
+    fn goal_ctx(&self) -> GoalCtx<'_> {
+        GoalCtx { slot: &self.slot, done: &self.done, items: &self.items }
     }
 
     /// Each goal of the game with its own progress.
     #[must_use]
-    pub fn goal_statuses(&self, now_ms: i64) -> Vec<(GoalSpec, GoalStatus)> {
-        evaluate_each(&self.goal_ctx(now_ms))
+    pub fn goal_statuses(&self) -> Vec<(GoalSpec, GoalStatus)> {
+        evaluate_each(&self.goal_ctx())
     }
 
-    /// How far along the win condition is at `now_ms`.
+    /// How far along the win condition is.
     #[must_use]
-    pub fn goal_status(&self, now_ms: i64) -> GoalStatus {
-        evaluate(&self.goal_ctx(now_ms))
+    pub fn goal_status(&self) -> GoalStatus {
+        evaluate(&self.goal_ctx())
     }
 
     fn fog_on(&self) -> bool {
@@ -1487,13 +1478,13 @@ impl Game {
             }
             Backend::Archipelago => ev.push(Event::SendCheck { location_id: id }),
         }
-        ev.extend(self.check_goal(now_ms));
+        ev.extend(self.check_goal());
         ev
     }
 
-    fn check_goal(&mut self, now_ms: i64) -> Vec<Event> {
+    fn check_goal(&mut self) -> Vec<Event> {
         if !self.goal_reported {
-            let s = self.goal_status(now_ms);
+            let s = self.goal_status();
             if s.achieved {
                 self.goal_reported = true;
                 return vec![Event::GoalAchieved { label: s.label }];
@@ -1572,7 +1563,7 @@ impl Game {
                 ev.push(Event::ShuffleRequested);
             }
         }
-        ev.extend(self.check_goal(now_ms));
+        ev.extend(self.check_goal());
         ev
     }
 
@@ -1865,6 +1856,8 @@ impl Game {
     pub fn load(dir: &Path, id: &str) -> Result<Self, String> {
         let s = std::fs::read_to_string(Self::path_for(dir, id)).map_err(|e| e.to_string())?;
         let mut g: Self = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
+        // A goal this version no longer has could never be won: refuse the game instead of opening it.
+        g.slot.check_goals().map_err(|e| format!("this game was made with an older version of the app and cannot be played ({e})"))?;
         g.counters.steps_last = None; // steps taken while the game was closed are never credited
         g.counters.away_mark = None; // nor time away: where the player was while the app was dead is unknown (presence restarts it)
         g.reattach_trackers();
@@ -2626,7 +2619,7 @@ mod tests {
         assert!(ev.iter().filter(|e| matches!(e, Event::ZoneUnlocked { .. })).count() >= 2, "zones 2 and 3 unlock along the way");
         assert_eq!(ev.iter().filter(|e| matches!(e, Event::GoalAchieved { .. })).count(), 1);
         assert_eq!(g.done.len(), 30);
-        assert!(g.goal_status(0).achieved);
+        assert!(g.goal_status().achieved);
     }
 
     #[test]
@@ -2824,6 +2817,19 @@ mod tests {
         std::fs::write(Game::path_for(&dir, "g1"), "{broken").unwrap();
         assert!(Game::load(&dir, "g1").is_err());
         assert!(Game::load(&dir, "missing").is_err());
+    }
+
+    #[test]
+    fn a_save_whose_goal_was_removed_is_refused_with_a_clear_message() {
+        let dir = std::env::temp_dir().join(format!("apgo-oldgoal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        g.slot.goal = "boss".into(); // The Big One, removed in Beta 1
+        g.slot.goals = vec![];
+        g.save(&dir).unwrap();
+        let Err(err) = Game::load(&dir, "g1") else { panic!("a save with a removed goal must not load") };
+        assert!(err.contains("older version") && err.contains("unknown goal boss"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

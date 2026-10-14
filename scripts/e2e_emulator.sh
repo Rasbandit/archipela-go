@@ -2,11 +2,11 @@
 # Full regression on the emulator, from a fresh install state:
 #   fresh app data -> realm around a GPS fix -> real map scan -> solo game -> autoplay to the win.
 # Needs: `just emu-start`, the app installed (`just emu-run`), network (public Overpass servers).
-#   GOAL="Quest-dex" LON=-122.6795 LAT=45.5189 scripts/e2e_emulator.sh
+#   [GOAL="Completionist"] LON=-122.6795 LAT=45.5189 scripts/e2e_emulator.sh   (GOAL adds a goal to the default Treasure Hunt)
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 export ANDROID_SERIAL="${ANDROID_SERIAL:-emulator-5554}"
-lon="${LON:--122.6795}"; lat="${LAT:-45.5189}"; goal="${GOAL:-Quest-dex}"
+lon="${LON:--122.6795}"; lat="${LAT:-45.5189}"; goal="${GOAL:-}"
 ui() { python3 -I "$root/scripts/android_ui.py" "$@"; }
 app=dev.apgo2.app
 
@@ -31,7 +31,7 @@ echo "2/4 starting a solo game"
 ui tap "Play" exact >/dev/null; sleep 1
 ui tap "New game" exact >/dev/null || { echo "FAIL: cannot open New Game"; exit 1; }; sleep 1
 ui tap "+ Around me (walk)" >/dev/null; sleep 1
-ui tap "$goal" >/dev/null; sleep 1
+if [ -n "$goal" ]; then ui tap "$goal" >/dev/null || { echo "FAIL: no goal chip \"$goal\""; exit 1; }; sleep 1; fi
 ui tap "Play solo" >/dev/null; sleep 8
 ui texts | grep -q "Quests 0/" || { echo "FAIL: game did not start"; exit 1; }
 echo "3/4 autoplaying"
