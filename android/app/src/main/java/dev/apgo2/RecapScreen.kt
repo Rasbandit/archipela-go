@@ -86,6 +86,7 @@ import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.RecapChainOut
+import uniffi.apgo_ffi.RecapForagerOut
 import uniffi.apgo_ffi.RecapOut
 import uniffi.apgo_ffi.RecapQuestOut
 
@@ -98,16 +99,23 @@ internal fun RecapScreen(
     BackHandler(onBack = onDone)
     var selected by rememberSaveable { mutableStateOf<Int?>(null) }
     val toggle = { i: Int -> selected = if (selected == i) null else i }
-    val slots = remember(r) { RecapTimeline.slots(r.chains.map { RecapTimeline.gainFraction(it.before, it.after, chainMax(it)) }) }
+    val slots = remember(r) { RecapTimeline.slots(gainFractions(r)) }
     val reduced = rememberReducedMotion()
     val clock = rememberRecapClock(r.endMs, RecapTimeline.endMs(slots), reduced)
     Surface(Modifier.fillMaxSize()) {
         // A plain scrolling column, not a lazy one: scrolling must not tear down the map or replay the reveals.
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(Help.RECAP_TITLE, style = MaterialTheme.typography.headlineMedium)
-            Text(RecapFormat.subtitle(r))
+            Text(
+                RecapFormat.subtitle(
+                    r,
+                    time =
+                        android.text.format.DateFormat
+                            .getTimeFormat(LocalContext.current),
+                ),
+            )
             if (hasMap(r)) Reveal(0, reduced) { RecapMap(r.route, r.quests, selected, toggle) }
-            if (r.chains.isNotEmpty()) Reveal(1, reduced) { ProgressCard(r, slots, clock, animate = !reduced) }
+            if (r.chains.isNotEmpty() || r.foragers.isNotEmpty()) Reveal(1, reduced) { ProgressCard(r, slots, clock, animate = !reduced) }
             if (r.quests.isNotEmpty()) Reveal(2, reduced) { QuestsCard(r.quests, selected, toggle) }
             RecapFormat.sections(r).forEach { (label, lines) ->
                 key(label) {
@@ -170,6 +178,11 @@ private fun hasMap(r: RecapOut) = RecapFeatures.cameraPoints(r.route, r.quests).
 
 private fun chainMax(c: RecapChainOut): Double = (c.marks.maxOrNull() ?: c.after).coerceAtLeast(1.0)
 
+// Bar gains in screen order: the chains, then the foragers.
+private fun gainFractions(r: RecapOut): List<Float> =
+    r.chains.map { RecapTimeline.gainFraction(it.before, it.after, chainMax(it)) } +
+        r.foragers.map { RecapTimeline.gainFraction(it.bankedBefore.toDouble(), it.bankedAfter.toDouble(), it.need.toDouble()) }
+
 // One bar per chain, filling one after another off the shared [clock].
 @Composable
 private fun ProgressCard(
@@ -188,6 +201,7 @@ private fun ProgressCard(
             }
             val stepsAt = r.chains.indexOfFirst { it.unit == "steps" }
             r.chains.forEachIndexed { i, c -> ChainBlock(r, c, slots[i], now, animate, showSteps = i == stepsAt) }
+            r.foragers.forEachIndexed { i, f -> ForagerBlock(f, slots[r.chains.size + i], now, animate) }
         }
     }
 }
@@ -214,6 +228,23 @@ private fun ChainBlock(
         }
         val steps = if (showSteps) RecapFormat.stepsLine(r) else null
         if (steps != null) Text(steps, Modifier.alpha(RecapTimeline.fadeIn(now, slot)), style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun ForagerBlock(
+    f: RecapForagerOut,
+    slot: RecapTimeline.Slot,
+    now: Long,
+    animate: Boolean,
+) {
+    val before = f.bankedBefore.toFloat()
+    val banked = before + (f.bankedAfter.toFloat() - before) * RecapTimeline.progress(now, slot)
+    Column(Modifier.alpha(if (now < slot.startMs) BEFORE_START_ALPHA else 1f)) {
+        Text(RecapFormat.foragerLine(f, banked.toDouble()), style = MaterialTheme.typography.bodyLarge)
+        RecapChainBar(before, banked, f.need.toFloat(), listOf(f.need.toFloat()), before, animate)
+        val bag = RecapFormat.bagLine(f)
+        if (bag != null) Text(bag, Modifier.alpha(RecapTimeline.fadeIn(now, slot)), style = MaterialTheme.typography.bodySmall)
     }
 }
 

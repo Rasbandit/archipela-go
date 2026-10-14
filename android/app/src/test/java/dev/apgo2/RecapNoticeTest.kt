@@ -39,6 +39,7 @@ internal fun recap(
     zonesUnlocked = emptyList(),
     banked = 0u,
     route = emptyList(),
+    foragers = emptyList(),
 )
 
 class RecapDismissTest {

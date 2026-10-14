@@ -2,6 +2,7 @@ package dev.apgo2
 
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.RecapChainOut
+import uniffi.apgo_ffi.RecapForagerOut
 import uniffi.apgo_ffi.RecapOut
 import uniffi.apgo_ffi.RecapQuestOut
 import kotlin.math.PI
@@ -27,6 +28,12 @@ internal object RecapSample {
             chain("step_up", "Step Up", "steps", 2140.0, 6230.0, listOf(1000.0, 2500.0, 5000.0, 7500.0, 10_000.0)),
             chain("wanderlust", "Wanderlust", "minutes", 48.0, 90.0, listOf(30.0, 60.0, 120.0, 240.0)),
             chain("cartographer", "Cartographer", "cells", 31.0, 45.0, listOf(10.0, 25.0, 40.0, 100.0)),
+        )
+
+    private val FORAGERS =
+        listOf(
+            RecapForagerOut("Pinecone hunt", "pinecones", 7u, 5u, 7u, 2u, 0u),
+            RecapForagerOut("Leaf collector", "leaves", 7u, 3u, 4u, 1u, 0u),
         )
 
     /** A quest on the route: name, place, goal, reward, route index, and how far through the walk it was done (percent). */
@@ -70,6 +77,7 @@ internal object RecapSample {
             items = SPECS.mapNotNull { it.reward },
             zonesUnlocked = listOf(ZONE + 1u),
             banked = BANKED,
+            foragers = FORAGERS,
             route = listOf(loop),
         )
     }

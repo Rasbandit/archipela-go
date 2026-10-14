@@ -7,8 +7,12 @@ import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import uniffi.apgo_ffi.RecapChainOut
+import uniffi.apgo_ffi.RecapForagerOut
 import uniffi.apgo_ffi.RecapQuestOut
 import uniffi.apgo_ffi.UnitSystem
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 class RecapFormatTest {
     private val saved = Units.system
@@ -45,13 +49,32 @@ class RecapFormatTest {
         assertNull(RecapFormat.stepsLine(recap(10).copy(steps = 4090, countedSteps = 4090)))
     }
 
-    @Test fun subtitleHasDateDistanceAndTime() {
-        val r = recap(minutes = 42).copy(distanceM = 3100.0)
-        val date =
-            java.text.DateFormat
-                .getDateInstance(java.text.DateFormat.SHORT)
-                .format(java.util.Date(r.endMs))
-        assertEquals("$date · ${Units.distance(3100.0)} · 42 min", RecapFormat.subtitle(r))
+    private fun utc(pattern: String) = SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+
+    @Test fun subtitleHasDayTimesDistanceAndDuration() {
+        val start = 1_760_461_920_000L // Tue 2025-10-14 17:12 UTC
+        val r = recap(minutes = 0).copy(startMs = start, endMs = start + 42 * 60_000L, distanceM = 3100.0)
+        assertEquals(
+            "Tue 10/14 · 5:12 PM – 5:54 PM · 3.1 km · 42 min",
+            RecapFormat.subtitle(r, time = utc("h:mm a"), day = utc("EEE M/d")),
+        )
+    }
+
+    private fun forager(
+        theme: String = "pinecones",
+        need: UInt = 7u,
+        carried: UInt = 0u,
+    ) = RecapForagerOut("Pine hunt", theme, need, 5u, 7u, 2u, carried)
+
+    @Test fun foragerLineCapitalisesThemeAndRoundsBanked() {
+        assertEquals("Pinecones · +2 banked · 7 / 7", RecapFormat.foragerLine(forager(), 7.0))
+        assertEquals("Pinecones · +1 banked · 6 / 7", RecapFormat.foragerLine(forager(), 6.4))
+    }
+
+    @Test fun bagLineIsNullWhenEmpty() {
+        assertNull(RecapFormat.bagLine(forager()))
+        assertEquals("1 still in your bag", RecapFormat.bagLine(forager(carried = 1u)))
+        assertEquals("2 still in your bag", RecapFormat.bagLine(forager(carried = 2u)))
     }
 
     @Test fun questTimeIsAShortTime() {
@@ -68,7 +91,6 @@ class RecapFormatTest {
         assertEquals(
             listOf(
                 "Items received" to listOf("Hydrate!"),
-                "Brought home" to listOf("3 items"),
             ),
             RecapFormat.sections(r),
         )
