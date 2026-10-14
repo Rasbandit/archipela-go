@@ -22,6 +22,10 @@ import dev.apgo2.presence.PresenceState
 import dev.apgo2.presence.Signals
 import dev.apgo2.presence.WifiId
 import dev.apgo2.presence.Zone
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.apgo_ffi.CircleOut
 import uniffi.apgo_ffi.PositionOut
 import uniffi.apgo_ffi.PresenceHome
@@ -38,6 +42,7 @@ private const val NANOS_PER_MS = 1_000_000L
 internal class PresenceController(
     private val model: AppModel,
     ctx: Context,
+    private val scope: CoroutineScope,
 ) {
     val monitor = PresenceMonitor(ctx) { pollSeeding() }
 
@@ -203,12 +208,17 @@ internal class PresenceController(
         if (prev == PresenceState.Stopped) model.sensors.allowColdStart()
     }
 
-    // Presence arrived home (home Wi-Fi or the home circle): forager quests bank what they carry, even with no GPS fix.
+    // Presence arrived home (home Wi-Fi or the home circle): forager quests bank what they carry, even with no GPS fix. The core
+    // reads and thins the walk's trace for the recap, so it runs off the main thread; the events and the redraw come back to it.
     private fun bankAtHome() {
         if (!model.engine.hasGame()) return
         val t = model.now()
-        model.handle(model.engine.bankAtHome(t)) // a new recap comes back as RecapReady
-        model.refreshPlay(withTrace = false)
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { model.engine.bankAtHome(t) } }
+            r.onFailure { Diag.error(TAG, "bank at home failed", it) }
+            model.handle(r.getOrDefault(emptyList())) // a new recap comes back as RecapReady
+            model.refreshPlay(withTrace = false)
+        }
     }
 
     /** Follow screen on/off for the life of the process: each change re-applies the location rate (an unchanged rate is a no-op). */

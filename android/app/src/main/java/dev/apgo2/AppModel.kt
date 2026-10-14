@@ -89,7 +89,7 @@ internal class AppModel(
     val trapSettings = TrapSettings(this)
     val units = UnitSettings(this)
     val stepCal = StepCalStore(ctx)
-    val presence = PresenceController(this, ctx)
+    val presence = PresenceController(this, ctx, scope)
 
     val recaps = RecapController(ctx, engine, presence)
 
