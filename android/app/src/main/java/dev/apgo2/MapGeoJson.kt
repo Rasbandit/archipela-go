@@ -371,7 +371,7 @@ internal object RecapFeatures {
     ): List<JSONObject> =
         quests.mapIndexedNotNull { i, q ->
             q.at?.let { p ->
-                GeoJson.pointFeature(p.lat, p.lon, JSONObject().put("n", i + 1).put("selected", i == selected))
+                GeoJson.pointFeature(p.lat, p.lon, JSONObject().put("n", i + 1).put(MapProp.SELECTED, i == selected))
             }
         }
 }

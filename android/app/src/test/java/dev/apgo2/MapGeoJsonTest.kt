@@ -385,11 +385,11 @@ class MapFeaturesTest {
         val pins = RecapFeatures.questPins(listOf(q(GeoPoint(1.0, 2.0)), q(null), q(GeoPoint(3.0, 4.0))), selected = 2)
         assertEquals(2, pins.size)
         assertEquals(listOf(1, 3), pins.map { it.getJSONObject("properties").getInt("n") })
-        assertEquals(listOf(false, true), pins.map { it.getJSONObject("properties").getBoolean("selected") })
+        assertEquals(listOf(false, true), pins.map { it.getJSONObject("properties").getBoolean(MapProp.SELECTED) })
         assertEquals(
             listOf(false, false),
             RecapFeatures.questPins(listOf(q(GeoPoint(1.0, 2.0)), q(GeoPoint(3.0, 4.0))), null).map {
-                it.getJSONObject("properties").getBoolean("selected")
+                it.getJSONObject("properties").getBoolean(MapProp.SELECTED)
             },
         )
     }

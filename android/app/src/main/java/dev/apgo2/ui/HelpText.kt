@@ -182,6 +182,8 @@ internal object Help {
     // ---- walk recap
     const val RECAP_TITLE = "Welcome home"
     const val RECAP_DONE = "Done"
+    const val EXPANDED = "Expanded"
+    const val COLLAPSED = "Collapsed"
     const val RECAP_QUESTS = "Quests completed"
     const val RECAP_GOAL = "Goal"
     const val RECAP_DONE_AT = "Done at"

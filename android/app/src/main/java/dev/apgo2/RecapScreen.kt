@@ -1,5 +1,7 @@
 package dev.apgo2
 
+import android.graphics.PointF
+import android.graphics.RectF
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -40,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -102,6 +105,7 @@ internal fun RecapScreen(
 private const val MAP_HEIGHT_DP = 200
 private const val MAP_CORNER_DP = 12
 private const val MAP_PADDING_PX = 48
+private const val PIN_TAP_DP = 12f
 private const val PIN_SOURCE = "recap-pins"
 private const val PIN_LAYER = "recap-pins-dot"
 private const val PIN_LABEL_LAYER = "recap-pins-n"
@@ -113,6 +117,11 @@ private const val BADGE_DP = 28
 private const val ROW_MIN_DP = 56
 private const val CHEVRON_OPEN_DEG = 180f
 private const val ROW_GAP_DP = 12
+
+private fun tapArea(
+    at: PointF,
+    density: Float,
+): RectF = (PIN_TAP_DP * density).let { RectF(at.x - it, at.y - it, at.x + it, at.y + it) }
 
 private fun pinData(
     quests: List<RecapQuestOut>,
@@ -153,6 +162,7 @@ private fun RecapMap(
     onPin: (Int) -> Unit,
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current.density
     val latestPin by rememberUpdatedState(onPin)
     val styleReady = remember { mutableStateOf<Style?>(null) }
     val view =
@@ -163,8 +173,9 @@ private fun RecapMap(
                 v.getMapAsync { map ->
                     map.uiSettings.setAllGesturesEnabled(false)
                     map.addOnMapClickListener { ll ->
+                        val area = tapArea(map.projection.toScreenLocation(ll), density)
                         map
-                            .queryRenderedFeatures(map.projection.toScreenLocation(ll), PIN_LAYER)
+                            .queryRenderedFeatures(area, PIN_LAYER)
                             .firstOrNull()
                             ?.getNumberProperty("n")
                             ?.let {
@@ -229,7 +240,7 @@ private fun QuestRow(
         Modifier
             .fillMaxWidth()
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { stateDescription = if (open) "Expanded" else "Collapsed" }
+            .semantics { stateDescription = if (open) Help.EXPANDED else Help.COLLAPSED }
             .heightIn(min = ROW_MIN_DP.dp)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.Center,
