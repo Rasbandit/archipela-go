@@ -1058,14 +1058,15 @@ impl Game {
     }
 
     /// Presence rules (at home, in the car) switch counting off: nothing is checked, credited or added while it is off. Counting on
-    /// means away from home: time away runs from `t_ms` (unless the last fix put the player at home) until counting goes off.
+    /// means away from home: time away runs from `t_ms` (unless the last fix put the player at home) until counting goes off. The walk
+    /// (outing) opens at `t_ms` either way: presence says the player left, so a stale at-home fix must not delay it.
     pub fn set_counting(&mut self, on: bool, t_ms: i64) {
         if on {
             let at_home = self.counters.last_at_home == Some(true);
             if self.counters.away_mark.is_none() && !at_home {
                 self.counters.away_mark = Some(t_ms);
-                self.open_outing(t_ms);
             }
+            self.open_outing(t_ms);
         } else {
             self.settle_away(t_ms);
             self.counters.away_mark = None;
@@ -4416,14 +4417,19 @@ mod tests {
     }
 
     #[test]
-    fn counting_on_at_home_opens_no_outing_until_a_fix_away() {
+    fn counting_on_after_a_fix_at_home_opens_the_outing_at_once() {
+        // Presence says the player left: a stale at-home fix must not delay the walk start, though time away still waits for a fix away.
         let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
         g.set_counting(false, 0);
         g.counters.last_at_home = Some(true);
         g.set_counting(true, 1_000);
-        assert!(g.outing.is_none());
+        assert_eq!(g.outing.as_ref().map(|o| o.start_ms), Some(1_000));
+        assert!(g.counters.away_mark.is_none(), "time away still waits for a fix away");
+        g.on_steps(0, 2_000, None);
+        g.on_steps(400, 3_000, None); // walked before the first fix away
         g.on_estimate(&fixat(destination(g.home, 90.0, 500.0), 60), None);
-        assert_eq!(g.outing.as_ref().map(|o| o.start_ms), Some(60_000));
+        let o = g.outing.clone().expect("still the same walk");
+        assert_eq!((o.start_ms, o.steps), (1_000, 400));
     }
 
     #[test]
