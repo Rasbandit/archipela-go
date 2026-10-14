@@ -316,6 +316,24 @@ pub struct ApServer {
     pub slot: String,
 }
 
+/// A walk away from home, open from leaving until arriving home (car rides in between do not close it). Snapshots, not a log:
+/// what changed is worked out on arrival (`arrive_home`). Saved, so a restart mid-walk keeps it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Outing {
+    /// When the player left home, Unix ms.
+    pub start_ms: i64,
+    /// Raw steps walked so far (not slowed by the backpack).
+    pub steps: i64,
+    /// `fog.cells.len()` on leaving.
+    pub cells_at_start: usize,
+    /// Quests done on leaving.
+    pub done_at_start: BTreeSet<i64>,
+    /// `items.len()` on leaving.
+    pub items_at_start: usize,
+    /// Zones unlocked on leaving.
+    pub zones_at_start: BTreeSet<u32>,
+}
+
 /// A game in progress: its quests, progress, rewards, fog, traps and goal. Saved as JSON.
 #[derive(Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)] // persisted state flags, each independent
@@ -387,6 +405,12 @@ pub struct Game {
     /// How many items the shared backpack holds before steps slow down.
     #[serde(default = "default_bag_size")]
     pub bag_size: u32,
+    /// The walk under way, if the player is away from home.
+    #[serde(default)]
+    pub outing: Option<Outing>,
+    /// The recap of the last walk, until the player dismisses it.
+    #[serde(default)]
+    pub recap: Option<crate::recap::Recap>,
     /// Forager quests: location id -> the street points new items may appear on, from the last streets build (not saved: the next
     /// build fills it again; until then top-ups wait).
     #[serde(skip)]
@@ -621,6 +645,8 @@ impl Game {
             collected: BTreeMap::new(),
             forage: BTreeMap::new(),
             bag_size: BAG_SIZE,
+            outing: None,
+            recap: None,
             forage_pools: BTreeMap::new(),
             trackers: BTreeMap::new(),
             last_fix: None,
@@ -944,6 +970,9 @@ impl Game {
             Some(_) => total,
         };
         self.counters.steps_last = Some(total);
+        if let Some(o) = &mut self.outing {
+            o.steps += gained;
+        }
         if gained == 0 {
             return;
         }
@@ -988,6 +1017,20 @@ impl Game {
         self.traps.set_units(units);
     }
 
+    // Leaving home: snapshot what the recap will compare with on arrival. An open outing (a car ride ended) is kept.
+    fn open_outing(&mut self, t_ms: i64) {
+        if self.outing.is_none() {
+            self.outing = Some(Outing {
+                start_ms: t_ms,
+                steps: 0,
+                cells_at_start: self.fog.cells.len(),
+                done_at_start: self.done.clone(),
+                items_at_start: self.items.len(),
+                zones_at_start: self.unlocked_set(),
+            });
+        }
+    }
+
     /// Presence rules (at home, in the car) switch counting off: nothing is checked, credited or added while it is off. Counting on
     /// means away from home: time away runs from `t_ms` (unless the last fix put the player at home) until counting goes off.
     pub fn set_counting(&mut self, on: bool, t_ms: i64) {
@@ -995,6 +1038,7 @@ impl Game {
             let at_home = self.counters.last_at_home == Some(true);
             if self.counters.away_mark.is_none() && !at_home {
                 self.counters.away_mark = Some(t_ms);
+                self.open_outing(t_ms);
             }
         } else {
             self.settle_away(t_ms);
@@ -1159,6 +1203,7 @@ impl Game {
             self.settle_away(fix.t_ms);
         } else {
             self.counters.away_mark = Some(fix.t_ms);
+            self.open_outing(fix.t_ms);
         }
     }
 
@@ -4260,6 +4305,56 @@ mod tests {
 
     fn wanderlust(g: &Game, now_ms: i64) -> f64 {
         g.chain_views(now_ms).into_iter().find(|c| c.id == "1:wanderlust").unwrap().counter
+    }
+
+    #[test]
+    fn leaving_home_opens_one_outing_that_a_car_ride_keeps_open() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.set_counting(false, 0);
+        g.set_counting(true, 1_000);
+        let o = g.outing.clone().expect("left home");
+        assert_eq!((o.start_ms, o.steps, o.items_at_start), (1_000, 0, g.items.len()));
+        g.set_counting(false, 2_000); // in the car
+        g.set_counting(true, 3_000);
+        assert_eq!(g.outing.as_ref().map(|o| o.start_ms), Some(1_000), "the car ride does not start a new walk");
+    }
+
+    #[test]
+    fn counting_on_at_home_opens_no_outing_until_a_fix_away() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.set_counting(false, 0);
+        g.counters.last_at_home = Some(true);
+        g.set_counting(true, 1_000);
+        assert!(g.outing.is_none());
+        g.on_estimate(&fixat(destination(g.home, 90.0, 500.0), 60), None);
+        assert_eq!(g.outing.as_ref().map(|o| o.start_ms), Some(60_000));
+    }
+
+    #[test]
+    fn an_outing_counts_raw_steps_even_with_a_heavy_backpack() {
+        let (mut g, pts) = forager_game();
+        g.on_estimate(&fixat(pts[0], 600), None);
+        g.on_estimate(&fixat(pts[1], 1200), None);
+        g.bag_size = 0; // two items over the bag: credited steps slow down
+        g.set_counting(false, 1_300_000);
+        g.set_counting(true, 1_400_000);
+        g.on_steps(0, 1_500_000, None);
+        g.on_steps(800, 1_600_000, None);
+        assert_eq!(g.outing.as_ref().map(|o| o.steps), Some(800));
+    }
+
+    #[test]
+    fn an_outing_survives_a_restart_and_old_saves_have_none() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        g.set_counting(false, 0);
+        g.set_counting(true, 1_000);
+        let back: Game = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        assert_eq!(back.outing, g.outing, "unlike time away, the walk is kept across a restart");
+        let mut old = serde_json::to_value(&g).unwrap();
+        old.as_object_mut().unwrap().remove("outing");
+        old.as_object_mut().unwrap().remove("recap");
+        let old: Game = serde_json::from_value(old).unwrap();
+        assert!(old.outing.is_none() && old.recap.is_none());
     }
 
     #[test]
