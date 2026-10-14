@@ -47,7 +47,6 @@ internal class GameLibrary(
                 model.sim.resetClock()
                 model.log.clear()
                 model.refreshAll()
-                model.recaps.refresh()
                 model.nav.show(AppTab.PLAY)
                 model.status = "Game started!"
             }
@@ -79,6 +78,7 @@ internal class GameLibrary(
                 model.engine.logSession(true, model.now())
                 model.sim.resetClock()
                 model.refreshAll()
+                model.recaps.refresh()
                 model.nav.show(AppTab.PLAY)
             }
             opened.onFailure { model.fail("open_game", "Could not open", it) }
