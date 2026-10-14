@@ -1767,11 +1767,14 @@ impl Game {
         ev
     }
 
-    /// Mark quests the server says are already checked (reconnect).
+    /// Mark quests the server says are already checked (reconnect). An open walk treats them as done before it started.
     pub fn mark_checked(&mut self, ids: &[i64], now_ms: i64) {
         for id in ids {
             if self.assignments.iter().any(|a| a.location_id == *id) && self.done.insert(*id) {
                 self.stats.quest_days.insert(now_ms / DAY_MS);
+                if let Some(o) = self.outing.as_mut() {
+                    o.done_at_start.insert(*id);
+                }
             }
         }
     }
@@ -4706,6 +4709,17 @@ mod tests {
     fn an_outing_saved_before_banked_at_start_still_loads() {
         let old = serde_json::json!({ "start_ms": 1, "steps": 2, "cells_at_start": 0, "done_at_start": [], "items_at_start": 0, "zones_at_start": [] });
         assert_eq!(serde_json::from_value::<Outing>(old).unwrap().banked_at_start, 0);
+    }
+
+    #[test]
+    fn a_check_synced_from_the_server_mid_walk_is_not_a_walk_quest() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 500 }]);
+        let id = g.assignments[0].location_id;
+        left_home(&mut g, 0);
+        g.mark_checked(&[id], 1_000); // done on another device, synced on reconnect
+        g.outing.as_mut().unwrap().steps = 900;
+        let r = g.arrive_home(10 * 60_000).1.expect("steps alone are worth it");
+        assert!(r.quests_done.is_empty(), "{:?}", r.quests_done);
     }
 
     #[test]
