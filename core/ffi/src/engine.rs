@@ -207,15 +207,6 @@ pub struct OfferOut {
     pub count: u32,
 }
 
-/// One chosen win condition and its parameter (0 means that goal's default).
-#[derive(Debug, uniffi::Record)]
-pub struct GoalPickIn {
-    /// Goal id.
-    pub id: String,
-    /// Parameter of the goal; 0 means its default.
-    pub target: u32,
-}
-
 /// One goal's progress, for the Play screen.
 #[derive(Debug, uniffi::Record)]
 pub struct GoalLineOut {
@@ -233,8 +224,8 @@ pub struct GoalLineOut {
 #[derive(Debug, uniffi::Record)]
 #[allow(clippy::struct_excessive_bools)] // mirrors the YAML options the UI sends, each an independent switch
 pub struct SoloOptionsIn {
-    /// The win conditions (at least one).
-    pub goals: Vec<GoalPickIn>,
+    /// Ids of the win conditions (at least one).
+    pub goals: Vec<String>,
     /// How they combine: "any", "all" or "`at_least`".
     pub goal_requirement: String,
     /// For "`at_least"`: how many of the goals must be finished.
@@ -285,8 +276,7 @@ fn to_core(o: SoloOptionsIn) -> Result<SoloOptions, CoreError> {
     };
     Ok(SoloOptions {
         goal: String::new(),
-        goal_target: 0,
-        goals: o.goals.into_iter().map(|g| apgo_core::slot::GoalSpec { id: g.id, target: g.target }).collect(),
+        goals: o.goals.into_iter().map(|id| apgo_core::slot::GoalSpec { id, target: 0 }).collect(),
         goal_mode,
         goal_need: o.goal_need,
         zone_quest_types: o.zone_quest_types,
@@ -1801,9 +1791,9 @@ impl Engine {
     /// Archipelago player YAML for `player` from the solo options.
     ///
     /// # Errors
-    /// Returns an error if a travel mode or the goal requirement is unknown.
+    /// Returns an error if a travel mode or the goal requirement is unknown, or the goals cannot be played.
     pub fn build_yaml(&self, player: String, o: SoloOptionsIn) -> Result<String, CoreError> {
-        Ok(build_yaml(&player, &to_core(o)?))
+        build_yaml(&player, &to_core(o)?).map_err(|detail| CoreError::Failed { detail })
     }
 
     /// Create and open a solo game.

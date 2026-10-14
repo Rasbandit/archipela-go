@@ -54,7 +54,6 @@ import dev.apgo2.ui.PLAY_MODES
 import dev.apgo2.ui.SwitchRow
 import dev.apgo2.ui.Tone
 import dev.apgo2.ui.modeLabel
-import uniffi.apgo_ffi.GoalPickIn
 import uniffi.apgo_ffi.RealmOut
 import uniffi.apgo_ffi.SoloOptionsIn
 
@@ -145,7 +144,7 @@ private class NewGameForm {
     fun options(): SoloOptionsIn {
         val mix = MIXES[preset]
         return SoloOptionsIn(
-            goals = goals.map { GoalPickIn(it, 0u) },
+            goals = goals.toList(),
             goalRequirement = if (goals.size == 1) ANY else requirement,
             goalNeed = need.coerceIn(1, goals.size).toUInt(),
             numberOfTrips = trips.toInt().toUInt(),

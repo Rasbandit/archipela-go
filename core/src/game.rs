@@ -1856,6 +1856,8 @@ impl Game {
     pub fn load(dir: &Path, id: &str) -> Result<Self, String> {
         let s = std::fs::read_to_string(Self::path_for(dir, id)).map_err(|e| e.to_string())?;
         let mut g: Self = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
+        // A goal this version no longer has could never be won: refuse the game instead of opening it.
+        g.slot.check_goals().map_err(|e| format!("this game was made with an older version of the app and cannot be played ({e})"))?;
         g.counters.steps_last = None; // steps taken while the game was closed are never credited
         g.counters.away_mark = None; // nor time away: where the player was while the app was dead is unknown (presence restarts it)
         g.reattach_trackers();
@@ -2815,6 +2817,19 @@ mod tests {
         std::fs::write(Game::path_for(&dir, "g1"), "{broken").unwrap();
         assert!(Game::load(&dir, "g1").is_err());
         assert!(Game::load(&dir, "missing").is_err());
+    }
+
+    #[test]
+    fn a_save_whose_goal_was_removed_is_refused_with_a_clear_message() {
+        let dir = std::env::temp_dir().join(format!("apgo-oldgoal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        g.slot.goal = "boss".into(); // The Big One, removed in Beta 1
+        g.slot.goals = vec![];
+        g.save(&dir).unwrap();
+        let Err(err) = Game::load(&dir, "g1") else { panic!("a save with a removed goal must not load") };
+        assert!(err.contains("older version") && err.contains("unknown goal boss"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

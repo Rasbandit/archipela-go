@@ -74,8 +74,6 @@ fn mode_index(m: Mode) -> i64 {
 pub struct SoloOptions {
     /// The win condition. When `goals` is not empty it takes over (and these two are only the single-goal form).
     pub goal: String,
-    /// Parameter of the single goal.
-    pub goal_target: u32,
     /// The win conditions; when not empty they replace `goal`.
     pub goals: Vec<GoalSpec>,
     /// How the goals combine into winning.
@@ -122,7 +120,6 @@ impl Default for SoloOptions {
     fn default() -> Self {
         Self {
             goal: "treasure_hunt".into(),
-            goal_target: 0,
             goals: vec![],
             goal_mode: GoalMode::All,
             goal_need: 0,
@@ -156,25 +153,18 @@ pub struct SoloGame {
     pub rewards: BTreeMap<i64, String>,
 }
 
-fn letters_for(goal: &str) -> &'static str {
-    if goal == "treasure_hunt" {
+/// Treasure Hunt is the one goal with letters (A, P, G, O) and a Boss Quest.
+fn has_treasure_hunt(goals: &[GoalSpec]) -> bool {
+    goals.iter().any(|g| g.id == "treasure_hunt")
+}
+
+/// The letters a set of goals needs.
+fn letters_for_goals(goals: &[GoalSpec]) -> &'static str {
+    if has_treasure_hunt(goals) {
         "APGO"
     } else {
         ""
     }
-}
-
-fn has_boss(goal: &str) -> bool {
-    goal == "treasure_hunt"
-}
-
-/// The letters a set of goals needs: the longest any of them asks for.
-fn letters_for_goals(goals: &[GoalSpec]) -> &'static str {
-    goals.iter().map(|g| letters_for(&g.id)).max_by_key(|l| l.len()).unwrap_or("")
-}
-
-fn has_boss_goal(goals: &[GoalSpec]) -> bool {
-    goals.iter().any(|g| has_boss(&g.id))
 }
 
 impl SoloOptions {
@@ -182,7 +172,7 @@ impl SoloOptions {
     #[must_use]
     pub fn goal_list(&self) -> Vec<GoalSpec> {
         if self.goals.is_empty() {
-            vec![GoalSpec { id: self.goal.clone(), target: self.goal_target }]
+            vec![GoalSpec { id: self.goal.clone(), target: 0 }]
         } else {
             self.goals.clone()
         }
@@ -306,7 +296,7 @@ pub fn generate(o: &SoloOptions, seed: u64) -> Result<SoloGame, String> {
             }
         }
     }
-    let boss = zones.last().filter(|_| has_boss_goal(&o.goal_list())).map(|last| QuestSlot {
+    let boss = zones.last().filter(|_| has_treasure_hunt(&o.goal_list())).map(|last| QuestSlot {
         location_id: ID_OFFSET + 12 * BLOCK_SIZE + 1,
         zone: last.id,
         mode: last.mode,
@@ -542,7 +532,7 @@ mod tests {
                 assert!(is_beatable(&g), "{zones:?} {goal} seed {seed} is not beatable");
                 let count = |n: &str| g.rewards.values().filter(|v| *v == n).count();
                 assert_eq!(count("Progressive Zone Key"), zones.len() - 1);
-                assert_eq!(g.rewards.values().filter(|v| v.starts_with("Letter ")).count(), letters_for(goal).len());
+                assert_eq!(g.rewards.values().filter(|v| v.starts_with("Letter ")).count(), letters_for_goals(&opts(&zones, trips, goal).goal_list()).len());
             }
         }
     }

@@ -36,6 +36,23 @@ pub fn goal_yaml_name(id: &str) -> &'static str {
     }
 }
 
+/// The game's goals in words, by their player names, with the rule when there are several
+/// ("Treasure Hunt, Completionist (any one)"). An unknown id is shown as it is.
+#[must_use]
+pub fn goal_summary(slot: &SlotData) -> String {
+    let goals = slot.goal_list();
+    let names: Vec<&str> = goals.iter().map(|g| Some(goal_yaml_name(&g.id)).filter(|n| !n.is_empty()).unwrap_or(&g.id)).collect();
+    if names.len() == 1 {
+        return names[0].to_string();
+    }
+    let rule = match slot.goal_mode {
+        GoalMode::Any => "any one".to_string(),
+        GoalMode::All => "all".to_string(),
+        GoalMode::AtLeast => format!("at least {}", slot.goal_need),
+    };
+    format!("{} ({rule})", names.join(", "))
+}
+
 fn status(have: f64, need: f64, label: String) -> GoalStatus {
     let progress = if need <= 0.0 { 1.0 } else { to_f32((have / need).clamp(0.0, 1.0)) };
     GoalStatus { progress, achieved: have >= need, label }
@@ -251,6 +268,15 @@ mod tests {
     fn all_trips_counts_the_boss() {
         assert!(!eval(&slot("all_trips"), &[1, 2, 3, 4], &[]).achieved, "the boss counts for all_trips");
         assert!(eval(&slot("all_trips"), &[1, 2, 3, 4, 9], &[]).achieved);
+    }
+
+    #[test]
+    fn the_summary_uses_player_names_and_the_rule() {
+        assert_eq!(goal_summary(&slot("all_trips")), "Completionist");
+        assert_eq!(goal_summary(&multi(&["treasure_hunt", "all_trips"], GoalMode::Any, 0)), "Treasure Hunt, Completionist (any one)");
+        assert_eq!(goal_summary(&multi(&["treasure_hunt", "all_trips"], GoalMode::All, 0)), "Treasure Hunt, Completionist (all)");
+        assert_eq!(goal_summary(&multi(&["treasure_hunt", "all_trips"], GoalMode::AtLeast, 1)), "Treasure Hunt, Completionist (at least 1)");
+        assert_eq!(goal_summary(&slot("boss")), "boss", "an unknown id is shown as it is");
     }
 
     #[test]
