@@ -13,6 +13,9 @@ internal object RecapTimeline {
     /** The share of a bar's run spent easing to a stop. */
     const val LANDING = 0.12f
 
+    /** Share of a bar's run after which its extra line starts to fade in. */
+    const val FADE_FROM = 0.6f
+
     /** One bar's run, in milliseconds from the start of the recap. */
     data class Slot(
         val startMs: Long,
@@ -47,4 +50,17 @@ internal object RecapTimeline {
         val u = t - (1f - tail)
         return if (t < 1f - tail) v * t else min(1f, v * (1f - tail) + v * (u - u * u / (2f * tail)))
     }
+
+    /** A bar's gain as a share (0..1) of its full length [max], with both ends clamped to [max]. */
+    fun gainFraction(
+        before: Double,
+        after: Double,
+        max: Double,
+    ): Float = if (max <= 0.0) 0f else ((min(after, max) - min(before, max)) / max).toFloat().coerceAtLeast(0f)
+
+    /** Opacity (0..1) of a line that fades in over the last part of a bar's run, from [FADE_FROM] of the slot. */
+    fun fadeIn(
+        elapsedMs: Long,
+        slot: Slot,
+    ): Float = ((elapsedMs - slot.startMs).toFloat() / slot.durationMs).let { ((it - FADE_FROM) / (1f - FADE_FROM)).coerceIn(0f, 1f) }
 }

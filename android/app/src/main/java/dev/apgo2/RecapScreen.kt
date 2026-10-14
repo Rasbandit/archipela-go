@@ -2,15 +2,21 @@ package dev.apgo2
 
 import android.graphics.PointF
 import android.graphics.RectF
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,8 +45,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -52,7 +60,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.Help
+import dev.apgo2.ui.RecapChainBar
 import dev.apgo2.ui.hex
+import kotlinx.coroutines.delay
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -61,7 +71,6 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
-import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
@@ -75,6 +84,7 @@ import org.maplibre.android.style.layers.PropertyFactory.textSize
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import uniffi.apgo_ffi.GeoPoint
+import uniffi.apgo_ffi.RecapChainOut
 import uniffi.apgo_ffi.RecapOut
 import uniffi.apgo_ffi.RecapQuestOut
 
@@ -87,20 +97,130 @@ internal fun RecapScreen(
     BackHandler(onBack = onDone)
     var selected by rememberSaveable { mutableStateOf<Int?>(null) }
     val toggle = { i: Int -> selected = if (selected == i) null else i }
+    val slots = remember(r) { RecapTimeline.slots(r.chains.map { RecapTimeline.gainFraction(it.before, it.after, chainMax(it)) }) }
+    val reduced = rememberReducedMotion()
+    val clock = rememberRecapClock(r.endMs, RecapTimeline.endMs(slots), reduced)
     Surface(Modifier.fillMaxSize()) {
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text(Help.RECAP_TITLE, style = MaterialTheme.typography.headlineMedium) }
             item { Text(RecapFormat.subtitle(r)) }
-            if (r.route.isNotEmpty()) item { RecapMap(r.route, r.quests, selected, toggle) }
+            if (hasMap(r)) item { Reveal(0, reduced) { RecapMap(r.route, r.quests, selected, toggle) } }
+            if (r.chains.isNotEmpty()) item { Reveal(1, reduced) { ProgressCard(r, slots, clock, animate = !reduced) } }
+            if (r.quests.isNotEmpty()) item { Reveal(2, reduced) { QuestsCard(r.quests, selected, toggle) } }
             items(RecapFormat.sections(r), key = { it.first }) { (label, lines) ->
                 Text(label, style = MaterialTheme.typography.titleSmall)
                 lines.forEach { Text(it) }
             }
-            if (r.quests.isNotEmpty()) item { QuestsCard(r.quests, selected, toggle) }
             item { Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text(Help.RECAP_DONE) } }
         }
     }
 }
+
+private const val REVEAL_STAGGER_MS = 120
+private const val REVEAL_SLIDE_DIV = 8
+private const val BEFORE_START_ALPHA = 0.55f
+
+@Composable
+private fun rememberReducedMotion(): Boolean {
+    val resolver = LocalContext.current.contentResolver
+    return remember { Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
+}
+
+// A card that fades and slides in a little after the one above it (shown at once with reduced motion).
+@Composable
+private fun Reveal(
+    order: Int,
+    reduced: Boolean,
+    content: @Composable () -> Unit,
+) {
+    var shown by remember { mutableStateOf(reduced) }
+    LaunchedEffect(Unit) {
+        delay(order * REVEAL_STAGGER_MS.toLong())
+        shown = true
+    }
+    AnimatedVisibility(shown, enter = fadeIn() + slideInVertically { it / REVEAL_SLIDE_DIV }) { content() }
+}
+
+// One clock for the whole recap, restarted per recap; with reduced motion it starts at the end.
+@Composable
+private fun rememberRecapClock(
+    key: Long,
+    end: Long,
+    reduced: Boolean,
+): Animatable<Float, AnimationVector1D> {
+    val clock = remember { Animatable(0f) }
+    LaunchedEffect(key) {
+        clock.snapTo(0f)
+        if (reduced || end == 0L) {
+            clock.snapTo(end.toFloat())
+        } else {
+            clock.animateTo(end.toFloat(), tween(end.toInt(), easing = LinearEasing))
+        }
+    }
+    return clock
+}
+
+private fun hasMap(r: RecapOut) = r.route.isNotEmpty() || r.quests.any { it.at != null }
+
+private fun chainMax(c: RecapChainOut): Double = (c.marks.maxOrNull() ?: c.after).coerceAtLeast(1.0)
+
+// One bar per chain, filling one after another off the shared [clock].
+@Composable
+private fun ProgressCard(
+    r: RecapOut,
+    slots: List<RecapTimeline.Slot>,
+    clock: Animatable<Float, AnimationVector1D>,
+    animate: Boolean,
+) {
+    val now = clock.value.toLong()
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ROW_GAP_DP.dp)) {
+                Text(Help.RECAP_PROGRESS, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                Legend(ApgoPalette.questTodo, Help.RECAP_LEGEND_BEFORE)
+                Legend(ApgoPalette.questProgress, Help.RECAP_LEGEND_COUNTED)
+            }
+            r.chains.forEachIndexed { i, c -> ChainBlock(r, c, slots[i], now, animate) }
+        }
+    }
+}
+
+@Composable
+private fun ChainBlock(
+    r: RecapOut,
+    c: RecapChainOut,
+    slot: RecapTimeline.Slot,
+    now: Long,
+    animate: Boolean,
+) {
+    val value = c.before + (c.after - c.before) * RecapTimeline.progress(now, slot)
+    Column(Modifier.alpha(if (now < slot.startMs) BEFORE_START_ALPHA else 1f)) {
+        Row {
+            Text(c.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            Text(RecapFormat.barGain(c, value), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+        }
+        RecapChainBar(c.before.toFloat(), value.toFloat(), chainMax(c).toFloat(), c.marks.map { it.toFloat() }, c.before.toFloat(), animate)
+        Row {
+            Text(RecapFormat.barTotal(c, value), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Text(RecapFormat.barNext(c, value), style = MaterialTheme.typography.bodySmall)
+        }
+        val steps = if (c.unit == "steps") RecapFormat.stepsLine(r) else null
+        if (steps != null) Text(steps, Modifier.alpha(RecapTimeline.fadeIn(now, slot)), style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun Legend(
+    color: Color,
+    label: String,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.size(LEGEND_DP.dp).background(color, CircleShape))
+        Text(label, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+private const val LEGEND_DP = 10
 
 private const val MAP_HEIGHT_DP = 200
 private const val MAP_CORNER_DP = 12

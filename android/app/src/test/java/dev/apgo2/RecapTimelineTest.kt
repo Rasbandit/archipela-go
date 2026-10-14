@@ -40,4 +40,21 @@ class RecapTimelineTest {
         assertEquals(0f, RecapTimeline.progress(0, slot), 1e-6f)
         assertEquals(1f, RecapTimeline.progress(5000, slot), 1e-6f)
     }
+
+    @Test fun gainFractionIsShareOfBarAndClampedToMax() {
+        assertEquals(0.5f, RecapTimeline.gainFraction(0.0, 50.0, 100.0), 1e-6f)
+        assertEquals(0.25f, RecapTimeline.gainFraction(50.0, 75.0, 100.0), 1e-6f)
+        assertEquals(0.5f, RecapTimeline.gainFraction(50.0, 500.0, 100.0), 1e-6f) // after clamped to max
+        assertEquals(0f, RecapTimeline.gainFraction(200.0, 300.0, 100.0), 1e-6f) // already past max
+        assertEquals(0f, RecapTimeline.gainFraction(0.0, 10.0, 0.0), 1e-6f) // no max
+    }
+
+    @Test fun fadeInStartsAtSixtyPercentOfTheSlot() {
+        val slot = RecapTimeline.Slot(1000, 1000)
+        assertEquals(0f, RecapTimeline.fadeIn(1500, slot), 1e-6f)
+        assertEquals(0f, RecapTimeline.fadeIn(1600, slot), 1e-6f)
+        assertEquals(1f, RecapTimeline.fadeIn(2000, slot), 1e-6f)
+        assertEquals(1f, RecapTimeline.fadeIn(9000, slot), 1e-6f)
+        assertTrue(RecapTimeline.fadeIn(1800, slot) in 0.01f..0.99f)
+    }
 }
