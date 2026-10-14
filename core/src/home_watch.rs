@@ -106,9 +106,14 @@ impl HomeWatch {
     }
 
     /// Start deciding at `t_ms` (presence started): home on home Wi-Fi; with a pin and no home Wi-Fi, a check, falling back to away
-    /// (as before the circle: no home Wi-Fi means playing unless a fix shows the player home).
+    /// (as before the circle: no home Wi-Fi means playing unless a fix shows the player home). A restart keeps a home the circle
+    /// decided: a check indoors often finds no clear fix and would fall back to away.
     pub fn start(&mut self, t_ms: i64) {
+        let circle_home = self.started && self.state == HomeState::Home && self.circle().is_some();
         self.started = true;
+        if circle_home {
+            return;
+        }
         if self.wifi == Some(true) {
             self.go_home(i64::MIN);
         } else if self.circle().is_some() {
@@ -417,6 +422,21 @@ mod tests {
         inside.start(0);
         inside.on_fix(out(5.0), 10.0, 2_000);
         assert_eq!(inside.state(), HomeState::Home);
+    }
+
+    #[test]
+    fn a_restart_keeps_a_home_the_circle_decided() {
+        // The host restarts presence (e.g. the Bluetooth grant changed): a player the circle found home, with no home Wi-Fi, must not
+        // be put through a check that falls back to away indoors, where GPS often finds no clear fix.
+        let mut w = HomeWatch::default();
+        w.set_walk_sensor(true);
+        w.set_center(Some(home()));
+        w.start(0);
+        w.on_fix(out(5.0), 10.0, 2_000);
+        assert_eq!(w.state(), HomeState::Home);
+        w.start(10_000);
+        assert_eq!(w.state(), HomeState::Home);
+        assert_eq!(w.due_ms(), None, "no check, GPS stays off");
     }
 
     #[test]

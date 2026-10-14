@@ -44,6 +44,13 @@ class PresencePolicyTest {
         assertFalse(PresencePolicy.arrivedHome(PresenceState.InZone, PresenceState.InCar))
     }
 
+    @Test fun aHomeCheckIsNotArrivingHome() {
+        // Presence (re)started away from home with a home pin and no home Wi-Fi: the core checks with GPS, shown as AtHome. That is
+        // not arriving home, so forager quests must not bank mid-walk.
+        assertFalse(PresencePolicy.arrivedHome(PresenceState.Stopped, PresenceState.AtHome, checking = true))
+        assertFalse(PresencePolicy.arrivedHome(PresenceState.InZone, PresenceState.AtHome, checking = true))
+    }
+
     @Test fun theCarBeatsEverythingElse() {
         val d = PresencePolicy.decide(signals(car = true, home = true, zone = Zone.Inside))
         assertEquals(Decision(PresenceState.InCar, GpsMode.Off, counting = false), d)

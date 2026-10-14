@@ -190,7 +190,7 @@ internal class PresenceController(
         Diag.info(TAG, d.state.name, "counting" to d.counting, "gps" to d.gps.toString())
         if (model.hud != null) model.engine.logPresence(presenceText(d.state), t)
         model.noteJournal()
-        if (PresencePolicy.arrivedHome(prev, d.state) && model.hud != null) bankAtHome()
+        if (PresencePolicy.arrivedHome(prev, d.state, d.gps == GpsMode.Check) && model.hud != null) bankAtHome()
         if (prev == PresenceState.Stopped) model.sensors.allowColdStart()
     }
 

@@ -326,7 +326,7 @@ impl Locator {
                 self.calib.on_estimate(&e, &self.steps, &self.params); // positions, not the filter's speed (Task 21 notes 3)
             }
         }
-        self.shown_seg = show_match(self.shown_seg, self.matcher.best(), &e, self.graph.as_deref(), &self.params);
+        self.shown_seg = show_match(self.shown_seg, self.matcher.best_on_street(), &e, self.graph.as_deref(), &self.params);
         if e.accepted && e.course_deg.is_some() && self.hold.is_none() {
             self.last_course = e.course_deg;
         }

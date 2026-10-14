@@ -146,6 +146,8 @@ pub struct Matcher {
     undecided: usize,
     last_input: Option<(Point, i64)>,
     best: Option<MatchOut>,
+    /// The newest answer's point on the street itself (`best.point` may be kept beside a road, [`StreetGraph::beside`]).
+    best_on_street: Option<Point>,
     /// Decided points: the kept ones (given out by [`Self::trace_since`]), then the ones the simplifier has not decided yet (the window,
     /// all after the last kept one, in its run).
     trace: Vec<Point>,
@@ -195,12 +197,20 @@ impl Matcher {
         self.columns.clear();
         self.last_input = None;
         self.best = None;
+        self.best_on_street = None;
     }
 
     /// The newest answer.
     #[must_use]
     pub fn best(&self) -> Option<MatchOut> {
         self.best
+    }
+
+    /// The newest answer with its point on the street itself, not kept beside a road: how far the street is from the estimate, which
+    /// the show gate measures (a side point up to `match_side_max_m` nearer would widen the gate by that much).
+    #[must_use]
+    pub fn best_on_street(&self) -> Option<MatchOut> {
+        self.best.map(|m| MatchOut { point: self.best_on_street.unwrap_or(m.point), ..m })
     }
 
     /// The session's line: matched points where confident, estimate points elsewhere, a few inputs behind, simplified at 2 m as it
@@ -510,6 +520,7 @@ impl Matcher {
         let i = Self::best_in(&states);
         let point = states[i].cand.map_or(states[i].point, |c| graph.beside(c.seg, states[i].point, here, self.mask, self.side_max_m));
         self.best = Some(MatchOut { point, confidence: states[i].conf, seg: states[i].cand.map(|c| c.seg) });
+        self.best_on_street = Some(states[i].point);
         self.columns.push_back(states);
         self.undecided += 1;
         // Fixed lag: a column with `lag` newer inputs is final and goes into the trace; the newest column stays for the next step.

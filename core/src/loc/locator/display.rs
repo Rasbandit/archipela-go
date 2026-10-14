@@ -464,6 +464,26 @@ mod tests {
     }
 
     #[test]
+    fn a_walker_well_off_a_road_is_not_pulled_toward_it() {
+        // The show gate measures the estimate's distance from the street, not from the side point kept beside a road (issue #176):
+        // 16 m off is past the 10 m gate, so the pin stays with the walker instead of being pulled 4 m toward the road.
+        let way =
+            crate::scan::WayGeom { id: 1, class: crate::scan::way_class::FOOT | crate::scan::way_class::CAR, pts: vec![o(), destination(o(), 90.0, 400.0)] };
+        let mut l = Locator::default();
+        l.set_graph(StreetGraph::from_ways(&[way]).map(Arc::new));
+        let side = destination(o(), 180.0, 16.0);
+        for t in 0..120 {
+            let walked = destination(side, 90.0, 20.0 + 1.4 * i64_to_f64(t));
+            l.on_fix(&fix(walked, t, 4.0));
+            if t >= 20 {
+                let d = l.display(t * 1000).unwrap();
+                let off = distance_m(Point::new(d.lat, d.lon), walked);
+                assert!(!d.matched && off <= 2.0, "pin {off} m from the walker: {d:?}");
+            }
+        }
+    }
+
+    #[test]
     fn a_shown_street_the_estimate_has_left_round_a_corner_does_not_hold_the_pin() {
         // Issue #177: with the screen off (a fix every 5 s) the matcher's answer is still the old street for an input or two after a
         // corner; the pin waited at the corner, 11-13 m from an estimate already on the new footway. A snap never moves the pin farther
