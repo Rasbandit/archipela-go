@@ -2962,13 +2962,13 @@ mod tests {
             g.outing.as_mut().unwrap().steps = 900;
             let a = &mut g.assignments[0];
             a.target = Target::Collect { pts: vec![home()], need: 4, r: 25.0, theme: "acorns".into() };
-            let c = Collected { picked: [0u16, 1].into(), carried: 2, banked: 1 };
+            let c = Collected { picked: [0u16, 1].into(), carried: 2, banked: 0 };
             g.collected.insert(a.location_id, c);
         });
         e.bank_at_home(600_000);
         let r = e.pending_recap().expect("recap");
         let f = r.foragers.first().expect("forager listed");
-        assert_eq!((f.theme.as_str(), f.need, f.banked_before, f.banked_after, f.picked, f.carried), ("acorns", 4, 0, 3, 2, 0));
+        assert_eq!((f.theme.as_str(), f.need, f.banked_before, f.banked_after, f.picked, f.carried), ("acorns", 4, 0, 2, 2, 0));
     }
 
     #[test]

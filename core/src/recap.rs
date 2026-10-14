@@ -112,7 +112,13 @@ pub struct Recap {
 #[must_use]
 pub fn walk_summary(r: &Recap, units: UnitSystem) -> String {
     let minutes = ((r.end_ms - r.start_ms).max(0) + 30_000) / 60_000;
-    let time = if minutes >= 60 { format!("{} h {} min", minutes / 60, minutes % 60) } else { format!("{minutes} min") };
+    let time = if minutes >= 60 && minutes % 60 == 0 {
+        format!("{} h", minutes / 60)
+    } else if minutes >= 60 {
+        format!("{} h {} min", minutes / 60, minutes % 60)
+    } else {
+        format!("{minutes} min")
+    };
     let mut parts = vec![distance(r.distance_m, units), time];
     match r.quests_done.len() {
         0 => {}
@@ -235,6 +241,8 @@ mod tests {
         assert_eq!(walk_summary(&r, UnitSystem::Metric), "3.1 km · 42 min · 2 quests");
         r.end_ms = 135 * 60_000;
         assert_eq!(walk_summary(&r, UnitSystem::Metric), "3.1 km · 2 h 15 min · 2 quests");
+        r.end_ms = 60 * 60_000;
+        assert_eq!(walk_summary(&r, UnitSystem::Metric), "3.1 km · 1 h · 2 quests");
         assert!(walk_summary(&r, UnitSystem::Imperial).starts_with("1.9 mi"));
     }
 }

@@ -354,7 +354,7 @@ pub struct Outing {
     /// Forager items banked on leaving (all foragers). A fix inside the home radius banks before presence says "at home".
     #[serde(default)]
     pub banked_at_start: u32,
-    /// Each forager's (banked, picked count) on leaving, by location id.
+    /// Each forager's (banked, carried) on leaving, by location id. Their sum grows with every pickup, top-ups included.
     #[serde(default)]
     pub forage_at_start: BTreeMap<i64, (u32, u32)>,
 }
@@ -1057,7 +1057,7 @@ impl Game {
                 items_at_start: self.items.len(),
                 zones_at_start: self.unlocked_set(),
                 banked_at_start: self.banked_total(),
-                forage_at_start: self.collected.iter().map(|(id, c)| (*id, (c.banked, u32::try_from(c.picked.len()).unwrap_or(u32::MAX)))).collect(),
+                forage_at_start: self.collected.iter().map(|(id, c)| (*id, (c.banked, c.carried))).collect(),
             });
         }
     }
@@ -1262,15 +1262,15 @@ impl Game {
             .filter_map(|a| {
                 let Target::Collect { need, theme, .. } = &a.target else { return None };
                 let c = self.collected.get(&a.location_id)?;
-                let (banked_before, picked_before) = o.forage_at_start.get(&a.location_id).copied().unwrap_or((0, 0));
-                let picked_now = u32::try_from(c.picked.len()).unwrap_or(u32::MAX);
-                (c.banked != banked_before || picked_now != picked_before).then(|| RecapForager {
+                let (banked_before, carried_before) = o.forage_at_start.get(&a.location_id).copied().unwrap_or((0, 0));
+                let picked = (c.banked + c.carried).saturating_sub(banked_before + carried_before);
+                (c.banked != banked_before || picked > 0).then(|| RecapForager {
                     name: a.quest_name.clone(),
                     theme: theme.clone(),
                     need: *need,
                     banked_before,
                     banked_after: c.banked,
-                    picked: picked_now.saturating_sub(picked_before),
+                    picked,
                     carried: c.carried,
                 })
             })
@@ -4967,6 +4967,17 @@ mod tests {
         g.set_counting(false, 1_250_000);
         let r = g.arrive_home(1_300_000).1.unwrap();
         assert_eq!((r.foragers[0].banked_before, r.foragers[0].picked), (0, 2));
+    }
+
+    #[test]
+    fn a_topped_up_pickup_under_a_trap_is_listed_and_counted() {
+        let (mut g, _) = forager_walk(0);
+        g.outing.as_mut().unwrap().steps = 900;
+        g.collected.entry(2000).or_default().carried += 1; // a respawned item: carried, not in `picked`
+        freeze(&mut g);
+        let r = g.arrive_home(1_300_000).1.expect("steps alone are worth it");
+        let f = r.foragers.first().expect("the forager is listed");
+        assert_eq!((f.picked, f.carried, f.banked_after), (1, 1, 0));
     }
 
     #[test]
