@@ -35,13 +35,7 @@ import androidx.compose.ui.unit.sp
 
 /** Shared building blocks. Screens compose these; they do not restyle Material widgets themselves. */
 
-internal val MODES = listOf("walk", "run", "bike", "drive")
-
-/** The modes a realm or zone can be for right now. Car is not offered yet. */
-internal val PLAY_MODES = listOf("walk", "run", "bike")
-
-/** The game says "car" where the data says "drive". */
-internal fun modeLabel(mode: String) = if (mode == "drive") "car" else mode
+internal val MODES = listOf("walk", "run") // the apworld's MODES, in order (HelpTextTest checks)
 
 /** A selectable chip. The selected one is a solid fill, so it reads clearly against the card behind it. */
 @Composable

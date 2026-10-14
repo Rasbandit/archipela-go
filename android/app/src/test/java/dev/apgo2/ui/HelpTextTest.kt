@@ -24,6 +24,18 @@ private fun pyDict(
         ?.get(1)
         ?: error("$name dict not found in apworld constants.py")
 
+// The items of the top-level `NAME = ("a", "b")` tuple literal in [source].
+private fun pyTuple(
+    source: String,
+    name: String,
+): List<String> =
+    Regex("""^$name\s*=\s*\(([^)]*)\)""", RegexOption.MULTILINE)
+        .find(source)
+        ?.groupValues
+        ?.get(1)
+        ?.let { body -> Regex(""""([^"]+)"""").findAll(body).map { it.groupValues[1] }.toList() }
+        ?: error("$name tuple not found in apworld constants.py")
+
 class HelpTextTest {
     private val constants = apworldConstants()
 
@@ -75,6 +87,19 @@ class HelpTextTest {
 
     @Test fun onlyTheTwoBetaGoalsAreExplained() {
         assertEquals(listOf("treasure_hunt", "all_trips"), Help.goalDescriptions.keys.toList())
+    }
+
+    @Test fun theAppOffersExactlyTheApworldModes() {
+        assertEquals(pyTuple(constants, "MODES"), MODES)
+    }
+
+    @Test fun travelHelpNeverMentionsBikesOrCars() {
+        for (topic in listOf(Help.zones, Help.travelMode)) {
+            val text = topic.body.lowercase()
+            for (word in listOf("bike", "biking", "car", "drive")) {
+                assertTrue("${topic.title} mentions $word", word !in text)
+            }
+        }
     }
 
     @Test fun everyQuestFamilyIsExplained() {
