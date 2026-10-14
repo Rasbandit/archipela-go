@@ -31,7 +31,8 @@ internal class RecapNotice(
 
     fun post(recap: RecapOut) {
         if (!nm.areNotificationsEnabled()) return
-        val open = PendingIntent.getActivity(ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val intent = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val open = PendingIntent.getActivity(ctx, 0, intent, PendingIntent.FLAG_IMMUTABLE)
         val n =
             Notification
                 .Builder(ctx, CHANNEL)
