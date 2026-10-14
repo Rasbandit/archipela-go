@@ -21,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -126,7 +127,8 @@ private fun AppBody(
                 AppTab.ACTIVITY -> ActivityScreen(m)
                 AppTab.SETTINGS -> SettingsScreen(m)
             }
-            m.recap?.let { RecapScreen(it, onDone = m.recaps::dismiss) }
+            // Keyed by the walk, so a newer recap replacing the shown one rebuilds its map.
+            m.recap?.let { key(it.startMs, it.endMs) { RecapScreen(it, onDone = m.recaps::dismiss) } }
         }
     }
 }
