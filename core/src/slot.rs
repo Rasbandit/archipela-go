@@ -188,6 +188,18 @@ mod tests {
     const SAMPLE: &str = include_str!("../../apworld/docs/slot_data.sample.json");
 
     #[test]
+    fn removed_goals_are_refused() {
+        for id in ["macguffin_short", "macguffin_long", "boss", "zone_conqueror", "well_rounded", "quest_dex", "marathon", "explorer", "streak", "boss_rush"] {
+            let goals = vec![GoalSpec { id: id.into(), target: 0 }];
+            let err = check_goal_specs(&goals, GoalMode::Any, 1).unwrap_err();
+            assert!(err.contains("unknown goal"), "{id}: {err}");
+        }
+        let both = vec![GoalSpec { id: "treasure_hunt".into(), target: 0 }, GoalSpec { id: "all_trips".into(), target: 0 }];
+        assert!(check_goal_specs(&both, GoalMode::AtLeast, 2).is_ok());
+        assert!(check_goal_specs(&both, GoalMode::AtLeast, 3).is_err());
+    }
+
+    #[test]
     fn real_apworld_sample_parses() {
         let d = SlotData::from_json(SAMPLE).unwrap();
         assert_eq!(d.schema_version, 3);

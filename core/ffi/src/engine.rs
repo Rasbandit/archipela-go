@@ -2127,7 +2127,7 @@ impl Engine {
     /// What the Play screen shows, at `now_ms`; `None` with no game open.
     pub fn hud(&self, now_ms: i64) -> Option<HudOut> {
         self.with_game(|g| {
-            let s = g.goal_status(now_ms);
+            let s = g.goal_status();
             let views = g.quest_views(now_ms);
             let mut letters: Vec<char> = g.items.iter().filter_map(|i| i.strip_prefix("Letter ").and_then(|s| s.chars().next())).collect();
             letters.sort_unstable();
@@ -2135,7 +2135,7 @@ impl Engine {
             HudOut {
                 away_running: g.away_running(),
                 goals: g
-                    .goal_statuses(now_ms)
+                    .goal_statuses()
                     .into_iter()
                     .map(|(spec, st)| GoalLineOut { id: spec.id, label: st.label, progress: st.progress, achieved: st.achieved })
                     .collect(),

@@ -2,10 +2,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::assign::Assignment;
 use crate::num::{count_f32, count_f64, to_f32};
 use crate::slot::{GoalMode, GoalSpec, SlotData};
-use crate::units::{distance_rounded, Round, UnitSystem};
 
 /// How far along a win condition is.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,54 +20,20 @@ pub struct GoalStatus {
 pub struct GoalCtx<'a> {
     /// The slot data holding the goal settings.
     pub slot: &'a SlotData,
-    /// All quest assignments.
-    pub assignments: &'a [Assignment],
     /// Location ids of completed quests.
     pub done: &'a BTreeSet<i64>,
     /// Names of items received so far.
     pub items: &'a [String],
-    /// Total distance travelled, in metres.
-    pub distance_m: f64,
-    /// Number of explorer map cells discovered.
-    pub cells_discovered: usize,
-    /// Current streak of days with a completed quest.
-    pub streak_days: u32,
-    /// The units progress text is written in.
-    pub units: UnitSystem,
 }
 
 /// How a goal is written in an Archipelago YAML's `goal_selection` (the apworld's `GOAL_NAMES`).
 #[must_use]
 pub fn goal_yaml_name(id: &str) -> &'static str {
     match id {
-        "macguffin_short" => "Letter Hunt",
-        "macguffin_long" => "Letter Hunt XL",
-        "all_trips" => "Completionist",
-        "boss" => "The Big One",
         "treasure_hunt" => "Treasure Hunt",
-        "zone_conqueror" => "Zone Conqueror",
-        "well_rounded" => "Well Rounded",
-        "quest_dex" => "Quest-dex",
-        "marathon" => "Marathon",
-        "explorer" => "Explorer",
-        "streak" => "Daily Habit",
-        "boss_rush" => "Boss Rush",
+        "all_trips" => "Completionist",
         _ => "",
     }
-}
-
-/// The YAML option that holds a counting goal's number, and that number's default.
-#[must_use]
-pub fn goal_target_option(id: &str) -> Option<(&'static str, u32)> {
-    Some(match id {
-        "zone_conqueror" => ("goal_zone_conqueror_percent", 60),
-        "quest_dex" => ("goal_quest_dex_kinds", 15),
-        "marathon" => ("goal_marathon_kilometers", 42),
-        "explorer" => ("goal_explorer_cells", 300),
-        "streak" => ("goal_streak_days", 7),
-        "boss_rush" => ("goal_boss_rush_hard_quests", 5),
-        _ => return None,
-    })
 }
 
 fn status(have: f64, need: f64, label: String) -> GoalStatus {
@@ -102,14 +66,6 @@ fn letter_progress(items: &[String], word: &str) -> (f64, f64) {
     (f64::from(got), count_f64(word.len()))
 }
 
-fn or_default(target: u32, default: u32) -> u32 {
-    if target == 0 {
-        default
-    } else {
-        target
-    }
-}
-
 /// Every goal of the game with its own progress, for the UI.
 #[must_use]
 pub fn evaluate_each(c: &GoalCtx<'_>) -> Vec<(GoalSpec, GoalStatus)> {
@@ -117,7 +73,7 @@ pub fn evaluate_each(c: &GoalCtx<'_>) -> Vec<(GoalSpec, GoalStatus)> {
         .goal_list()
         .into_iter()
         .map(|g| {
-            let st = evaluate_one(c, &g.id, g.target);
+            let st = evaluate_one(c, &g.id);
             (g, st)
         })
         .collect()
@@ -149,76 +105,19 @@ pub fn evaluate(c: &GoalCtx<'_>) -> GoalStatus {
     GoalStatus { progress: shown, achieved: done >= need, label: format!("{header} ({done} done): {}", parts.join(" · ")) }
 }
 
-fn evaluate_one(c: &GoalCtx<'_>, g: &str, t: u32) -> GoalStatus {
+fn evaluate_one(c: &GoalCtx<'_>, g: &str) -> GoalStatus {
     let trips_total = count_f64(c.slot.trips.len());
     let boss_done = c.slot.boss.as_ref().is_some_and(|b| c.done.contains(&b.location_id));
-    let done_assign = || c.assignments.iter().filter(|a| c.done.contains(&a.location_id));
     match g {
-        "macguffin_short" | "macguffin_long" => {
-            let word = if g == "macguffin_long" { "ARCHIPELAGO" } else { "APGO" };
-            let (have, need) = letter_progress(c.items, word);
-            status(have, need, format!("Collect the letters of {word}: {have:.0}/{need:.0}"))
-        }
         "all_trips" => {
             let n = count_f64(c.slot.all_quests().iter().filter(|q| c.done.contains(&q.location_id)).count());
             status(n, trips_total + f64::from(u8::from(c.slot.boss.is_some())), format!("Complete every quest: {n:.0}/{}", c.slot.all_quests().len()))
         }
-        "boss" => status(f64::from(u8::from(boss_done)), 1.0, "Defeat The Big One".into()),
         "treasure_hunt" => {
             let (have, need) = letter_progress(c.items, "APGO");
             let total = need + 1.0;
             let got = have + f64::from(u8::from(boss_done && have >= need));
             status(got, total, format!("Collect APGO ({have:.0}/{need:.0}), then claim the treasure"))
-        }
-        "zone_conqueror" => {
-            let pct = f64::from(or_default(t, 60));
-            let worst = c
-                .slot
-                .zones
-                .iter()
-                .map(|z| {
-                    let all: Vec<_> = c.slot.trips.iter().filter(|q| q.zone == z.id).collect();
-                    let d = count_f64(all.iter().filter(|q| c.done.contains(&q.location_id)).count());
-                    if all.is_empty() {
-                        100.0
-                    } else {
-                        100.0 * d / count_f64(all.len())
-                    }
-                })
-                .fold(f64::MAX, f64::min);
-            status(worst, pct, format!("Finish {pct:.0}% of every zone (weakest zone: {worst:.0}%)"))
-        }
-        "well_rounded" => {
-            let want: BTreeSet<&str> = c.slot.trips.iter().map(|q| q.family.as_str()).collect();
-            let got: BTreeSet<&str> = done_assign().filter(|a| a.family != "boss").map(|a| a.family.as_str()).filter(|f| want.contains(f)).collect();
-            status(count_f64(got.len()), count_f64(want.len()), format!("Do one quest of every type: {}/{}", got.len(), want.len()))
-        }
-        "quest_dex" => {
-            let need = or_default(t, 15);
-            let kinds: BTreeSet<&str> = done_assign().map(|a| a.kind_id.as_str()).collect();
-            status(count_f64(kinds.len()), f64::from(need), format!("Complete {need} different kinds of quest: {}", kinds.len()))
-        }
-        "marathon" => {
-            let km = or_default(t, 42);
-            let label = format!(
-                "Travel {} on quests: {}",
-                distance_rounded(f64::from(km) * 1000.0, c.units, Round::Up),
-                distance_rounded(c.distance_m, c.units, Round::Down)
-            );
-            status(c.distance_m / 1000.0, f64::from(km), label)
-        }
-        "explorer" => {
-            let need = or_default(t, 300);
-            status(count_f64(c.cells_discovered), f64::from(need), format!("Reveal {need} map cells: {}", c.cells_discovered))
-        }
-        "streak" => {
-            let need = or_default(t, 7);
-            status(f64::from(c.streak_days), f64::from(need), format!("Quest {need} days in a row: {}", c.streak_days))
-        }
-        "boss_rush" => {
-            let need = or_default(t, 5);
-            let hard = c.slot.all_quests().iter().filter(|q| q.difficulty == "hard" && c.done.contains(&q.location_id)).count();
-            status(count_f64(hard), f64::from(need), format!("Finish {need} hard quests: {hard}"))
         }
         other => GoalStatus { progress: 0.0, achieved: false, label: format!("Unknown goal {other}") },
     }
@@ -227,12 +126,13 @@ fn evaluate_one(c: &GoalCtx<'_>, g: &str, t: u32) -> GoalStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assign::Target;
     use crate::catalog::Mode;
-    use crate::geo::Point;
     use crate::slot::{GoalMode, GoalSpec, QuestSlot, ZoneSlot};
 
-    fn slot(goal: &str, target: u32) -> SlotData {
+    const APGO: [&str; 4] = ["Letter A", "Letter P", "Letter G", "Letter O"];
+
+    /// Four trips (ids 1-4) and the Boss Quest (id 9), over two zones.
+    fn slot(goal: &str) -> SlotData {
         let q = |id: i64, zone: u32, diff: &str, fam: &str| QuestSlot {
             location_id: id,
             zone,
@@ -244,7 +144,7 @@ mod tests {
         SlotData {
             schema_version: 2,
             goal: goal.into(),
-            goal_target: target,
+            goal_target: 0,
             minutes_per_tier: 10,
             reduction_percent: 8,
             min_distance_m: 150,
@@ -265,167 +165,93 @@ mod tests {
     }
 
     /// A slot whose win condition is several goals combined by `mode`.
-    fn multi(goals: &[(&str, u32)], mode: GoalMode, need: u32) -> SlotData {
-        let mut s = slot(goals[0].0, goals[0].1);
-        s.goals = goals.iter().map(|(id, t)| GoalSpec { id: (*id).into(), target: *t }).collect();
+    fn multi(goals: &[&str], mode: GoalMode, need: u32) -> SlotData {
+        let mut s = slot(goals[0]);
+        s.goals = goals.iter().map(|id| GoalSpec { id: (*id).into(), target: 0 }).collect();
         s.goal_mode = mode;
         s.goal_need = need;
         s
     }
 
-    fn assigns(slot: &SlotData) -> Vec<Assignment> {
-        slot.all_quests()
-            .iter()
-            .map(|q| Assignment {
-                location_id: q.location_id,
-                zone: q.zone,
-                mode: q.mode,
-                family: q.family.clone(),
-                kind_id: format!("kind{}", q.location_id),
-                quest_name: "x".into(),
-                blurb: String::new(),
-                place: String::new(),
-                feature_id: None,
-                place_type: None,
-                has_about: false,
-                base_kind: None,
-                tier: 2,
-                effort_min: 10.0,
-                target: Target::Steps { n: 1 },
-                fallback: false,
-                boss: q.family == "boss",
-            })
-            .collect()
+    fn ctx_parts(done: &[i64], items: &[&str]) -> (BTreeSet<i64>, Vec<String>) {
+        (done.iter().copied().collect(), items.iter().map(ToString::to_string).collect())
     }
 
-    fn eval(s: &SlotData, done: &[i64], items: &[&str], dist: f64, cells: usize, streak: u32) -> GoalStatus {
-        let a = assigns(s);
-        let d: BTreeSet<i64> = done.iter().copied().collect();
-        let it: Vec<String> = items.iter().map(ToString::to_string).collect();
-        let _ = Point::new(0.0, 0.0);
-        evaluate(&GoalCtx {
-            slot: s,
-            assignments: &a,
-            done: &d,
-            items: &it,
-            distance_m: dist,
-            cells_discovered: cells,
-            streak_days: streak,
-            units: UnitSystem::Metric,
-        })
+    fn eval(s: &SlotData, done: &[i64], items: &[&str]) -> GoalStatus {
+        let (d, it) = ctx_parts(done, items);
+        evaluate(&GoalCtx { slot: s, done: &d, items: &it })
     }
 
     #[test]
     fn a_slot_without_a_goals_list_plays_its_single_goal_exactly_as_before() {
-        let s = slot("boss", 0);
-        assert_eq!(s.goal_list(), vec![GoalSpec { id: "boss".into(), target: 0 }]);
-        let st = eval(&s, &[9], &[], 0.0, 0, 0);
+        let s = slot("all_trips");
+        assert_eq!(s.goal_list(), vec![GoalSpec { id: "all_trips".into(), target: 0 }]);
+        let st = eval(&s, &[1, 2, 3, 4, 9], &[]);
         assert!(st.achieved);
-        assert_eq!(st.label, "Defeat The Big One", "a single goal keeps its own label");
+        assert_eq!(st.label, "Complete every quest: 5/5", "a single goal keeps its own label");
     }
 
     #[test]
     fn any_of_several_goals_is_won_by_the_first_one_finished() {
-        let s = multi(&[("boss", 0), ("quest_dex", 3)], GoalMode::Any, 0);
-        assert!(!eval(&s, &[], &[], 0.0, 0, 0).achieved);
-        assert!(eval(&s, &[9], &[], 0.0, 0, 0).achieved, "the boss alone is enough");
-        assert!(eval(&s, &[1, 2, 3], &[], 0.0, 0, 0).achieved, "so are three kinds of quest");
+        let s = multi(&["treasure_hunt", "all_trips"], GoalMode::Any, 0);
+        assert!(!eval(&s, &[], &[]).achieved);
+        assert!(eval(&s, &[9], &APGO).achieved, "the treasure alone is enough");
+        assert!(eval(&s, &[1, 2, 3, 4, 9], &[]).achieved, "so is every quest");
     }
 
     #[test]
     fn all_of_several_goals_needs_every_one_and_shows_the_average_progress() {
-        let s = multi(&[("boss", 0), ("quest_dex", 2)], GoalMode::All, 0);
-        let half = eval(&s, &[9], &[], 0.0, 0, 0); // boss done, 1 of 2 kinds
-        assert!(!half.achieved);
-        assert!((half.progress - 0.75).abs() < 1e-6, "mean of 1.0 and 0.5, got {}", half.progress);
-        assert!(eval(&s, &[9, 1, 2], &[], 0.0, 0, 0).achieved);
+        let s = multi(&["treasure_hunt", "all_trips"], GoalMode::All, 0);
+        let part = eval(&s, &[9], &APGO); // treasure done (1.0), 1 of 5 quests (0.2)
+        assert!(!part.achieved);
+        assert!((part.progress - 0.6).abs() < 1e-6, "mean of 1.0 and 0.2, got {}", part.progress);
+        assert!(eval(&s, &[1, 2, 3, 4, 9], &APGO).achieved);
     }
 
     #[test]
     fn at_least_n_of_several_goals_counts_finished_goals() {
-        let s = multi(&[("boss", 0), ("quest_dex", 2), ("marathon", 5)], GoalMode::AtLeast, 2);
-        assert!(!eval(&s, &[9], &[], 0.0, 0, 0).achieved, "only one goal is done");
-        assert!(eval(&s, &[9], &[], 5000.0, 0, 0).achieved, "boss and 5 km are two");
-        assert!(eval(&s, &[1, 2], &[], 5000.0, 0, 0).achieved, "so are two kinds and 5 km");
+        let s = multi(&["treasure_hunt", "all_trips"], GoalMode::AtLeast, 2);
+        assert!(!eval(&s, &[9], &APGO).achieved, "only one goal is done");
+        assert!(eval(&s, &[1, 2, 3, 4, 9], &APGO).achieved, "both are done");
     }
 
     #[test]
     fn each_goal_reports_its_own_status_for_the_ui() {
-        let s = multi(&[("boss", 0), ("quest_dex", 2)], GoalMode::All, 0);
-        let a = assigns(&s);
-        let d: BTreeSet<i64> = [9].into_iter().collect();
-        let each = evaluate_each(&GoalCtx {
-            slot: &s,
-            assignments: &a,
-            done: &d,
-            items: &[],
-            distance_m: 0.0,
-            cells_discovered: 0,
-            streak_days: 0,
-            units: UnitSystem::Metric,
-        });
+        let s = multi(&["treasure_hunt", "all_trips"], GoalMode::All, 0);
+        let (d, it) = ctx_parts(&[9], &APGO);
+        let each = evaluate_each(&GoalCtx { slot: &s, done: &d, items: &it });
         assert_eq!(each.len(), 2);
-        assert_eq!((each[0].0.id.as_str(), each[0].1.achieved), ("boss", true));
-        assert_eq!((each[1].0.id.as_str(), each[1].1.achieved), ("quest_dex", false));
+        assert_eq!((each[0].0.id.as_str(), each[0].1.achieved), ("treasure_hunt", true));
+        assert_eq!((each[1].0.id.as_str(), each[1].1.achieved), ("all_trips", false));
     }
 
     #[test]
     fn an_unusable_combination_is_refused() {
-        assert!(multi(&[("boss", 0)], GoalMode::AtLeast, 2).check_goals().is_err(), "needs 2 of 1 goals");
-        assert!(multi(&[("nonsense", 0)], GoalMode::All, 0).check_goals().is_err());
-        assert!(multi(&[("boss", 0), ("boss", 0)], GoalMode::All, 0).check_goals().is_err(), "the same goal twice");
-        assert!(multi(&[("boss", 0), ("quest_dex", 3)], GoalMode::AtLeast, 2).check_goals().is_ok());
+        assert!(multi(&["all_trips"], GoalMode::AtLeast, 2).check_goals().is_err(), "needs 2 of 1 goals");
+        assert!(multi(&["nonsense"], GoalMode::All, 0).check_goals().is_err());
+        assert!(multi(&["all_trips", "all_trips"], GoalMode::All, 0).check_goals().is_err(), "the same goal twice");
+        assert!(multi(&["treasure_hunt", "all_trips"], GoalMode::AtLeast, 2).check_goals().is_ok());
     }
 
     #[test]
-    fn letters_goals_count_duplicates() {
-        let s = slot("macguffin_long", 0);
-        let all: Vec<&str> = "ARCHIPELAGO".chars().map(|_| "").collect();
-        assert_eq!(all.len(), 11);
-        let mut items: Vec<String> = "ARCHIPELAGO".chars().map(|c| format!("Letter {c}")).collect();
-        let st = eval(&s, &[], &items.iter().map(String::as_str).collect::<Vec<_>>(), 0.0, 0, 0);
-        assert!(st.achieved);
-        items.pop(); // missing the final O
-        let st = eval(&s, &[], &items.iter().map(String::as_str).collect::<Vec<_>>(), 0.0, 0, 0);
-        assert!(!st.achieved && st.progress > 0.9);
-        let one_a = eval(&slot("macguffin_short", 0), &[], &["Letter A", "Letter P", "Letter G"], 0.0, 0, 0);
-        assert!(!one_a.achieved);
+    fn treasure_needs_every_letter_then_the_boss() {
+        let s = slot("treasure_hunt");
+        assert!(!eval(&s, &[9], &["Letter A", "Letter P", "Letter G"]).achieved, "missing the O");
+        assert!(!eval(&s, &[], &APGO).achieved, "letters alone do not claim the treasure");
+        assert!(eval(&s, &[9], &APGO).achieved);
+        assert!(eval(&s, &[9], &["Letter A", "Letter A", "Letter P", "Letter G", "Letter O"]).achieved, "a duplicate letter is harmless");
     }
 
     #[test]
-    fn all_trips_boss_and_treasure() {
-        assert!(!eval(&slot("all_trips", 0), &[1, 2, 3, 4], &[], 0.0, 0, 0).achieved, "boss counts for all_trips");
-        assert!(eval(&slot("all_trips", 0), &[1, 2, 3, 4, 9], &[], 0.0, 0, 0).achieved);
-        assert!(eval(&slot("boss", 0), &[9], &[], 0.0, 0, 0).achieved);
-        assert!(!eval(&slot("treasure_hunt", 0), &[9], &["Letter A"], 0.0, 0, 0).achieved, "treasure needs the letters first");
-        assert!(eval(&slot("treasure_hunt", 0), &[9], &["Letter A", "Letter P", "Letter G", "Letter O"], 0.0, 0, 0).achieved);
+    fn all_trips_counts_the_boss() {
+        assert!(!eval(&slot("all_trips"), &[1, 2, 3, 4], &[]).achieved, "the boss counts for all_trips");
+        assert!(eval(&slot("all_trips"), &[1, 2, 3, 4, 9], &[]).achieved);
     }
 
     #[test]
-    fn marathon_progress_reads_in_the_players_units() {
-        let s = slot("marathon", 0);
-        let a = assigns(&s);
-        let d = BTreeSet::new();
-        let ctx =
-            GoalCtx { slot: &s, assignments: &a, done: &d, items: &[], distance_m: 1609.344, cells_discovered: 0, streak_days: 0, units: UnitSystem::Imperial };
-        assert_eq!(evaluate(&ctx).label, "Travel 27 mi on quests: 1 mi", "42 km is 26.1 mi: the target rounds up, never shown as reached early");
-    }
-
-    #[test]
-    fn counting_goals_use_target_or_their_default() {
-        assert!(eval(&slot("zone_conqueror", 50), &[1, 3], &[], 0.0, 0, 0).achieved);
-        assert!(!eval(&slot("zone_conqueror", 0), &[1, 3], &[], 0.0, 0, 0).achieved, "default 60% needs more than half");
-        assert!(eval(&slot("well_rounded", 0), &[1, 2, 3], &[], 0.0, 0, 0).achieved);
-        assert!(!eval(&slot("well_rounded", 0), &[1, 2], &[], 0.0, 0, 0).achieved);
-        assert!(eval(&slot("quest_dex", 3), &[1, 2, 3], &[], 0.0, 0, 0).achieved);
-        assert!(eval(&slot("marathon", 0), &[], &[], 42_500.0, 0, 0).achieved);
-        assert!(!eval(&slot("marathon", 0), &[], &[], 41_900.0, 0, 0).achieved);
-        assert_eq!(eval(&slot("marathon", 0), &[], &[], 3_140.0, 0, 0).label, "Travel 42 km on quests: 3.1 km");
-        assert_eq!(eval(&slot("marathon", 0), &[], &[], 41_960.0, 0, 0).label, "Travel 42 km on quests: 41 km", "progress rounds down");
-        assert!(eval(&slot("explorer", 10), &[], &[], 0.0, 10, 0).achieved);
-        assert!(eval(&slot("streak", 0), &[], &[], 0.0, 0, 7).achieved);
-        assert!(eval(&slot("boss_rush", 3), &[2, 3, 4], &[], 0.0, 0, 0).achieved);
-        assert!(!eval(&slot("boss_rush", 0), &[2, 3, 4], &[], 0.0, 0, 0).achieved, "default 5 hard quests");
-        assert!(eval(&slot("nonsense", 0), &[], &[], 0.0, 0, 0).label.contains("Unknown"));
+    fn a_removed_goal_is_unknown() {
+        for id in ["boss", "marathon", "macguffin_short", "nonsense"] {
+            assert_eq!(eval(&slot(id), &[9], &APGO).label, format!("Unknown goal {id}"));
+        }
     }
 }

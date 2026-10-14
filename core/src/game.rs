@@ -613,29 +613,20 @@ impl Game {
         self.slot.zones.iter().map(|z| z.id).filter(|z| self.zone_unlocked(*z)).collect()
     }
 
-    fn goal_ctx(&self, now_ms: i64) -> GoalCtx<'_> {
-        GoalCtx {
-            slot: &self.slot,
-            assignments: &self.assignments,
-            done: &self.done,
-            items: &self.items,
-            distance_m: self.stats.distance_m,
-            cells_discovered: self.fog.cells.len(),
-            streak_days: streak(&self.stats.quest_days, now_ms / DAY_MS),
-            units: self.units,
-        }
+    fn goal_ctx(&self) -> GoalCtx<'_> {
+        GoalCtx { slot: &self.slot, done: &self.done, items: &self.items }
     }
 
     /// Each goal of the game with its own progress.
     #[must_use]
-    pub fn goal_statuses(&self, now_ms: i64) -> Vec<(GoalSpec, GoalStatus)> {
-        evaluate_each(&self.goal_ctx(now_ms))
+    pub fn goal_statuses(&self) -> Vec<(GoalSpec, GoalStatus)> {
+        evaluate_each(&self.goal_ctx())
     }
 
-    /// How far along the win condition is at `now_ms`.
+    /// How far along the win condition is.
     #[must_use]
-    pub fn goal_status(&self, now_ms: i64) -> GoalStatus {
-        evaluate(&self.goal_ctx(now_ms))
+    pub fn goal_status(&self) -> GoalStatus {
+        evaluate(&self.goal_ctx())
     }
 
     fn fog_on(&self) -> bool {
@@ -1487,13 +1478,13 @@ impl Game {
             }
             Backend::Archipelago => ev.push(Event::SendCheck { location_id: id }),
         }
-        ev.extend(self.check_goal(now_ms));
+        ev.extend(self.check_goal());
         ev
     }
 
-    fn check_goal(&mut self, now_ms: i64) -> Vec<Event> {
+    fn check_goal(&mut self) -> Vec<Event> {
         if !self.goal_reported {
-            let s = self.goal_status(now_ms);
+            let s = self.goal_status();
             if s.achieved {
                 self.goal_reported = true;
                 return vec![Event::GoalAchieved { label: s.label }];
@@ -1572,7 +1563,7 @@ impl Game {
                 ev.push(Event::ShuffleRequested);
             }
         }
-        ev.extend(self.check_goal(now_ms));
+        ev.extend(self.check_goal());
         ev
     }
 
@@ -2626,7 +2617,7 @@ mod tests {
         assert!(ev.iter().filter(|e| matches!(e, Event::ZoneUnlocked { .. })).count() >= 2, "zones 2 and 3 unlock along the way");
         assert_eq!(ev.iter().filter(|e| matches!(e, Event::GoalAchieved { .. })).count(), 1);
         assert_eq!(g.done.len(), 30);
-        assert!(g.goal_status(0).achieved);
+        assert!(g.goal_status().achieved);
     }
 
     #[test]
