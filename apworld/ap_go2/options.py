@@ -60,7 +60,7 @@ class GoalsRequired(Range):
     display_name = "Goals Required"
     range_start = 1
     range_end = len(GOAL_NAMES)
-    default = 2
+    default = 1
 
 
 class NumberOfTrips(Range):

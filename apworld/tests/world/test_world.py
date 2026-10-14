@@ -381,6 +381,18 @@ def test_goal_selection_defaults_to_treasure_hunt_and_target_options_are_gone() 
     assert not {f for f in fields if f.startswith("goal_") and f not in kept}
 
 
+def test_goals_required_defaults_to_one_so_the_default_selection_fits() -> None:
+    assert GoalsRequired.default == 1
+
+
+class TestAtLeastWithDefaultSelection(Base):
+    options = {"goal_requirement": "require_at_least_n_goals", "number_of_trips": 20}  # noqa: RUF012  # WorldTestBase reads a plain class dict
+
+    def test_generates_with_one_goal_needed(self) -> None:
+        data = self.world.fill_slot_data()
+        assert (data["goal_requirement"], data["goal_need"]) == ("at_least", 1)
+
+
 def test_removed_goal_names_are_not_valid_keys() -> None:
     valid: frozenset[str] = frozenset(GoalSelection.valid_keys)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # Archipelago's OptionSet types it loosely
     assert valid == frozenset({"Treasure Hunt", "Completionist"})
