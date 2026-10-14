@@ -1,6 +1,6 @@
 # Context Doc: Project Decisions and Direction
 
-_Last verified: 2026-10-08_
+_Last verified: 2026-10-13_
 
 ## Status
 
@@ -84,6 +84,21 @@ Details: `economy-eggs-buddies.md`. Direction only; core gameplay comes first.
 | Goal Eggs replace Letter macguffins; Found Eggs are checks; both hatch with steps | Goals need walking too |
 | Buddies: one active (buff, levels by distance), the rest at home bring gifts | Hatch loop has lasting value |
 | Theme (teen, townsfolk, treehouse) is a mechanics guide only | Reskin later |
+
+## 2026-10-13 Progression beta (decisions)
+
+Details and roadmap: `docs/superpowers/specs/2026-10-13-progression-beta-design.md`. Supersedes the zone-first and money-tier parts of 2026-10-08.
+
+| Decision | Why |
+| -- | -- |
+| Progression comes from tools on quests (badges), not zones; one zone by default, zone code kept for later | Most players use one area; zones were the only lock, so a one-zone seed had one flat sphere |
+| Five tools: Gloves, Satchel, Dowsing Rod, Magnet, Trowel; Running Shoes only if `run_quests` is on | Five solid progression points beat twenty thin ones |
+| A badge locks a normal quest; difficulty is never a gate; only permanent tools are in logic | Same quests, clean AP logic, pyramid-shaped spheres |
+| Every reward is tangible: filler becomes resource bundles (litter, pinecones, bottle caps, seeds) | "Hydrate!" rewards feel like nothing |
+| One resource, one tool; rewards can give any resource, map pickups need the tool (litter needs none) | Forager stays in sphere 1 via litter; tools unlock gathering |
+| Shop is in the beta; Regulars (repeat visits at player pins) and Plant & Harvest share one return-visit engine | Owner priority; Regulars are the most-requested feature |
+| Goals: Treasure Map (Map Pieces N of M + a dig needing Dowsing Rod and Trowel), Toolmaster (a quest per tool badge), Completionist; Letters and 9 other goals removed | A macguffin-only goal can sit wholly in sphere 1; tools in the goal rule force progression |
+| Tabled: Camera, critters, shop chains, time-window quests, traps, Compass, Stamps, money tiers, eggs, treehouse | See the spec's Tabled list |
 
 ## 2026-10-08 Licence (decision)
 

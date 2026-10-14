@@ -4,6 +4,8 @@ _Last verified: 2026-10-08_
 
 ## Status
 
+**Superseded in part (2026-10-13):** for the beta, money tiers and License become four resources, the shop spends them, and eggs, buddies and the treehouse are tabled. See `docs/superpowers/specs/2026-10-13-progression-beta-design.md`.
+
 Committed **direction** from the 2026-10-08 owner brainstorm. Not specced, not built. Core gameplay (quests, zones,
 checks) comes first; each system below gets its own spec, plan and issue later. Supersedes the Bike/Car parts of
 `progression-zones-and-tools.md`.

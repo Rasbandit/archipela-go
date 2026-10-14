@@ -4,6 +4,8 @@ _Last verified: 2026-10-07_
 
 ## Status
 
+**Superseded (2026-10-13):** zones are no longer the main lock; progression comes from tool badges on quests. See `docs/superpowers/specs/2026-10-13-progression-beta-design.md`. Trail, OSM and trap findings below still hold.
+
 Design proposal from owner brainstorm; not yet in the apworld. Next spec candidate. Builds on `archipelago-game-model.md`.
 
 **Superseded in part (2026-10-08):** Car and Bike are purged; modes are walk and run (`Running Shoes` gates run). See `economy-eggs-buddies.md`.
