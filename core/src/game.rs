@@ -27,7 +27,7 @@ use crate::near_path::PathIndex;
 use crate::num::{count_f64, count_u32, i64_to_f64, round_i64, to_f32};
 use crate::realm::Realm;
 use crate::scan::Atlas;
-use crate::slot::SlotData;
+use crate::slot::{check_schema, SlotData};
 use crate::traps::Traps;
 use crate::units::{distance, distance_rounded, speed_kmh, Round, UnitSystem};
 use crate::verify::{collect_progress, Collected, Fix, Status, Tracker, MAX_ACCURACY_M};
@@ -1852,10 +1852,23 @@ impl Game {
     /// # Errors
     /// Returns a message if the file cannot be read or is corrupt.
     pub fn load(dir: &Path, id: &str) -> Result<Self, String> {
+        /// Only the save's `slot_data` version, read first: an older save's other fields may not parse as this schema.
+        #[derive(Deserialize)]
+        struct Head {
+            slot: SlotHead,
+        }
+        #[derive(Deserialize)]
+        struct SlotHead {
+            schema_version: u32,
+        }
+        let older = |e: String| format!("this game was made with an older version of the app and cannot be played ({e})");
         let s = std::fs::read_to_string(Self::path_for(dir, id)).map_err(|e| e.to_string())?;
+        if let Ok(head) = serde_json::from_str::<Head>(&s) {
+            check_schema(head.slot.schema_version).map_err(older)?;
+        }
         let mut g: Self = serde_json::from_str(&s).map_err(|e| format!("corrupt game file: {e}"))?;
         // A goal this version no longer has could never be won: refuse the game instead of opening it.
-        g.slot.check_goals().map_err(|e| format!("this game was made with an older version of the app and cannot be played ({e})"))?;
+        g.slot.check_goals().map_err(older)?;
         g.counters.steps_last = None; // steps taken while the game was closed are never credited
         g.counters.away_mark = None; // nor time away: where the player was while the app was dead is unknown (presence restarts it)
         g.reattach_trackers();
@@ -2841,6 +2854,22 @@ mod tests {
         assert_ne!(old, json, "the save must hold a walk zone");
         std::fs::write(&path, old).unwrap();
         assert!(Game::load(&dir, "g1").is_err(), "Bike is gone; old saves do not load");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_schema_3_save_says_older_version_not_corrupt() {
+        let dir = std::env::temp_dir().join(format!("apgo-schema3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        g.save(&dir).unwrap();
+        let path = Game::path_for(&dir, "g1");
+        let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        v["slot"]["schema_version"] = 3.into();
+        v["slot"]["goals"] = serde_json::json!([{ "id": "all_trips", "target": 0 }]);
+        std::fs::write(&path, v.to_string()).unwrap();
+        let Err(err) = Game::load(&dir, "g1") else { panic!("a schema 3 save must not load") };
+        assert!(err.contains("older version") && err.contains("unsupported slot_data schema 3"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

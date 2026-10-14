@@ -97,7 +97,7 @@ class HelpTextTest {
         for (topic in listOf(Help.zones, Help.travelMode)) {
             val text = topic.body.lowercase()
             for (word in listOf("bike", "biking", "car", "drive")) {
-                assertTrue("${topic.title} mentions $word", word !in text)
+                assertTrue("${topic.title} mentions $word", !Regex("""\b$word\b""").containsMatchIn(text))
             }
         }
     }

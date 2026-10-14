@@ -1407,7 +1407,7 @@ impl Engine {
     fn kinds_by_place<'a>(&'a self, atlas: &Atlas) -> BTreeMap<usize, Vec<&'a Kind>> {
         let mut out: BTreeMap<usize, Vec<&Kind>> = BTreeMap::new();
         for (kind_id, idxs) in &atlas.matches {
-            let Some(kind) = self.catalog.kind(kind_id).filter(|k| Mode::ALL.iter().any(|&m| k.allows(m))) else { continue };
+            let Some(kind) = self.catalog.kind(kind_id) else { continue };
             for &i in idxs {
                 out.entry(i).or_default().push(kind);
             }
@@ -2121,7 +2121,8 @@ impl Engine {
             let views = g.quest_views(now_ms);
             let mut letters: Vec<char> = g.items.iter().filter_map(|i| i.strip_prefix("Letter ").and_then(|s| s.chars().next())).collect();
             letters.sort_unstable();
-            let tools: Vec<String> = ["Running Shoes"].iter().filter(|t| g.items.iter().any(|i| i == *t)).map(ToString::to_string).collect();
+            let tools: Vec<String> =
+                Mode::ALL.iter().filter_map(|m| apgo_core::solo::tool_for(*m)).filter(|t| g.items.iter().any(|i| i == t)).map(ToString::to_string).collect();
             HudOut {
                 away_running: g.away_running(),
                 goals: g

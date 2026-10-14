@@ -111,6 +111,18 @@ pub const CURRENT_SCHEMA: u32 = 4;
 /// The `slot_data` versions this app can read.
 pub const SUPPORTED_SCHEMAS: [u32; 1] = [4];
 
+/// Check that this app reads `slot_data` schema `version`.
+///
+/// # Errors
+/// Returns a message naming the version and the ones this app understands.
+pub fn check_schema(version: u32) -> Result<(), String> {
+    if SUPPORTED_SCHEMAS.contains(&version) {
+        Ok(())
+    } else {
+        Err(format!("unsupported slot_data schema {version} (this app understands {SUPPORTED_SCHEMAS:?})"))
+    }
+}
+
 impl SlotData {
     /// Parse and validate `slot_data` JSON.
     ///
@@ -123,9 +135,7 @@ impl SlotData {
             schema_version: u32,
         }
         let head: Head = serde_json::from_str(s).map_err(|e| format!("bad slot_data: {e}"))?;
-        if !SUPPORTED_SCHEMAS.contains(&head.schema_version) {
-            return Err(format!("unsupported slot_data schema {} (this app understands {SUPPORTED_SCHEMAS:?})", head.schema_version));
-        }
+        check_schema(head.schema_version)?;
         let d: Self = serde_json::from_str(s).map_err(|e| format!("bad slot_data: {e}"))?;
         if d.zones.is_empty() {
             return Err("slot_data has no zones".into());

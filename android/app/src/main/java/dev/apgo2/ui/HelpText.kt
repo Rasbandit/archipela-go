@@ -13,14 +13,14 @@ internal object Help {
             "Zones",
             "A zone is one of your realms, played walking or running. You start in zone 1. Every later zone" +
                 " opens when you have found enough Zone Keys, " +
-                "and a running zone after a walking one also needs Running Shoes. The same realm can be used for several zones.",
+                "and a running zone also needs Running Shoes when zone 1 is a walking one. The same realm can be used for several zones.",
         )
     val travelMode =
         HelpTopic(
             "Travel by",
             "How you move in this zone: walking or running. It decides how long a quest takes (running " +
                 "covers more ground in the same time). " +
-                "A running zone needs Running Shoes to be unlocked.",
+                "A running zone needs Running Shoes to be unlocked when zone 1 is a walking one.",
         )
     val questTypes =
         HelpTopic(
