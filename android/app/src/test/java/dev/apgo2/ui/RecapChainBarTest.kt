@@ -35,4 +35,16 @@ class RecapChainBarTest {
         assertEquals(14, CONFETTI.size)
         assertTrue(CONFETTI.all { it.color in tokens })
     }
+
+    @Test
+    fun startingNowFiresEachIndexOnce() {
+        assertEquals(listOf(1, 2), startingNow(listOf(1, 2), emptySet(), true))
+        assertEquals(listOf(2), startingNow(listOf(1, 2), setOf(1), true))
+        assertEquals(emptyList<Int>(), startingNow(listOf(1, 2), setOf(1, 2), true))
+    }
+
+    @Test
+    fun startingNowIsEmptyWhenNotAnimating() {
+        assertEquals(emptyList<Int>(), startingNow(listOf(1, 2), emptySet(), false))
+    }
 }

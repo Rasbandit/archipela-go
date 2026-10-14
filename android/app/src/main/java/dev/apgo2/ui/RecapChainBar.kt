@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -20,7 +21,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.cos
@@ -87,7 +88,20 @@ private class DotAnims(
     val scales = List(n) { Animatable(1f) }
     val bursts = List(n) { Animatable(0f) }
     val fired = mutableSetOf<Int>()
+
+    /** Static end state: dots at rest, confetti finished (not drawn). */
+    suspend fun settle() {
+        scales.forEach { it.snapTo(1f) }
+        bursts.forEach { it.snapTo(1f) }
+    }
 }
+
+/** Which crossed indexes begin their bounce now: none when not animating, each index only once. */
+internal fun startingNow(
+    crossed: List<Int>,
+    fired: Set<Int>,
+    animate: Boolean,
+): List<Int> = if (animate) crossed.filter { it !in fired } else emptyList()
 
 private fun unitFraction(
     units: Float,
@@ -109,9 +123,17 @@ internal fun RecapChainBar(
     modifier: Modifier = Modifier,
 ) {
     val anims = remember(marks.size) { DotAnims(marks.size) }
+    val scope = rememberCoroutineScope()
     val newly = crossed(marks, crossedFrom, value)
     LaunchedEffect(newly, animate) {
-        if (animate) newly.filter { anims.fired.add(it) }.forEach { bounce(anims, it) }
+        if (!animate) {
+            anims.settle()
+        } else {
+            startingNow(newly, anims.fired, true).forEach {
+                anims.fired.add(it)
+                scope.launch { bounce(anims, it) }
+            }
+        }
     }
     Canvas(modifier.fillMaxWidth().height(18.dp)) {
         val h = 6.dp.toPx()
@@ -129,10 +151,10 @@ internal fun RecapChainBar(
     }
 }
 
-private fun CoroutineScope.bounce(
+private suspend fun bounce(
     anims: DotAnims,
     i: Int,
-) {
+) = coroutineScope {
     launch {
         anims.scales[i].animateTo(BOUNCE_PEAK, tween(BOUNCE_UP_MS, easing = FastOutSlowInEasing))
         anims.scales[i].animateTo(1f, spring(dampingRatio = BOUNCE_DAMPING, stiffness = Spring.StiffnessMedium))
