@@ -15,7 +15,7 @@ everything in "In scope", the game has a real Archipelago sphere structure, tang
 | -- | -- |
 | Modes walk, run, bike, drive | **walk and run only** (Bike and Car removed) |
 | Zones are the only lock in logic | **Badges on quests** are the lock; one zone by default, zone code kept dormant for later |
-| 12 goals | **Letter Hunt and Completionist** (default; owner may revise) |
+| 12 goals, Letters as the macguffin | **Treasure Map, Toolmaster and Completionist**; Letters become Map Pieces |
 | Filler `Hydrate!`, `Take a Breather!` | **Resource bundles** (every reward is usable in game) |
 | One flat sphere in a one-zone game | **A pyramid**: wide sphere 1, one-badge slices, two-badge quests, goal |
 
@@ -38,7 +38,7 @@ everything in "In scope", the game has a real Archipelago sphere structure, tang
 ## The pyramid
 
 ```text
-                    GOAL                         Letter Hunt / Completionist
+                    GOAL                         Treasure Map / Toolmaster / Completionist
             two badges   (~10%)                  e.g. Dowsing + Satchel: dig up the parcel, return it
        one badge, any order   (~35%)             Gloves · Satchel · Dowsing Rod · Magnet · Trowel (+ Running Shoes)
   open from the start: sphere 1   (~55%)         reach · dwell · landmark · park · trail · explore · steps · away
@@ -57,7 +57,7 @@ Shares are draft defaults (YAML `badge_shares`). A wide sphere 1 avoids `FillErr
 | Magnet | some base quests; bottle-cap foragers | **Lost & Found**: sweep a shaded area until it pings within ~20 m | bottle caps |
 | Trowel | some base quests; seed foragers | **Plant & Harvest**: plant at X, harvest after >= 24 h | seeds |
 | Running Shoes (opt-in) | run variants, only if YAML `run_quests` is on | (pace rule, not a shape) | (none) |
-| Letters | (none) | Letter Hunt goal only | (none) |
+| Map Pieces | (none) | Treasure Map goal only (replaces Letters) | (none) |
 
 ## Resources
 
@@ -90,6 +90,23 @@ Resources are spent in the shop. They respawn and spawn anywhere (reusing forage
 least 20 h apart"; only the last visit is an Archipelago location. Archipelago logic has no notion of time, so a YAML
 switch can keep progression out of Regulars (via the `exclude_locations` group).
 
+## Goals
+
+Picked by YAML `goal_selection`; any / all / at least N still combine them (client-evaluated, `StatusUpdate`).
+
+**Why tools sit in goal rules.** A macguffin-only goal (`has all Letters`) lets the fill put every piece in sphere 1 of any
+world, so nothing forces a player up the pyramid. Archipelago has no setting for depth; the world's goal access rule
+provides it (as Ganon's door needs the Master Sword). Every beta goal therefore needs tools in logic.
+
+| Goal | Win when | Logic rule on the goal | Built today |
+| -- | -- | -- | -- |
+| **Treasure Map** | Collect `map_pieces_needed` of `map_pieces_total` Map Pieces (e.g. 12 of 18); the map reveals "X marks the spot"; finish the dig quest there | pieces >= needed AND Dowsing Rod AND Trowel | mostly: today's Treasure Hunt (letters A-P-G-O + Boss Quest); rename Letters to Map Pieces, add N of M and the tool rule |
+| **Toolmaster** | Finish one quest carrying each tool's badge | has every enabled tool | no; counts badges like Quest-dex counts kinds |
+| **Completionist** | Finish every quest | every badged quest needs its tools, so it climbs the pyramid by itself | yes (`all_trips`) |
+
+Spare pieces (N of M) keep one stuck partner from blocking the win. Removed goals: Letter Hunt (both lengths), The Big One,
+Zone Conqueror, Well Rounded, Quest-dex, Marathon, Explorer, Daily Habit, Boss Rush.
+
 ## Shop (in the beta)
 
 Spend resources. Contents and whether purchases are Archipelago checks (`Shop Slot #n`, see #56) are decided in the shop
@@ -107,17 +124,18 @@ All step bonuses add to one multiplier capped at 2.0x.
 
 ## Roadmap
 
-Each step is its own spec, plan and PRs. Order: 1, then 2, then (3, 4) and (5, 6) in parallel lanes, then 7.
+Each step is its own spec, plan and PRs. Order: 1, then 2, then (3, 4) and (5, 6) in parallel lanes, then 7 and 8 (the goals need the tools).
 
 | # | Sub-project | Scope | Depends on | Existing issues |
 | -- | -- | -- | -- | -- |
-| 1 | Cleanup | Remove Bike/Car (modes, items, catalog, UI); one zone by default; goals down to Letter Hunt + Completionist; remove `Hydrate!`/`Take a Breather!` (temporary filler: litter bundle) | none | |
+| 1 | Cleanup | Remove Bike/Car (modes, items, catalog, UI); one zone by default; goals down to Treasure Hunt + Completionist; remove `Hydrate!`/`Take a Breather!` (temporary filler: litter bundle) | none | |
 | 2 | Badge system | slot_data `needs` per quest (schema 4), badge location groups, core gate, badge on card and pin; Running Shoes as the first badge; YAML `run_quests`, `badge_shares` | 1 | #53, #96 |
 | 3 | Resources | one stash of 4 resources, resource bundles as filler, tool-gated map pickups, forager variants | 2 | #55 |
 | 4 | Shop | spend resources; contents; AP Shop Slots decision | 3 | #56 |
 | 5 | Quest shapes | one per PR: Gloves (forager + gloved courier), Satchel (courier + fetch & return), Dowsing Rod (Hot & Cold), Magnet (Lost & Found) | 2 (and #183) | #183 |
 | 6 | Return visits | the engine, then Regulars at pins, then Trowel (Plant & Harvest) | 2 | |
 | 7 | Speed-ups | Progressive Comfy Shoes multiplier (cap 2x), Bigger Backpack | 3 | #60 |
+| 8 | Goals | Treasure Map (Letters to Map Pieces, N of M, tool rule on the dig), Toolmaster | 5, 6 | #58 |
 
 ## Tabled (bring in later)
 
@@ -134,8 +152,8 @@ Each step is its own spec, plan and PRs. Order: 1, then 2, then (3, 4) and (5, 6
 | Binoculars (collection distance) | Unclear value | |
 | Money tiers and License | Replaced by resources for the beta | #54 |
 | Vision radius and golden caches | After the beta | #57 |
-| Eggs (Goal Eggs, Found Eggs) and Treehouse | After the beta | #58, #59, #62 |
-| Other 10 goals (Marathon, Explorer, Quest-dex...) | Trimmed for focus | #102, #113 |
+| Eggs (Found Eggs) and Treehouse | After the beta; Goal Eggs are replaced by Map Pieces | #59, #62 |
+| The 9 removed goals (Marathon, Explorer, Quest-dex...) | Trimmed for focus; the code is deleted, the ideas stay here | #102, #113 |
 
 ## Open questions (for the sub-specs)
 

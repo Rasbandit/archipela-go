@@ -97,7 +97,7 @@ Details and roadmap: `docs/superpowers/specs/2026-10-13-progression-beta-design.
 | Every reward is tangible: filler becomes resource bundles (litter, pinecones, bottle caps, seeds) | "Hydrate!" rewards feel like nothing |
 | One resource, one tool; rewards can give any resource, map pickups need the tool (litter needs none) | Forager stays in sphere 1 via litter; tools unlock gathering |
 | Shop is in the beta; Regulars (repeat visits at player pins) and Plant & Harvest share one return-visit engine | Owner priority; Regulars are the most-requested feature |
-| Goals trimmed to Letter Hunt and Completionist (default) | Focus |
+| Goals: Treasure Map (Map Pieces N of M + a dig needing Dowsing Rod and Trowel), Toolmaster (a quest per tool badge), Completionist; Letters and 9 other goals removed | A macguffin-only goal can sit wholly in sphere 1; tools in the goal rule force progression |
 | Tabled: Camera, critters, shop chains, time-window quests, traps, Compass, Stamps, money tiers, eggs, treehouse | See the spec's Tabled list |
 
 ## 2026-10-08 Licence (decision)
