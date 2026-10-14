@@ -1,4 +1,4 @@
-# Walk history in the Activity log design
+# Walk history in the Activity log + forager progress design
 
 Builds on the walk recap v1/v2 specs (same branch, `feat/walk-recap`).
 
@@ -15,6 +15,32 @@ animated as on arrival. The recap subtitle also gains the start and end times.
 - Only walks that pass `Recap::worth_showing` get a row. Nothing new is recorded for short or empty outings.
 - The subtitle reads "Tue 10/14 · 5:12 – 5:54 PM · 3.1 km · 42 min" (weekday and short date, start and end times in the
   phone's 12/24 h format, distance, time out), both on arrival and from the Activity log.
+
+## Forager progress (owner, 2026-10-14)
+
+Scavenging (forager, `Target::Collect`) quests get a bar each in the "This walk" card, replacing the "Brought home: N items"
+section.
+
+- **Which quests.** Only foragers whose banked or picked count changed on the walk get a bar.
+- **The bar.**
+  - Blue shows what was banked before the walk and orange what this walk banked.
+  - The track ends at `need`, with one mark at `need`.
+  - Crossing it (the walk completed the forager) bounces the mark and fires confetti, through the same `RecapChainBar`.
+- **Text.**
+  - Theme plus gain plus totals: "Pinecones · +2 banked · 5 / 7".
+  - When items are still carried after arriving (a trap blocked banking): "1 still in your bag".
+- **Core.**
+  - `Outing.forage_at_start: BTreeMap<i64, (u32 banked, u32 picked)>` (`#[serde(default)]`), set in `open_outing` from
+    `collected`.
+  - `Recap.foragers: Vec<RecapForager { name, theme, need, banked_before, banked_after, picked, carried }>`
+    (`#[serde(default)]`).
+  - `picked` is the number of items picked on the walk. A forager without a start entry counts from 0.
+  - `banked` (the total) stays, so the notification text is unchanged.
+  - `worth_showing` is unchanged: `banked > 0` already counts, and a forager that only picked shows up through the steps it
+    took.
+- **FFI.** `RecapOut.foragers: Vec<RecapForagerOut>`.
+- **Preview.** `RecapSample` gains one forager that completes ("pinecones", need 7, banked 5 → 7, picked 2) and one that
+  doesn't ("leaves", need 7, banked 3 → 4).
 
 ## Core (`core/src/journal.rs`)
 
@@ -73,6 +99,12 @@ animated as on arrival. The recap subtitle also gains the start and end times.
 
 ## Build order
 
+0. Core + FFI + Android: forager progress (section above), with tests:
+   - before and after banked per forager;
+   - picked on the walk;
+   - a forager without a start entry;
+   - a forager completed by banking on arrival;
+   - carried items left after a trap blocked banking.
 1. Journal: `walks` table, `add_walk`, `walk`, `clear_game`, the `walk` kind.
 2. Engine: store the walk on arrival, and `walk_recap`.
 3. Android: Activity row, history open/close, subtitle times.
