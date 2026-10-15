@@ -55,16 +55,6 @@ internal fun needsLocalNetworkPrompt(
     resolved: List<String>,
 ) = isLocalNetworkServer(url) || resolved.any(::isLocalAddress)
 
-/**
- * Whether an automatic connect to [url] (the open game's saved server) waits for local network access: this Android [lacks] it
- * and the server, by name or by its [resolved] addresses, is on the LAN.
- */
-internal fun holdsForLocalNetwork(
-    lacks: Boolean,
-    url: String,
-    resolved: List<String>,
-) = lacks && needsLocalNetworkPrompt(url, resolved)
-
 /** The host part of [url], lower-cased, without IPv6 brackets or a trailing dot; null when there is none. */
 internal fun serverHost(url: String): String? {
     val rest =
@@ -112,7 +102,7 @@ internal fun Context.lacksLocalNetwork() =
 /** True when a connect to [url] would be blocked for missing local network access; resolves the host only when access is missing. */
 internal suspend fun Context.blocksLocalNetwork(url: String): Boolean {
     val host = serverHost(url)
-    return lacksLocalNetwork() && host != null && holdsForLocalNetwork(lacks = true, url, resolve(host))
+    return lacksLocalNetwork() && host != null && needsLocalNetworkPrompt(url, resolve(host))
 }
 
 // The addresses [host] resolves to, as literals; empty when the lookup fails (the connect will report the error).

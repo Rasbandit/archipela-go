@@ -58,13 +58,15 @@ internal fun LanPrompt(m: AppModel) {
     val ask = rememberPermissionAsk(LOCAL_NETWORK_PERMISSION, { !ctx.lacksLocalNetwork() }) { if (it) m.ap.connectHeld() }
     if (m.ap.lanHeld == null) return
     val label = if (ask.action == PermissionAsk.OpenSettings) "Open settings" else "Allow"
+    // Already granted (in Settings, or from New Game's prompt) while held: connect rather than a button that does nothing.
+    val allow = if (ask.action == PermissionAsk.Granted) m.ap::connectHeld else ask::ask
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         FeedbackText(LAN_HELD, Tone.Warning, Modifier.weight(1f))
-        TextButton(onClick = ask::ask) { Text(label, fontSize = 12.sp) }
+        TextButton(onClick = allow) { Text(label, fontSize = 12.sp) }
     }
 }
 
