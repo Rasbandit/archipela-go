@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
-use crate::chain::ChainScope;
 use crate::geo::Point;
 use crate::units::UnitSystem;
 
@@ -36,13 +35,11 @@ pub struct Settings {
     pub last_place: Option<Point>,
     /// Whether a trap alerts the player with a loud notification and buzz (#160).
     pub trap_alerts: bool,
-    /// Which open zones' chains fill while the player is inside a zone.
-    pub chain_scope: ChainScope,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { units: UnitChoice::default(), last_place: None, trap_alerts: true, chain_scope: ChainScope::default() }
+        Self { units: UnitChoice::default(), last_place: None, trap_alerts: true }
     }
 }
 
@@ -115,15 +112,13 @@ mod tests {
 
     #[test]
     fn missing_file_loads_defaults() {
-        assert_eq!(Settings::load(&tmp("missing")), Settings::default());
-        assert_eq!(Settings::default().chain_scope, ChainScope::ThisZone);
+        assert_eq!(Settings::load(&tmp("missing")), Settings { units: UnitChoice::Auto, last_place: None, trap_alerts: true });
     }
 
     #[test]
     fn save_then_load_round_trips_and_creates_the_dir() {
         let dir = tmp("round-trip").join("nested");
-        let s =
-            Settings { units: UnitChoice::Imperial, last_place: Some(Point { lat: 40.5, lon: -111.9 }), trap_alerts: false, chain_scope: ChainScope::AnyZone };
+        let s = Settings { units: UnitChoice::Imperial, last_place: Some(Point { lat: 40.5, lon: -111.9 }), trap_alerts: false };
         s.save(&dir).unwrap();
         assert_eq!(Settings::load(&dir), s);
         assert!(!dir.join(format!("{FILE}.tmp")).exists(), "replaced in one step, leaving no temp file");
@@ -136,7 +131,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(FILE), r#"{"units":"metric"}"#).unwrap();
         assert!(Settings::load(&dir).trap_alerts);
-        assert_eq!(Settings::load(&dir).chain_scope, ChainScope::ThisZone, "a file from before the setting counts per zone");
     }
 
     #[test]

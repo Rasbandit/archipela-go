@@ -110,6 +110,15 @@ internal object Help {
     val stairs = HelpTopic("Avoid stairs", "Leaves out quests that are staircases.")
     val parking = HelpTopic("Allow parking lots", "Turn off to keep quests out of parking lots, where cars back out of spaces.")
 
+    const val ZONE_CHAINS = "Zone-specific progressive quests"
+    val zoneChains =
+        HelpTopic(
+            ZONE_CHAINS,
+            "Progressive quests like steps, time away and exploring belong to a zone, and only count while you are inside your " +
+                "zones. On: walking in a zone fills that zone's quests only. Off: walking in any zone you have opened fills them " +
+                "in every zone you have opened. Set once for this game.",
+        )
+
     // ---- keeping tracking alive (battery optimisation), by phone maker
     val batterySamsung =
         HelpTopic(
@@ -172,18 +181,6 @@ internal object Help {
             "When a trap hits you, the phone shows a loud alert and buzzes hard, so you notice even with the phone in a pocket. " +
                 "A Silence Trap mutes them while it lasts. You can tune the Traps channel in the phone's notification settings.",
         )
-
-    val chainScope =
-        HelpTopic(
-            CHAIN_SCOPE,
-            "Steps, time away and map squares only count inside your zones, never outside them. " +
-                "This zone only: walking in a zone fills that zone's chains. " +
-                "Any zone: walking in any zone fills the chains of every zone you have opened.",
-        )
-
-    const val CHAIN_SCOPE = "Where chains count"
-    const val SCOPE_THIS_ZONE = "This zone only"
-    const val SCOPE_ANY_ZONE = "Any zone"
 
     val units =
         HelpTopic(

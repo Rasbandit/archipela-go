@@ -87,7 +87,6 @@ internal class AppModel(
     val settings = PresenceSettings(ctx)
     private val trapAlert = TrapAlert(ctx)
     val trapSettings = TrapSettings(this)
-    val chainScope = ChainScopeSettings(this)
     val units = UnitSettings(this)
     val stepCal = StepCalStore(ctx)
     val presence = PresenceController(this, ctx, scope)
@@ -176,6 +175,9 @@ internal class AppModel(
     var surfacePref by mutableStateOf("any")
     var avoidStairs by mutableStateOf(false)
     var allowParking by mutableStateOf(true)
+
+    /** Whether a new game's progressive quests fill only in their own zone (else in any open zone). */
+    var zoneSpecificChains by mutableStateOf(true)
 
     /** The player's pin on any map, for drawing only: the simulator, else the filtered position, else the raw fix (no game open). */
     val mePin: MePin?

@@ -14,7 +14,7 @@ use crate::assign::{
     assign, forage_pool, place_of, replace_unpicked, zone_paths, AssignParams, Assignment, SlotIn, SurfacePref, Target, ZoneCtx, ITEM_SPACING_M,
 };
 use crate::catalog::{Catalog, Mode};
-use crate::chain::{self, is_chain_target, Chain, ChainScope, ChainUnit};
+use crate::chain::{self, is_chain_target, Chain, ChainUnit};
 use crate::fog::{anchor, reveal_radius, Fog};
 use crate::forage::{Forage, BAG_SIZE, LIVE_PER_NEED, RESPAWN_MS};
 use crate::geo::{densify, distance_m, Point};
@@ -417,6 +417,10 @@ pub struct Game {
     /// Whether quests may be placed in parking lots. Saves from before the switch load as allowed: they could already use them.
     #[serde(default = "yes")]
     pub allow_parking: bool,
+    /// Whether a progressive quest (steps, time away, map squares) fills only while the player is in its own zone; when not, every
+    /// open zone's fill while they are in any open zone. Chosen when the game is made; saves from before it load as zone-specific.
+    #[serde(default = "yes")]
+    pub zone_specific_chains: bool,
     /// Saved progress of progressive quests.
     #[serde(default)]
     pub counters: Counters,
@@ -490,9 +494,6 @@ pub struct Game {
     /// Steps walked while `inside` is unknown: they count where the next placement puts the player.
     #[serde(skip)]
     held_steps: i64,
-    /// Which open zones' chains fill while inside a zone: the player's setting, set by the app, never saved.
-    #[serde(skip)]
-    chain_scope: ChainScope,
 }
 
 /// What it takes to create a game.
@@ -523,6 +524,8 @@ pub struct NewGame<'a> {
     pub avoid_stairs: bool,
     /// Whether quests may be placed in parking lots.
     pub allow_parking: bool,
+    /// Whether progressive quests fill only in their own zone.
+    pub zone_specific_chains: bool,
 }
 
 /// How close the player must get for the quest's checkpoint (None for quests without one).
@@ -680,6 +683,7 @@ impl Game {
             surface: n.surface,
             avoid_stairs: n.avoid_stairs,
             allow_parking: n.allow_parking,
+            zone_specific_chains: n.zone_specific_chains,
             counters: Counters { cells_counted: true, ..Counters::default() },
             collected: BTreeMap::new(),
             forage: BTreeMap::new(),
@@ -703,7 +707,6 @@ impl Game {
             zone_areas: None,
             inside: None,
             held_steps: 0,
-            chain_scope: ChainScope::default(),
         }
         .with_default_travel_mode())
     }
@@ -995,8 +998,9 @@ impl Game {
         self.chains().into_iter().filter(|c| self.fills(c)).collect()
     }
 
-    /// Whether chain `c` fills now: it can be played (zone open, badges held) and the player is where the setting says: in its zone,
-    /// or in any open zone. Never outside every zone, in a zone not yet opened, or while where the player is is unknown.
+    /// Whether chain `c` fills now: it can be played (zone open, badges held) and the player is where the game says: in its zone,
+    /// or in any open zone ([`Self::zone_specific_chains`]). Never outside every zone, in a zone not yet opened, or while where the
+    /// player is is unknown.
     fn fills(&self, c: &Chain) -> bool {
         if !self.quest_unlocked(c.zone, &c.needs) {
             return false;
@@ -1005,9 +1009,10 @@ impl Game {
             return true;
         }
         let Some(inside) = &self.inside else { return false };
-        match self.chain_scope {
-            ChainScope::ThisZone => inside.contains(&c.zone),
-            ChainScope::AnyZone => inside.iter().any(|z| self.zone_unlocked(*z)),
+        if self.zone_specific_chains {
+            inside.contains(&c.zone)
+        } else {
+            inside.iter().any(|z| self.zone_unlocked(*z))
         }
     }
 
@@ -1056,17 +1061,6 @@ impl Game {
     pub fn set_zone_areas(&mut self, areas: Vec<(u32, Shape)>) {
         self.zone_areas = (!areas.is_empty()).then_some(areas);
         self.inside = None;
-    }
-
-    /// Which open zones' chains fill while the player is inside a zone.
-    pub fn set_chain_scope(&mut self, scope: ChainScope) {
-        self.chain_scope = scope;
-    }
-
-    /// The chain scope the game counts with now.
-    #[must_use]
-    pub fn chain_scope(&self) -> ChainScope {
-        self.chain_scope
     }
 
     fn counter_of(&self, c: &Chain) -> f64 {
@@ -2421,6 +2415,7 @@ mod tests {
                 surface: SurfacePref::Any,
                 avoid_stairs: false,
                 allow_parking: true,
+                zone_specific_chains: true,
             },
             &Catalog::builtin(),
         )
@@ -3258,6 +3253,7 @@ mod tests {
                 surface: SurfacePref::Any,
                 avoid_stairs: false,
                 allow_parking: true,
+                zone_specific_chains: true,
             },
             &Catalog::builtin(),
         );
@@ -4006,6 +4002,17 @@ mod tests {
         v.as_object_mut().unwrap().insert("away".into(), serde_json::json!({"zone_only": true, "distance_m": {"1": 900.0}}));
         let back: Game = serde_json::from_value(v).unwrap();
         assert!(back.counters.progress.is_empty() && back.counters.away_mark.is_none(), "an old save's away settings are ignored");
+    }
+
+    #[test]
+    fn a_game_is_zone_specific_unless_made_otherwise_and_old_saves_load_as_zone_specific() {
+        let mut g = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
+        assert!(g.zone_specific_chains);
+        g.zone_specific_chains = false;
+        let mut v = serde_json::to_value(&g).unwrap();
+        assert!(!serde_json::from_value::<Game>(v.clone()).unwrap().zone_specific_chains, "the choice is saved");
+        v.as_object_mut().unwrap().remove("zone_specific_chains");
+        assert!(serde_json::from_value::<Game>(v).unwrap().zone_specific_chains);
     }
 
     #[test]
@@ -5218,7 +5225,7 @@ mod tests {
     }
 
     #[test]
-    fn by_default_only_the_zone_you_are_in_fills_its_chains() {
+    fn a_zone_specific_game_fills_only_the_chains_of_the_zone_you_are_in() {
         let (mut g, _) = two_zone_steps_game();
         g.on_estimate(&fixat(in_zone(&g), 1), None);
         g.on_steps(0, 2_000, None);
@@ -5228,9 +5235,9 @@ mod tests {
     }
 
     #[test]
-    fn with_the_any_zone_setting_every_open_zone_fills_but_never_outside_them() {
+    fn a_game_that_is_not_zone_specific_fills_every_open_zone_but_never_outside_them() {
         let (mut g, _) = two_zone_steps_game();
-        g.set_chain_scope(ChainScope::AnyZone);
+        g.zone_specific_chains = false;
         g.on_estimate(&fixat(in_zone(&g), 1), None);
         g.on_steps(0, 2_000, None);
         g.on_steps(700, 3_000, None);
@@ -5319,10 +5326,10 @@ mod tests {
     }
 
     #[test]
-    fn a_locked_zone_fills_no_chains_even_with_the_any_zone_setting() {
+    fn a_locked_zone_fills_no_chains_even_when_any_open_zone_counts() {
         let (mut g, north) = two_zone_steps_game();
         g.slot.zones[1].zone_keys_needed = 9; // zone 2 is locked
-        g.set_chain_scope(ChainScope::AnyZone);
+        g.zone_specific_chains = false;
         g.on_estimate(&fixat(north, 1), None);
         g.on_steps(0, 2_000, None);
         g.on_steps(700, 3_000, None);

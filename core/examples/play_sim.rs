@@ -77,6 +77,7 @@ fn main() {
             surface: apgo_core::assign::SurfacePref::Any,
             avoid_stairs: false,
             allow_parking: true,
+            zone_specific_chains: true,
         },
         &catalog,
     )

@@ -255,6 +255,7 @@ private fun PlaySettings(
         ChoiceChips(TERRAIN_LABELS.keys.toList(), m.surfacePref, { m.surfacePref = it }, { TERRAIN_LABELS[it] ?: it })
         SwitchRow("Avoid stairs", Help.stairs, m.avoidStairs) { m.avoidStairs = it }
         SwitchRow("Allow parking lots", Help.parking, m.allowParking) { m.allowParking = it }
+        SwitchRow(Help.ZONE_CHAINS, Help.zoneChains, m.zoneSpecificChains) { m.zoneSpecificChains = it }
     }
 }
 

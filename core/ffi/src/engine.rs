@@ -1238,9 +1238,6 @@ pub struct Engine {
     units: Mutex<UnitSystem>,
     /// The trap alerts setting, kept in memory so a trap never reads the settings file (saved by `set_trap_alerts`).
     pub(crate) trap_alerts: std::sync::atomic::AtomicBool,
-    /// Where chains count, kept in memory so opening a game never reads the settings file under the game lock (saved by
-    /// `set_chain_scope`).
-    pub(crate) chain_scope: Mutex<apgo_core::chain::ChainScope>,
     /// The last journal point written, for the 5 s / 5 m throttle.
     last_journal: Mutex<Option<TrackPoint>>,
     /// The last street-build generation handed out (see [`Game::set_streets`]).
@@ -1519,7 +1516,6 @@ impl Engine {
         // Read the units under the game lock: `refresh_units` stores new units before it takes this lock, so a change racing
         // this install is either seen here or applied to this game right after.
         game.set_units(self.unit_system());
-        game.set_chain_scope(*self.chain_scope.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         game.set_fix_spacing_hint(*self.fix_spacing_hint.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         // Keep the outgoing game's progress (unless the new one replaces that very save).
         if let Some(old) = slot.as_ref().filter(|old| old.id != game.id) {
@@ -1592,17 +1588,7 @@ impl Engine {
         self.with_game(|g| g.id.clone())
     }
 
-    /// Keep `scope` and give it to the open game, under the game lock (lock order: game, then scope): an install racing this
-    /// either reads the old scope and gets the new one here, or reads the new one.
-    pub(crate) fn apply_chain_scope(&self, scope: apgo_core::chain::ChainScope) {
-        let mut game = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        *self.chain_scope.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = scope;
-        if let Some(g) = game.as_mut() {
-            g.set_chain_scope(scope);
-        }
-    }
-
-    pub(crate) fn with_game<T>(&self, f: impl FnOnce(&mut Game) -> T) -> Option<T> {
+    fn with_game<T>(&self, f: impl FnOnce(&mut Game) -> T) -> Option<T> {
         self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut().map(f)
     }
 
@@ -1678,7 +1664,6 @@ impl Engine {
             last_proximity: Mutex::new(None),
             units: Mutex::new(resolve_units(Settings::load(&dir).units, "")),
             trap_alerts: std::sync::atomic::AtomicBool::new(Settings::load(&dir).trap_alerts),
-            chain_scope: Mutex::new(Settings::load(&dir).chain_scope),
             region: Mutex::new(String::new()),
             last_journal: Mutex::new(None),
             streets_gen: AtomicU64::default(),
@@ -2022,6 +2007,7 @@ impl Engine {
         surface: String,
         avoid_stairs: bool,
         allow_parking: bool,
+        zone_specific_chains: bool,
     ) -> Result<(), CoreError> {
         let opts = to_core(o)?;
         if zone_realms.len() != opts.zone_count as usize {
@@ -2045,6 +2031,7 @@ impl Engine {
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
                 allow_parking,
+                zone_specific_chains,
             },
             &self.catalog,
         )
@@ -2071,6 +2058,7 @@ impl Engine {
         surface: String,
         avoid_stairs: bool,
         allow_parking: bool,
+        zone_specific_chains: bool,
         address: String,
         slot_name: String,
     ) -> Result<(), CoreError> {
@@ -2092,6 +2080,7 @@ impl Engine {
                 surface: SurfacePref::parse(&surface),
                 avoid_stairs,
                 allow_parking,
+                zone_specific_chains,
             },
             &self.catalog,
         )
@@ -2885,6 +2874,7 @@ mod tests {
                 surface: SurfacePref::Any,
                 avoid_stairs: false,
                 allow_parking: true,
+                zone_specific_chains: true,
             },
             &e.catalog,
         )
@@ -3321,10 +3311,21 @@ mod tests {
             "any".into(),
             false,
             true,
+            false, // progressive quests fill in every open zone
             address.into(),
             "Tester".into(),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn a_new_game_keeps_its_zone_specific_choice_across_a_restart() {
+        let e = engine_with_game("zone-specific");
+        assert!(e.with_game(|g| g.zone_specific_chains).unwrap(), "the test game was made zone-specific");
+        start_ap_game(&e, "localhost:38281"); // made with the switch off
+        let restarted = Engine::new(e.dir.to_string_lossy().into_owned());
+        restarted.open_game("ap".into()).unwrap();
+        assert_eq!(restarted.with_game(|g| g.zone_specific_chains), Some(false));
     }
 
     #[test]
@@ -3549,6 +3550,7 @@ mod tests {
             surface: SurfacePref::Any,
             avoid_stairs: false,
             allow_parking: true,
+            zone_specific_chains: true,
         };
         e.install(Game::create(new, &e.catalog).unwrap());
         let graph = |e: &Engine| e.game.lock().unwrap().as_ref().and_then(|g| g.street_graph().map(|g| g.segment_count()));
@@ -3769,20 +3771,6 @@ mod tests {
         e.on_fix(fix_at(destination(home(), 90.0, 1_000.0), t + 3_600_000), None, false); // walked back in an hour later
         e.on_fix(fix_at(destination(home(), 90.0, 1_050.0), t + 3_660_000), None, false);
         assert!(e.with_game(|g| g.outing.as_ref().is_some_and(|o| o.start_ms >= t + 3_600_000)).unwrap(), "the walk opens inside the zone");
-    }
-
-    #[test]
-    fn the_chain_scope_is_saved_and_applied_to_the_open_and_the_next_game() {
-        use crate::settings::ChainScope;
-        let e = engine_with_game("chain-scope");
-        assert_eq!(e.chain_scope(), ChainScope::ThisZone, "per zone by default");
-        e.set_chain_scope(ChainScope::AnyZone).unwrap();
-        assert_eq!(e.chain_scope(), ChainScope::AnyZone);
-        assert_eq!(e.with_game(|g| g.chain_scope()), Some(apgo_core::chain::ChainScope::AnyZone), "the open game follows at once");
-        e.with_game(|g| g.save(&e.dir).unwrap());
-        let restarted = Engine::new(e.dir.to_string_lossy().into_owned());
-        restarted.open_game("g1".into()).unwrap();
-        assert_eq!(restarted.with_game(|g| g.chain_scope()), Some(apgo_core::chain::ChainScope::AnyZone), "a game opened later reads the setting");
     }
 
     #[test]

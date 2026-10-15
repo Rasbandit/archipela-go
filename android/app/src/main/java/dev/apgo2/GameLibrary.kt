@@ -36,6 +36,7 @@ internal class GameLibrary(
                             model.surfacePref,
                             model.avoidStairs,
                             model.allowParking,
+                            model.zoneSpecificChains,
                         )
                         model.stepCal.loadInto(model.engine)
                     }
