@@ -61,6 +61,7 @@ private class CampPickerState(
 
     // The id of the camp being edited, or of the one this picker created.
     private var savedId by mutableStateOf(existing?.id)
+    private val saves = OneSaveAtATime()
     var saved by mutableStateOf(existing != null)
     var focus by mutableStateOf<MapFocus?>(null)
     private var nonce by mutableIntStateOf(0)
@@ -84,16 +85,30 @@ private class CampPickerState(
         if (!askName) save()
     }
 
-    fun save() {
-        val at = pin ?: return
-        savedId = m.campOps.save(savedId, name, at)
-        saved = savedId != null
-    }
+    // Saves run one at a time, so a second placement made while the first camp is still being created edits that camp instead of
+    // adding another; the pin and name are read when the save starts. [then] runs once the save succeeded.
+    fun save(then: () -> Unit = {}) =
+        saves.request { done ->
+            val at = pin
+            if (at == null) {
+                done()
+            } else {
+                m.campOps.save(savedId, name, at) { id ->
+                    id?.let { savedId = it } // a failed save keeps the camp it had, so the next one edits it instead of adding one
+                    saved = id != null
+                    if (id != null) then()
+                    done()
+                }
+            }
+        }
 
     // The top-right button: with a name field it saves first, then both go on once the camp is saved.
     fun finish(onNext: () -> Unit) {
-        if (askName) save()
-        if (saved) onNext()
+        if (askName) {
+            save(onNext)
+        } else if (saved) {
+            onNext()
+        }
     }
 
     fun useMyLocation() {
@@ -110,6 +125,28 @@ private class CampPickerState(
         } else {
             r.circle?.let { circleExtremes(LatLng(it.center.lat, it.center.lon), it.radiusM) }.orEmpty()
         }
+}
+
+/** Runs saves one at a time: one asked for while another runs waits for it, and of several waiting only the newest runs. */
+internal class OneSaveAtATime {
+    private var running = false
+    private var next: ((done: () -> Unit) -> Unit)? = null
+
+    /** Starts [save] now, or once the running one calls its `done`. [save] must call `done` when it has finished. */
+    fun request(save: (done: () -> Unit) -> Unit) {
+        if (running) {
+            next = save
+            return
+        }
+        running = true
+        save {
+            running = false
+            next?.let {
+                next = null
+                request(it)
+            }
+        }
+    }
 }
 
 /**

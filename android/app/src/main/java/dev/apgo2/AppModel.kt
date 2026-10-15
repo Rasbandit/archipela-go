@@ -100,7 +100,7 @@ internal class AppModel(
     val setup = SetupWizard(this)
     val scans = ScanCoordinator(this, scope)
     val realmOps = RealmManager(this)
-    val campOps = CampManager(this)
+    val campOps = CampManager(this, scope)
     val library = GameLibrary(this, scope)
     val ap = ApController(this, ctx, scope)
     val sim = DevSimulator(this, scope)
