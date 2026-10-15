@@ -44,7 +44,7 @@ internal object Help {
                 HelpTopic(
                     "Courier",
                     "Pick something up at one spot and deliver it to another, go out and come back, " +
-                        "or gather things scattered around your area and bring enough of them home.",
+                        "or gather things scattered around your area and bring enough of them to a camp.",
                 ),
             "explore" to HelpTopic("Explore", "Visit new map cells you have never been to."),
             "steps" to HelpTopic("Steps", "Take a number of steps. Counted by your phone's step sensor."),

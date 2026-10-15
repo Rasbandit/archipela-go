@@ -63,11 +63,11 @@ pub fn card_text(a: &Assignment, home: Point, units: UnitSystem) -> CardText {
         Target::DwellArea { minutes, .. } => (format!("Hang out {minutes:.0} min"), "Anywhere inside the outline".into()),
         Target::Line { pts, coverage, .. } => line_text(kind, polyline_len_m(pts), *coverage, units),
         Target::Courier { time_limit_min, .. } => ("Deliver the package".into(), format!("Pick up at A, drop at B in {time_limit_min:.0} min")),
-        Target::RoundTrip { .. } => ("Out and back".into(), "Touch the far point, then come home".into()),
+        Target::RoundTrip { .. } => ("Out and back".into(), "Touch the far point, then come back to a camp".into()),
         Target::Cells { .. } => ("Explore somewhere new".into(), "Walk where you haven't been yet".into()),
         Target::Steps { n } => (format!("Walk {} steps", thousands(u64::from(*n))), "Any pace, anywhere".into()),
         Target::Away { minutes } => (format!("Be out {}", duration(*minutes)), "Time away from home".into()),
-        Target::Collect { need, theme, .. } => (format!("Collect {need} {theme}"), "Bring them home to bank".into()),
+        Target::Collect { need, theme, .. } => (format!("Collect {need} {theme}"), "Bring them to a camp to bank".into()),
     };
     CardText { headline, detail }
 }
@@ -180,7 +180,7 @@ pub fn card_progress(q: &crate::game::QuestView, now_ms: i64, units: UnitSystem)
                 None => steps(["Pick up", "Deliver"], Some(format!("{time_limit_min:.0} min to deliver once picked up"))),
             }
         }
-        Target::RoundTrip { .. } => steps(["Reach the far point", "Back home"], None),
+        Target::RoundTrip { .. } => steps(["Reach the far point", "Back at a camp"], None),
     })
 }
 
@@ -344,10 +344,10 @@ mod tests {
         );
         assert_eq!(
             text(&quest("there_and_back", Target::RoundTrip { far: ne, r: 50.0 })),
-            ("Out and back".into(), "Touch the far point, then come home".into())
+            ("Out and back".into(), "Touch the far point, then come back to a camp".into())
         );
         let collect = Target::Collect { pts: vec![ne], need: 5, r: 25.0, theme: "acorns".into() };
-        assert_eq!(text(&quest("forager", collect)), ("Collect 5 acorns".into(), "Bring them home to bank".into()));
+        assert_eq!(text(&quest("forager", collect)), ("Collect 5 acorns".into(), "Bring them to a camp to bank".into()));
     }
 
     fn view(target: Target, state: crate::game::QuestState, progress: f32) -> crate::game::QuestView {
@@ -463,7 +463,7 @@ mod tests {
         let rt = Target::RoundTrip { far: home(), r: 50.0 };
         let steps: Vec<u8> = [(Open, 0.0), (InProgress, 0.5), (Done, 1.0)].iter().map(|(s, p)| prog(&view(rt.clone(), *s, *p)).step_at).collect();
         assert_eq!(steps, [0, 1, 2]);
-        assert_eq!(prog(&view(rt, Open, 0.0)).steps, ["Reach the far point", "Back home"]);
+        assert_eq!(prog(&view(rt, Open, 0.0)).steps, ["Reach the far point", "Back at a camp"]);
     }
 
     #[test]
