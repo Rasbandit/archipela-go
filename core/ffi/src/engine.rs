@@ -2493,7 +2493,7 @@ impl Engine {
     }
 
     /// The phone arrived home (home Wi-Fi or the home circle): forager quests bank what they carry and the walk closes into its
-    /// recap (see `Game::arrive_home`), kept with the game until dismissed; `RecapReady` says this call stored a new one. Safe to call
+    /// recap (see `Game::arrive_at_camp`), kept with the game until dismissed; `RecapReady` says this call stored a new one. Safe to call
     /// again.
     pub fn bank_at_home(&self, t_ms: i64) -> Vec<EventOut> {
         // Read the trace first (no game lock held), so closing the outing, storing the recap and saving happen in one pass.
@@ -2503,7 +2503,7 @@ impl Engine {
         let segs = start.map_or_else(Vec::new, |from| self.read_segments(&game_id, from, t_ms));
         let units = self.unit_system();
         let Some((id, ev, entries, ready)) = self.with_game(|g| {
-            let (ev, recap) = g.arrive_home(t_ms);
+            let (ev, recap) = g.arrive_at_camp(t_ms);
             let mut ready = None;
             if let Some(mut r) = recap {
                 if g.id != game_id {

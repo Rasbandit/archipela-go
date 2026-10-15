@@ -24,7 +24,7 @@ fn a_short_real_staircase_can_be_completed_by_walking_it() {
         p(45.516_678_1, -122.694_707_9),
         p(45.516_693_5, -122.694_686_5),
     ];
-    let mut t = Tracker::new(Target::Line { pts: pts.clone(), corridor_m: 15.0, coverage: 0.8 }, pts[0]);
+    let mut t = Tracker::new(Target::Line { pts: pts.clone(), corridor_m: 15.0, coverage: 0.8 }, vec![pts[0]]);
     let mut ms = 0;
     let mut status = Status::Idle;
     for w in pts.windows(2) {

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::assign::Target;
 use crate::geo::{densify, distance_m, point_in_polygon, Point};
+use crate::home_watch::CAMP_CIRCLE_M;
 use crate::num::{count_f32, count_f64, count_u32, floor_i64, i64_to_f64, to_f32, trunc_i64};
 
 /// One position reading from the phone.
@@ -45,8 +46,6 @@ pub const MAX_ACCURACY_M: f64 = crate::loc::MAX_UNCERTAINTY_M;
 
 /// Spacing of the samples a line quest is covered by, in metres.
 pub const LINE_SAMPLE_M: f64 = 20.0;
-/// How close to home counts as home: for round trips, and where a forager banks what it carries, in metres.
-pub const HOME_RADIUS_M: f64 = 100.0;
 const MAX_GAP_MS: i64 = 5 * 60_000;
 
 /// Saved progress of a collect (forager) quest.
@@ -110,14 +109,14 @@ enum State {
 
 /// Watches phone signals and decides whether one quest has been completed.
 ///
-/// Saved without its target and home: a loaded tracker is detached until [`Tracker::reattach`] gives it the quest's current
+/// Saved without its target and camps: a loaded tracker is detached until [`Tracker::reattach`] gives it the quest's current
 /// target (a dwell's length depends on the traps active now, so it is never stored).
 #[derive(Serialize, Deserialize)]
 pub struct Tracker {
     #[serde(skip, default = "detached")]
     target: Target,
-    #[serde(skip, default = "detached_home")]
-    home: Point,
+    #[serde(skip)]
+    camps: Vec<Point>,
     state: State,
     done: bool,
     progress: f32,
@@ -130,6 +129,12 @@ fn detached() -> Target {
 
 fn detached_home() -> Point {
     Point::new(0.0, 0.0)
+}
+
+/// Whether `p` is within [`CAMP_CIRCLE_M`] of any of `camps`.
+#[must_use]
+pub fn within_camp(camps: &[Point], p: Point) -> bool {
+    camps.iter().any(|c| distance_m(p, *c) <= CAMP_CIRCLE_M)
 }
 
 fn cell_id(p: Point, cell_m: f64) -> (i64, i64) {
@@ -148,9 +153,9 @@ impl Tracker {
         }
     }
 
-    /// A tracker for `target`, with distances measured from `home`.
+    /// A tracker for `target`, that counts being at any of `camps` (within [`CAMP_CIRCLE_M`]) as home.
     #[must_use]
-    pub fn new(target: Target, home: Point) -> Self {
+    pub fn new(target: Target, camps: Vec<Point>) -> Self {
         let state = match &target {
             Target::Point { .. } => State::None,
             Target::Dwell { .. } | Target::DwellArea { .. } => State::Dwell { since: None, best_ms: 0 },
@@ -166,13 +171,18 @@ impl Tracker {
             Target::Away { .. } => State::Away { accum_ms: 0, last_t: None },
             Target::Collect { .. } => State::Collect(Collected::default()),
         };
-        Self { target, home, state, done: false, progress: 0.0 }
+        Self { target, camps, state, done: false, progress: 0.0 }
+    }
+
+    /// Replace the camps the tracker counts as home (a camp was added or removed): the next fix uses them.
+    pub fn set_camps(&mut self, camps: Vec<Point>) {
+        self.camps = camps;
     }
 
     /// A tracker for a collect quest that carries on from saved progress (a reopened game or a moved quest).
     #[must_use]
-    pub fn with_collected(target: Target, home: Point, saved: Collected) -> Self {
-        let mut t = Self::new(target, home);
+    pub fn with_collected(target: Target, camps: Vec<Point>, saved: Collected) -> Self {
+        let mut t = Self::new(target, camps);
         if let (Target::Collect { need, .. }, State::Collect(c)) = (&t.target, &mut t.state) {
             *c = saved;
             t.progress = collect_progress(c, *need);
@@ -225,6 +235,7 @@ impl Tracker {
             return self.status();
         }
         let p = fix.point();
+        let at_camp = within_camp(&self.camps, p);
         match (&self.target, &mut self.state) {
             (Target::Point { p: tp, r }, _) => {
                 if distance_m(p, *tp) <= *r {
@@ -267,7 +278,7 @@ impl Tracker {
             }
             (Target::RoundTrip { far, r }, State::RoundTrip { left_home, reached_far }) => {
                 // No clock: reach the far point, then get home whenever you like. Coming home without the far point starts over.
-                if distance_m(p, self.home) <= HOME_RADIUS_M {
+                if at_camp {
                     if *reached_far {
                         self.done = true;
                     } else {
@@ -305,7 +316,7 @@ impl Tracker {
             (Target::Away { minutes }, State::Away { accum_ms, last_t }) => {
                 if let Some(prev) = *last_t {
                     let dt = fix.t_ms - prev;
-                    if distance_m(p, self.home) > HOME_RADIUS_M && (0..=MAX_GAP_MS).contains(&dt) {
+                    if !at_camp && (0..=MAX_GAP_MS).contains(&dt) {
                         *accum_ms += dt;
                     }
                 }
@@ -320,7 +331,7 @@ impl Tracker {
                         c.carried += 1;
                     }
                 }
-                if distance_m(p, self.home) <= HOME_RADIUS_M {
+                if at_camp {
                     c.bank();
                 }
                 self.progress = collect_progress(c, *need);
@@ -378,11 +389,11 @@ impl Tracker {
         }
     }
 
-    /// Give a loaded tracker its quest's current `target` and `home`. Returns false when the saved progress does not fit the
+    /// Give a loaded tracker its quest's current `target` and `camps`. Returns false when the saved progress does not fit the
     /// target (another kind of quest, or a line with a different number of samples): the caller drops it and the quest starts over.
     #[must_use]
-    pub fn reattach(&mut self, target: Target, home: Point) -> bool {
-        let fresh = Self::new(target, home);
+    pub fn reattach(&mut self, target: Target, camps: Vec<Point>) -> bool {
+        let fresh = Self::new(target, camps);
         if std::mem::discriminant(&fresh.state) != std::mem::discriminant(&self.state) {
             return false;
         }
@@ -393,7 +404,7 @@ impl Tracker {
             *dense = fresh_dense;
         }
         self.target = fresh.target;
-        self.home = fresh.home;
+        self.camps = fresh.camps;
         true
     }
 
@@ -419,6 +430,10 @@ mod tests {
         Point::new(40.0, -111.0)
     }
 
+    fn camps() -> Vec<Point> {
+        vec![home()]
+    }
+
     fn fix(p: Point, t_s: i64) -> Fix {
         Fix { lat: p.lat, lon: p.lon, t_ms: t_s * 1000, accuracy_m: 10.0 }
     }
@@ -438,7 +453,7 @@ mod tests {
     fn collect_picks_each_item_once_within_its_radius_and_ignores_blurry_fixes() {
         let t = collect(3, 6);
         let pts = items(&t);
-        let mut tr = Tracker::new(t, home());
+        let mut tr = Tracker::new(t, camps());
         tr.update(&Fix { accuracy_m: 50.0, ..fix(pts[0], 0) }, None);
         assert_eq!(tr.collected().unwrap().carried, 0, "a blurry fix picks nothing");
         tr.update(&fix(destination(pts[0], 90.0, 26.0), 10), None);
@@ -452,15 +467,53 @@ mod tests {
     }
 
     #[test]
+    fn collect_banks_within_50_m_of_any_camp_and_not_at_80_m() {
+        let second = destination(home(), 0.0, 3000.0);
+        let t = collect(3, 6);
+        let pts = items(&t);
+        let mut tr = Tracker::new(t, vec![home(), second]);
+        tr.update(&fix(pts[0], 0), None);
+        tr.update(&fix(destination(second, 90.0, 80.0), 60), None);
+        assert_eq!(tr.collected().unwrap().banked, 0, "80 m is outside the 50 m circle");
+        tr.update(&fix(destination(second, 90.0, 40.0), 120), None);
+        assert_eq!(tr.collected().unwrap().banked, 1, "40 m from the second camp banks");
+    }
+
+    #[test]
+    fn a_round_trip_ends_at_any_camp() {
+        let second = destination(home(), 90.0, 3000.0);
+        let far = destination(home(), 0.0, 1500.0);
+        let mut t = Tracker::new(Target::RoundTrip { far, r: 50.0 }, vec![home(), second]);
+        t.update(&fix(home(), 0), None);
+        t.update(&fix(far, 600), None);
+        assert_eq!(t.update(&fix(destination(second, 0.0, 40.0), 1200), None), Status::Done);
+    }
+
+    #[test]
+    fn away_does_not_accrue_inside_any_camp() {
+        let second = destination(home(), 90.0, 3000.0);
+        let at_second = destination(second, 0.0, 30.0);
+        let run = |camps: Vec<Point>| {
+            let mut t = Tracker::new(Target::Away { minutes: 10.0 }, camps);
+            t.update(&fix(at_second, 0), None);
+            t.update(&fix(at_second, 120), None);
+            t.update(&fix(at_second, 240), None)
+        };
+        assert_eq!(run(vec![home()]), Status::Active(0.4), "away when the second place is no camp");
+        assert_ne!(run(vec![home(), second]), Status::Active(0.4));
+        assert_eq!(run(vec![home(), second]), Status::Idle, "nothing accrued at the second camp");
+    }
+
+    #[test]
     fn collect_banks_on_each_arrival_home_and_is_done_exactly_at_the_need() {
         let t = collect(3, 6);
         let pts = items(&t);
-        let mut tr = Tracker::new(t, home());
+        let mut tr = Tracker::new(t, camps());
         tr.update(&fix(pts[0], 0), None);
         tr.update(&fix(pts[1], 60), None);
         tr.update(&fix(destination(home(), 0.0, 150.0), 120), None);
         assert_eq!(tr.collected().unwrap().banked, 0, "nothing is banked away from home");
-        tr.update(&fix(destination(home(), 0.0, 90.0), 180), None);
+        tr.update(&fix(destination(home(), 0.0, 40.0), 180), None);
         let c = tr.collected().unwrap();
         assert_eq!((c.carried, c.banked), (0, 2), "partial banking");
         tr.update(&fix(home(), 240), None);
@@ -476,15 +529,15 @@ mod tests {
     fn collect_keeps_what_it_carries_through_a_pause_and_resumes_from_a_save() {
         let t = collect(3, 6);
         let pts = items(&t);
-        let mut tr = Tracker::new(t.clone(), home());
+        let mut tr = Tracker::new(t.clone(), camps());
         tr.update(&fix(pts[0], 0), None);
         tr.pause();
         assert_eq!(tr.collected().unwrap().carried, 1, "a pause (home Wi-Fi, car) keeps what you carry");
         let saved = Collected { picked: BTreeSet::from([0, 1]), carried: 1, banked: 1 };
-        let back = Tracker::with_collected(t, home(), saved.clone());
+        let back = Tracker::with_collected(t, camps(), saved.clone());
         assert_eq!(back.collected(), Some(&saved));
         assert!(matches!(back.status(), Status::Active(p) if (p - 0.5).abs() < 1e-6), "(1 + 0.5) / 3");
-        assert!(Tracker::new(Target::Point { p: home(), r: 40.0 }, home()).collected().is_none());
+        assert!(Tracker::new(Target::Point { p: home(), r: 40.0 }, camps()).collected().is_none());
         assert!((collect_progress(&Collected { banked: 9, ..Collected::default() }, 3) - 1.0).abs() < f32::EPSILON, "capped at 1");
     }
 
@@ -501,7 +554,7 @@ mod tests {
     #[test]
     fn reach_completes_only_inside_radius_and_ignores_bad_accuracy() {
         let target = destination(home(), 0.0, 500.0);
-        let mut t = Tracker::new(Target::Point { p: target, r: 40.0 }, home());
+        let mut t = Tracker::new(Target::Point { p: target, r: 40.0 }, camps());
         assert_eq!(t.update(&fix(destination(home(), 0.0, 400.0), 0), None), Status::Idle);
         let mut bad = fix(target, 1);
         bad.accuracy_m = 200.0;
@@ -512,7 +565,7 @@ mod tests {
     #[test]
     fn dwell_needs_continuous_time_and_resets_when_leaving() {
         let spot = destination(home(), 90.0, 300.0);
-        let mut t = Tracker::new(Target::Dwell { p: spot, r: 40.0, minutes: 3.0 }, home());
+        let mut t = Tracker::new(Target::Dwell { p: spot, r: 40.0, minutes: 3.0 }, camps());
         t.update(&fix(spot, 0), None);
         assert!(matches!(t.update(&fix(spot, 120), None), Status::Active(p) if p > 0.5));
         t.update(&fix(destination(spot, 0.0, 300.0), 130), None);
@@ -525,10 +578,10 @@ mod tests {
         let a = destination(home(), 0.0, 600.0);
         let poly = vec![a, destination(a, 90.0, 300.0), destination(a, 135.0, 300.0)];
         let inside = Point::new((poly[0].lat + poly[1].lat + poly[2].lat) / 3.0, (poly[0].lon + poly[1].lon + poly[2].lon) / 3.0);
-        let mut t = Tracker::new(Target::DwellArea { poly, center: inside, r: 80.0, minutes: 1.0 }, home());
+        let mut t = Tracker::new(Target::DwellArea { poly, center: inside, r: 80.0, minutes: 1.0 }, camps());
         t.update(&fix(inside, 0), None);
         assert_eq!(t.update(&fix(inside, 61), None), Status::Done);
-        let mut c = Tracker::new(Target::DwellArea { poly: vec![], center: inside, r: 80.0, minutes: 1.0 }, home());
+        let mut c = Tracker::new(Target::DwellArea { poly: vec![], center: inside, r: 80.0, minutes: 1.0 }, camps());
         c.update(&fix(destination(inside, 0.0, 50.0), 0), None);
         assert_eq!(c.update(&fix(destination(inside, 0.0, 50.0), 61), None), Status::Done);
     }
@@ -536,7 +589,7 @@ mod tests {
     #[test]
     fn line_needs_coverage_of_the_whole_trail_not_just_its_ends() {
         let pts = vec![home(), destination(home(), 0.0, 1000.0)];
-        let mut t = Tracker::new(Target::Line { pts: pts.clone(), corridor_m: 25.0, coverage: 0.9 }, home());
+        let mut t = Tracker::new(Target::Line { pts: pts.clone(), corridor_m: 25.0, coverage: 0.9 }, camps());
         t.update(&fix(pts[0], 0), None);
         assert!(!matches!(t.update(&fix(pts[1], 100), None), Status::Done), "teleporting to the end is not walking the trail");
         let mut done = false;
@@ -549,12 +602,12 @@ mod tests {
     /// A tracker saved and loaded back, attached to `target` again.
     fn reloaded(t: &Tracker, target: Target) -> Option<Tracker> {
         let mut back: Tracker = serde_json::from_str(&serde_json::to_string(t).unwrap()).unwrap();
-        back.reattach(target, home()).then_some(back)
+        back.reattach(target, camps()).then_some(back)
     }
 
     #[test]
     fn steps_while_paused_or_closed_are_not_credited_but_steps_taken_are_kept() {
-        let mut t = Tracker::new(Target::Steps { n: 1000 }, home());
+        let mut t = Tracker::new(Target::Steps { n: 1000 }, camps());
         t.update(&fix(home(), 0), Some(5000));
         t.update(&fix(home(), 60), Some(5400)); // 400 steps
         t.pause(); // home Wi-Fi
@@ -569,7 +622,7 @@ mod tests {
 
     #[test]
     fn a_reloaded_tracker_takes_the_target_it_is_given() {
-        let mut t = Tracker::new(Target::Dwell { p: home(), r: 50.0, minutes: 20.0 }, home()); // made longer by a trap
+        let mut t = Tracker::new(Target::Dwell { p: home(), r: 50.0, minutes: 20.0 }, camps()); // made longer by a trap
         t.update(&fix(home(), 0), None);
         t.update(&fix(home(), 300), None); // 5 minutes
         let mut back = reloaded(&t, Target::Dwell { p: home(), r: 50.0, minutes: 10.0 }).unwrap(); // the trap is over
@@ -583,7 +636,7 @@ mod tests {
     fn a_reloaded_line_rebuilds_its_samples_and_keeps_its_coverage() {
         let pts = vec![home(), destination(home(), 0.0, 1000.0)];
         let line = || Target::Line { pts: pts.clone(), corridor_m: 25.0, coverage: 0.9 };
-        let mut t = Tracker::new(line(), home());
+        let mut t = Tracker::new(line(), camps());
         for i in 0..=25 {
             t.update(&fix(destination(home(), 0.0, 20.0 * f64::from(i)), 100 + i64::from(i)), None);
         }
@@ -601,13 +654,13 @@ mod tests {
 
     #[test]
     fn a_reloaded_tracker_of_another_kind_is_dropped() {
-        let t = Tracker::new(Target::Steps { n: 1000 }, home());
+        let t = Tracker::new(Target::Steps { n: 1000 }, camps());
         assert!(reloaded(&t, Target::Away { minutes: 10.0 }).is_none());
     }
 
     #[test]
     fn pause_resets_only_timing_state() {
-        let mut dwell = Tracker::new(Target::Dwell { p: home(), r: 50.0, minutes: 10.0 }, home());
+        let mut dwell = Tracker::new(Target::Dwell { p: home(), r: 50.0, minutes: 10.0 }, camps());
         dwell.update(&fix(home(), 0), None);
         dwell.update(&fix(home(), 300), None);
         dwell.pause();
@@ -615,17 +668,17 @@ mod tests {
         assert_eq!(dwell.update(&fix(home(), 1300), None), Status::Done);
 
         let far = destination(home(), 0.0, 1000.0);
-        let mut quiet = Tracker::new(Target::Dwell { p: home(), r: 40.0, minutes: 10.0 }, home());
+        let mut quiet = Tracker::new(Target::Dwell { p: home(), r: 40.0, minutes: 10.0 }, camps());
         quiet.update(&fix(home(), 0), None);
         assert_eq!(quiet.due_ms(), Some(600_000), "inside since 0: done at minute 10 if nothing changes");
         assert_ne!(quiet.tick(300_000), Status::Done);
         assert_eq!(quiet.tick(600_000), Status::Done, "standing still needs no more fixes to finish");
-        let mut left = Tracker::new(Target::Dwell { p: home(), r: 40.0, minutes: 10.0 }, home());
+        let mut left = Tracker::new(Target::Dwell { p: home(), r: 40.0, minutes: 10.0 }, camps());
         left.update(&fix(home(), 0), None);
         left.update(&fix(far, 60), None);
         assert_eq!(left.due_ms(), None, "outside: nothing will fall due");
         assert_ne!(left.tick(900_000), Status::Done);
-        let mut away = Tracker::new(Target::Away { minutes: 10.0 }, home());
+        let mut away = Tracker::new(Target::Away { minutes: 10.0 }, camps());
         away.update(&fix(far, 0), None);
         away.update(&fix(far, 60), None); // one minute counted
         away.pause();
@@ -633,12 +686,12 @@ mod tests {
         assert_eq!(away.update(&fix(far, 160), None), Status::Active(0.2), "only 1 + 1 minutes");
 
         let (a, b) = (destination(home(), 0.0, 400.0), destination(home(), 90.0, 800.0));
-        let mut courier = Tracker::new(Target::Courier { a, b, r: 40.0, time_limit_min: 10.0 }, home());
+        let mut courier = Tracker::new(Target::Courier { a, b, r: 40.0, time_limit_min: 10.0 }, camps());
         courier.update(&fix(a, 0), None);
         courier.pause();
         assert_eq!(courier.update(&fix(b, 100), None), Status::Done);
 
-        let mut cells = Tracker::new(Target::Cells { n: 2, cell_m: 100.0 }, home());
+        let mut cells = Tracker::new(Target::Cells { n: 2, cell_m: 100.0 }, camps());
         cells.update(&fix(home(), 0), None);
         cells.pause();
         assert_eq!(cells.update(&fix(destination(home(), 0.0, 400.0), 100), None), Status::Done, "cells seen before the pause still count");
@@ -647,11 +700,11 @@ mod tests {
     #[test]
     fn courier_needs_a_then_b_within_the_time_limit() {
         let (a, b) = (destination(home(), 0.0, 400.0), destination(home(), 90.0, 800.0));
-        let mut t = Tracker::new(Target::Courier { a, b, r: 40.0, time_limit_min: 10.0 }, home());
+        let mut t = Tracker::new(Target::Courier { a, b, r: 40.0, time_limit_min: 10.0 }, camps());
         assert_ne!(t.update(&fix(b, 0), None), Status::Done, "B before A does nothing");
         t.update(&fix(a, 10), None);
         assert_eq!(t.update(&fix(b, 300), None), Status::Done);
-        let mut slow = Tracker::new(Target::Courier { a, b, r: 40.0, time_limit_min: 10.0 }, home());
+        let mut slow = Tracker::new(Target::Courier { a, b, r: 40.0, time_limit_min: 10.0 }, camps());
         slow.update(&fix(a, 0), None);
         assert_ne!(slow.update(&fix(b, 700), None), Status::Done, "took longer than the limit");
     }
@@ -659,7 +712,7 @@ mod tests {
     #[test]
     fn round_trip_is_done_on_getting_home_after_the_far_point_however_long_it_takes() {
         let far = destination(home(), 0.0, 1500.0);
-        let mut t = Tracker::new(Target::RoundTrip { far, r: 50.0 }, home());
+        let mut t = Tracker::new(Target::RoundTrip { far, r: 50.0 }, camps());
         t.update(&fix(home(), 0), None);
         assert_ne!(t.update(&fix(home(), 60), None), Status::Done, "just being home is not a round trip");
         t.update(&fix(far, 600), None);
@@ -670,7 +723,7 @@ mod tests {
     #[test]
     fn round_trip_returning_without_the_far_point_starts_over_and_progress_shows_the_stages() {
         let far = destination(home(), 0.0, 1500.0);
-        let mut t = Tracker::new(Target::RoundTrip { far, r: 50.0 }, home());
+        let mut t = Tracker::new(Target::RoundTrip { far, r: 50.0 }, camps());
         assert_eq!(t.update(&fix(destination(home(), 0.0, 300.0), 0), None), Status::Active(0.1));
         assert_ne!(t.update(&fix(home(), 100), None), Status::Done, "back home without the far point");
         assert_eq!(t.status(), Status::Idle);
@@ -681,25 +734,25 @@ mod tests {
 
     #[test]
     fn cells_steps_and_away_accumulate() {
-        let mut c = Tracker::new(Target::Cells { n: 4, cell_m: 150.0 }, home());
+        let mut c = Tracker::new(Target::Cells { n: 4, cell_m: 150.0 }, camps());
         let mut last = Status::Idle;
         for i in 0..6 {
             last = c.update(&fix(destination(home(), 0.0, 160.0 * f64::from(i)), i64::from(i)), None);
         }
         assert_eq!(last, Status::Done);
 
-        let mut s = Tracker::new(Target::Steps { n: 1000 }, home());
+        let mut s = Tracker::new(Target::Steps { n: 1000 }, camps());
         s.update(&fix(home(), 0), Some(50_000));
         assert!(matches!(s.update(&fix(home(), 60), Some(50_400)), Status::Active(p) if (p - 0.4).abs() < 0.01));
         assert_eq!(s.update(&fix(home(), 120), Some(51_100)), Status::Done);
 
         let away = destination(home(), 0.0, 2000.0);
-        let mut a = Tracker::new(Target::Away { minutes: 10.0 }, home());
+        let mut a = Tracker::new(Target::Away { minutes: 10.0 }, camps());
         for i in 0..=11 {
             a.update(&fix(away, i * 60), None);
         }
         assert_eq!(a.status(), Status::Done);
-        let mut gap = Tracker::new(Target::Away { minutes: 10.0 }, home());
+        let mut gap = Tracker::new(Target::Away { minutes: 10.0 }, camps());
         gap.update(&fix(away, 0), None);
         gap.update(&fix(away, 3600), None);
         assert_ne!(gap.status(), Status::Done, "a one-hour gap in fixes must not count as time away");

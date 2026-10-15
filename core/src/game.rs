@@ -32,7 +32,7 @@ use crate::slot::{check_schema, SlotData};
 use crate::solo::badge_icon;
 use crate::traps::Traps;
 use crate::units::{distance, distance_rounded, speed_kmh, Round, UnitSystem};
-use crate::verify::{collect_progress, Collected, Fix, Status, Tracker, MAX_ACCURACY_M};
+use crate::verify::{collect_progress, within_camp, Collected, Fix, Status, Tracker, MAX_ACCURACY_M};
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -274,10 +274,6 @@ pub struct Stats {
     pub quest_days: BTreeSet<i64>,
 }
 
-/// Within this of the home pin a fix counts as being home: ends time away for players with no saved home Wi-Fi (with one, presence
-/// stops counting at home anyway).
-const HOME_RADIUS_M: f64 = 100.0;
-
 /// The most one unbroken stretch of time away can credit: a missed event (app killed, a wake-up the phone slept through) never
 /// credits more. A real outing keeps counting: a wake-up is scheduled by then at the latest.
 const AWAY_MAX_STRETCH_MS: i64 = 2 * 3_600_000;
@@ -329,7 +325,7 @@ pub struct OutingQuest {
 }
 
 /// A walk away from home, open from leaving until arriving home (car rides in between do not close it). Snapshots, not a log:
-/// what changed is worked out on arrival (`arrive_home`). Saved, so a restart mid-walk keeps it.
+/// what changed is worked out on arrival (`arrive_at_camp`). Saved, so a restart mid-walk keeps it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Outing {
     /// When the player left home, Unix ms.
@@ -487,6 +483,10 @@ pub struct Game {
     /// until set, or when no zone has an area left: then progress counts anywhere, as for a game no engine placed.
     #[serde(skip)]
     zone_areas: Option<Vec<(u32, Shape)>>,
+    /// The camps (circle centres where progress rests and foragers bank), set by the engine. `None` until set: the game then uses
+    /// `home` alone, as for a game no engine placed.
+    #[serde(skip)]
+    camps: Option<Vec<Point>>,
     /// The zones the last accepted (or bridged) estimate was in (locked ones too); `None` while unknown: counting just resumed
     /// (the player may have driven anywhere) or the zone areas just changed. The next placement settles what happened meanwhile.
     #[serde(skip)]
@@ -705,6 +705,7 @@ impl Game {
             units: UnitSystem::default(),
             counting: true,
             zone_areas: None,
+            camps: None,
             inside: None,
             held_steps: 0,
         }
@@ -951,8 +952,8 @@ impl Game {
         if !self.trackers.contains_key(&id) {
             let target = self.tracker_target(&self.assignments.iter().find(|a| a.location_id == id)?.target);
             let t = match self.collected.get(&id) {
-                Some(c) => Tracker::with_collected(target, self.home, c.clone()),
-                None => Tracker::new(target, self.home),
+                Some(c) => Tracker::with_collected(target, self.camp_points(), c.clone()),
+                None => Tracker::new(target, self.camp_points()),
             };
             self.trackers.insert(id, t);
         }
@@ -1036,7 +1037,7 @@ impl Game {
     /// At home nothing is settled: when they got home is unknown, so the fix ends time away uncredited (see [`Self::away_on_fix`]).
     fn place_in_zones(&mut self, p: Point, t_ms: i64) {
         let now = self.zones_at(p);
-        if self.at_home(p) {
+        if self.at_camp(p) {
             self.inside = Some(now);
             return;
         }
@@ -1058,6 +1059,29 @@ impl Game {
         let held = std::mem::take(&mut self.held_steps);
         if held > 0 {
             self.credit_gained(held);
+        }
+    }
+
+    /// Give the game its camps: from now on being within [`crate::home_watch::CAMP_CIRCLE_M`] of any of them is "at a camp". The trackers in use follow
+    /// at once. An empty list means no camps at all (the game then never counts a fix as at a camp).
+    pub fn set_camps(&mut self, camps: Vec<Point>) {
+        for t in self.trackers.values_mut() {
+            t.set_camps(camps.clone());
+        }
+        self.camps = Some(camps);
+    }
+
+    /// The camps in use: those the engine set, or `home` alone when none were ever set.
+    fn camp_points(&self) -> Vec<Point> {
+        self.camps.clone().unwrap_or_else(|| vec![self.home])
+    }
+
+    /// Whether `p` is within [`crate::home_watch::CAMP_CIRCLE_M`] of any camp.
+    #[must_use]
+    pub fn at_camp(&self, p: Point) -> bool {
+        match &self.camps {
+            Some(camps) => within_camp(camps, p),
+            None => within_camp(&[self.home], p),
         }
     }
 
@@ -1295,7 +1319,7 @@ impl Game {
     /// The phone joined home Wi-Fi (presence entered "at home"), with or without a GPS fix: every forager banks what it carries, and one
     /// that reaches its need is completed. Counting is off at home, so it is not checked here; a trap that blocks checks blocks this as it
     /// blocks banking on a fix. Calling it again banks nothing new.
-    pub fn bank_at_home(&mut self, t_ms: i64) -> Vec<Event> {
+    pub fn bank_at_camp(&mut self, t_ms: i64) -> Vec<Event> {
         if self.traps.blocks_checks(self.home).is_some() {
             return Vec::new();
         }
@@ -1319,10 +1343,10 @@ impl Game {
         reached.into_iter().flat_map(|id| self.complete(id, t_ms, Some(home))).collect()
     }
 
-    /// The player arrived home: bank what is carried (see `bank_at_home`) and close the walk. Returns the bank's events and the
+    /// The player arrived home: bank what is carried (see `bank_at_camp`) and close the walk. Returns the bank's events and the
     /// walk's recap when it is worth showing (route not set: the engine adds it from the journal). Safe to call again.
-    pub fn arrive_home(&mut self, t_ms: i64) -> (Vec<Event>, Option<Recap>) {
-        let ev = self.bank_at_home(t_ms);
+    pub fn arrive_at_camp(&mut self, t_ms: i64) -> (Vec<Event>, Option<Recap>) {
+        let ev = self.bank_at_camp(t_ms);
         let recap = self.outing.take().map(|o| self.recap_of(&o, t_ms)).filter(Recap::worth_showing);
         (ev, recap)
     }
@@ -1424,10 +1448,10 @@ impl Game {
         self.counters.away_mark = Some(t_ms);
     }
 
-    /// Time away on a fix: one at home ends it (the stretch since the last event is not credited: when you got home is unknown);
+    /// Time away on a fix: one at a camp ends it (the stretch since the last event is not credited: when you got home is unknown);
     /// one elsewhere credits up to now (not while a trap blocks checks), or starts it.
     fn away_on_fix(&mut self, fix: &Fix, blocked: bool) {
-        let at_home = self.at_home(fix.point());
+        let at_home = self.at_camp(fix.point());
         self.counters.last_at_home = Some(at_home);
         if at_home {
             self.counters.away_mark = None;
@@ -1437,11 +1461,6 @@ impl Game {
             self.counters.away_mark = Some(fix.t_ms);
             self.open_outing(fix.t_ms);
         }
-    }
-
-    /// Whether `p` is at home (within [`HOME_RADIUS_M`] of the home pin).
-    fn at_home(&self, p: Point) -> bool {
-        distance_m(p, self.home) <= HOME_RADIUS_M
     }
 
     /// A chain's counter as of `now_ms`: what is credited, plus the time away since the mark (worked out when asked, nothing ticks).
@@ -1601,7 +1620,7 @@ impl Game {
         // home only: one opened at home never closes without home Wi-Fi.
         if est.accepted || est.source == Source::Bridged {
             self.place_in_zones(est.point(), est.t_ms);
-            if !self.at_home(est.point()) {
+            if !self.at_camp(est.point()) {
                 self.open_outing(est.t_ms);
             }
             self.release_held_steps();
@@ -2293,13 +2312,14 @@ impl Game {
     /// whose quest is gone, finished, or no longer fits its saved progress is dropped, and that quest starts over.
     fn reattach_trackers(&mut self) {
         let trackers = std::mem::take(&mut self.trackers);
+        let camps = self.camp_points();
         self.trackers = trackers
             .into_iter()
             .filter(|(id, _)| !self.done.contains(id))
             .filter_map(|(id, mut t)| {
                 let target = self.tracker_target(&self.assignments.iter().find(|a| a.location_id == id)?.target);
                 t.pause();
-                t.reattach(target, self.home).then_some((id, t))
+                t.reattach(target, camps.clone()).then_some((id, t))
             })
             .collect();
     }
@@ -4088,7 +4108,7 @@ mod tests {
     fn banking_lifts_the_step_penalty() {
         let mut g = loaded_walker(40);
         g.set_counting(false, 0);
-        g.bank_at_home(5);
+        g.bank_at_camp(5);
         g.set_counting(true, 0);
         g.on_steps(10_000, 6, None); // counting resumes from here
         g.on_steps(11_000, 7, None);
@@ -4416,17 +4436,17 @@ mod tests {
         g.on_estimate(&fixat(pts[0], 600), None);
         g.on_estimate(&fixat(pts[1], 1200), None);
         g.set_counting(false, 0); // home Wi-Fi: no fix inside the home radius is ever accepted
-        assert!(done_ids(&g.bank_at_home(1300)).is_empty(), "2 of 3 banked, not done");
+        assert!(done_ids(&g.bank_at_camp(1300)).is_empty(), "2 of 3 banked, not done");
         assert_eq!(carried_banked(&g), (0, 2));
-        assert!(g.bank_at_home(1400).is_empty());
+        assert!(g.bank_at_camp(1400).is_empty());
         assert_eq!(carried_banked(&g), (0, 2), "a second call banks nothing new");
         g.set_counting(true, 0);
         g.on_estimate(&fixat(pts[2], 3000), None);
         assert_eq!(carried_banked(&g), (1, 2), "the tracker carries on from the banked state");
         g.set_counting(false, 0);
-        assert_eq!(done_ids(&g.bank_at_home(3600)), vec![2000]);
+        assert_eq!(done_ids(&g.bank_at_camp(3600)), vec![2000]);
         assert_eq!(carried_banked(&g), (0, 3));
-        assert!(g.bank_at_home(3700).is_empty(), "a finished quest is not completed twice");
+        assert!(g.bank_at_camp(3700).is_empty(), "a finished quest is not completed twice");
     }
 
     #[test]
@@ -4434,10 +4454,10 @@ mod tests {
         let (mut g, pts) = forager_game();
         g.on_estimate(&fixat(pts[0], 600), None);
         freeze(&mut g);
-        assert!(g.bank_at_home(700).is_empty());
+        assert!(g.bank_at_camp(700).is_empty());
         assert_eq!(carried_banked(&g), (1, 0), "still carried, nothing lost");
         let mut plain = game(&reach_only(&[Mode::Walk], 10, "all_trips"), Backend::Solo, 4);
-        assert!(plain.bank_at_home(700).is_empty(), "a game without foragers has nothing to bank");
+        assert!(plain.bank_at_camp(700).is_empty(), "a game without foragers has nothing to bank");
     }
 
     #[test]
@@ -4571,7 +4591,7 @@ mod tests {
         g.on_estimate(&fixat(home(), 1200), None);
         assert_eq!(carried_banked(&g), (1, 0), "still carried");
         g.set_counting(true, 0); // leaving home on the next walk
-        g.on_estimate(&fixat(destination(home(), 0.0, 60.0), 5000), None);
+        g.on_estimate(&fixat(destination(home(), 0.0, 40.0), 5000), None);
         assert_eq!(carried_banked(&g), (0, 1));
     }
 
@@ -4684,12 +4704,68 @@ mod tests {
         assert!((g.counters.progress["1:wanderlust"] - 9.0).abs() < 0.01);
     }
 
+    fn second_camp(g: &Game) -> Point {
+        destination(g.home, 0.0, 3000.0)
+    }
+
+    #[test]
+    fn a_fix_40_m_from_a_second_camp_ends_time_away() {
+        let mut g = away_game(&[10.0]);
+        let c = second_camp(&g);
+        g.set_camps(vec![g.home, c]);
+        g.set_counting(true, 0);
+        away_for(&mut g, 400.0, 0, 3);
+        assert!(g.counters.away_mark.is_some());
+        g.on_estimate(&fixat(destination(c, 90.0, 40.0), 180), None);
+        assert!(g.counters.away_mark.is_none(), "at the second camp, time away ends");
+        assert!(g.at_camp(c));
+    }
+
+    #[test]
+    fn a_fix_40_m_from_a_second_camp_banks_carried_items() {
+        let (mut g, pts) = forager_game();
+        let c = second_camp(&g);
+        g.set_camps(vec![g.home, c]);
+        g.on_estimate(&fixat(pts[0], 600), None);
+        assert_eq!(carried_banked(&g), (1, 0));
+        g.on_estimate(&fixat(destination(c, 90.0, 40.0), 1200), None);
+        assert_eq!(carried_banked(&g), (0, 1));
+    }
+
+    #[test]
+    fn a_fix_80_m_from_the_only_camp_is_not_at_a_camp() {
+        let mut g = away_game(&[10.0]);
+        g.set_counting(true, 0);
+        away_for(&mut g, 400.0, 0, 2);
+        away_for(&mut g, 80.0, 120, 1);
+        assert!(g.counters.away_mark.is_some(), "the circle is 50 m now");
+        assert!(!g.at_camp(destination(g.home, 90.0, 80.0)));
+    }
+
+    #[test]
+    fn with_no_camps_set_a_fix_40_m_from_home_still_counts() {
+        let g = away_game(&[10.0]);
+        assert!(g.at_camp(destination(g.home, 90.0, 40.0)));
+    }
+
+    #[test]
+    fn a_round_trip_completes_on_return_to_a_second_camp() {
+        let far = destination(home(), 0.0, 1500.0);
+        let mut g = chain_game("round_trip", vec![Target::RoundTrip { far, r: 50.0 }]);
+        let c = second_camp(&g);
+        g.set_camps(vec![g.home, c]);
+        g.on_estimate(&fixat(g.home, 0), None);
+        g.on_estimate(&fixat(far, 600), None);
+        let ev = g.on_estimate(&fixat(destination(c, 90.0, 40.0), 1800), None);
+        assert!(!done_ids(&ev).is_empty());
+    }
+
     #[test]
     fn without_home_wifi_a_fix_near_home_ends_time_away() {
         let mut g = away_game(&[10.0]);
         g.set_counting(true, 0);
         away_for(&mut g, 400.0, 0, 3); // 400 m is away now: two minutes
-        away_for(&mut g, 50.0, 180, 1); // home: the stretch since the last fix is not credited
+        away_for(&mut g, 30.0, 180, 1); // home: the stretch since the last fix is not credited
         assert!((g.counters.progress["1:wanderlust"] - 2.0).abs() < 0.01);
         assert_eq!(g.next_due_ms(200_000), None);
         away_for(&mut g, 400.0, 300, 1); // out again
@@ -4899,7 +4975,7 @@ mod tests {
         left_home(&mut g, 1_000);
         g.on_steps(300, 1_001, None);
         g.on_steps(900, 1_002, None);
-        let r = g.arrive_home(10 * 60_000).1.expect("a chain grew");
+        let r = g.arrive_at_camp(10 * 60_000).1.expect("a chain grew");
         assert_eq!(r.chains.len(), 1);
         let c = &r.chains[0];
         assert_eq!((c.unit, c.before, c.after, c.marks.clone()), (ChainUnit::Steps, 300.0, 900.0, vec![500.0, 1500.0]));
@@ -4911,7 +4987,7 @@ mod tests {
         let mut g = away_game(&[30.0, 60.0]);
         left_home(&mut g, 0);
         g.set_counting(false, 40 * 60_000);
-        let r = g.arrive_home(40 * 60_000).1.expect("time away grew");
+        let r = g.arrive_at_camp(40 * 60_000).1.expect("time away grew");
         let c = r.chains.iter().find(|c| c.unit == ChainUnit::Minutes).unwrap();
         assert!((c.after - c.before - 40.0).abs() < 0.5, "{} -> {}", c.before, c.after);
     }
@@ -4925,7 +5001,7 @@ mod tests {
         g.outing.as_mut().unwrap().progress_at_start.clear(); // as if the chain's zone unlocked mid-walk
         g.on_steps(200, 1_001, None);
         g.on_steps(700, 1_002, None); // crosses the 500 mark, else the walk would not be worth showing
-        let r = g.arrive_home(10 * 60_000).1.unwrap();
+        let r = g.arrive_at_camp(10 * 60_000).1.unwrap();
         assert_eq!(r.chains[0].before, 0.0);
     }
 
@@ -4935,14 +5011,14 @@ mod tests {
         left_home(&mut g, 0);
         g.on_steps(0, 1, None);
         g.on_steps(600, 2, None); // the 500-step member is done; solo reward "Hydrate!"
-        let (_, r) = g.arrive_home(10 * 60_000);
+        let (_, r) = g.arrive_at_camp(10 * 60_000);
         let r = r.expect("worth showing");
         assert_eq!((r.start_ms, r.end_ms, r.steps), (0, 600_000, 600));
         assert_eq!(r.quests_done.len(), 1);
         assert_eq!(r.items, vec!["Hydrate!".to_string()]);
         assert_eq!(r.checks_sent, 0, "a solo game sends no checks");
         assert!(g.outing.is_none());
-        assert!(g.arrive_home(11 * 60_000).1.is_none(), "a second arrival has no outing to close");
+        assert!(g.arrive_at_camp(11 * 60_000).1.is_none(), "a second arrival has no outing to close");
     }
 
     #[test]
@@ -4951,11 +5027,11 @@ mod tests {
         left_home(&mut g, 0);
         g.on_steps(0, 1, None);
         g.on_steps(600, 2, None);
-        assert!(g.arrive_home(4 * 60_000).1.is_none(), "under 5 min");
+        assert!(g.arrive_at_camp(4 * 60_000).1.is_none(), "under 5 min");
         assert!(g.outing.is_none(), "closed all the same");
         left_home(&mut g, 10 * 60_000);
         assert!(g.outing.is_some(), "a new outing opened");
-        assert!(g.arrive_home(30 * 60_000).1.is_none(), "long, nothing happened");
+        assert!(g.arrive_at_camp(30 * 60_000).1.is_none(), "long, nothing happened");
     }
 
     #[test]
@@ -4964,7 +5040,7 @@ mod tests {
         lock_zone_1(&mut g);
         left_home(&mut g, 0);
         g.receive_item("Progressive Zone Key", 1_000, None);
-        let r = g.arrive_home(10 * 60_000).1.expect("a zone opened");
+        let r = g.arrive_at_camp(10 * 60_000).1.expect("a zone opened");
         assert_eq!(r.zones_unlocked, vec![1]);
     }
 
@@ -4975,7 +5051,7 @@ mod tests {
         left_home(&mut g, 0);
         g.items.clear(); // the server's list was replaced by a shorter one
         g.outing.as_mut().unwrap().steps = 900;
-        assert!(g.arrive_home(10 * 60_000).1.is_some_and(|r| r.items.is_empty()));
+        assert!(g.arrive_at_camp(10 * 60_000).1.is_some_and(|r| r.items.is_empty()));
     }
 
     #[test]
@@ -4985,7 +5061,7 @@ mod tests {
         g.on_estimate(&fixat(pts[0], 600), None);
         g.on_estimate(&fixat(pts[1], 1200), None);
         g.set_counting(false, 1_250_000); // home Wi-Fi
-        let r = g.arrive_home(1_300_000).1.expect("two items brought home");
+        let r = g.arrive_at_camp(1_300_000).1.expect("two items brought home");
         assert_eq!(r.banked, 2);
         assert_eq!(carried_banked(&g), (0, 2));
     }
@@ -4999,7 +5075,7 @@ mod tests {
         }
         assert_eq!(done_ids(&g.on_estimate(&fixat(home(), 1_250_000), None)), vec![2000], "the home fix banks and completes it");
         g.set_counting(false, 1_260_000); // presence reaches "at home" after the fix
-        let r = g.arrive_home(1_300_000).1.expect("three items brought home");
+        let r = g.arrive_at_camp(1_300_000).1.expect("three items brought home");
         assert_eq!(r.banked, 3);
         assert_eq!(r.quests_done, vec![g.assignments[0].quest_name.clone()]);
     }
@@ -5012,7 +5088,7 @@ mod tests {
             g.on_estimate(&fixat(*p, 600 + 600 * i64::try_from(i).unwrap()), None);
         }
         g.set_counting(false, 9_000_000);
-        let r = g.arrive_home(9_100_000).1.expect("a forager done");
+        let r = g.arrive_at_camp(9_100_000).1.expect("a forager done");
         let q = r.quests.iter().find(|q| !q.goal.is_empty()).expect("the forager is listed");
         assert!(q.t_ms > 0);
         assert_eq!(q.at, Some(g.home), "banked on arrival, so it is recorded at home");
@@ -5025,7 +5101,7 @@ mod tests {
         left_home(&mut g, 0);
         g.on_steps(0, 1, None);
         g.on_steps(600, 2, None);
-        let r = g.arrive_home(10 * 60_000).1.unwrap();
+        let r = g.arrive_at_camp(10 * 60_000).1.unwrap();
         assert_eq!(r.quests_done.len(), 1);
         assert!(r.quests.is_empty(), "the bar shows chain milestones");
     }
@@ -5039,7 +5115,7 @@ mod tests {
             g.on_estimate(&fixat(*p, 600 + 600 * i64::try_from(i).unwrap()), None);
         }
         g.set_counting(false, 9_000_000);
-        let r = g.arrive_home(9_100_000).1.unwrap();
+        let r = g.arrive_at_camp(9_100_000).1.unwrap();
         assert!(!r.quests.is_empty() && r.quests.iter().all(|q| q.reward.is_none()));
     }
 
@@ -5056,7 +5132,7 @@ mod tests {
         left_home(&mut g, 0);
         g.mark_checked(&[id], 1_000); // done on another device, synced on reconnect
         g.outing.as_mut().unwrap().steps = 900;
-        let r = g.arrive_home(10 * 60_000).1.expect("steps alone are worth it");
+        let r = g.arrive_at_camp(10 * 60_000).1.expect("steps alone are worth it");
         assert!(r.quests_done.is_empty(), "{:?}", r.quests_done);
     }
 
@@ -5067,7 +5143,7 @@ mod tests {
         g.on_estimate(&fixat(pts[0], 600), None);
         g.outing.as_mut().unwrap().steps = 900;
         freeze(&mut g); // a Freeze Trap blocks checks, so banking
-        let r = g.arrive_home(1_300_000).1.expect("steps alone are worth it");
+        let r = g.arrive_at_camp(1_300_000).1.expect("steps alone are worth it");
         assert_eq!(r.banked, 0, "nothing banked under the trap");
         assert!(g.outing.is_none());
     }
@@ -5085,7 +5161,7 @@ mod tests {
     fn a_forager_banked_on_arrival_shows_before_and_after() {
         let (mut g, _) = forager_walk(2);
         g.set_counting(false, 1_250_000);
-        let r = g.arrive_home(1_300_000).1.expect("two items brought home");
+        let r = g.arrive_at_camp(1_300_000).1.expect("two items brought home");
         let f = r.foragers.first().expect("the forager is listed");
         assert_eq!((f.banked_before, f.banked_after, f.picked, f.carried, f.need), (0, 2, 2, 0, 3));
         assert_eq!((f.theme.as_str(), r.foragers.len()), ("acorns", 1));
@@ -5096,7 +5172,7 @@ mod tests {
     fn a_forager_completed_at_home_reaches_its_need() {
         let (mut g, _) = forager_walk(3);
         g.set_counting(false, 1_250_000);
-        let r = g.arrive_home(1_300_000).1.unwrap();
+        let r = g.arrive_at_camp(1_300_000).1.unwrap();
         assert_eq!(r.foragers[0].banked_after, r.foragers[0].need);
     }
 
@@ -5105,7 +5181,7 @@ mod tests {
         let (mut g, _) = forager_walk(1);
         g.outing.as_mut().unwrap().steps = 900;
         freeze(&mut g);
-        let r = g.arrive_home(1_300_000).1.expect("steps alone are worth it");
+        let r = g.arrive_at_camp(1_300_000).1.expect("steps alone are worth it");
         let f = &r.foragers[0];
         assert_eq!((f.banked_after, f.carried), (f.banked_before, 1));
     }
@@ -5115,7 +5191,7 @@ mod tests {
         let (mut g, _) = forager_walk(2);
         g.outing.as_mut().unwrap().forage_at_start.clear();
         g.set_counting(false, 1_250_000);
-        let r = g.arrive_home(1_300_000).1.unwrap();
+        let r = g.arrive_at_camp(1_300_000).1.unwrap();
         assert_eq!((r.foragers[0].banked_before, r.foragers[0].picked), (0, 2));
     }
 
@@ -5125,7 +5201,7 @@ mod tests {
         g.outing.as_mut().unwrap().steps = 900;
         g.collected.entry(2000).or_default().carried += 1; // a respawned item: carried, not in `picked`
         freeze(&mut g);
-        let r = g.arrive_home(1_300_000).1.expect("steps alone are worth it");
+        let r = g.arrive_at_camp(1_300_000).1.expect("steps alone are worth it");
         let f = r.foragers.first().expect("the forager is listed");
         assert_eq!((f.picked, f.carried, f.banked_after), (1, 1, 0));
     }
@@ -5134,7 +5210,7 @@ mod tests {
     fn a_forager_that_did_not_change_is_not_listed() {
         let (mut g, _) = forager_walk(0);
         g.outing.as_mut().unwrap().steps = 900;
-        let r = g.arrive_home(1_300_000).1.unwrap();
+        let r = g.arrive_at_camp(1_300_000).1.unwrap();
         assert!(r.foragers.is_empty());
     }
 

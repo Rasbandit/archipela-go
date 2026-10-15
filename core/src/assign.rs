@@ -10,12 +10,13 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::{Catalog, Geom, Kind, Mode, Verify, FORAGE_THEMES};
 use crate::effort::{cadence_steps_per_min, dist_for, mid, tier_for, travel_min};
 use crate::geo::{bearing_deg, distance_m, distance_to_segment_m, point_in_polygon, point_inside, polyline_len_m, Point};
+use crate::home_watch::CAMP_CIRCLE_M;
 use crate::near_path::{PathIndex, NEAR_PATH_M};
 use crate::num::{count_f64, round_u32};
 use crate::realm::Realm;
 use crate::scan::{point_key, Atlas, Feature};
 use crate::units::{distance, distance_rounded, Round, UnitSystem};
-use crate::verify::{HOME_RADIUS_M, LINE_SAMPLE_M};
+use crate::verify::LINE_SAMPLE_M;
 
 /// A quest slot to fill: one Archipelago location and what it asks for.
 #[derive(Debug, Clone)]
@@ -345,7 +346,7 @@ const MAX_ITEM_CANDIDATES: usize = 2000;
 /// minimum distance or the home radius plus the pick-up radius `pick_r_m` (an item there would be picked and banked in the same step),
 /// and the farthest about half the effort's travel out, so out to it and back fits the effort.
 fn item_band(p: &AssignParams, pick_r_m: f64, want: f64, mode: Mode) -> (f64, f64) {
-    (p.min_distance_m.max(HOME_RADIUS_M + pick_r_m), dist_for(want / 2.0, mode))
+    (p.min_distance_m.max(CAMP_CIRCLE_M + pick_r_m), dist_for(want / 2.0, mode))
 }
 
 /// `n` street points for forager items, spread outward from `home`: the k-th of them (counting from 1) about k/n of the way from `min_m`
@@ -1643,7 +1644,7 @@ mod tests {
             assert!((pick - 25.0).abs() < f64::EPSILON);
             assert!(FORAGE_THEMES.contains(&theme.as_str()), "{theme}");
             assert_eq!(place, "Around home");
-            let floor = HOME_RADIUS_M + 25.0;
+            let floor = CAMP_CIRCLE_M + 25.0;
             for (i, q) in pts.iter().enumerate() {
                 assert!(gap_to_paths(*q, &a) <= NEAR_PATH_M + 1e-6, "item {i} is off the paths");
                 assert!(pool.contains(q), "item {i} is not a street point of the zone");
