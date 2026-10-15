@@ -380,6 +380,48 @@ class MapFeaturesTest {
         assertEquals(2, t.single().coords().length())
     }
 
+    @Test fun questPinsAreNumberedByRowAndMarkTheSelectedOne() {
+        fun q(at: GeoPoint?) = uniffi.apgo_ffi.RecapQuestOut("Q", "P", "g", 0L, at, null)
+        val pins = RecapFeatures.questPins(listOf(q(GeoPoint(1.0, 2.0)), q(null), q(GeoPoint(3.0, 4.0))), selected = 2)
+        assertEquals(2, pins.size)
+        assertEquals(listOf(1, 3), pins.map { it.getJSONObject("properties").getInt("n") })
+        assertEquals(listOf(false, true), pins.map { it.getJSONObject("properties").getBoolean(MapProp.SELECTED) })
+        assertEquals(
+            listOf(false, false),
+            RecapFeatures.questPins(listOf(q(GeoPoint(1.0, 2.0)), q(GeoPoint(3.0, 4.0))), null).map {
+                it.getJSONObject("properties").getBoolean(MapProp.SELECTED)
+            },
+        )
+    }
+
+    @Test fun theCameraFitsTheRouteAndEveryQuestPin() {
+        fun q(at: GeoPoint?) = uniffi.apgo_ffi.RecapQuestOut("Q", "P", "g", 0L, at, null)
+        val a = GeoPoint(40.0, -111.0)
+        val b = GeoPoint(40.001, -111.0)
+        val pin = GeoPoint(41.0, -112.0)
+        assertEquals(listOf(a, b), RecapFeatures.cameraPoints(listOf(listOf(a, b)), emptyList()))
+        assertEquals(listOf(pin), RecapFeatures.cameraPoints(emptyList(), listOf(q(null), q(pin))))
+        assertEquals(listOf(a, b, pin), RecapFeatures.cameraPoints(listOf(listOf(a, b)), listOf(q(pin))))
+        assertEquals("a single point", listOf(pin), RecapFeatures.cameraPoints(emptyList(), listOf(q(pin))))
+        assertEquals(emptyList<GeoPoint>(), RecapFeatures.cameraPoints(emptyList(), emptyList()))
+    }
+
+    @Test fun aRouteIsOneLinePerStretchAndSkipsLonePoints() {
+        val a = GeoPoint(40.0, -111.0)
+        val b = GeoPoint(40.001, -111.0)
+        val features = RecapFeatures.route(listOf(listOf(a, b), listOf(a)))
+        assertEquals(1, features.size)
+        assertEquals("LineString", features.single().getJSONObject("geometry").getString("type"))
+        assertEquals(
+            listOf(-111.0, 40.0),
+            features
+                .single()
+                .coords()
+                .getJSONArray(0)
+                .let { listOf(it.getDouble(0), it.getDouble(1)) },
+        )
+    }
+
     @Test fun realmsDrawTheActiveShape() {
         val circle = CircleOut(geo(10.0, 10.0), 100.0)
         val r =

@@ -21,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -58,12 +59,15 @@ internal fun AppRoot(
     } else {
         // One root for the screen and its dialogs (dialogs open their own windows, so this adds nothing visible).
         Box(modifier) {
-            val othersUp = listOf(m.scans.ask != null, m.yamlText != null, backgroundPromptUp)
+            val recapUp = m.recap != null
+            // The home Wi-Fi offer waits for the recap too: it would stack on it.
+            val othersUp = listOf(m.scans.ask != null, m.yamlText != null, backgroundPromptUp, recapUp)
             if (showHomeOffer(othersUp)) HomeWifiDialog(m.presence)
             // Back closes New Game or goes to Play from any other tab; the realm editor handles its own Back (to the list); on Play
-            // it leaves the app as usual.
-            BackHandler(enabled = m.nav.canGoBack) { m.nav.back() }
-            Scaffold(bottomBar = { AppNavigationBar(m) }) { pad -> AppBody(m, Modifier.padding(pad)) }
+            // it leaves the app as usual. While the recap is up, Back closes it (its own handler) and the tabs are hidden, so Back
+            // never acts on a screen under it.
+            BackHandler(enabled = m.nav.canGoBack && !recapUp) { m.nav.back() }
+            Scaffold(bottomBar = { if (!recapUp) AppNavigationBar(m) }) { pad -> AppBody(m, Modifier.padding(pad)) }
             ScanAskDialog(m)
             YamlDialog(m)
         }
@@ -116,9 +120,9 @@ private fun AppBody(
             )
         }
         Box(Modifier.weight(1f)) {
-            // Play stays composed (laid out, not placed) under the other tabs and New Game, so its map returns with no reload or
-            // camera jump.
-            val onPlay = m.nav.tab == AppTab.PLAY && !m.nav.newGameOpen
+            // Play stays composed (laid out, not placed) under the other tabs, New Game and the recap, so its map returns with no reload
+            // or camera jump; hidden meanwhile, so it stops drawing.
+            val onPlay = m.nav.tab == AppTab.PLAY && !m.nav.newGameOpen && m.recap == null
             PlayScreen(m, if (onPlay) Modifier else Modifier.unplaced(), onShow = onPlay)
             when (m.nav.tab) {
                 AppTab.PLAY -> if (m.nav.newGameOpen) NewGameScreen(m)
@@ -126,6 +130,8 @@ private fun AppBody(
                 AppTab.ACTIVITY -> ActivityScreen(m)
                 AppTab.SETTINGS -> SettingsScreen(m)
             }
+            // Keyed by the walk, so a newer recap replacing the shown one rebuilds its map.
+            m.recap?.let { key(it.startMs, it.endMs) { RecapScreen(it, m.recaps.closeLabel, onDone = m.recaps::dismiss) } }
         }
     }
 }

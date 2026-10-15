@@ -20,6 +20,7 @@ import uniffi.apgo_ffi.CollectItemOut
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.QuestOut
 import uniffi.apgo_ffi.RealmOut
+import uniffi.apgo_ffi.RecapQuestOut
 import kotlin.math.cos
 import kotlin.math.pow
 
@@ -355,4 +356,28 @@ internal object MeFeatures {
             listOf(GeoJson.feature(GeoJson.lineString(listOf(end.latitude to end.longitude, pin.lat to pin.lon))))
         }
     }
+}
+
+/** The features of the walk recap's map. */
+internal object RecapFeatures {
+    /** The route: one line per recorded stretch (a lone point draws nothing). */
+    fun route(segments: List<List<GeoPoint>>): List<JSONObject> =
+        segments.filter { it.size >= 2 }.map { seg -> GeoJson.feature(GeoJson.lineString(seg.map { it.lat to it.lon })) }
+
+    /** Every point the camera must show: the route and each quest pin. */
+    fun cameraPoints(
+        segments: List<List<GeoPoint>>,
+        quests: List<RecapQuestOut>,
+    ): List<GeoPoint> = segments.flatten() + quests.mapNotNull { it.at }
+
+    /** A numbered pin per quest that has a place; `n` counts every quest so pins match list rows. */
+    fun questPins(
+        quests: List<RecapQuestOut>,
+        selected: Int?,
+    ): List<JSONObject> =
+        quests.mapIndexedNotNull { i, q ->
+            q.at?.let { p ->
+                GeoJson.pointFeature(p.lat, p.lon, JSONObject().put("n", i + 1).put(MapProp.SELECTED, i == selected))
+            }
+        }
 }

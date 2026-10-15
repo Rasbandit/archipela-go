@@ -384,6 +384,7 @@ internal class ApController(
                             model.surfacePref,
                             model.avoidStairs,
                             model.allowParking,
+                            model.zoneSpecificChains,
                             url,
                             slot,
                         )

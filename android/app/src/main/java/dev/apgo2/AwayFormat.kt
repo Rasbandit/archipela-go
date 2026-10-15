@@ -1,5 +1,9 @@
 package dev.apgo2
 
+import dev.apgo2.ui.Help
+
+/** The activity-log kind of a closed walk. */
+internal const val WALK = "walk"
 private const val APP_FOREGROUND = "app_foreground"
 private const val APP_BACKGROUND = "app_background"
 private const val MS_PER_MINUTE = 60_000
@@ -10,18 +14,19 @@ internal object AwayFormat {
     private val LABELS =
         mapOf(
             "quest_done" to "Quests completed",
-            "check_sent" to "Checks sent",
+            "check_sent" to Help.CHECKS_SENT,
             "reward" to "Rewards",
-            "zone_unlocked" to "Zones unlocked",
+            "zone_unlocked" to Help.ZONES_UNLOCKED,
             "trap" to "Traps",
             "discovered" to "Places discovered",
             "goal" to "Goals reached",
             "info" to "Notices",
-            "item_received" to "Items received",
+            "item_received" to Help.ITEMS_RECEIVED,
             "fix_rejected" to "Bad GPS signal",
             "near_miss" to "Near a quest",
             "play_paused" to "Stopped playing",
             "presence" to "Presence",
+            WALK to "Walk",
             "play_resumed" to "Resumed",
             APP_FOREGROUND to "App opened",
             APP_BACKGROUND to "App left the screen",

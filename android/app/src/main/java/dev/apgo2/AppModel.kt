@@ -89,7 +89,12 @@ internal class AppModel(
     val trapSettings = TrapSettings(this)
     val units = UnitSettings(this)
     val stepCal = StepCalStore(ctx)
-    val presence = PresenceController(this, ctx)
+    val presence = PresenceController(this, ctx, scope)
+
+    val recaps = RecapController(ctx, engine, presence, scope)
+
+    /** The last walk's recap on show, until dismissed (see [RecapController]). */
+    val recap get() = recaps.recap
     val setup = SetupWizard(this)
     val scans = ScanCoordinator(this, scope)
     val realmOps = RealmManager(this)
@@ -109,6 +114,10 @@ internal class AppModel(
     // Bench only: `adb shell run-as dev.apgo2.app touch files/allow_mock` lets mock fixes through in a debuggable build. It is read
     // once at start: force-stop the app (`adb shell am force-stop dev.apgo2.app`) for a new or removed flag to take effect.
     private val debuggable = ctx.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+
+    /** Whether this is a debuggable build: gates developer-only tools. */
+    val isDebuggable get() = debuggable
+
     private val mockAllowed =
         MockPolicy.allowed(
             debuggable,
@@ -166,6 +175,9 @@ internal class AppModel(
     var surfacePref by mutableStateOf("any")
     var avoidStairs by mutableStateOf(false)
     var allowParking by mutableStateOf(true)
+
+    /** Whether a new game's progressive quests fill only in their own zone (else in any open zone). */
+    var zoneSpecificChains by mutableStateOf(true)
 
     /** The player's pin on any map, for drawing only: the simulator, else the filtered position, else the raw fix (no game open). */
     val mePin: MePin?
@@ -340,6 +352,7 @@ internal class AppModel(
         val t = now()
         engine.logAppState(true, t)
         units.onForeground()
+        recaps.refresh()
         if (owed) refreshPlay()
         noteJournal()
         Diag.info("lifecycle", "foreground", "away_ms" to (left?.let { t - it } ?: -1L))
@@ -350,32 +363,14 @@ internal class AppModel(
         noteJournal()
         events.forEach { Diag.info("event", it.toString().take(EVENT_LOG_CHARS)) }
         for (e in events) {
+            logLine(e)?.let(::say)
             when (e) {
-                is EventOut.QuestDone -> {
-                    say("Done: ${e.name}")
-                }
-
-                is EventOut.Reward -> {
-                    say("Found: ${e.item}")
-                }
-
-                is EventOut.ZoneUnlocked -> {
-                    say("Zone ${e.zone} unlocked!")
-                }
-
                 is EventOut.Trap -> {
-                    say(e.message)
                     if (e.alert) trapAlert.fire(e.item, e.message)
                 }
 
-                is EventOut.Discovered -> {}
-
                 is EventOut.GoalAchieved -> {
                     onGoal(e.label)
-                }
-
-                is EventOut.Info -> {
-                    say(e.text)
                 }
 
                 is EventOut.SendCheck -> {
@@ -385,9 +380,26 @@ internal class AppModel(
                 is EventOut.ShuffleRequested -> {
                     runCatching { engine.reroll(emptyList(), Random.nextLong().toULong() shr 1) }
                 }
+
+                is EventOut.RecapReady -> {
+                    recaps.onRecapReady()
+                }
+
+                is EventOut.QuestDone, is EventOut.Reward, is EventOut.ZoneUnlocked, is EventOut.Discovered, is EventOut.Info -> {}
             }
         }
     }
+
+    // The on-screen log line for an event, if it has one.
+    private fun logLine(e: EventOut): String? =
+        when (e) {
+            is EventOut.QuestDone -> "Done: ${e.name}"
+            is EventOut.Reward -> "Found: ${e.item}"
+            is EventOut.ZoneUnlocked -> "Zone ${e.zone} unlocked!"
+            is EventOut.Trap -> e.message
+            is EventOut.Info -> e.text
+            else -> null
+        }
 
     private fun onGoal(label: String) {
         say("GOAL ACHIEVED: $label")

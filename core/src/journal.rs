@@ -6,6 +6,7 @@ use std::path::Path;
 use rusqlite::Connection;
 
 use crate::game::Event;
+use crate::recap::Recap;
 
 /// One recorded GPS fix.
 #[derive(Debug, Clone, PartialEq)]
@@ -88,6 +89,8 @@ pub mod kind {
     pub const PRESENCE: &str = "presence";
     /// Close to a quest that did not count; the detail says why.
     pub const NEAR_MISS: &str = "near_miss";
+    /// A walk closed into a recap; the detail is its one-line summary.
+    pub const WALK: &str = "walk";
 }
 
 /// The on-device SQLite journal of GPS fixes and events.
@@ -121,6 +124,13 @@ CREATE TABLE IF NOT EXISTS events (
     lon REAL
 );
 CREATE INDEX IF NOT EXISTS events_game_t ON events (game, t_ms);
+CREATE TABLE IF NOT EXISTS walks (
+    id INTEGER PRIMARY KEY,
+    game TEXT NOT NULL,
+    end_ms INTEGER NOT NULL,
+    recap TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS walks_game_end ON walks (game, end_ms);
 ";
 
 // Journals before 2026-10 mirrored every point into an R*Tree that only a test read: drop it (the points stay in `points`).
@@ -254,7 +264,29 @@ impl Journal {
         self.conn.query_row("SELECT MAX(t_ms) FROM events WHERE game = ?1 AND kind = ?2", (game, kind), |r| r.get(0))
     }
 
-    /// Delete all points and events of `game`.
+    /// Keep the recap of a finished walk, so it can be opened again from the activity log.
+    ///
+    /// # Errors
+    /// Returns any SQLite error, or a conversion error if the recap cannot be written as JSON.
+    pub fn add_walk(&self, game: &str, r: &Recap) -> rusqlite::Result<()> {
+        let json = serde_json::to_string(r).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        self.conn.prepare_cached("INSERT INTO walks (game, end_ms, recap) VALUES (?1, ?2, ?3)")?.execute((game, r.end_ms, json))?;
+        Ok(())
+    }
+
+    /// The kept recap of the walk that ended at `end_ms` (the newest if there are several); `None` when there is none.
+    ///
+    /// # Errors
+    /// Returns any SQLite error, or a conversion error when the stored recap cannot be read back.
+    pub fn walk(&self, game: &str, end_ms: i64) -> rusqlite::Result<Option<Recap>> {
+        let mut stmt = self.conn.prepare_cached("SELECT recap FROM walks WHERE game = ?1 AND end_ms = ?2 ORDER BY id DESC LIMIT 1")?;
+        let mut rows = stmt.query((game, end_ms))?;
+        let Some(row) = rows.next()? else { return Ok(None) };
+        let json: String = row.get(0)?;
+        serde_json::from_str(&json).map(Some).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
+    }
+
+    /// Delete all points, events and walks of `game`.
     ///
     /// # Errors
     /// Returns any SQLite error.
@@ -262,6 +294,7 @@ impl Journal {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM points WHERE game = ?1", [game])?;
         tx.execute("DELETE FROM events WHERE game = ?1", [game])?;
+        tx.execute("DELETE FROM walks WHERE game = ?1", [game])?;
         tx.commit()
     }
 }
@@ -463,5 +496,67 @@ mod tests {
         assert_eq!(j.track("g", 0, 9).unwrap().len(), 2, "the old points are still there");
         drop(j);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn walk_recap(end_ms: i64) -> Recap {
+        Recap { start_ms: end_ms - 600_000, end_ms, steps: 900, distance_m: 3100.0, quests_done: vec!["Oak".into()], ..Recap::default() }
+    }
+
+    #[test]
+    fn a_kept_walk_roundtrips_and_is_scoped_to_game_and_end_time() {
+        let j = Journal::open_memory().unwrap();
+        let r = walk_recap(5_000_000);
+        j.add_walk("g", &r).unwrap();
+        assert_eq!(j.walk("g", 5_000_000).unwrap(), Some(r));
+        assert_eq!(j.walk("other", 5_000_000).unwrap(), None);
+        assert_eq!(j.walk("g", 5_000_001).unwrap(), None);
+    }
+
+    #[test]
+    fn clearing_a_game_removes_its_walks() {
+        let j = Journal::open_memory().unwrap();
+        j.add_walk("g", &walk_recap(1)).unwrap();
+        j.add_walk("keep", &walk_recap(1)).unwrap();
+        j.clear_game("g").unwrap();
+        assert_eq!(j.walk("g", 1).unwrap(), None);
+        assert!(j.walk("keep", 1).unwrap().is_some());
+    }
+
+    #[test]
+    fn an_unreadable_walk_row_is_an_error_and_the_newest_row_wins() {
+        let j = Journal::open_memory().unwrap();
+        j.conn.execute("INSERT INTO walks (game, end_ms, recap) VALUES ('g', 7, 'not json')", []).unwrap();
+        assert!(j.walk("g", 7).is_err(), "a walk that cannot be read is not the same as no walk");
+        let mut r = walk_recap(7);
+        r.steps = 1;
+        j.add_walk("g", &r).unwrap();
+        assert_eq!(j.walk("g", 7).unwrap(), Some(r));
+    }
+
+    #[test]
+    fn a_walk_kept_before_fields_were_added_still_opens() {
+        let j = Journal::open_memory().unwrap();
+        let old = r#"{"start_ms": 1, "end_ms": 7, "quests": [{"name": "Oak"}], "chains": [{"id": "1:step_up"}], "foragers": [{"name": "Acorns"}]}"#;
+        j.conn.execute("INSERT INTO walks (game, end_ms, recap) VALUES ('g', 7, ?1)", [old]).unwrap();
+        let r = j.walk("g", 7).unwrap().expect("the old walk opens");
+        assert_eq!((r.start_ms, r.end_ms, r.steps), (1, 7, 0));
+        assert_eq!((r.quests[0].name.as_str(), r.chains[0].id.as_str(), r.foragers[0].name.as_str()), ("Oak", "1:step_up", "Acorns"));
+    }
+
+    #[test]
+    fn an_old_journal_gains_the_walks_table_on_open() {
+        let dir = std::env::temp_dir().join(format!("apgo-journal-old-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.sqlite");
+        let _ = std::fs::remove_file(&path);
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch("CREATE TABLE events (id INTEGER PRIMARY KEY, game TEXT NOT NULL, t_ms INTEGER NOT NULL, kind TEXT NOT NULL, detail TEXT NOT NULL, lat REAL, lon REAL);")
+            .unwrap();
+        let j = Journal::open(&path).unwrap();
+        j.add_walk("g", &walk_recap(3)).unwrap();
+        assert!(j.walk("g", 3).unwrap().is_some());
+        drop(j);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

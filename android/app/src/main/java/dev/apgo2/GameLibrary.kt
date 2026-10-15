@@ -36,6 +36,7 @@ internal class GameLibrary(
                             model.surfacePref,
                             model.avoidStairs,
                             model.allowParking,
+                            model.zoneSpecificChains,
                         )
                         model.stepCal.loadInto(model.engine)
                     }
@@ -78,6 +79,7 @@ internal class GameLibrary(
                 model.engine.logSession(true, model.now())
                 model.sim.resetClock()
                 model.refreshAll()
+                model.recaps.refresh()
                 model.nav.show(AppTab.PLAY)
             }
             opened.onFailure { model.fail("open_game", "Could not open", it) }

@@ -63,13 +63,15 @@ internal object PresencePolicy {
 
     /**
      * Whether presence just arrived home (home Wi-Fi joined, or back inside the home circle): forager quests bank what they carry.
-     * A home check ([checking]: the core still telling with GPS, e.g. started away with no home Wi-Fi) is not arriving.
+     * A home check ([checking]: the core still telling with GPS, e.g. started away with no home Wi-Fi) is not arriving; a check that
+     * ends at home ([wasChecking], state still AtHome) is.
      */
     fun arrivedHome(
         before: PresenceState,
         after: PresenceState,
         checking: Boolean = false,
-    ): Boolean = after == PresenceState.AtHome && before != PresenceState.AtHome && !checking
+        wasChecking: Boolean = false,
+    ): Boolean = after == PresenceState.AtHome && !checking && (before != PresenceState.AtHome || wasChecking)
 }
 
 /**

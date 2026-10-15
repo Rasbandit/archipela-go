@@ -1,5 +1,8 @@
 package dev.apgo2.ui
 
+import dev.apgo2.AwayFormat
+import uniffi.apgo_ffi.RecapOut
+
 /** One explanation: a short title and the text. All of the app's help copy is in this file, so wording can be fixed in one place. */
 internal data class HelpTopic(
     val title: String,
@@ -107,6 +110,15 @@ internal object Help {
     val stairs = HelpTopic("Avoid stairs", "Leaves out quests that are staircases.")
     val parking = HelpTopic("Allow parking lots", "Turn off to keep quests out of parking lots, where cars back out of spaces.")
 
+    const val ZONE_CHAINS = "Zone-specific progressive quests"
+    val zoneChains =
+        HelpTopic(
+            ZONE_CHAINS,
+            "Progressive quests like steps, time away and exploring belong to a zone, and only count while you are inside your " +
+                "zones. On: walking in a zone fills that zone's quests only. Off: walking in any zone you have opened fills them " +
+                "in every zone you have opened. Set once for this game.",
+        )
+
     // ---- keeping tracking alive (battery optimisation), by phone maker
     val batterySamsung =
         HelpTopic(
@@ -175,6 +187,68 @@ internal object Help {
             "Distance units",
             "How distances are shown. Auto uses the units of your phone's region.",
         )
+
+    // ---- developer (debug builds only)
+    const val DEVELOPER = "Developer"
+    const val PREVIEW_RECAP = "Preview walk recap"
+
+    // ---- walk recap
+    const val RECAP_TITLE = "Welcome home"
+    const val RECAP_DONE = "Done"
+    const val RECAP_CLOSE = "Close"
+    const val WALK_ROW_HINT = "Open this walk's recap"
+    const val EXPANDED = "Expanded"
+    const val COLLAPSED = "Collapsed"
+    const val RECAP_PROGRESS = "This walk"
+    const val RECAP_LEGEND_BEFORE = "before"
+    const val RECAP_LEGEND_COUNTED = "counted"
+    const val RECAP_QUESTS = "Quests completed"
+    const val RECAP_GOAL = "Goal"
+    const val RECAP_DONE_AT = "Done at"
+    const val RECAP_REWARD = "Reward"
+    const val RECAP_NOTICE_TITLE = "Welcome home: see your walk"
+    const val RECAP_CHANNEL = "Walk recap"
+    const val RECAP_CHANNEL_DESCRIPTION = "How your walk went, when you get home"
+    const val RECAP_ALL_MILESTONES = "All milestones reached"
+    const val CHECKS_SENT = "Checks sent"
+    const val ITEMS_RECEIVED = "Items received"
+    const val ZONES_UNLOCKED = "Zones unlocked"
+
+    /** "+2 banked" on a forager's recap bar. */
+    fun recapBanked(n: Long) = "+$n banked"
+
+    /** "2 still in your bag" under a forager's recap bar. */
+    fun recapInBag(n: UInt) = "$n still in your bag"
+
+    /** "4,812 walked · 4,090 counted" (counts already formatted). */
+    fun recapStepsLine(
+        walked: String,
+        counted: String,
+    ) = "$walked walked \u00b7 $counted counted"
+
+    /** "6,230 total (was 2,140)" on a chain's recap bar (counts already formatted). */
+    fun recapTotal(
+        total: String,
+        was: String,
+    ) = "$total total (was $was)"
+
+    /** "next: 7,500" on a chain's recap bar (the mark already formatted). */
+    fun recapNext(mark: String) = "next: $mark"
+
+    fun recapGainMinutes(n: Long) = "+$n min"
+
+    fun recapGainSquares(n: Long) = "+$n new squares"
+
+    /** "+4,090 steps" (the count already formatted). */
+    fun recapGainSteps(n: String) = "+$n steps"
+
+    fun recapZone(n: UInt) = "Zone $n"
+
+    fun recapNoticeText(r: RecapOut): String {
+        val time = "${AwayFormat.duration(r.endMs - r.startMs)} out"
+        val n = r.questsDone.size
+        return if (n == 0) time else "$time, $n ${if (n == 1) "quest" else "quests"} done"
+    }
 }
 
 /** Explanatory copy of the setup wizard and its Home card nag, kept here with the rest of the app's help text. */
