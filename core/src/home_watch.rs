@@ -140,7 +140,8 @@ impl HomeWatch {
 
     // Names the camp when the state is home without a fix to say which: the Wi-Fi's camp, else the one nearest the last fix.
     fn name_camp(&mut self) {
-        let id = self.wifi_camp.clone().or_else(|| self.last_fix.and_then(|p| self.nearest(p)).map(|(id, _)| id.to_owned()));
+        let near = self.last_fix.and_then(|p| self.nearest(p)).filter(|&(_, d)| d <= CAMP_CIRCLE_M).map(|(id, _)| id.to_owned());
+        let id = self.wifi_camp.clone().or(near);
         self.camp = id;
     }
 
@@ -188,10 +189,12 @@ impl HomeWatch {
     /// Camp Wi-Fi: `Some(id)` is the Wi-Fi of that camp (so the player is at a camp, that one), `None` is no camp's Wi-Fi. Joining
     /// another camp's Wi-Fi while at a camp renames the camp.
     pub fn on_wifi_camp(&mut self, camp: Option<String>, t_ms: i64) {
-        self.wifi_camp.clone_from(&camp);
-        self.apply_wifi(Some(camp.is_some()), t_ms);
-        if camp.is_some() && self.started && self.state == HomeState::Home {
-            self.camp = camp;
+        let given = camp.is_some();
+        let known = camp.filter(|id| self.has_camp(id)); // an id we do not know is plain Wi-Fi
+        self.wifi_camp.clone_from(&known);
+        self.apply_wifi(Some(given), t_ms);
+        if known.is_some() {
+            self.camp = known; // `camp()` hides it outside home; a check that falls back home keeps it
         }
     }
 
@@ -254,14 +257,14 @@ impl HomeWatch {
             }
             HomeState::Checking if inside => {
                 self.go_home(t_ms + RECHECK_AFTER_MS);
-                self.camp = Some(id);
+                self.camp = Some(self.wifi_camp.clone().unwrap_or(id));
             }
             HomeState::Home if outside && self.wifi != Some(true) => self.go_away(t_ms, None),
             HomeState::Away if inside => {
                 self.inside_fixes += 1;
                 if self.inside_fixes >= ARRIVE_FIXES {
                     self.go_home(t_ms + RECHECK_AFTER_MS);
-                    self.camp = Some(id);
+                    self.camp = Some(self.wifi_camp.clone().unwrap_or(id));
                 }
             }
             HomeState::Away => self.inside_fixes = 0,
@@ -644,8 +647,36 @@ mod tests {
         w.on_wifi_camp(Some("a".into()), 1_000);
         w.set_camps(vec![("b".into(), camp_b())]);
         assert_eq!(w.state(), HomeState::Home);
-        assert_ne!(w.camp(), Some("a"));
+        assert_eq!(w.camp(), None, "no fix to say which camp, and b's Wi-Fi was not named");
         w.set_camps(vec![]);
         assert_eq!((w.state(), w.camp()), (HomeState::Home, None), "Wi-Fi alone: still home");
+    }
+
+    #[test]
+    fn a_camp_is_named_only_within_its_circle() {
+        let mut w = two_camps();
+        w.on_fix(out(5.0), 5.0, 1_000);
+        w.on_fix(out(5.0), 5.0, 2_000);
+        assert_eq!(w.camp(), Some("a"));
+        w.set_camps(vec![("far".into(), destination(home(), 0.0, 3_000.0))]);
+        assert_eq!((w.state(), w.camp()), (HomeState::Home, None));
+    }
+
+    #[test]
+    fn a_check_that_falls_back_home_names_the_wifi_camp() {
+        let mut w = two_camps();
+        w.on_wifi_camp(Some("a".into()), 0);
+        walk(&mut w, 0, 1_000, 16);
+        assert_eq!(w.state(), HomeState::Checking);
+        w.on_wifi_camp(Some("b".into()), 20_000);
+        w.tick(1_000 + CHECK_MS + 20_000);
+        assert_eq!((w.state(), w.camp()), (HomeState::Home, Some("b")));
+    }
+
+    #[test]
+    fn an_unknown_camp_wifi_is_plain_wifi() {
+        let mut w = two_camps();
+        w.on_wifi_camp(Some("gone".into()), 1_000);
+        assert_eq!((w.state(), w.camp()), (HomeState::Home, None));
     }
 }
