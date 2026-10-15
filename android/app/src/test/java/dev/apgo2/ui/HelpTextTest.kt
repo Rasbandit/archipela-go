@@ -137,9 +137,9 @@ class HelpTextTest {
     }
 
     @Test fun recapAndOfferTextSpeakOfCampsNotHome() {
-        assertEquals("At Cabin: paused", Help.atCamp("Cabin"))
-        assertEquals("At a camp: paused", Help.atCamp(null))
-        assertEquals("At a camp: paused", Help.atCamp(" "))
+        assertEquals("At Cabin: paused", CampText.atCamp("Cabin"))
+        assertEquals("At a camp: paused", CampText.atCamp(null))
+        assertEquals("At a camp: paused", CampText.atCamp(" "))
         assertEquals("Welcome back", Help.RECAP_TITLE)
         assertEquals("Welcome back: see your walk", Help.RECAP_NOTICE_TITLE)
         assertEquals("You're at Cabin: add this Wi-Fi?", HomeOfferText.title("Cabin"))

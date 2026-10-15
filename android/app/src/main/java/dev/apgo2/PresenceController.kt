@@ -24,6 +24,7 @@ import dev.apgo2.presence.PresenceState
 import dev.apgo2.presence.Signals
 import dev.apgo2.presence.WifiId
 import dev.apgo2.presence.Zone
+import dev.apgo2.ui.CampText
 import dev.apgo2.ui.Help
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -375,7 +376,7 @@ internal class PresenceController(
 
     private fun presenceText(s: PresenceState) =
         when (s) {
-            PresenceState.AtHome -> Help.atCamp(campName)
+            PresenceState.AtHome -> CampText.atCamp(campName)
             PresenceState.InCar -> "Car Bluetooth connected: not counting"
             PresenceState.OutsideZones -> "Outside every zone: saving battery"
             PresenceState.InZone -> "Tracking"

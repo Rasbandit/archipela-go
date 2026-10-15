@@ -1,5 +1,6 @@
 package dev.apgo2.presence
 
+import dev.apgo2.ui.CampText
 import dev.apgo2.ui.Help
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -98,7 +99,7 @@ class PresenceSignalsTest {
     }
 
     @Test fun theChipSaysWhatIsHappeningAndReadsProtectionOffWhenNothingIsConfigured() {
-        assertEquals(Help.atCamp("Home"), PresenceText.chip(PresenceState.AtHome, configured = true, camp = "Home"))
+        assertEquals(CampText.atCamp("Home"), PresenceText.chip(PresenceState.AtHome, configured = true, camp = "Home"))
         assertEquals("In car, not counting", PresenceText.chip(PresenceState.InCar, configured = true))
         assertEquals("Outside zones, saving battery", PresenceText.chip(PresenceState.OutsideZones, configured = true))
         assertEquals("Tracking", PresenceText.chip(PresenceState.InZone, configured = true))

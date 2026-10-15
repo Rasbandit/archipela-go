@@ -3124,7 +3124,7 @@ mod tests {
         e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
         e.take_diag();
         journal_sql(&e, "DROP TABLE walks");
-        e.bank_at_home(600_000);
+        e.bank_at_camp(600_000);
         assert!(e.activity(50).iter().all(|a| a.kind != "walk"), "the log row commits with the walk row or not at all");
         let diag = e.take_diag();
         assert!(diag.iter().any(|d| d.contains("g1") && d.contains("600000")), "{diag:?}");
@@ -3148,7 +3148,7 @@ mod tests {
         leave_into_zone(&e, 1_000);
         e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
         e.take_diag();
-        e.bank_at_home(600_000);
+        e.bank_at_camp(600_000);
         assert!(e.pending_recap().is_some_and(|r| r.route.is_empty()));
         let diag = e.take_diag();
         assert!(diag.iter().any(|d| d.contains("no journal") && d.contains("600000")), "{diag:?}");

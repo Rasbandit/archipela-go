@@ -1,5 +1,6 @@
 package dev.apgo2.presence
 
+import dev.apgo2.ui.CampText
 import dev.apgo2.ui.Help
 
 internal data class WifiId(
@@ -93,7 +94,7 @@ internal object PresenceText {
         } else {
             when (state) {
                 PresenceState.InZone -> "Tracking"
-                PresenceState.AtHome -> Help.atCamp(camp)
+                PresenceState.AtHome -> CampText.atCamp(camp)
                 PresenceState.InCar -> "In car, not counting"
                 PresenceState.OutsideZones -> "Outside zones, saving battery"
                 PresenceState.Stopped -> "Not playing"

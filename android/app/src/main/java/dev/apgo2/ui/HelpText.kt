@@ -244,11 +244,6 @@ internal object Help {
 
     fun recapZone(n: UInt) = "Zone $n"
 
-    // ---- camps
-    fun campLabel(name: String?) = name?.ifBlank { null } ?: "a camp"
-
-    fun atCamp(name: String?) = "At ${campLabel(name)}: paused"
-
     fun recapNoticeText(r: RecapOut): String {
         val time = "${AwayFormat.duration(r.endMs - r.startMs)} out"
         val n = r.questsDone.size
@@ -308,6 +303,10 @@ internal object CampText {
     const val DELETE_BODY = "The Wi-Fi networks saved for it go with it. Games already started keep their quests."
     const val BACK = "Back"
 
+    fun campLabel(name: String?) = name?.ifBlank { null } ?: "a camp"
+
+    fun atCamp(name: String?) = "At ${campLabel(name)}: paused"
+
     fun title(count: Int) = "$NAME · $count"
 
     fun deleteTitle(name: String) = "Delete $name?"
@@ -321,7 +320,7 @@ internal object HomeOfferText {
     const val MUTE = "Not this one"
     const val LATER = "Later"
 
-    fun title(camp: String?) = "You're at ${Help.campLabel(camp)}: add this Wi-Fi?"
+    fun title(camp: String?) = "You're at ${CampText.campLabel(camp)}: add this Wi-Fi?"
 
     fun body(ssid: String) =
         "You are at a camp and connected to \"$ssid\". Add it as this camp's Wi-Fi so the game pauses and GPS turns off while you " +
