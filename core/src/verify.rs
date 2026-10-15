@@ -500,7 +500,6 @@ mod tests {
             t.update(&fix(at_second, 240), None)
         };
         assert_eq!(run(vec![home()]), Status::Active(0.4), "away when the second place is no camp");
-        assert_ne!(run(vec![home(), second]), Status::Active(0.4));
         assert_eq!(run(vec![home(), second]), Status::Idle, "nothing accrued at the second camp");
     }
 

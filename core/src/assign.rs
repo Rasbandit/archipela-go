@@ -344,7 +344,7 @@ const MAX_ITEM_CANDIDATES: usize = 2000;
 
 /// The band forager items are placed in for effort `want` (minutes) in `mode`, as `(min_m, far_m)` from home: never nearer than the
 /// minimum distance or the home radius plus the pick-up radius `pick_r_m` (an item there would be picked and banked in the same step),
-/// and the farthest about half the effort's travel out, so out to it and back fits the effort.
+/// and the farthest about half the effort's travel out, so out to it and back fits the effort. Items are placed from home only until Phase B origins, so one may land near a second camp.
 fn item_band(p: &AssignParams, pick_r_m: f64, want: f64, mode: Mode) -> (f64, f64) {
     (p.min_distance_m.max(CAMP_CIRCLE_M + pick_r_m), dist_for(want / 2.0, mode))
 }

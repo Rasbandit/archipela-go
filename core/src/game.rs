@@ -952,8 +952,8 @@ impl Game {
         if !self.trackers.contains_key(&id) {
             let target = self.tracker_target(&self.assignments.iter().find(|a| a.location_id == id)?.target);
             let t = match self.collected.get(&id) {
-                Some(c) => Tracker::with_collected(target, self.camp_points(), c.clone()),
-                None => Tracker::new(target, self.camp_points()),
+                Some(c) => Tracker::with_collected(target, self.camp_points().to_vec(), c.clone()),
+                None => Tracker::new(target, self.camp_points().to_vec()),
             };
             self.trackers.insert(id, t);
         }
@@ -1062,27 +1062,30 @@ impl Game {
         }
     }
 
-    /// Give the game its camps: from now on being within [`crate::home_watch::CAMP_CIRCLE_M`] of any of them is "at a camp". The trackers in use follow
-    /// at once. An empty list means no camps at all (the game then never counts a fix as at a camp).
+    /// Give the game its camps: from now on being within [`crate::home_watch::CAMP_CIRCLE_M`] of any of them is "at a camp". The trackers
+    /// in use follow at once, and so does `last_at_home` when the last fix is known (the away mark is left to `set_counting`).
+    ///
+    /// An empty list means no camps at all: no fix is ever at a camp, so a round trip cannot complete and forager items are banked
+    /// only through `bank_at_camp`.
     pub fn set_camps(&mut self, camps: Vec<Point>) {
         for t in self.trackers.values_mut() {
             t.set_camps(camps.clone());
         }
         self.camps = Some(camps);
+        if let Some(p) = self.last_fix.map(|f| f.point()) {
+            self.counters.last_at_home = Some(self.at_camp(p));
+        }
     }
 
     /// The camps in use: those the engine set, or `home` alone when none were ever set.
-    fn camp_points(&self) -> Vec<Point> {
-        self.camps.clone().unwrap_or_else(|| vec![self.home])
+    fn camp_points(&self) -> &[Point] {
+        self.camps.as_deref().unwrap_or(std::slice::from_ref(&self.home))
     }
 
     /// Whether `p` is within [`crate::home_watch::CAMP_CIRCLE_M`] of any camp.
     #[must_use]
     pub fn at_camp(&self, p: Point) -> bool {
-        match &self.camps {
-            Some(camps) => within_camp(camps, p),
-            None => within_camp(&[self.home], p),
-        }
+        within_camp(self.camp_points(), p)
     }
 
     /// Give the game its zone areas (zone id, shape): from now on progress counts only inside them; none at all (every zone realm
@@ -2312,7 +2315,7 @@ impl Game {
     /// whose quest is gone, finished, or no longer fits its saved progress is dropped, and that quest starts over.
     fn reattach_trackers(&mut self) {
         let trackers = std::mem::take(&mut self.trackers);
-        let camps = self.camp_points();
+        let camps = self.camp_points().to_vec();
         self.trackers = trackers
             .into_iter()
             .filter(|(id, _)| !self.done.contains(id))
@@ -4730,6 +4733,49 @@ mod tests {
         assert_eq!(carried_banked(&g), (1, 0));
         g.on_estimate(&fixat(destination(c, 90.0, 40.0), 1200), None);
         assert_eq!(carried_banked(&g), (0, 1));
+    }
+
+    #[test]
+    fn camps_set_while_a_tracker_runs_reach_it() {
+        let (mut g, pts) = forager_game();
+        let b = second_camp(&g);
+        g.on_estimate(&fixat(pts[0], 600), None); // makes the tracker, which carries one item
+        assert_eq!(carried_banked(&g), (1, 0));
+        g.set_camps(vec![g.home, b]);
+        g.on_estimate(&fixat(destination(b, 90.0, 40.0), 1200), None);
+        assert_eq!(carried_banked(&g), (0, 1), "the running tracker knows camp B");
+    }
+
+    #[test]
+    fn camps_set_after_a_save_and_load_reach_the_trackers() {
+        let (mut g, pts) = forager_game();
+        let b = second_camp(&g);
+        g.on_estimate(&fixat(pts[0], 600), None);
+        let mut back: Game = serde_json::from_value(serde_json::to_value(&g).unwrap()).unwrap();
+        back.reattach_trackers();
+        back.set_camps(vec![back.home, b]);
+        back.on_estimate(&fixat(destination(b, 90.0, 40.0), 1200), None);
+        assert_eq!(carried_banked(&back), (0, 1));
+    }
+
+    #[test]
+    fn with_an_empty_camp_list_no_fix_is_at_a_camp() {
+        let mut g = away_game(&[10.0]);
+        g.set_camps(vec![]);
+        assert!(!g.at_camp(g.home));
+        g.set_counting(true, 0);
+        away_for(&mut g, 0.0, 0, 2);
+        assert!(g.counters.away_mark.is_some(), "even at home, time away runs");
+    }
+
+    #[test]
+    fn adding_a_camp_where_the_last_fix_was_makes_it_at_camp() {
+        let mut g = away_game(&[10.0]);
+        away_for(&mut g, 400.0, 0, 1);
+        assert_eq!(g.counters.last_at_home, Some(false));
+        let x = destination(g.home, 90.0, 400.0);
+        g.set_camps(vec![g.home, x]);
+        assert_eq!(g.counters.last_at_home, Some(true));
     }
 
     #[test]
