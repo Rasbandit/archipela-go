@@ -1,15 +1,15 @@
-//! Whether the player is home: home Wi-Fi or the home circle, and when to look with GPS to tell.
+//! Whether the player is at a camp (home is one): a camp's Wi-Fi or a camp circle, and when to look with GPS to tell.
 //!
-//! Home Wi-Fi alone left home on every Wi-Fi drop (some phones drop it for minutes), turning GPS on and drawing points at home. With a
-//! home pin, leaving needs a fix outside the circle around it. GPS stays off at home and is asked for only on an event: a walk starting
+//! Camp Wi-Fi alone left on every Wi-Fi drop (some phones drop it for minutes), turning GPS on and drawing points at camp. With camps
+//! pinned, leaving needs a fix outside every circle. GPS stays off at home and is asked for only on an event: a walk starting
 //! (a burst of steps) or home Wi-Fi dropping. Fixes inside the circle never reach the game, the journal or the trace.
 
 use std::collections::VecDeque;
 
 use crate::geo::{distance_m, Point};
 
-/// Radius of the home circle, metres: it covers how far GPS wanders at home (indoors 10-30 m), not the game's 100 m time-away circle.
-pub const HOME_CIRCLE_M: f64 = 50.0;
+/// Radius of a camp circle, metres: it covers how far GPS wanders at a camp (indoors 10-30 m).
+pub const CAMP_CIRCLE_M: f64 = 50.0;
 /// A walk starts with this many steps ...
 pub const WALK_BURST_STEPS: i64 = 30;
 /// ... within this long, ms (pacing a room rarely keeps it up).
@@ -24,11 +24,11 @@ pub const ARRIVE_FIXES: u8 = 2;
 /// Where the player is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HomeState {
-    /// Home: GPS off, nothing counts.
+    /// At a camp: GPS off, nothing counts.
     Home,
     /// Maybe leaving: GPS on to tell, nothing counts yet.
     Checking,
-    /// Away from home.
+    /// Away from every camp.
     Away,
 }
 
@@ -42,15 +42,22 @@ struct Check {
     from_steps: Option<i64>,
 }
 
-/// Home Wi-Fi and the home circle, decided from events (no timer but the one check deadline, [`HomeWatch::due_ms`]).
+/// Camp Wi-Fi and the camp circles, decided from events (no timer but the one check deadline, [`HomeWatch::due_ms`]).
 #[derive(Debug, Clone)]
 pub struct HomeWatch {
-    center: Option<Point>,
+    /// Every camp (id, centre).
+    camps: Vec<(String, Point)>,
     /// Whether the phone reports steps: without them GPS-off at home could never see a walk out, so the circle is not used.
     walk_sensor: bool,
     state: HomeState,
     started: bool,
     wifi: Option<bool>,
+    /// The camp whose Wi-Fi the phone is on, when the host said which.
+    wifi_camp: Option<String>,
+    /// The camp the player is at while [`HomeState::Home`] (kept through a check that may fall back home).
+    camp: Option<String>,
+    /// The newest valid fix, to name the camp when only Wi-Fi says home.
+    last_fix: Option<Point>,
     /// Step readings (time, total) of the last [`WALK_BURST_MS`] while home.
     steps: VecDeque<(i64, i64)>,
     check: Option<Check>,
@@ -67,11 +74,14 @@ pub struct HomeWatch {
 impl Default for HomeWatch {
     fn default() -> Self {
         Self {
-            center: None,
+            camps: Vec::new(),
             walk_sensor: false,
             state: HomeState::Away,
             started: false,
             wifi: None,
+            wifi_camp: None,
+            camp: None,
+            last_fix: None,
             steps: VecDeque::new(),
             check: None,
             quiet_until_ms: i64::MIN,
@@ -84,9 +94,16 @@ impl Default for HomeWatch {
 }
 
 impl HomeWatch {
-    /// The home pin (the circle's centre); `None` leaves home to Wi-Fi alone, at once.
-    pub fn set_center(&mut self, center: Option<Point>) {
-        self.center = center;
+    /// Every camp (id, centre); none leaves it to Wi-Fi alone, at once. A camp added or removed takes effect at once.
+    pub fn set_camps(&mut self, camps: Vec<(String, Point)>) {
+        self.camps = camps;
+        if self.wifi_camp.as_ref().is_some_and(|id| !self.has_camp(id)) {
+            self.wifi_camp = None;
+        }
+        if self.camp.as_ref().is_some_and(|id| !self.has_camp(id)) {
+            self.camp = None;
+            self.name_camp();
+        }
         self.circle_changed();
     }
 
@@ -96,19 +113,45 @@ impl HomeWatch {
         self.circle_changed();
     }
 
-    /// The centre of the circle in use (radius [`HOME_CIRCLE_M`]): the pin, only with steps to see a walk out.
+    /// The centres of the circles in use (radius [`CAMP_CIRCLE_M`]): the camps, only with steps to see a walk out.
     #[must_use]
-    pub fn circle(&self) -> Option<Point> {
-        self.center.filter(|_| self.walk_sensor)
+    pub fn circles(&self) -> Vec<Point> {
+        if self.walk_sensor {
+            self.camps.iter().map(|(_, p)| *p).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// The id of the camp the player is at, while [`HomeState::Home`].
+    #[must_use]
+    pub fn camp(&self) -> Option<&str> {
+        self.camp.as_deref().filter(|_| self.state == HomeState::Home)
+    }
+
+    fn has_camp(&self, id: &str) -> bool {
+        self.camps.iter().any(|(c, _)| c == id)
+    }
+
+    /// The camp nearest `p`, with its distance.
+    fn nearest(&self, p: Point) -> Option<(&str, f64)> {
+        self.camps.iter().map(|(id, c)| (id.as_str(), distance_m(p, *c))).min_by(|a, b| a.1.total_cmp(&b.1))
+    }
+
+    // Names the camp when the state is home without a fix to say which: the Wi-Fi's camp, else the one nearest the last fix.
+    fn name_camp(&mut self) {
+        let id = self.wifi_camp.clone().or_else(|| self.last_fix.and_then(|p| self.nearest(p)).map(|(id, _)| id.to_owned()));
+        self.camp = id;
     }
 
     // No circle any more: a running check, or a home only the circle kept, ends as Wi-Fi alone would have it.
     fn circle_changed(&mut self) {
-        if self.circle().is_some() || !self.started || self.state == HomeState::Away {
+        if !self.circles().is_empty() || !self.started || self.state == HomeState::Away {
             return;
         }
         if self.wifi == Some(true) {
             self.go_home(i64::MIN);
+            self.name_camp();
         } else {
             let from = self.check.filter(|_| self.state == HomeState::Checking).map_or(self.last_t_ms, |c| c.from_ms);
             self.go_away(from, None);
@@ -120,14 +163,15 @@ impl HomeWatch {
     /// decided: a check indoors often finds no clear fix and would fall back to away.
     pub fn start(&mut self, t_ms: i64) {
         self.last_t_ms = t_ms;
-        let circle_home = self.started && self.state == HomeState::Home && self.circle().is_some();
+        let circle_home = self.started && self.state == HomeState::Home && self.has_camps();
         self.started = true;
         if circle_home {
             return;
         }
         if self.wifi == Some(true) {
             self.go_home(i64::MIN);
-        } else if self.circle().is_some() {
+            self.name_camp();
+        } else if self.has_camps() {
             self.begin_check(t_ms, HomeState::Away, t_ms, None);
         } else {
             self.go_away(t_ms, None);
@@ -137,6 +181,21 @@ impl HomeWatch {
     /// The (debounced) home Wi-Fi reading: `Some(true)` on it, `Some(false)` on another network, `None` unknown or off. Joining it is
     /// home; losing it at home leaves at once without a pin, and only checks with one. Only a change counts (the host may repeat it).
     pub fn on_wifi(&mut self, home: Option<bool>, t_ms: i64) {
+        self.wifi_camp = None;
+        self.apply_wifi(home, t_ms);
+    }
+
+    /// Camp Wi-Fi: `Some(id)` is the Wi-Fi of that camp (so the player is at a camp, that one), `None` is no camp's Wi-Fi. Joining
+    /// another camp's Wi-Fi while at a camp renames the camp.
+    pub fn on_wifi_camp(&mut self, camp: Option<String>, t_ms: i64) {
+        self.wifi_camp.clone_from(&camp);
+        self.apply_wifi(Some(camp.is_some()), t_ms);
+        if camp.is_some() && self.started && self.state == HomeState::Home {
+            self.camp = camp;
+        }
+    }
+
+    fn apply_wifi(&mut self, home: Option<bool>, t_ms: i64) {
         let changed = self.wifi != home;
         self.wifi = home;
         self.last_t_ms = t_ms;
@@ -145,8 +204,9 @@ impl HomeWatch {
         }
         if home == Some(true) {
             self.go_home(i64::MIN);
+            self.name_camp();
         } else if self.state == HomeState::Home {
-            if self.circle().is_some() {
+            if self.has_camps() {
                 self.begin_check(t_ms, HomeState::Home, t_ms, None);
             } else {
                 self.go_away(t_ms, None);
@@ -158,7 +218,7 @@ impl HomeWatch {
     /// check (unless one just found the player home).
     pub fn on_steps(&mut self, total: i64, t_ms: i64) {
         self.last_t_ms = t_ms;
-        if self.state != HomeState::Home || self.circle().is_none() {
+        if self.state != HomeState::Home || !self.has_camps() {
             return;
         }
         if self.steps.back().is_some_and(|&(t, _)| t_ms - t > WALK_BURST_MS || t > t_ms) {
@@ -174,27 +234,34 @@ impl HomeWatch {
         }
     }
 
-    /// A real fix (never simulated): `accuracy_m` is its 68 % radius. Only a fix clearly outside the circle (by more than its accuracy)
-    /// leaves, and only one clearly inside counts as inside.
+    /// A real fix (never simulated): `accuracy_m` is its 68 % radius. Judged against the nearest camp: only a fix clearly outside every
+    /// circle (by more than its accuracy) leaves, and only one clearly inside a circle counts as inside.
     pub fn on_fix(&mut self, p: Point, accuracy_m: f64, t_ms: i64) {
         self.last_t_ms = t_ms;
-        let Some(center) = self.circle().filter(|_| self.started) else { return };
+        if !self.started || !self.has_camps() {
+            return;
+        }
         if !(p.lat.is_finite() && p.lon.is_finite() && accuracy_m.is_finite() && accuracy_m >= 0.0) {
             return;
         }
-        let d = distance_m(p, center);
-        let (outside, inside) = (d - accuracy_m > HOME_CIRCLE_M, d + accuracy_m <= HOME_CIRCLE_M);
+        self.last_fix = Some(p);
+        let Some((id, d)) = self.nearest(p).map(|(id, d)| (id.to_owned(), d)) else { return };
+        let (outside, inside) = (d - accuracy_m > CAMP_CIRCLE_M, d + accuracy_m <= CAMP_CIRCLE_M);
         match self.state {
             HomeState::Checking if outside => {
                 let (from, steps) = self.check.map_or((t_ms, None), |c| (c.from_ms, c.from_steps));
                 self.go_away(from, steps);
             }
-            HomeState::Checking if inside => self.go_home(t_ms + RECHECK_AFTER_MS),
+            HomeState::Checking if inside => {
+                self.go_home(t_ms + RECHECK_AFTER_MS);
+                self.camp = Some(id);
+            }
             HomeState::Home if outside && self.wifi != Some(true) => self.go_away(t_ms, None),
             HomeState::Away if inside => {
                 self.inside_fixes += 1;
                 if self.inside_fixes >= ARRIVE_FIXES {
                     self.go_home(t_ms + RECHECK_AFTER_MS);
+                    self.camp = Some(id);
                 }
             }
             HomeState::Away => self.inside_fixes = 0,
@@ -213,10 +280,10 @@ impl HomeWatch {
         }
     }
 
-    /// Whether the home circle is in use: a home pin and a step counter (else home Wi-Fi alone decides).
+    /// Whether the camp circles are in use: a camp and a step counter (else camp Wi-Fi alone decides).
     #[must_use]
-    pub fn has_center(&self) -> bool {
-        self.circle().is_some()
+    pub fn has_camps(&self) -> bool {
+        self.walk_sensor && !self.camps.is_empty()
     }
 
     /// Where the player is.
@@ -266,6 +333,7 @@ impl HomeWatch {
         self.inside_fixes = 0;
         self.left_at_ms = Some(left_at_ms);
         self.left_steps = left_steps;
+        self.camp = None;
     }
 }
 
@@ -285,7 +353,7 @@ mod tests {
     fn at_home() -> HomeWatch {
         let mut w = HomeWatch::default();
         w.set_walk_sensor(true);
-        w.set_center(Some(home()));
+        w.set_camps(vec![("home".into(), home())]);
         w.on_wifi(Some(true), 0);
         w.start(0);
         w
@@ -303,10 +371,10 @@ mod tests {
     fn without_a_step_counter_the_pin_is_ignored_and_wifi_alone_decides() {
         // GPS is off at home, so only steps can tell a walk out: without them a player in the circle would stay paused for good.
         let mut w = HomeWatch::default();
-        w.set_center(Some(home()));
+        w.set_camps(vec![("home".into(), home())]);
         w.on_wifi(Some(true), 0);
         w.start(0);
-        assert!(!w.has_center());
+        assert!(!w.has_camps());
         w.on_wifi(None, 1_000);
         assert_eq!(w.state(), HomeState::Away, "a drop leaves, as before the circle");
         w.set_walk_sensor(true);
@@ -438,14 +506,14 @@ mod tests {
         // As before the circle: no home Wi-Fi at the start means playing, unless a fix shows the player home.
         let mut w = HomeWatch::default();
         w.set_walk_sensor(true);
-        w.set_center(Some(home()));
+        w.set_camps(vec![("home".into(), home())]);
         w.start(0);
         assert_eq!(w.state(), HomeState::Checking);
         w.tick(CHECK_MS);
         assert_eq!(w.state(), HomeState::Away);
         let mut inside = HomeWatch::default();
         inside.set_walk_sensor(true);
-        inside.set_center(Some(home()));
+        inside.set_camps(vec![("home".into(), home())]);
         inside.start(0);
         inside.on_fix(out(5.0), 10.0, 2_000);
         assert_eq!(inside.state(), HomeState::Home);
@@ -457,7 +525,7 @@ mod tests {
         // be put through a check that falls back to away indoors, where GPS often finds no clear fix.
         let mut w = HomeWatch::default();
         w.set_walk_sensor(true);
-        w.set_center(Some(home()));
+        w.set_camps(vec![("home".into(), home())]);
         w.start(0);
         w.on_fix(out(5.0), 10.0, 2_000);
         assert_eq!(w.state(), HomeState::Home);
@@ -471,7 +539,7 @@ mod tests {
         // No home Wi-Fi: only the circle said home. Without it (step permission revoked, pin cleared) GPS would stay off for good.
         let mut w = HomeWatch::default();
         w.set_walk_sensor(true);
-        w.set_center(Some(home()));
+        w.set_camps(vec![("home".into(), home())]);
         w.start(0);
         w.on_fix(out(5.0), 10.0, 2_000);
         assert_eq!(w.state(), HomeState::Home);
@@ -479,7 +547,7 @@ mod tests {
         assert_eq!(w.state(), HomeState::Away);
         assert_eq!(w.left_at_ms(), Some(2_000), "from the last thing the watch saw");
         let mut wifi = at_home();
-        wifi.set_center(None);
+        wifi.set_camps(vec![]);
         assert_eq!(wifi.state(), HomeState::Home, "home Wi-Fi still says home");
     }
 
@@ -488,7 +556,7 @@ mod tests {
         let mut w = at_home();
         w.on_wifi(None, 0);
         assert_eq!(w.state(), HomeState::Checking);
-        w.set_center(None);
+        w.set_camps(vec![]);
         assert_eq!(w.state(), HomeState::Away, "no pin: Wi-Fi alone decides, and it dropped");
         assert_eq!(w.due_ms(), None);
     }
@@ -500,5 +568,84 @@ mod tests {
         w.on_fix(out(500.0), f64::NAN, 1_000);
         w.on_fix(Point::new(f64::NAN, 0.0), 5.0, 2_000);
         assert_eq!(w.state(), HomeState::Checking);
+    }
+
+    fn camp_b() -> Point {
+        destination(home(), 90.0, 80.0) // overlaps home's circle: 80 m apart, 50 m each
+    }
+
+    fn two_camps() -> HomeWatch {
+        let mut w = HomeWatch::default();
+        w.set_walk_sensor(true);
+        w.set_camps(vec![("a".into(), home()), ("b".into(), camp_b())]);
+        w.start(0);
+        w
+    }
+
+    #[test]
+    fn arriving_at_a_camp_names_the_nearest_one() {
+        let mut w = two_camps();
+        w.on_fix(out(200.0), 5.0, 1_000);
+        assert_eq!((w.state(), w.camp()), (HomeState::Away, None));
+        w.on_fix(destination(camp_b(), 90.0, 5.0), 5.0, 600_000);
+        w.on_fix(destination(camp_b(), 90.0, 6.0), 5.0, 605_000);
+        assert_eq!((w.state(), w.camp()), (HomeState::Home, Some("b")));
+    }
+
+    #[test]
+    fn leaving_needs_a_fix_outside_both_overlapping_circles() {
+        let mut w = two_camps();
+        w.on_fix(out(5.0), 5.0, 1_000);
+        w.on_fix(out(5.0), 5.0, 2_000);
+        assert_eq!(w.camp(), Some("a"));
+        w.on_wifi(None, 3_000); // not on Wi-Fi: only a fix decides
+        w.on_fix(out(110.0), 5.0, 4_000); // 110 m from a, 30 m from b: inside b's circle
+        assert_ne!(w.state(), HomeState::Away);
+        w.on_fix(out(150.0), 5.0, 5_000); // 70 m from b, past both circles
+        assert_eq!((w.state(), w.camp()), (HomeState::Away, None));
+    }
+
+    #[test]
+    fn no_camps_with_no_wifi_goes_away() {
+        let mut w = at_home();
+        w.on_wifi(None, 0);
+        assert_eq!(w.state(), HomeState::Checking);
+        w.set_camps(vec![]);
+        assert_eq!(w.state(), HomeState::Away);
+        assert!(!w.has_camps() && w.circles().is_empty());
+    }
+
+    #[test]
+    fn a_camp_wifi_is_home_at_that_camp() {
+        let mut w = two_camps();
+        w.on_wifi_camp(Some("a".into()), 1_000);
+        assert_eq!((w.state(), w.camp()), (HomeState::Home, Some("a")));
+        w.on_wifi_camp(Some("b".into()), 2_000);
+        assert_eq!((w.state(), w.camp()), (HomeState::Home, Some("b")), "the name follows the Wi-Fi");
+        w.on_wifi_camp(None, 3_000);
+        assert_eq!(w.state(), HomeState::Checking);
+        assert_eq!(w.camp(), None);
+    }
+
+    #[test]
+    fn plain_wifi_names_the_camp_nearest_the_last_fix() {
+        let mut w = two_camps();
+        w.on_fix(destination(camp_b(), 90.0, 5.0), 5.0, 1_000);
+        w.on_wifi(Some(true), 2_000);
+        assert_eq!((w.state(), w.camp()), (HomeState::Home, Some("b")));
+        let mut none = two_camps();
+        none.on_wifi(Some(true), 0);
+        assert_eq!((none.state(), none.camp()), (HomeState::Home, None));
+    }
+
+    #[test]
+    fn removing_the_camp_the_player_is_at_follows_at_once() {
+        let mut w = two_camps();
+        w.on_wifi_camp(Some("a".into()), 1_000);
+        w.set_camps(vec![("b".into(), camp_b())]);
+        assert_eq!(w.state(), HomeState::Home);
+        assert_ne!(w.camp(), Some("a"));
+        w.set_camps(vec![]);
+        assert_eq!((w.state(), w.camp()), (HomeState::Home, None), "Wi-Fi alone: still home");
     }
 }

@@ -1360,10 +1360,15 @@ impl Engine {
         drop(r);
     }
 
-    // The saved home pin is the home circle's centre.
+    // The saved camps are the camp circles' centres.
     fn with_home_center(self: Arc<Self>) -> Arc<Self> {
-        self.watch().set_center(self.store().home());
+        self.sync_camps();
         self
+    }
+
+    fn sync_camps(&self) {
+        let camps = self.store().camps().into_iter().map(|c| (c.id, c.point)).collect();
+        self.watch().set_camps(camps);
     }
 
     fn watch(&self) -> MutexGuard<'_, HomeWatch> {
@@ -1934,7 +1939,7 @@ impl Engine {
     /// Returns an error if the file cannot be written.
     pub fn set_home(&self, p: GeoPoint) -> Result<(), CoreError> {
         self.store().set_home(pt(&p)).map_err(err)?;
-        self.watch().set_center(Some(pt(&p)));
+        self.sync_camps();
         Ok(())
     }
 
@@ -1975,7 +1980,7 @@ impl Engine {
 
     /// The home circle in use, to draw on the map; `None` when home Wi-Fi alone decides.
     pub fn presence_circle(&self) -> Option<CircleOut> {
-        self.watch().circle().map(|c| CircleOut { center: gp(c), radius_m: apgo_core::home_watch::HOME_CIRCLE_M })
+        self.watch().circles().first().map(|&c| CircleOut { center: gp(c), radius_m: apgo_core::home_watch::CAMP_CIRCLE_M })
     }
 
     /// When the walk that left home began (its first step), while away after a check.
@@ -2361,7 +2366,7 @@ impl Engine {
             let mut watch = self.watch();
             watch.on_fix(raw.point(), raw.accuracy_m, t_ms);
             // At home (or still telling, inside the circle) a fix reaches nothing: no points or trace at home.
-            if watch.has_center() && watch.state() != HomeState::Away {
+            if watch.has_camps() && watch.state() != HomeState::Away {
                 return Vec::new();
             }
         }
@@ -3486,7 +3491,7 @@ mod tests {
         assert!(e.presence_circle().is_none(), "no step counter yet");
         e.presence_set_walk_sensor(true);
         let drawn = e.presence_circle().unwrap();
-        assert_eq!((pt(&drawn.center), drawn.radius_m), (home(), apgo_core::home_watch::HOME_CIRCLE_M), "the map draws the circle in use");
+        assert_eq!((pt(&drawn.center), drawn.radius_m), (home(), apgo_core::home_watch::CAMP_CIRCLE_M), "the map draws the circle in use");
         e.presence_wifi(Some(true), FIX_T_MS);
         e.presence_start(FIX_T_MS);
         assert_eq!(e.presence_state(), PresenceHome::Home);
