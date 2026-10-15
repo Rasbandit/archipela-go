@@ -87,6 +87,7 @@ internal class AppModel(
     val settings = PresenceSettings(ctx)
     private val trapAlert = TrapAlert(ctx)
     val trapSettings = TrapSettings(this)
+    val chainScope = ChainScopeSettings(this)
     val units = UnitSettings(this)
     val stepCal = StepCalStore(ctx)
     val presence = PresenceController(this, ctx, scope)

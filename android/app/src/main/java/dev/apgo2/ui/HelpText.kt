@@ -173,6 +173,14 @@ internal object Help {
                 "A Silence Trap mutes them while it lasts. You can tune the Traps channel in the phone's notification settings.",
         )
 
+    val chainScope =
+        HelpTopic(
+            "Where chains count",
+            "Steps, time away and map squares only count inside your zones, never outside them. " +
+                "This zone only: walking in a zone fills that zone's chains. " +
+                "Any zone: walking in any zone fills the chains of every zone you have opened.",
+        )
+
     val units =
         HelpTopic(
             "Distance units",
