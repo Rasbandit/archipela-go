@@ -1400,10 +1400,15 @@ impl Engine {
         drop(r);
     }
 
-    // Load the saved camps (the camp circles' centres) once; from here on they live in memory and in `camps.json`.
+    // Load the saved camps (the camp circles' centres) once; from here on they live in memory and in `camps.json`. A broken
+    // `camps.json` (kept aside by the store) goes to the diagnostics log.
     fn with_camps(self: Arc<Self>) -> Arc<Self> {
+        let (camps, problem) = self.store().camps_checked();
+        if let Some(p) = problem {
+            self.note(p);
+        }
         let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.apply_camps(slot, self.store().camps());
+        self.apply_camps(slot, camps);
         self
     }
 
@@ -3581,6 +3586,23 @@ mod tests {
 
     fn camp_in(id: &str, name: &str, p: Point) -> CampIn {
         CampIn { id: id.into(), name: name.into(), lat: p.lat, lon: p.lon }
+    }
+
+    #[test]
+    fn a_corrupt_camps_file_is_noted_and_home_json_survives_the_next_save() {
+        let e = engine_with_game("camps-corrupt");
+        std::fs::write(e.dir.join("home.json"), serde_json::to_string(&home()).unwrap()).unwrap();
+        std::fs::write(e.dir.join("camps.json"), "not json").unwrap();
+        let e2 = Engine::new(e.dir.to_string_lossy().into_owned());
+        let diag = e2.take_diag();
+        assert!(diag.iter().any(|m| m.starts_with("camps.json unreadable: ") && m.ends_with("; kept as camps.json.corrupt")), "{diag:?}");
+        assert!(e.dir.join("camps.json.corrupt").exists());
+        assert_eq!(e2.camps().into_iter().map(|c| c.id).collect::<Vec<_>>(), [apgo_core::realm::HOME_CAMP_ID]);
+        e2.save_camp(camp_in("", "Cabin", destination(home(), 0.0, 3000.0))).unwrap();
+        let again = Engine::new(e.dir.to_string_lossy().into_owned());
+        let names: Vec<String> = again.camps().into_iter().map(|c| c.name).collect();
+        assert_eq!(names, ["Home", "Cabin"], "the home camp is saved with the new one");
+        assert!(again.take_diag().iter().all(|m| !m.starts_with("camps.json")), "the file is sound again");
     }
 
     #[test]
