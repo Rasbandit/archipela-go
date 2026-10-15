@@ -1181,6 +1181,8 @@ fn journal_due(last: Option<&TrackPoint>, p: &TrackPoint) -> bool {
 struct ZoneCache {
     /// Each zone's realm shape; zones whose realm is gone are left out.
     shapes: Vec<Shape>,
+    /// Each zone's id and realm shape, for the game's "progress counts only inside a zone"; zones whose realm is gone are left out.
+    areas: Vec<(u32, Shape)>,
     /// Each zone realm's name, one per zone realm of the game (empty for a realm that is gone).
     names: Vec<String>,
 }
@@ -1188,8 +1190,9 @@ struct ZoneCache {
 /// The zone cache of `game` from its zone realms as saved now (`realms`, one per zone realm, `None` for one that is gone).
 fn zone_cache_of(game: &Game, realms: Vec<Option<Realm>>) -> ZoneCache {
     let names = realms.iter().map(|r| r.as_ref().map(|r| r.name.clone()).unwrap_or_default()).collect();
-    let shapes = realms.into_iter().take(game.slot.zones.len()).flatten().map(|r| r.shape).collect();
-    ZoneCache { shapes, names }
+    let shapes = realms.iter().take(game.slot.zones.len()).flatten().map(|r| r.shape.clone()).collect();
+    let areas = game.slot.zones.iter().zip(realms).filter_map(|(z, r)| r.map(|r| (z.id, r.shape))).collect();
+    ZoneCache { shapes, areas, names }
 }
 
 /// The `fix_rejected` line for an estimate that may not count, if it is one of those.
@@ -1513,6 +1516,7 @@ impl Engine {
         // Read the units under the game lock: `refresh_units` stores new units before it takes this lock, so a change racing
         // this install is either seen here or applied to this game right after.
         game.set_units(self.unit_system());
+        game.set_chain_scope(Settings::load(&self.dir).chain_scope);
         game.set_fix_spacing_hint(*self.fix_spacing_hint.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         // Keep the outgoing game's progress (unless the new one replaces that very save).
         if let Some(old) = slot.as_ref().filter(|old| old.id != game.id) {
@@ -1540,7 +1544,10 @@ impl Engine {
     // The open game's zone shapes; a new set (another game, or none) forgets where the last fix was relative to the old ones.
     // Takes the game guard and releases it after, so the shapes only ever change together with the game, never between another
     // thread's read and write (lock order: game, then zones).
-    fn set_zones(&self, game: MutexGuard<'_, Option<Game>>, zones: ZoneCache) {
+    fn set_zones(&self, mut game: MutexGuard<'_, Option<Game>>, zones: ZoneCache) {
+        if let Some(g) = game.as_mut() {
+            g.set_zone_areas(zones.areas.clone());
+        }
         *self.zones.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = zones;
         *self.last_proximity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         drop(game);
@@ -1582,7 +1589,7 @@ impl Engine {
         self.with_game(|g| g.id.clone())
     }
 
-    fn with_game<T>(&self, f: impl FnOnce(&mut Game) -> T) -> Option<T> {
+    pub(crate) fn with_game<T>(&self, f: impl FnOnce(&mut Game) -> T) -> Option<T> {
         self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut().map(f)
     }
 
@@ -2872,11 +2879,18 @@ mod tests {
         e
     }
 
+    /// Counting turns on at `t_ms` and the player is placed 500 m east of home, inside zone 1: the walk opens there.
+    fn leave_into_zone(e: &Engine, t_ms: i64) {
+        e.set_counting(true, t_ms);
+        let p = destination(home(), 90.0, 500.0);
+        e.with_game(|g| g.on_estimate(&Estimate::exact(p.lat, p.lon, t_ms), None));
+    }
+
     #[test]
     fn arriving_home_stores_one_recap_with_its_route_until_dismissed() {
         let e = engine_with_game("recap");
         e.set_counting(false, 0);
-        e.set_counting(true, 1_000);
+        leave_into_zone(&e, 1_000);
         e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
         let east = |m: f64| destination(home(), 90.0, m);
         e.journal_do(|j| {
@@ -2904,7 +2918,7 @@ mod tests {
     fn each_recapped_walk_is_kept_with_an_activity_row() {
         let e = engine_with_game("walks");
         e.set_counting(false, 0);
-        e.set_counting(true, 1_000);
+        leave_into_zone(&e, 1_000);
         e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
         e.set_counting(false, 599_000);
         e.bank_at_home(600_000);
@@ -2926,7 +2940,7 @@ mod tests {
     fn the_recap_carries_counted_steps_standalone_quests_and_grown_chains() {
         let e = engine_with_game("recap-v2");
         e.set_counting(false, 0);
-        e.set_counting(true, 1_000);
+        leave_into_zone(&e, 1_000);
         let name = e
             .with_game(|g| {
                 // Two reach quests become a 500 + 1000 step chain that grew from 300 to 900 on the walk.
@@ -2957,7 +2971,7 @@ mod tests {
     fn the_recap_maps_forager_progress() {
         let e = engine_with_game("recap-forager");
         e.set_counting(false, 0);
-        e.set_counting(true, 1_000);
+        leave_into_zone(&e, 1_000);
         e.with_game(|g| {
             g.outing.as_mut().unwrap().steps = 900;
             let a = &mut g.assignments[0];
@@ -2975,7 +2989,7 @@ mod tests {
     fn a_walk_with_no_trace_still_gets_its_recap() {
         let e = engine_with_game("recap-no-trace");
         e.set_counting(false, 0);
-        e.set_counting(true, 1_000);
+        leave_into_zone(&e, 1_000);
         e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
         e.bank_at_home(600_000);
         assert!(e.pending_recap().is_some_and(|r| r.distance_m == 0.0 && r.route.is_empty()));
@@ -3725,6 +3739,36 @@ mod tests {
         e.set_trap_alerts(false).unwrap();
         assert!(!e.trap_alerts());
         assert_eq!(alert(e.sync_items(vec!["Slow Trap".into(), "Fog Of War Trap".into()], 10, None)), Some(false));
+    }
+
+    #[test]
+    fn the_open_game_counts_progress_only_inside_its_zone_realms() {
+        let e = engine_with_game("in-zone"); // zone 1 is realm r0, a 2 km circle at home
+        let t = FIX_T_MS;
+        e.set_counting(false, t);
+        e.set_counting(true, t + 1_000);
+        assert!(e.with_game(|g| g.outing.is_none()).unwrap(), "where the player got out is not known yet");
+        e.on_fix(fix_at(destination(home(), 90.0, 8_000.0), t + 2_000), None, false);
+        e.on_fix(fix_at(destination(home(), 90.0, 8_050.0), t + 62_000), None, false);
+        assert!(e.with_game(|g| g.last_estimate().is_some_and(|x| x.accepted)).unwrap());
+        assert!(e.with_game(|g| g.outing.is_none() && g.stats.distance_m == 0.0).unwrap(), "a visit outside the zone is no walk and no distance");
+        e.on_fix(fix_at(destination(home(), 90.0, 1_000.0), t + 3_600_000), None, false); // walked back in an hour later
+        e.on_fix(fix_at(destination(home(), 90.0, 1_050.0), t + 3_660_000), None, false);
+        assert!(e.with_game(|g| g.outing.as_ref().is_some_and(|o| o.start_ms >= t + 3_600_000)).unwrap(), "the walk opens inside the zone");
+    }
+
+    #[test]
+    fn the_chain_scope_is_saved_and_applied_to_the_open_and_the_next_game() {
+        use crate::settings::ChainScope;
+        let e = engine_with_game("chain-scope");
+        assert_eq!(e.chain_scope(), ChainScope::ThisZone, "per zone by default");
+        e.set_chain_scope(ChainScope::AnyZone).unwrap();
+        assert_eq!(e.chain_scope(), ChainScope::AnyZone);
+        assert_eq!(e.with_game(|g| g.chain_scope()), Some(apgo_core::chain::ChainScope::AnyZone), "the open game follows at once");
+        e.with_game(|g| g.save(&e.dir).unwrap());
+        let restarted = Engine::new(e.dir.to_string_lossy().into_owned());
+        restarted.open_game("g1".into()).unwrap();
+        assert_eq!(restarted.with_game(|g| g.chain_scope()), Some(apgo_core::chain::ChainScope::AnyZone), "a game opened later reads the setting");
     }
 
     #[test]

@@ -20,6 +20,17 @@ pub enum ChainUnit {
     Cells,
 }
 
+/// Which open zones' chains fill while the player is inside a zone (a player setting). Outside every zone none does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChainScope {
+    /// Only the chains of the zone the player is in.
+    #[default]
+    ThisZone,
+    /// The chains of every open zone, while the player is in any zone.
+    AnyZone,
+}
+
 /// One check on a chain, unlocked at a counter value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Milestone {

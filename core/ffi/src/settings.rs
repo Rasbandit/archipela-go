@@ -1,5 +1,6 @@
 //! Player settings over FFI: the unit choice, the units it resolves to, the one distance formatter and the last place.
 
+use apgo_core::chain::ChainScope as CoreScope;
 use apgo_core::geo::Point;
 use apgo_core::settings::{self as core, Settings};
 use apgo_core::units;
@@ -16,6 +17,33 @@ pub enum UnitChoice {
     Metric,
     /// Feet and miles.
     Imperial,
+}
+
+/// Which open zones' chains fill while the player is inside a zone; outside every zone none does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ChainScope {
+    /// Only the chains of the zone the player is in.
+    ThisZone,
+    /// The chains of every open zone, while the player is in any zone.
+    AnyZone,
+}
+
+impl From<CoreScope> for ChainScope {
+    fn from(c: CoreScope) -> Self {
+        match c {
+            CoreScope::ThisZone => Self::ThisZone,
+            CoreScope::AnyZone => Self::AnyZone,
+        }
+    }
+}
+
+impl From<ChainScope> for CoreScope {
+    fn from(c: ChainScope) -> Self {
+        match c {
+            ChainScope::ThisZone => Self::ThisZone,
+            ChainScope::AnyZone => Self::AnyZone,
+        }
+    }
 }
 
 /// The units distances are shown in once `Auto` is resolved.
@@ -117,6 +145,25 @@ impl Engine {
         })
         .map_err(|detail| CoreError::Failed { detail })?;
         self.trap_alerts.store(on, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Which open zones' chains fill while the player is inside a zone (`ThisZone` until the player picks).
+    pub fn chain_scope(&self) -> ChainScope {
+        Settings::load(self.dir()).chain_scope.into()
+    }
+
+    /// Save the chain scope, keeping every other setting; the open game counts with it from now on.
+    ///
+    /// # Errors
+    /// Returns an error if the settings file cannot be written.
+    pub fn set_chain_scope(&self, scope: ChainScope) -> Result<(), CoreError> {
+        Settings::update(self.dir(), |s| {
+            s.chain_scope = scope.into();
+            true
+        })
+        .map_err(|detail| CoreError::Failed { detail })?;
+        self.with_game(|g| g.set_chain_scope(scope.into()));
         Ok(())
     }
 
