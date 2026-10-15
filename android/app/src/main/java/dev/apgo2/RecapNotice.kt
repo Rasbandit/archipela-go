@@ -122,10 +122,14 @@ internal class RecapController(
         }
     }
 
+    /** Close the recap. Clearing the core's pending one saves the game, so that runs off the main thread. */
     fun dismiss() {
         if (dismissTouchesCore(transient)) {
-            engine.dismissRecap()
             notice.cancel()
+            scope.launch {
+                val r = withContext(Dispatchers.IO) { runCatching { engine.dismissRecap() } }
+                r.onFailure { Diag.error(TAG, "dismiss failed", it) }
+            }
         }
         transient = false
         recap = null

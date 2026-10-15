@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -110,12 +112,13 @@ private fun unitFraction(
 
 /**
  * Chain bar for the walk recap: a blue "before" fill, an orange "this walk" fill up to [value], and a bounce plus confetti
- * on every mark in `(crossedFrom, value]` the first time [value] reaches it (only when [animate]).
+ * on every mark in `(crossedFrom, value]` the first time [value] reaches it (only when [animate]). [value] is read while
+ * drawing, so an animated value redraws the bar without recomposing it (only a newly crossed mark does).
  */
 @Composable
 internal fun RecapChainBar(
     before: Float,
-    value: Float,
+    value: () -> Float,
     max: Float,
     marks: List<Float>,
     crossedFrom: Float,
@@ -124,7 +127,7 @@ internal fun RecapChainBar(
 ) {
     val anims = remember(marks.size) { DotAnims(marks.size) }
     val scope = rememberCoroutineScope()
-    val newly = crossed(marks, crossedFrom, value)
+    val newly by remember(marks, crossedFrom) { derivedStateOf { crossed(marks, crossedFrom, value()) } }
     LaunchedEffect(newly, animate) {
         if (!animate) {
             anims.settle()
@@ -136,6 +139,7 @@ internal fun RecapChainBar(
         }
     }
     Canvas(modifier.fillMaxWidth().height(18.dp)) {
+        val value = value()
         val h = 6.dp.toPx()
         val top = (size.height - h) / 2
         val corner = CornerRadius(h / 2)

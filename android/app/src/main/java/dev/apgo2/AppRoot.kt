@@ -59,12 +59,15 @@ internal fun AppRoot(
     } else {
         // One root for the screen and its dialogs (dialogs open their own windows, so this adds nothing visible).
         Box(modifier) {
-            val othersUp = listOf(m.scans.ask != null, m.yamlText != null, backgroundPromptUp)
+            val recapUp = m.recap != null
+            // The home Wi-Fi offer waits for the recap too: it would stack on it.
+            val othersUp = listOf(m.scans.ask != null, m.yamlText != null, backgroundPromptUp, recapUp)
             if (showHomeOffer(othersUp)) HomeWifiDialog(m.presence)
             // Back closes New Game or goes to Play from any other tab; the realm editor handles its own Back (to the list); on Play
-            // it leaves the app as usual.
-            BackHandler(enabled = m.nav.canGoBack) { m.nav.back() }
-            Scaffold(bottomBar = { AppNavigationBar(m) }) { pad -> AppBody(m, Modifier.padding(pad)) }
+            // it leaves the app as usual. While the recap is up, Back closes it (its own handler) and the tabs are hidden, so Back
+            // never acts on a screen under it.
+            BackHandler(enabled = m.nav.canGoBack && !recapUp) { m.nav.back() }
+            Scaffold(bottomBar = { if (!recapUp) AppNavigationBar(m) }) { pad -> AppBody(m, Modifier.padding(pad)) }
             ScanAskDialog(m)
             YamlDialog(m)
         }

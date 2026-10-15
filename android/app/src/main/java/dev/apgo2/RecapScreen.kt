@@ -36,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -45,10 +46,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -103,6 +104,8 @@ internal fun RecapScreen(
     val slots = remember(r) { RecapTimeline.slots(gainFractions(r)) }
     val reduced = rememberReducedMotion()
     val clock = rememberRecapClock(r.endMs, RecapTimeline.endMs(slots), reduced)
+    // Read where it is used (drawing, or a text that changed), so the running clock never recomposes the whole recap.
+    val now = remember(clock) { { clock.value.toLong() } }
     Surface(Modifier.fillMaxSize()) {
         // A plain scrolling column, not a lazy one: scrolling must not tear down the map or replay the reveals.
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -116,7 +119,7 @@ internal fun RecapScreen(
                 ),
             )
             if (hasMap(r)) Reveal(0, reduced) { RecapMap(r.route, r.quests, selected, toggle) }
-            if (r.chains.isNotEmpty() || r.foragers.isNotEmpty()) Reveal(1, reduced) { ProgressCard(r, slots, clock, animate = !reduced) }
+            if (r.chains.isNotEmpty() || r.foragers.isNotEmpty()) Reveal(1, reduced) { ProgressCard(r, slots, now, animate = !reduced) }
             if (r.quests.isNotEmpty()) Reveal(2, reduced) { QuestsCard(r.quests, selected, toggle) }
             RecapFormat.sections(r).forEach { (label, lines) ->
                 key(label) {
@@ -189,10 +192,9 @@ private fun gainFractions(r: RecapOut): List<Float> =
 private fun ProgressCard(
     r: RecapOut,
     slots: List<RecapTimeline.Slot>,
-    clock: Animatable<Float, AnimationVector1D>,
+    now: () -> Long,
     animate: Boolean,
 ) {
-    val now = clock.value.toLong()
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ROW_GAP_DP.dp)) {
@@ -212,40 +214,62 @@ private fun ChainBlock(
     r: RecapOut,
     c: RecapChainOut,
     slot: RecapTimeline.Slot,
-    now: Long,
+    now: () -> Long,
     animate: Boolean,
     showSteps: Boolean,
 ) {
-    val value = c.before + (c.after - c.before) * RecapTimeline.progress(now, slot)
-    Column(Modifier.alpha(if (now < slot.startMs) BEFORE_START_ALPHA else 1f)) {
+    val value = remember(c, slot) { { c.before + (c.after - c.before) * RecapTimeline.progress(now(), slot) } }
+    val gain by remember(c, slot) { derivedStateOf { RecapFormat.barGain(c, value()) } }
+    val total by remember(c, slot) { derivedStateOf { RecapFormat.barTotal(c, value()) } }
+    val next by remember(c, slot) { derivedStateOf { RecapFormat.barNext(c, value()) } }
+    Column(Modifier.dimmedUntil(now, slot)) {
         Row {
             Text(c.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-            Text(RecapFormat.barGain(c, value), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+            Text(gain, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
         }
-        RecapChainBar(c.before.toFloat(), value.toFloat(), chainMax(c).toFloat(), c.marks.map { it.toFloat() }, c.before.toFloat(), animate)
+        RecapChainBar(
+            c.before.toFloat(),
+            { value().toFloat() },
+            chainMax(c).toFloat(),
+            c.marks.map { it.toFloat() },
+            c.before.toFloat(),
+            animate,
+        )
         Row {
-            Text(RecapFormat.barTotal(c, value), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-            Text(RecapFormat.barNext(c, value), style = MaterialTheme.typography.bodySmall)
+            Text(total, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Text(next, style = MaterialTheme.typography.bodySmall)
         }
         val steps = if (showSteps) RecapFormat.stepsLine(r) else null
-        if (steps != null) Text(steps, Modifier.alpha(RecapTimeline.fadeIn(now, slot)), style = MaterialTheme.typography.bodySmall)
+        if (steps != null) Text(steps, Modifier.fadingIn(now, slot), style = MaterialTheme.typography.bodySmall)
     }
 }
+
+// Alphas read the clock while drawing, so the running clock redraws them without recomposing.
+private fun Modifier.dimmedUntil(
+    now: () -> Long,
+    slot: RecapTimeline.Slot,
+) = graphicsLayer { alpha = if (now() < slot.startMs) BEFORE_START_ALPHA else 1f }
+
+private fun Modifier.fadingIn(
+    now: () -> Long,
+    slot: RecapTimeline.Slot,
+) = graphicsLayer { alpha = RecapTimeline.fadeIn(now(), slot) }
 
 @Composable
 private fun ForagerBlock(
     f: RecapForagerOut,
     slot: RecapTimeline.Slot,
-    now: Long,
+    now: () -> Long,
     animate: Boolean,
 ) {
     val before = f.bankedBefore.toFloat()
-    val banked = before + (f.bankedAfter.toFloat() - before) * RecapTimeline.progress(now, slot)
-    Column(Modifier.alpha(if (now < slot.startMs) BEFORE_START_ALPHA else 1f)) {
-        Text(RecapFormat.foragerLine(f, banked.toDouble()), style = MaterialTheme.typography.bodyLarge)
+    val banked = remember(f, slot) { { before + (f.bankedAfter.toFloat() - before) * RecapTimeline.progress(now(), slot) } }
+    val line by remember(f, slot) { derivedStateOf { RecapFormat.foragerLine(f, banked().toDouble()) } }
+    Column(Modifier.dimmedUntil(now, slot)) {
+        Text(line, style = MaterialTheme.typography.bodyLarge)
         RecapChainBar(before, banked, f.need.toFloat(), listOf(f.need.toFloat()), before, animate)
         val bag = RecapFormat.bagLine(f)
-        if (bag != null) Text(bag, Modifier.alpha(RecapTimeline.fadeIn(now, slot)), style = MaterialTheme.typography.bodySmall)
+        if (bag != null) Text(bag, Modifier.fadingIn(now, slot), style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -345,7 +369,13 @@ private fun RecapMap(
     val view =
         remember {
             MapStyle.init(context)
-            val options = MapLibreMapOptions.createFromAttributes(context).logoEnabled(false).attributionEnabled(false)
+            val options =
+                MapLibreMapOptions
+                    .createFromAttributes(context)
+                    .logoEnabled(false)
+                    .attributionEnabled(false)
+                    // A TextureView, not a GLSurfaceView: it clips to the rounded box and scrolls with the column.
+                    .textureMode(true)
             MapView(context, options).also { v ->
                 v.getMapAsync { map ->
                     map.uiSettings.setAllGesturesEnabled(false)
