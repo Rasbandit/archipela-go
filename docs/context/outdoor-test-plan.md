@@ -24,13 +24,13 @@ honest about items not applied yet) and, with "Show GPS and app notes", why a ne
 - A Point quest (walk to it), an Away quest (be away from home for the minutes it asks), a Steps quest.
 - Stand still 3 min inside a Dwell place: it must finish on time with no new fixes (one scheduled wake-up; GPS only reports movement).
 
-## Presence checklist (home Wi-Fi, car, zones)
+## Presence checklist (camps, car, zones)
 
-Before leaving: Realms > tap the **Home Base** tile. At home, in step 2 tick the network tagged "Connected now" (needs location permission to read the Wi-Fi name). For the car, pair it in
+Before leaving: Realms > **Camps** card (add a second camp to test camps), then **Wi-Fi and car**. At home, in step 2 tick the network tagged "Connected now" (needs location permission to read the Wi-Fi name). For the car, pair it in
 the phone's Bluetooth settings first, then tick it in step 3 (needs the Nearby devices permission). Open the game and read the chip next to the game name:
 
 - **Tracking**: inside a zone, GPS every 5 s once you move 10 m (none while standing), progress counts.
-- **At home, paused**: on a home network, or inside the 50 m circle round the home pin; GPS is off and nothing counts.
+- **At {camp}: paused**: on a camp's network, or inside the 50 m circle round any camp; GPS is off and nothing counts. Walking into a second camp names it, banks, and shows "Welcome back".
 - **In car, not counting**: a tagged car device is connected; GPS is off and nothing counts.
 - **Outside zones, saving battery**: far from every zone; GPS every 90 s once you move 50 m, progress still counts.
 - **Not playing**: no game open or tracking paused.
@@ -45,7 +45,7 @@ checking reach no game, journal point or trace. Without a pin or a readable step
 see a walk out), home Wi-Fi alone decides as before. The emulator has no step counter, so it never uses the circle. To check outdoors: sit at home
 with Wi-Fi off (no points, chip "At home"), walk out (tracking within about 30 s of the walk starting plus the 50 m), walk back in.
 Diag: `rawstate` presence lines and `"gps":"Check"` while checking.
-Where to look afterwards: Activity tab, kind **Presence** ("At home: paused", "Tracking", "Outside every zone: saving battery"); in the diag, lines with
+Where to look afterwards: Activity tab, kind **Presence** ("At Home: paused" or another camp's name, "Tracking", "Outside every zone: saving battery"); in the diag, lines with
 `"tag":"presence"` (`msg` = state, `counting`, `gps` mode) and the extra heartbeat fields `presence` and `counting` (no heartbeats while AtHome/InCar: GPS is off, so nothing arrives).
 
 ## Bring the data back
