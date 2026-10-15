@@ -50,7 +50,7 @@ internal class CampManager(
     }
 
     /** Deletes a camp and the Wi-Fi networks saved for it. */
-    fun delete(id: String) = changed("delete", {}) { book.delete(id) }
+    fun delete(id: String) = changed<Unit>("delete", { if (it != null) book.forgetWifi(id) }) { book.deleteCamp(id) }
 
     // Runs [change] off the main thread (it writes camps.json and the settings), then back on it reloads the camps, lets presence
     // follow (the circles moved) and hands the result to [done]; a failure reaches the status line.

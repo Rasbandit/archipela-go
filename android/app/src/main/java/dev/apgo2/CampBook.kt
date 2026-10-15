@@ -58,9 +58,15 @@ internal class CampBook(
 
     /** Deletes camp [id] and forgets the Wi-Fi networks saved for it. */
     fun delete(id: String) {
-        store.delete(id)
-        wifi.forget(id)
+        deleteCamp(id)
+        forgetWifi(id)
     }
+
+    /** The core half of [delete] (writes camps.json: call it off the main thread). */
+    fun deleteCamp(id: String) = store.delete(id)
+
+    /** The settings half of [delete] (Compose state: call it on the main thread). */
+    fun forgetWifi(id: String) = wifi.forget(id)
 
     /** The list rows for [camps] (in memory, so cheap enough to call while drawing), with the distance from [here] when known. */
     fun rows(

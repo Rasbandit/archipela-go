@@ -23,6 +23,13 @@ class PresenceSignalsTest {
         assertEquals(false, PresenceSignals.isHome(WifiId("CafeWifi", "11:22:33:44:55:66"), saved))
     }
 
+    @Test fun oneNetworkNameAtTwoCampsGoesToTheNearestOfThem() {
+        val saved = listOf(HomeNetwork("Family", null, "home"), HomeNetwork("Family", null, "cabin"))
+        assertEquals("cabin", PresenceSignals.campOf(WifiId("Family", null), saved, nearest = "cabin"))
+        assertEquals("home", PresenceSignals.campOf(WifiId("Family", null), saved, nearest = "elsewhere"))
+        assertEquals("home", PresenceSignals.campOf(WifiId("Family", null), saved))
+    }
+
     @Test fun campOfNamesTheCampWhoseNetworkMatchesByBssidThenSsid() {
         val saved =
             listOf(

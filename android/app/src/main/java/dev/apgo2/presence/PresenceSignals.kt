@@ -54,10 +54,14 @@ internal object PresenceSignals {
     fun campOf(
         current: WifiId?,
         saved: List<HomeNetwork>,
+        nearest: String? = null,
     ): String? {
         val bssid = readableBssid(current)
         val byBssid = bssid?.let { b -> saved.firstOrNull { it.bssid?.lowercase() == b } }
-        return (byBssid ?: matching(current, saved).firstOrNull())?.campId
+        if (byBssid != null) return byBssid.campId
+        // One network name saved for several camps: the core's nearest camp decides when it is one of them.
+        val camps = matching(current, saved).map { it.campId }.distinct()
+        return nearest?.takeIf { it in camps } ?: camps.firstOrNull()
     }
 
     private fun readableBssid(current: WifiId?) = current?.bssid?.lowercase()?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }

@@ -347,7 +347,8 @@ internal class PresenceController(
     // The camp the Wi-Fi belongs to; the last one seen while the debounced signal still says "on camp Wi-Fi".
     private fun wifiCamp(): String? {
         val known = knownCampIds()
-        val seen = PresenceSignals.campOf(monitor.currentWifi, savedNetworks(known))
+        val near = model.realLoc?.let { runCatching { model.engine.nearestCamp(it.latitude, it.longitude) }.getOrNull()?.id }
+        val seen = PresenceSignals.campOf(monitor.currentWifi, savedNetworks(known), near)
         lastWifiCamp = (seen ?: lastWifiCamp)?.takeIf { it in known }
         return lastWifiCamp
     }
