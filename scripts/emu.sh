@@ -3,7 +3,8 @@
 #   scripts/emu.sh create   one-time: install the system image and create the "apgo" AVD
 #   scripts/emu.sh start    boot it (about 20 s with KVM) and wait until ready
 #   scripts/emu.sh stop | status
-# GPU mode swangle_indirect is required here: the other modes segfault the emulator on this machine.
+# GPU mode host renders on the real GPU (GLES on the Intel iGPU, Vulkan on the NVIDIA).
+# swangle_indirect (SwiftShader) renders on the CPU and pegs it; set APGO_EMU_GPU=swangle_indirect if host breaks.
 set -euo pipefail
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
@@ -20,7 +21,7 @@ case "${1:-}" in
   start)
     if adb devices | grep -q "^emulator-"; then echo "already running"; exit 0; fi
     setsid nohup "$ANDROID_HOME/emulator/emulator" -avd apgo -no-window -no-audio -no-snapshot -no-boot-anim \
-      -gpu swangle_indirect -memory 3072 -no-metrics >"$log" 2>&1 </dev/null &
+      -gpu "${APGO_EMU_GPU:-host}" -memory 3072 -no-metrics >"$log" 2>&1 </dev/null &
     for _ in $(seq 1 60); do
       sleep 5
       if [ "$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then echo "emulator ready"; exit 0; fi

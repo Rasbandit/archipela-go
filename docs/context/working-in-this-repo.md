@@ -50,7 +50,7 @@ owner: never switch branches or edit files there. A `git switch` by one session 
 | Apworld tests / lint | `uv run --project apworld pytest apworld -q`, `ruff check apworld`, `ruff format apworld`, `pyright --project apworld` (or `just check-py`) |
 | Rebuild native libs + Kotlin bindings | `APGO_ABIS="arm64-v8a x86_64" bash scripts/android_core.sh debug` (needed after ANY change to `core/ffi`; x86_64 is the emulator) |
 | Build APK | `cd android && ./gradlew assembleDebug --console=plain -q` |
-| Emulator | `adb -s emulator-5554 install -r android/app/build/outputs/apk/debug/app-debug.apk`; start with `just emu-start` (headless, `-gpu swangle_indirect`) |
+| Emulator | `adb -s emulator-5554 install -r android/app/build/outputs/apk/debug/app-debug.apk`; start with `just emu-start` (headless, `-gpu host`: renders on the real GPU; `APGO_EMU_GPU=swangle_indirect` falls back to CPU rendering, which pegs the CPU) |
 | Phone | `adb connect 10.0.20.151:40843` then `ANDROID_SERIAL=10.0.20.151:40843 adb install -r ...`. When both are attached always set `ANDROID_SERIAL` |
 | Screenshot | `adb exec-out screencap -p > /tmp/x.png` then Read the PNG |
 | UI driver | `python3 scripts/android_ui.py texts \| tap "Label" [exact] \| tapn \| type \| wait` (honors `ANDROID_SERIAL`; prefix with `timeout 20`) |
