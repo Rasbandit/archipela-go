@@ -480,12 +480,16 @@ pub struct Game {
     #[serde(skip_serializing, default = "yes")]
     counting: bool,
     /// Each zone's area (zone id, shape), set by the engine from the zone realms (a zone whose realm is gone has none). `None`
-    /// until set: then progress counts anywhere, as for a game no engine placed.
+    /// until set, or when no zone has an area left: then progress counts anywhere, as for a game no engine placed.
     #[serde(skip)]
     zone_areas: Option<Vec<(u32, Shape)>>,
-    /// The zones the last accepted (or bridged) estimate was in; empty when unknown (counting just resumed).
+    /// The zones the last accepted (or bridged) estimate was in (locked ones too); `None` while unknown: counting just resumed
+    /// (the player may have driven anywhere) or the zone areas just changed. The next placement settles what happened meanwhile.
     #[serde(skip)]
-    inside: BTreeSet<u32>,
+    inside: Option<BTreeSet<u32>>,
+    /// Steps walked while `inside` is unknown: they count where the next placement puts the player.
+    #[serde(skip)]
+    held_steps: i64,
     /// Which open zones' chains fill while inside a zone: the player's setting, set by the app, never saved.
     #[serde(skip)]
     chain_scope: ChainScope,
@@ -697,7 +701,8 @@ impl Game {
             units: UnitSystem::default(),
             counting: true,
             zone_areas: None,
-            inside: BTreeSet::new(),
+            inside: None,
+            held_steps: 0,
             chain_scope: ChainScope::default(),
         }
         .with_default_travel_mode())
@@ -990,20 +995,25 @@ impl Game {
         self.chains().into_iter().filter(|c| self.fills(c)).collect()
     }
 
-    /// Whether chain `c` fills now: it can be played (zone open, badges held) and the player is where the setting says (never
-    /// outside every zone).
+    /// Whether chain `c` fills now: it can be played (zone open, badges held) and the player is where the setting says: in its zone,
+    /// or in any open zone. Never outside every zone, in a zone not yet opened, or while where the player is is unknown.
     fn fills(&self, c: &Chain) -> bool {
-        self.quest_unlocked(c.zone, &c.needs)
-            && (self.zone_areas.is_none()
-                || match self.chain_scope {
-                    ChainScope::ThisZone => self.inside.contains(&c.zone),
-                    ChainScope::AnyZone => !self.inside.is_empty(),
-                })
+        if !self.quest_unlocked(c.zone, &c.needs) {
+            return false;
+        }
+        if self.zone_areas.is_none() {
+            return true;
+        }
+        let Some(inside) = &self.inside else { return false };
+        match self.chain_scope {
+            ChainScope::ThisZone => inside.contains(&c.zone),
+            ChainScope::AnyZone => inside.iter().any(|z| self.zone_unlocked(*z)),
+        }
     }
 
-    /// Whether the player is inside some zone (always, before the engine gave the zone areas).
+    /// Whether the player is inside some zone, locked or not (always, without zone areas): fog, distance and the walk count there.
     fn in_a_zone(&self) -> bool {
-        self.zone_areas.is_none() || !self.inside.is_empty()
+        self.zone_areas.is_none() || self.inside.as_ref().is_some_and(|s| !s.is_empty())
     }
 
     /// The zones `p` lies in.
@@ -1016,19 +1026,36 @@ impl Game {
         self.zone_areas.is_none() || !self.zones_at(p).is_empty()
     }
 
-    /// The player is at `p` at `t_ms`: time away up to now is credited where they were, then the zones they are in follow `p`.
+    /// The player is at `p` at `t_ms`. Time away up to now is credited where they were; when that was unknown, the time and the
+    /// held steps count where they are now (the first placement after counting resumed). Then the zones they are in follow `p`.
     fn place_in_zones(&mut self, p: Point, t_ms: i64) {
         let now = self.zones_at(p);
-        if now != self.inside {
-            self.settle_away(t_ms);
-            self.inside = now;
+        match &self.inside {
+            None => {
+                self.inside = Some(now);
+                self.settle_away(t_ms);
+            }
+            Some(old) if *old != now => {
+                self.settle_away(t_ms);
+                self.inside = Some(now);
+            }
+            Some(_) => {}
         }
     }
 
-    /// Give the game its zone areas (zone id, shape): from now on progress counts only inside them.
+    /// Credit the steps held while where the player was unknown, now that they are placed (after the walk opened, so it has them).
+    fn release_held_steps(&mut self) {
+        let held = std::mem::take(&mut self.held_steps);
+        if held > 0 {
+            self.credit_gained(held);
+        }
+    }
+
+    /// Give the game its zone areas (zone id, shape): from now on progress counts only inside them; none at all (every zone realm
+    /// is gone) counts anywhere again. Where the player is is learned again at the next fix, never from an older one.
     pub fn set_zone_areas(&mut self, areas: Vec<(u32, Shape)>) {
-        self.inside = self.last_seen.map(|p| areas.iter().filter(|(_, s)| s.distance_m(p) <= 0.0).map(|(id, _)| *id).collect()).unwrap_or_default();
-        self.zone_areas = Some(areas);
+        self.zone_areas = (!areas.is_empty()).then_some(areas);
+        self.inside = None;
     }
 
     /// Which open zones' chains fill while the player is inside a zone.
@@ -1058,6 +1085,7 @@ impl Game {
 
     /// Credit the steps since the last reading of the phone's cumulative step counter. The first reading of a session only sets the baseline;
     /// a reading below the last one means the phone restarted its counter. Only chains in unlocked zones are credited.
+    /// While where the player is is unknown, the steps are held for the next placement.
     fn credit_steps(&mut self, total: i64) {
         let gained = match self.counters.steps_last {
             None => 0,
@@ -1065,6 +1093,15 @@ impl Game {
             Some(_) => total,
         };
         self.counters.steps_last = Some(total);
+        if self.zone_areas.is_some() && self.inside.is_none() {
+            self.held_steps += gained;
+            return;
+        }
+        self.credit_gained(gained);
+    }
+
+    /// Credit `gained` steps to the walk and to every steps chain that fills here.
+    fn credit_gained(&mut self, gained: i64) {
         // An overloaded backpack slows the count (#142): steps are the only thing it slows.
         let counted = i64_to_f64(gained) * self.step_factor();
         let bars: Vec<Chain> = if gained == 0 { Vec::new() } else { self.filling_chains().into_iter().filter(|c| c.unit == ChainUnit::Steps).collect() };
@@ -1141,7 +1178,7 @@ impl Game {
     pub fn set_counting(&mut self, on: bool, t_ms: i64) {
         if on {
             if !self.counting {
-                self.inside.clear();
+                self.inside = None;
             }
             let at_home = self.counters.last_at_home == Some(true);
             if self.counters.away_mark.is_none() && !at_home {
@@ -1152,6 +1189,7 @@ impl Game {
             self.settle_away(t_ms);
             self.counters.away_mark = None;
         }
+        self.held_steps = 0; // a pause drops steps not yet placed; a resume starts from none
         if self.counting == on {
             return;
         }
@@ -1559,6 +1597,7 @@ impl Game {
         if est.accepted || est.source == Source::Bridged {
             self.place_in_zones(est.point(), est.t_ms);
             self.open_outing(est.t_ms);
+            self.release_held_steps();
         }
         if matches!(est.verdict, LocVerdict::Reset | LocVerdict::Relocated) {
             self.trackers.values_mut().for_each(Tracker::pause);
@@ -5225,5 +5264,79 @@ mod tests {
         g.on_estimate(&fixat(out_zone(&g), 720), None);
         let c = g.counter_at(&g.chains()[0], 720_000);
         assert!((c - 1.0).abs() < 0.01, "only the minute inside before the drive counts: {c}");
+    }
+
+    #[test]
+    fn steps_walked_out_before_the_first_fix_count_in_the_zone_that_fix_lands_in() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 5000 }]);
+        zone_1_area(&mut g);
+        g.set_counting(false, 0);
+        g.set_leave_mark(100, 500); // the walk out began at step 100
+        g.set_counting(true, 1_000);
+        g.on_steps(400, 2_000, None); // where the player is is not known yet: held
+        assert_eq!(progress(&g, "1:step_up"), 0.0);
+        g.on_estimate(&fixat(in_zone(&g), 3), Some(500));
+        assert!((progress(&g, "1:step_up") - 400.0).abs() < 0.01, "{}", progress(&g, "1:step_up"));
+        assert_eq!(g.outing.as_ref().map(|o| o.steps), Some(400), "the walk has them too");
+    }
+
+    #[test]
+    fn steps_held_before_a_first_fix_outside_every_zone_are_dropped() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 5000 }]);
+        zone_1_area(&mut g);
+        g.set_counting(false, 0);
+        g.set_counting(true, 1_000);
+        g.on_steps(0, 2_000, None);
+        g.on_steps(400, 3_000, None);
+        g.on_estimate(&fixat(out_zone(&g), 4), None);
+        g.on_estimate(&fixat(in_zone(&g), 3_600), None);
+        assert_eq!(progress(&g, "1:step_up"), 0.0, "they were walked outside every zone");
+    }
+
+    #[test]
+    fn time_away_before_the_first_fix_counts_in_the_zone_that_fix_lands_in() {
+        let mut g = away_game(&[300.0]);
+        zone_1_area(&mut g);
+        g.set_counting(false, 0);
+        g.set_counting(true, 60_000);
+        g.on_estimate(&fixat(in_zone(&g), 120), None);
+        let c = g.counter_at(&g.chains()[0], 120_000);
+        assert!((c - 1.0).abs() < 0.01, "{c}");
+    }
+
+    #[test]
+    fn new_zone_areas_after_a_drive_do_not_bring_back_the_zone_before_it() {
+        let mut g = away_game(&[300.0]);
+        zone_1_area(&mut g);
+        g.on_estimate(&fixat(in_zone(&g), 0), None);
+        g.set_counting(false, 60_000); // drove off
+        g.set_counting(true, 600_000); // got out at a far-away house
+        zone_1_area(&mut g); // a street rebuild or realm edit hands the areas over again
+        g.on_estimate(&fixat(out_zone(&g), 660), None);
+        g.on_estimate(&fixat(out_zone(&g), 720), None);
+        let c = g.counter_at(&g.chains()[0], 720_000);
+        assert!((c - 1.0).abs() < 0.01, "only the minute inside before the drive counts: {c}");
+    }
+
+    #[test]
+    fn a_locked_zone_fills_no_chains_even_with_the_any_zone_setting() {
+        let (mut g, north) = two_zone_steps_game();
+        g.slot.zones[1].zone_keys_needed = 9; // zone 2 is locked
+        g.set_chain_scope(ChainScope::AnyZone);
+        g.on_estimate(&fixat(north, 1), None);
+        g.on_steps(0, 2_000, None);
+        g.on_steps(700, 3_000, None);
+        assert_eq!(progress(&g, "1:step_up"), 0.0, "standing in a zone not yet opened");
+        assert!(g.outing.is_some(), "but it is still a zone: the walk counts");
+    }
+
+    #[test]
+    fn a_game_with_no_zone_areas_left_counts_anywhere() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 5000 }]);
+        g.set_zone_areas(vec![]); // every zone realm was deleted
+        g.on_estimate(&fixat(out_zone(&g), 1), None);
+        g.on_steps(0, 2_000, None);
+        g.on_steps(600, 3_000, None);
+        assert!((progress(&g, "1:step_up") - 600.0).abs() < 0.01);
     }
 }

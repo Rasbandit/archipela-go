@@ -1238,6 +1238,9 @@ pub struct Engine {
     units: Mutex<UnitSystem>,
     /// The trap alerts setting, kept in memory so a trap never reads the settings file (saved by `set_trap_alerts`).
     pub(crate) trap_alerts: std::sync::atomic::AtomicBool,
+    /// Where chains count, kept in memory so opening a game never reads the settings file under the game lock (saved by
+    /// `set_chain_scope`).
+    pub(crate) chain_scope: Mutex<apgo_core::chain::ChainScope>,
     /// The last journal point written, for the 5 s / 5 m throttle.
     last_journal: Mutex<Option<TrackPoint>>,
     /// The last street-build generation handed out (see [`Game::set_streets`]).
@@ -1516,7 +1519,7 @@ impl Engine {
         // Read the units under the game lock: `refresh_units` stores new units before it takes this lock, so a change racing
         // this install is either seen here or applied to this game right after.
         game.set_units(self.unit_system());
-        game.set_chain_scope(Settings::load(&self.dir).chain_scope);
+        game.set_chain_scope(*self.chain_scope.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         game.set_fix_spacing_hint(*self.fix_spacing_hint.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         // Keep the outgoing game's progress (unless the new one replaces that very save).
         if let Some(old) = slot.as_ref().filter(|old| old.id != game.id) {
@@ -1587,6 +1590,16 @@ impl Engine {
 
     fn game_id(&self) -> Option<String> {
         self.with_game(|g| g.id.clone())
+    }
+
+    /// Keep `scope` and give it to the open game, under the game lock (lock order: game, then scope): an install racing this
+    /// either reads the old scope and gets the new one here, or reads the new one.
+    pub(crate) fn apply_chain_scope(&self, scope: apgo_core::chain::ChainScope) {
+        let mut game = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *self.chain_scope.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = scope;
+        if let Some(g) = game.as_mut() {
+            g.set_chain_scope(scope);
+        }
     }
 
     pub(crate) fn with_game<T>(&self, f: impl FnOnce(&mut Game) -> T) -> Option<T> {
@@ -1665,6 +1678,7 @@ impl Engine {
             last_proximity: Mutex::new(None),
             units: Mutex::new(resolve_units(Settings::load(&dir).units, "")),
             trap_alerts: std::sync::atomic::AtomicBool::new(Settings::load(&dir).trap_alerts),
+            chain_scope: Mutex::new(Settings::load(&dir).chain_scope),
             region: Mutex::new(String::new()),
             last_journal: Mutex::new(None),
             streets_gen: AtomicU64::default(),

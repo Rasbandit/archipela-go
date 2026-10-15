@@ -150,7 +150,7 @@ impl Engine {
 
     /// Which open zones' chains fill while the player is inside a zone (`ThisZone` until the player picks).
     pub fn chain_scope(&self) -> ChainScope {
-        Settings::load(self.dir()).chain_scope.into()
+        (*self.chain_scope.lock().unwrap_or_else(std::sync::PoisonError::into_inner)).into()
     }
 
     /// Save the chain scope, keeping every other setting; the open game counts with it from now on.
@@ -163,7 +163,7 @@ impl Engine {
             true
         })
         .map_err(|detail| CoreError::Failed { detail })?;
-        self.with_game(|g| g.set_chain_scope(scope.into()));
+        self.apply_chain_scope(scope.into());
         Ok(())
     }
 
