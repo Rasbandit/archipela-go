@@ -352,7 +352,8 @@ impl RealmStore {
     pub fn camps(&self) -> Vec<Camp> {
         match std::fs::read_to_string(self.dir.join("camps.json")) {
             Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-            Err(_) => self.legacy_home().map(|point| vec![Camp::home(point)]).unwrap_or_default(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => self.legacy_home().map(|point| vec![Camp::home(point)]).unwrap_or_default(),
+            Err(_) => Vec::new(),
         }
     }
 
@@ -654,6 +655,7 @@ mod tests {
         store.set_home(Point::new(4.0, 4.0)).unwrap();
         let camps = store.camps();
         assert_eq!(camps.len(), 2, "inserted once");
+        assert_eq!(camps[0].id, HOME_CAMP_ID);
         assert_eq!(camps.iter().filter(|c| c.id == HOME_CAMP_ID).count(), 1);
         assert_eq!(camps.iter().find(|c| c.id == HOME_CAMP_ID).unwrap().name, "Home");
     }
@@ -666,6 +668,23 @@ mod tests {
         assert_eq!(store.home(), Some(Point::new(3.0, 2.0)));
         store.set_camps(&[]).unwrap();
         assert_eq!(store.home(), None);
+    }
+
+    #[test]
+    fn unreadable_camps_file_does_not_resurrect_home() {
+        let store = RealmStore::new(tmp("camps-unreadable"));
+        std::fs::create_dir_all(store.dir().join("camps.json")).unwrap();
+        std::fs::write(store.dir().join("home.json"), serde_json::to_string(&Point::new(1.0, 1.0)).unwrap()).unwrap();
+        assert!(store.camps().is_empty());
+    }
+
+    #[test]
+    fn set_home_on_a_legacy_store_migrates_to_one_camp() {
+        let store = RealmStore::new(tmp("camps-legacy-sethome"));
+        std::fs::create_dir_all(store.dir()).unwrap();
+        std::fs::write(store.dir().join("home.json"), serde_json::to_string(&Point::new(1.0, 1.0)).unwrap()).unwrap();
+        store.set_home(Point::new(7.0, 8.0)).unwrap();
+        assert_eq!(store.camps(), vec![Camp { id: HOME_CAMP_ID.into(), name: "Home".into(), point: Point::new(7.0, 8.0) }]);
     }
 
     #[test]
