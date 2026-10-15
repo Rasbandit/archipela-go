@@ -114,7 +114,7 @@ pub enum Verify {
         /// Number of legs.
         legs: u32,
     },
-    /// Go to a far point and come back home.
+    /// Go to a far point and come back to a camp.
     RoundTrip,
     /// Visit new map cells.
     CoverCells {
@@ -133,9 +133,9 @@ pub enum Verify {
         /// How long to be away from home, in minutes.
         minutes: f64,
     },
-    /// Pick up items around the area and bring enough of them home.
+    /// Pick up items around the area and bring enough of them to a camp.
     Collect {
-        /// Items to bring home, by effort tier (tier 1 first; higher tiers use the last value).
+        /// Items to bring to a camp, by effort tier (tier 1 first; higher tiers use the last value).
         need_by_tier: Vec<u32>,
         /// How many items the map shows per item needed.
         spare_factor: u32,
@@ -160,11 +160,11 @@ impl Verify {
             Self::DwellInArea { minutes } => format!("Spend {} min inside it.", minutes.round()),
             Self::FollowLine { coverage, .. } => format!("Walk {}% of its length.", (coverage * 100.0).round()),
             Self::Courier { .. } => "Pick something up at one spot and deliver it to another.".to_string(),
-            Self::RoundTrip => "Go out to a spot, then come back home (no time limit).".to_string(),
+            Self::RoundTrip => "Go out to a spot, then come back to a camp (no time limit).".to_string(),
             Self::CoverCells { cells, .. } => format!("Visit {cells} new map cells."),
             Self::Steps { steps } => format!("Take {steps} steps."),
             Self::Away { minutes } => format!("Be away from home for {} min.", minutes.round()),
-            Self::Collect { .. } => "Pick things up around the area and bring enough of them home.".to_string(),
+            Self::Collect { .. } => "Pick things up around the area and bring enough of them to a camp.".to_string(),
             Self::Boss => "The biggest quest of the realm.".to_string(),
         }
     }
@@ -306,7 +306,7 @@ mod tests {
     fn a_collect_rule_reads_from_json_and_explains_itself() {
         let v: Verify = serde_json::from_str(r#"{"type":"collect","need_by_tier":[3,5,7,10],"spare_factor":2,"pick_r_m":25}"#).unwrap();
         assert_eq!(v, Verify::Collect { need_by_tier: vec![3, 5, 7, 10], spare_factor: 2, pick_r_m: 25.0 });
-        assert_eq!(v.how(UnitSystem::Metric), "Pick things up around the area and bring enough of them home.");
+        assert_eq!(v.how(UnitSystem::Metric), "Pick things up around the area and bring enough of them to a camp.");
     }
 
     #[test]

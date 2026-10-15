@@ -2,7 +2,6 @@ package dev.apgo2
 
 import androidx.compose.ui.geometry.Offset
 import dev.apgo2.presence.GeoFix
-import dev.apgo2.presence.HomeWifiOffer
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
@@ -10,6 +9,7 @@ import dev.apgo2.ui.MarkerSpec
 import dev.apgo2.ui.ToolBadge
 import dev.apgo2.ui.Units
 import dev.apgo2.ui.circleRing
+import dev.apgo2.ui.distanceM
 import dev.apgo2.ui.hex
 import dev.apgo2.ui.openItems
 import org.json.JSONArray
@@ -334,11 +334,14 @@ private fun questProps(
     .put(MapProp.SORT, MapMarkers.drawOrder(q.state))
     .put(MapProp.ID, q.locationId.toString())
 
-/** What the map draws around you: the home circle and the line joining your trace to your pin. */
+/** What the map draws around you: the camp circles and the line joining your trace to your pin. */
 internal object MeFeatures {
-    /** The circle round the home pin that counts as home (presence), or nothing while home Wi-Fi alone decides. */
-    fun homeZone(c: CircleOut?): List<JSONObject> =
-        listOfNotNull(c?.let { GeoJson.feature(GeoJson.polygon(circleRing(it.center.lat, it.center.lon, it.radiusM))) })
+    /** One campfire pin per camp. */
+    fun campPins(camps: List<LatLng>): List<JSONObject> = camps.map { GeoJson.pointFeature(it.latitude, it.longitude) }
+
+    /** The circle round each camp that counts as being there (presence), or nothing while Wi-Fi alone decides. */
+    fun campZones(cs: List<CircleOut>): List<JSONObject> =
+        cs.map { GeoJson.feature(GeoJson.polygon(circleRing(it.center.lat, it.center.lon, it.radiusM))) }
 
     /**
      * The line from the trace's newest point to the pin, sent with every pin move: the trace reloads every 10 s and ends at the
@@ -349,7 +352,7 @@ internal object MeFeatures {
         pin: MePin?,
     ): List<JSONObject> {
         if (end == null || pin == null || pin.spec.state == "stale") return emptyList()
-        val gap = HomeWifiOffer.distanceM(GeoFix(end.latitude, end.longitude, 0.0), GeoFix(pin.lat, pin.lon, 0.0))
+        val gap = distanceM(GeoFix(end.latitude, end.longitude, 0.0), GeoFix(pin.lat, pin.lon, 0.0))
         return if (gap > TRACE_HEAD_MAX_M) {
             emptyList()
         } else {

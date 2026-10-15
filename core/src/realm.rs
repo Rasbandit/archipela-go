@@ -215,7 +215,45 @@ impl Realm {
     }
 }
 
-/// Files under one directory: `realms.json`, `home.json`, `atlas/<realm id>.json`.
+/// The id of the camp that was the single home before camps existed.
+pub const HOME_CAMP_ID: &str = "home";
+
+/// A place the player returns to: home is the camp with id [`HOME_CAMP_ID`].
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Camp {
+    /// Stable id, given by the caller.
+    pub id: String,
+    /// Name shown to the player.
+    pub name: String,
+    /// Where the camp is.
+    pub point: Point,
+}
+
+impl Camp {
+    /// The camp "Home" at `point`.
+    fn home(point: Point) -> Self {
+        Self { id: HOME_CAMP_ID.into(), name: "Home".into(), point }
+    }
+}
+
+/// The point of the camp `"home"`, else of the first camp, else `None`.
+#[must_use]
+pub fn home_point_of(camps: &[Camp]) -> Option<Point> {
+    camps.iter().find(|c| c.id == HOME_CAMP_ID).or(camps.first()).map(|c| c.point)
+}
+
+/// The name a new camp gets when the player gives none: "Home" for the first camp, else "Camp N" with the lowest N not taken,
+/// counting from the number of camps plus one.
+#[must_use]
+pub fn default_camp_name(camps: &[Camp]) -> String {
+    if camps.is_empty() {
+        return "Home".into();
+    }
+    // N camps take at most N of the N + 1 names tried, so one is always free.
+    (camps.len() + 1..=2 * camps.len() + 1).map(|n| format!("Camp {n}")).find(|name| camps.iter().all(|c| &c.name != name)).unwrap_or_default()
+}
+
+/// Files under one directory: `realms.json`, `camps.json` (once saved; `home.json` before), `atlas/<realm id>.json`.
 pub struct RealmStore {
     dir: PathBuf,
 }
@@ -223,6 +261,16 @@ pub struct RealmStore {
 #[allow(clippy::needless_pass_by_value)] // used as a `map_err` callback, which hands over the error by value
 fn io(e: std::io::Error) -> String {
     e.to_string()
+}
+
+/// Why `camps.json` could not be used: a line for the diagnostics, and whether a copy of it was kept aside (when not, nothing may
+/// be saved over it: the camps in it would be lost for good).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CampsProblem {
+    /// What went wrong and where the copy is.
+    pub note: String,
+    /// Whether the broken file was copied aside, so writing a new `camps.json` loses nothing.
+    pub kept: bool,
 }
 
 impl RealmStore {
@@ -325,19 +373,73 @@ impl RealmStore {
         std::fs::read_to_string(self.atlas_path(id)).ok().and_then(|s| serde_json::from_str(&s).ok())
     }
 
-    /// The saved home point, if any.
+    /// The saved camps, in order (see [`Self::camps_checked`]; a problem with `camps.json` is not reported).
     #[must_use]
-    pub fn home(&self) -> Option<Point> {
-        std::fs::read_to_string(self.dir.join("home.json")).ok().and_then(|s| serde_json::from_str(&s).ok())
+    pub fn camps(&self) -> Vec<Camp> {
+        self.camps_checked().0
     }
 
-    /// Save the home point.
+    /// The saved camps, in order, and a message when `camps.json` could not be used. Without `camps.json` the old `home.json`
+    /// point (if any) becomes the camp `"home"`. An unreadable or corrupt `camps.json` is copied to `camps.json.corrupt` (the first
+    /// copy is kept, never overwritten) and the `home.json` camp stands in, so the player is never left without their home.
+    #[must_use]
+    pub fn camps_checked(&self) -> (Vec<Camp>, Option<CampsProblem>) {
+        let path = self.dir.join("camps.json");
+        let problem = match std::fs::read_to_string(&path) {
+            Ok(s) => match serde_json::from_str(&s) {
+                Ok(camps) => return (camps, None),
+                Err(e) => Some(e.to_string()),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => Some(e.to_string()),
+        };
+        let legacy = self.legacy_home().map(|point| vec![Camp::home(point)]).unwrap_or_default();
+        let Some(problem) = problem else { return (legacy, None) };
+        let problem = match self.keep_aside(&path) {
+            Ok(name) => CampsProblem { note: format!("camps.json unreadable: {problem}; kept as {name}"), kept: true },
+            Err(e) => CampsProblem { note: format!("camps.json unreadable: {problem}; could not keep a copy: {e}"), kept: false },
+        };
+        (legacy, Some(problem))
+    }
+
+    // Copy the broken `camps.json` aside, never over an earlier copy: `camps.json.corrupt`, then `.corrupt.1`, `.2`, ... A copy that
+    // already holds these very bytes is reused, so reading the same broken file again makes no new copy. Returns the copy's name.
+    fn keep_aside(&self, path: &Path) -> Result<String, String> {
+        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        for n in 0..1000 {
+            let name = if n == 0 { "camps.json.corrupt".to_string() } else { format!("camps.json.corrupt.{n}") };
+            let aside = self.dir.join(&name);
+            match std::fs::read(&aside) {
+                Ok(old) if old == bytes => return Ok(name),
+                Ok(_) => {} // another incident's copy: try the next name
+                Err(_) => return std::fs::write(&aside, &bytes).map(|()| name).map_err(|e| e.to_string()),
+            }
+        }
+        Err("too many copies already".into())
+    }
+
+    /// Replace the saved camps. The file is replaced in one step (written beside it, then renamed over it), so a read at the same
+    /// moment never sees half a file.
     ///
     /// # Errors
     /// Returns a message if the file cannot be written.
-    pub fn set_home(&self, home: Point) -> Result<(), String> {
+    pub fn set_camps(&self, camps: &[Camp]) -> Result<(), String> {
         std::fs::create_dir_all(&self.dir).map_err(io)?;
-        std::fs::write(self.dir.join("home.json"), serde_json::to_string(&home).map_err(|e| e.to_string())?).map_err(io)
+        let body = serde_json::to_string(camps).map_err(|e| e.to_string())?;
+        let tmp = self.dir.join("camps.json.tmp");
+        std::fs::write(&tmp, body).map_err(io)?;
+        std::fs::rename(&tmp, self.dir.join("camps.json")).map_err(io)
+    }
+
+    /// The point of the camp `"home"`, else of the first camp, else `None`.
+    #[must_use]
+    pub fn home(&self) -> Option<Point> {
+        home_point_of(&self.camps())
+    }
+
+    /// The pre-camps single home point.
+    fn legacy_home(&self) -> Option<Point> {
+        std::fs::read_to_string(self.dir.join("home.json")).ok().and_then(|s| serde_json::from_str(&s).ok())
     }
 }
 
@@ -560,10 +662,100 @@ mod tests {
     fn home_and_corrupt_files_are_handled() {
         let store = RealmStore::new(tmp("home"));
         assert!(store.home().is_none());
-        store.set_home(Point::new(1.5, 2.5)).unwrap();
-        assert_eq!(store.home(), Some(Point::new(1.5, 2.5)));
+        store.set_camps(&[camp("home", "Home", 1.5)]).unwrap();
+        assert_eq!(store.home(), Some(Point::new(1.5, 2.0)));
         std::fs::write(store.dir().join("realms.json"), "not json").unwrap();
         assert!(store.list().is_empty(), "corrupt file must not crash");
+    }
+
+    fn camp(id: &str, name: &str, lat: f64) -> Camp {
+        Camp { id: id.into(), name: name.into(), point: Point::new(lat, 2.0) }
+    }
+
+    #[test]
+    fn camps_migrate_from_home_json() {
+        let store = RealmStore::new(tmp("camps-migrate"));
+        std::fs::create_dir_all(store.dir()).unwrap();
+        std::fs::write(store.dir().join("home.json"), serde_json::to_string(&Point::new(1.5, 2.5)).unwrap()).unwrap();
+        let expected = Camp { id: HOME_CAMP_ID.into(), name: "Home".into(), point: Point::new(1.5, 2.5) };
+        assert_eq!(store.camps(), vec![expected.clone()]);
+        assert!(!store.dir().join("camps.json").exists(), "reading does not write");
+        store.set_camps(&[expected, camp("b", "Cabin", 3.0)]).unwrap();
+        assert_eq!(store.camps().len(), 2);
+        assert!(store.dir().join("home.json").exists(), "home.json is left alone");
+    }
+
+    #[test]
+    fn saving_camps_replaces_the_file_in_one_step() {
+        let store = RealmStore::new(tmp("camps-atomic"));
+        store.set_camps(&[camp("a", "A", 1.0)]).unwrap();
+        store.set_camps(&[camp("b", "B", 2.0)]).unwrap();
+        assert_eq!(store.camps(), vec![camp("b", "B", 2.0)]);
+        assert!(!store.dir().join("camps.json.tmp").exists(), "written beside and renamed over, leaving no temp file");
+        std::fs::create_dir(store.dir().join("camps.json.tmp")).unwrap(); // a blocked temp path fails the save, never the old file
+        assert!(store.set_camps(&[camp("c", "C", 3.0)]).is_err());
+        assert_eq!(store.camps(), vec![camp("b", "B", 2.0)], "the saved camps are untouched");
+    }
+
+    #[test]
+    fn camps_round_trip_two_camps() {
+        let store = RealmStore::new(tmp("camps-rt"));
+        let two = vec![camp("home", "Home", 1.0), camp("b", "Cabin", 3.0)];
+        store.set_camps(&two).unwrap();
+        assert_eq!(store.camps(), two);
+    }
+
+    #[test]
+    fn home_falls_back_to_the_first_camp_and_is_none_when_empty() {
+        let store = RealmStore::new(tmp("camps-fallback"));
+        assert_eq!(store.home(), None);
+        store.set_camps(&[camp("b", "Cabin", 3.0), camp("c", "Lake", 5.0)]).unwrap();
+        assert_eq!(store.home(), Some(Point::new(3.0, 2.0)));
+        store.set_camps(&[]).unwrap();
+        assert_eq!(store.home(), None);
+    }
+
+    #[test]
+    fn unreadable_camps_file_is_reported_and_falls_back_to_home_json() {
+        let store = RealmStore::new(tmp("camps-unreadable"));
+        std::fs::create_dir_all(store.dir().join("camps.json")).unwrap();
+        std::fs::write(store.dir().join("home.json"), serde_json::to_string(&Point::new(1.0, 1.0)).unwrap()).unwrap();
+        let (camps, problem) = store.camps_checked();
+        assert_eq!(camps, vec![Camp::home(Point::new(1.0, 1.0))]);
+        let problem = problem.unwrap();
+        assert!(problem.note.starts_with("camps.json unreadable: "));
+        assert!(!problem.kept, "a directory cannot be copied aside, so saving over it must be refused");
+    }
+
+    #[test]
+    fn corrupt_camps_file_is_kept_aside_and_home_json_comes_back() {
+        let store = RealmStore::new(tmp("camps-corrupt"));
+        std::fs::create_dir_all(store.dir()).unwrap();
+        std::fs::write(store.dir().join("home.json"), serde_json::to_string(&Point::new(1.0, 1.0)).unwrap()).unwrap();
+        std::fs::write(store.dir().join("camps.json"), "not json").unwrap();
+        let (camps, problem) = store.camps_checked();
+        assert_eq!(camps, vec![Camp::home(Point::new(1.0, 1.0))]);
+        let problem = problem.unwrap();
+        assert!(problem.note.starts_with("camps.json unreadable: ") && problem.note.ends_with("; kept as camps.json.corrupt"), "{}", problem.note);
+        assert!(problem.kept);
+        let corrupt = store.dir().join("camps.json.corrupt");
+        assert_eq!(std::fs::read_to_string(&corrupt).unwrap(), "not json");
+        assert_eq!(store.home(), Some(Point::new(1.0, 1.0)));
+        std::fs::write(store.dir().join("camps.json"), "still not json").unwrap();
+        let second = store.camps_checked().1.unwrap();
+        assert!(second.kept && second.note.ends_with("; kept as camps.json.corrupt.1"), "{}", second.note);
+        assert_eq!(std::fs::read_to_string(&corrupt).unwrap(), "not json", "the first copy is kept");
+        assert_eq!(std::fs::read_to_string(store.dir().join("camps.json.corrupt.1")).unwrap(), "still not json", "a later incident gets its own copy");
+        assert!(store.camps_checked().1.unwrap().note.ends_with("; kept as camps.json.corrupt.1"), "the same broken file is not copied twice");
+        assert_eq!(store.camps(), vec![Camp::home(Point::new(1.0, 1.0))]);
+    }
+
+    #[test]
+    fn a_readable_or_missing_camps_file_reports_nothing() {
+        let store = RealmStore::new(tmp("camps-fine"));
+        assert_eq!(store.camps_checked(), (vec![], None));
+        store.set_camps(&[camp("a", "A", 1.0)]).unwrap();
+        assert_eq!(store.camps_checked(), (vec![camp("a", "A", 1.0)], None));
     }
 
     #[test]

@@ -153,3 +153,9 @@ Colours are in `res/values/colors.xml`, each commented with the `ApgoPalette` en
 - Consequences: non-commercial only, attribution required, cannot sit under our MIT licence, and as a launcher icon it would imply an
   official app. So the launcher/adaptive icon is our own artwork. Showing the logo on a "Connected to Archipelago" screen with
   attribution is possible for a free fan app but needs an explicit owner decision.
+
+## Camp icon
+
+Camps use our own campfire (`ApgoIcons` campfire `ImageVector`: two crossed logs and a flame, 24 viewport, Lucide-like 2 px
+round stroke) on the Camps card, the Camps screen and every camp's map marker (`marker-camp`). Colour token `ApgoPalette.camp`
+(was `home`, same value).

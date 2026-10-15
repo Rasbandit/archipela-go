@@ -20,7 +20,7 @@ import uniffi.apgo_ffi.RecapOut
 
 private const val TAG = "recap"
 
-/** "Welcome home: see your walk": posted when a walk's recap is ready while the app is off screen. Opening the app shows it. */
+/** "Welcome back: see your walk": posted when a walk's recap is ready while the app is off screen. Opening the app shows it. */
 internal class RecapNotice(
     private val ctx: Context,
 ) {

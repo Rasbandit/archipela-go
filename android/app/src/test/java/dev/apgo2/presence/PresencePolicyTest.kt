@@ -35,33 +35,33 @@ class PresencePolicyTest {
     }
 
     @Test fun arrivingHomeIsOnlyTheChangeIntoAtHome() {
-        assertTrue(PresencePolicy.arrivedHome(PresenceState.InZone, PresenceState.AtHome))
-        assertTrue(PresencePolicy.arrivedHome(PresenceState.OutsideZones, PresenceState.AtHome))
-        assertTrue("from the car to home", PresencePolicy.arrivedHome(PresenceState.InCar, PresenceState.AtHome))
-        assertTrue("opening a game at home", PresencePolicy.arrivedHome(PresenceState.Stopped, PresenceState.AtHome))
-        assertFalse("still home", PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.AtHome))
-        assertFalse("leaving home", PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.InZone))
-        assertFalse(PresencePolicy.arrivedHome(PresenceState.InZone, PresenceState.InCar))
+        assertTrue(PresencePolicy.arrivedAtCamp(PresenceState.InZone, PresenceState.AtHome))
+        assertTrue(PresencePolicy.arrivedAtCamp(PresenceState.OutsideZones, PresenceState.AtHome))
+        assertTrue("from the car to home", PresencePolicy.arrivedAtCamp(PresenceState.InCar, PresenceState.AtHome))
+        assertTrue("opening a game at home", PresencePolicy.arrivedAtCamp(PresenceState.Stopped, PresenceState.AtHome))
+        assertFalse("still home", PresencePolicy.arrivedAtCamp(PresenceState.AtHome, PresenceState.AtHome))
+        assertFalse("leaving home", PresencePolicy.arrivedAtCamp(PresenceState.AtHome, PresenceState.InZone))
+        assertFalse(PresencePolicy.arrivedAtCamp(PresenceState.InZone, PresenceState.InCar))
     }
 
     @Test fun aHomeCheckIsNotArrivingHome() {
         // Presence (re)started away from home with a home pin and no home Wi-Fi: the core checks with GPS, shown as AtHome. That is
         // not arriving home, so forager quests must not bank mid-walk.
-        assertFalse(PresencePolicy.arrivedHome(PresenceState.Stopped, PresenceState.AtHome, checking = true))
-        assertFalse(PresencePolicy.arrivedHome(PresenceState.InZone, PresenceState.AtHome, checking = true))
+        assertFalse(PresencePolicy.arrivedAtCamp(PresenceState.Stopped, PresenceState.AtHome, checking = true))
+        assertFalse(PresencePolicy.arrivedAtCamp(PresenceState.InZone, PresenceState.AtHome, checking = true))
     }
 
     @Test fun aHomeCheckThatEndsAtHomeIsArrivingHome() {
         // A cold start at home with no home Wi-Fi: Stopped -> AtHome while checking, then the check says "home" with the state
         // unchanged. That is the arrival, so the stale outing closes.
-        assertTrue(PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.AtHome, wasChecking = true, checking = false))
+        assertTrue(PresencePolicy.arrivedAtCamp(PresenceState.AtHome, PresenceState.AtHome, wasChecking = true, checking = false))
         assertFalse(
             "still checking",
-            PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.AtHome, wasChecking = true, checking = true),
+            PresencePolicy.arrivedAtCamp(PresenceState.AtHome, PresenceState.AtHome, wasChecking = true, checking = true),
         )
         assertFalse(
             "a check that finds a walk leaves home",
-            PresencePolicy.arrivedHome(PresenceState.AtHome, PresenceState.InZone, wasChecking = true),
+            PresencePolicy.arrivedAtCamp(PresenceState.AtHome, PresenceState.InZone, wasChecking = true),
         )
     }
 

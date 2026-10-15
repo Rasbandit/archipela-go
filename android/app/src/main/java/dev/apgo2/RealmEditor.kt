@@ -346,7 +346,7 @@ private fun EditorEffects(
     }
 }
 
-// The map with the shape being drawn, the finds and the home marker.
+// The map with the shape being drawn, the finds and the camps.
 @Composable
 private fun EditorMap(
     s: RealmEditorState,
@@ -365,8 +365,7 @@ private fun EditorMap(
         null,
         s::onMapTap,
         Modifier.fillMaxSize(),
-        home = m.home?.let { LatLng(it.lat, it.lon) },
-        onMapLongClick = { m.realmOps.setHome(it) },
+        camps = m.camps.map { LatLng(it.lat, it.lon) },
         circle = if (s.polygon) null else s.circleCenter?.let { it to s.radius.toDouble() },
         overlayTopDp = OVERLAY_TOP_DP,
         overlayBottomDp = { (s.panelPx / density).toInt() },

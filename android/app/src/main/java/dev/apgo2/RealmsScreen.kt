@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,9 +52,10 @@ import dev.apgo2.presence.needsAttention
 import dev.apgo2.presence.nextStep
 import dev.apgo2.ui.ApgoIcons
 import dev.apgo2.ui.ApgoPalette
+import dev.apgo2.ui.CAMP_PREVIEW_ZOOM
+import dev.apgo2.ui.CampPreview
+import dev.apgo2.ui.CampText
 import dev.apgo2.ui.FeedbackText
-import dev.apgo2.ui.HOME_PREVIEW_ZOOM
-import dev.apgo2.ui.HomePreview
 import dev.apgo2.ui.IconLabel
 import dev.apgo2.ui.PREVIEW_DP
 import dev.apgo2.ui.PreviewDot
@@ -71,9 +73,10 @@ import uniffi.apgo_ffi.RealmOut
 
 private const val DOT_LIMIT = 90u
 
-/** Two views: the list of realms, and a full-page map editor for a new one. */
+/** Three views: the list of realms, a full-page map editor for a new one, and your camps. */
 @Composable
 internal fun RealmsScreen(m: AppModel) {
+    if (m.campsOpen) return CampsScreen(m) { m.campsOpen = false }
     m.editing?.let { id -> RealmEditor(m, id.ifEmpty { null }) { m.editing = null } }
         ?: RealmList(m, onNew = { m.editing = "" }, onEdit = { m.editing = it })
 }
@@ -93,7 +96,7 @@ private fun RealmList(
     UndoBar(m, snackbar)
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            HomeCard(m)
+            CampsCard(m)
             Row(
                 Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -163,27 +166,30 @@ private fun SwipeToDelete(
     ) { content() }
 }
 
-// Home Base: where distances are measured from, plus the home Wi-Fi and car that pause the game. It looks different from a realm
-// on purpose (a green outline and a house), so it is never mistaken for one. Tapping it opens the setup flow, at the first missing
-// step when something is missing.
+// Camps: the places you play from, where the game pauses. It looks different from a realm on purpose (a green outline and a
+// campfire), so it is never mistaken for one. Tapping it opens the camps screen; the setup nag opens the wizard at the first
+// missing step.
 @Composable
-private fun HomeCard(m: AppModel) {
+private fun CampsCard(m: AppModel) {
     val context = LocalContext.current
-    val home = m.home?.let { LatLng(it.lat, it.lon) }
+    val first = m.camps.firstOrNull()?.let { LatLng(it.lat, it.lon) }
     val progress = m.setup.progress()
-    val map by produceState<android.graphics.Bitmap?>(null, home) {
+    val map by produceState<android.graphics.Bitmap?>(null, first) {
         value = null
-        value = home?.let { runCatching { mapSnapshot(context, PreviewFrame(it, HOME_PREVIEW_ZOOM)) }.getOrNull() }
+        value = first?.let { runCatching { mapSnapshot(context, PreviewFrame(it, CAMP_PREVIEW_ZOOM)) }.getOrNull() }
     }
     Card(
-        Modifier.fillMaxWidth().clickable { m.setup.open(if (progress.needsAttention()) progress.nextStep() else null) },
+        Modifier.fillMaxWidth().clickable(onClickLabel = CampText.OPEN_HINT, role = Role.Button) { m.campsOpen = true },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(2.dp, ApgoPalette.home),
+        border = BorderStroke(2.dp, ApgoPalette.camp),
     ) {
-        PreviewRow(preview = { if (home != null) HomePreview(map, Modifier.size(PREVIEW_DP.dp)) }) {
-            CardTitle(ApgoIcons.Home, ApgoPalette.home, SetupText.HOME_BASE_NAME)
-            Text(if (home == null) SetupText.HOME_BASE_UNSET else SetupText.HOME_BASE_CARD, style = MaterialTheme.typography.bodyMedium)
+        PreviewRow(preview = { if (first != null) CampPreview(map, Modifier.size(PREVIEW_DP.dp)) }) {
+            CardTitle(ApgoIcons.Campfire, ApgoPalette.camp, CampText.title(m.camps.size))
+            Text(if (first == null) CampText.UNSET else CampText.CARD, style = MaterialTheme.typography.bodyMedium)
             if (progress.missingWifi) FeedbackText(SetupText.HOME_NEEDS_WIFI, Tone.Warning)
+            if (progress.needsAttention()) {
+                TextButton(onClick = { m.setup.open(progress.nextStep()) }) { Text(CampText.FINISH_SETUP) }
+            }
         }
     }
 }

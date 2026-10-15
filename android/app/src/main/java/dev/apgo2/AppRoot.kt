@@ -89,7 +89,10 @@ private fun AppNavigationBar(m: AppModel) {
                 selected = m.nav.tab == i,
                 onClick = {
                     m.nav.show(i)
-                    if (i == AppTab.REALMS) m.editing = null // tapping Realms again leaves the editor
+                    if (i == AppTab.REALMS) {
+                        m.editing = null // tapping Realms again leaves the editor and the camps
+                        m.campsOpen = false
+                    }
                 },
                 icon = { Icon(tab.icon, contentDescription = tab.label) },
                 label = { Text(tab.label) },

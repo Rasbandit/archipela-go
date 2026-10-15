@@ -1,5 +1,8 @@
 package dev.apgo2.presence
 
+import dev.apgo2.ui.CampText
+import dev.apgo2.ui.Help
+
 internal data class WifiId(
     val ssid: String?,
     val bssid: String?,
@@ -8,6 +11,8 @@ internal data class WifiId(
 internal data class HomeNetwork(
     val ssid: String,
     val bssid: String?,
+    /** The camp this network pauses; networks saved before camps existed read as the migrated camp, `"home"`. */
+    val campId: String = "home",
 )
 
 internal data class CarDevice(
@@ -35,17 +40,39 @@ internal object PresenceSignals {
         saved: List<HomeNetwork>,
     ): Boolean? {
         if (saved.isEmpty()) return null
+        val unreadable = cleanSsid(current?.ssid) == null && readableBssid(current) == null
+        return if (unreadable) null else matching(current, saved).isNotEmpty()
+    }
+
+    /** Only the networks of camps that still exist: a deleted camp's Wi-Fi is nothing any more. */
+    fun forCamps(
+        saved: List<HomeNetwork>,
+        known: Set<String>,
+    ): List<HomeNetwork> = saved.filter { it.campId in known }
+
+    /** The camp whose saved network [current] is (a BSSID match wins over an SSID match), or `null` on none or when unreadable. */
+    fun campOf(
+        current: WifiId?,
+        saved: List<HomeNetwork>,
+        nearest: String? = null,
+    ): String? {
+        val bssid = readableBssid(current)
+        val byBssid = bssid?.let { b -> saved.firstOrNull { it.bssid?.lowercase() == b } }
+        if (byBssid != null) return byBssid.campId
+        // One network name saved for several camps: the core's nearest camp decides when it is one of them.
+        val camps = matching(current, saved).map { it.campId }.distinct()
+        return nearest?.takeIf { it in camps } ?: camps.firstOrNull()
+    }
+
+    private fun readableBssid(current: WifiId?) = current?.bssid?.lowercase()?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }
+
+    private fun matching(
+        current: WifiId?,
+        saved: List<HomeNetwork>,
+    ): List<HomeNetwork> {
         val ssid = cleanSsid(current?.ssid)
-        val bssid = current?.bssid?.lowercase()?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }
-        val unreadable = ssid == null && bssid == null
-        return if (unreadable) {
-            null
-        } else {
-            saved.any { h ->
-                (bssid != null && h.bssid?.lowercase() == bssid) ||
-                    (ssid != null && h.ssid == ssid)
-            }
-        }
+        val bssid = readableBssid(current)
+        return saved.filter { h -> (bssid != null && h.bssid?.lowercase() == bssid) || (ssid != null && h.ssid == ssid) }
     }
 
     fun carConnected(
@@ -64,13 +91,14 @@ internal object PresenceText {
     fun chip(
         state: PresenceState,
         configured: Boolean,
+        camp: String? = null,
     ): String =
         if (!configured) {
             "Protection off"
         } else {
             when (state) {
                 PresenceState.InZone -> "Tracking"
-                PresenceState.AtHome -> "At home, paused"
+                PresenceState.AtHome -> CampText.atCamp(camp)
                 PresenceState.InCar -> "In car, not counting"
                 PresenceState.OutsideZones -> "Outside zones, saving battery"
                 PresenceState.Stopped -> "Not playing"

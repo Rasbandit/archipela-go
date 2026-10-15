@@ -116,8 +116,12 @@ class HelpTextTest {
 
     @Test fun setupCopyHasNoBrokenJoins() {
         listOf(
-            SetupText.HOME_BASE_CARD,
-            SetupText.HOME_BASE_UNSET,
+            CampText.HELP,
+            CampText.CARD,
+            CampText.UNSET,
+            CampText.TAP_TO_PLACE,
+            CampText.DRAG_TO_MOVE,
+            CampText.DELETE_BODY,
             SetupText.WIFI_WHY,
             SetupText.CAR_WHY,
             SetupText.BATTERY_WHY,
@@ -130,5 +134,20 @@ class HelpTextTest {
             assertTrue(it, it.endsWith("."))
             assertTrue(it, "  " !in it)
         }
+    }
+
+    @Test fun recapAndOfferTextSpeakOfCampsNotHome() {
+        assertEquals("At Cabin: paused", CampText.atCamp("Cabin"))
+        assertEquals("At a camp: paused", CampText.atCamp(null))
+        assertEquals("At a camp: paused", CampText.atCamp(" "))
+        assertEquals("Welcome back", Help.RECAP_TITLE)
+        assertEquals("Welcome back: see your walk", Help.RECAP_NOTICE_TITLE)
+        assertEquals("You're at Cabin: add this Wi-Fi?", HomeOfferText.title("Cabin"))
+        assertEquals("You're at a camp: add this Wi-Fi?", HomeOfferText.title(null))
+    }
+
+    @Test fun campRowActionsNameTheCampForScreenReaders() {
+        assertEquals("Delete Cabin", CampText.deleteDescription("Cabin"))
+        assertEquals("Wi-Fi for Cabin", CampText.wifiFor("Cabin"))
     }
 }

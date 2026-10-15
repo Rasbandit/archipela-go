@@ -2,6 +2,7 @@ package dev.apgo2
 
 import android.content.Context
 import android.location.Location
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -17,6 +18,7 @@ import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.AuditEventOut
 import uniffi.apgo_ffi.BagOut
+import uniffi.apgo_ffi.CampOut
 import uniffi.apgo_ffi.ChainOut
 import uniffi.apgo_ffi.Engine
 import uniffi.apgo_ffi.EventOut
@@ -98,6 +100,7 @@ internal class AppModel(
     val setup = SetupWizard(this)
     val scans = ScanCoordinator(this, scope)
     val realmOps = RealmManager(this)
+    val campOps = CampManager(this, scope)
     val library = GameLibrary(this, scope)
     val ap = ApController(this, ctx, scope)
     val sim = DevSimulator(this, scope)
@@ -132,6 +135,9 @@ internal class AppModel(
 
     /** The realm editor: null shows the realm list, "" a new realm, otherwise the id of the realm being edited. */
     var editing by mutableStateOf<String?>(null)
+
+    /** The camps screen is open over the realm list. */
+    var campsOpen by mutableStateOf(false)
     var realms by mutableStateOf<List<RealmOut>>(emptyList())
     val offers = mutableStateMapOf<String, List<OfferOut>>()
     var busy by mutableStateOf<String?>(null)
@@ -158,7 +164,13 @@ internal class AppModel(
     val log = mutableStateListOf<String>()
     var realLoc by mutableStateOf<Location?>(null)
     var simPos by mutableStateOf<LatLng?>(null)
-    var home by mutableStateOf<GeoPoint?>(null)
+    var camps by mutableStateOf<List<CampOut>>(engine.camps())
+
+    /**
+     * The quest anchor until per-zone origins replace it, as the core picks it (`Engine.homePoint`). Recomputed only when the camps
+     * or the realms change; with neither there is none, so the core is not asked.
+     */
+    val home: GeoPoint? by derivedStateOf { if (camps.isEmpty() && realms.isEmpty()) null else engine.homePoint() }
     val draft = mutableStateListOf<LatLng>()
     var selected by mutableStateOf<Long?>(null)
     var chains by mutableStateOf<List<ChainOut>>(emptyList())
@@ -187,7 +199,7 @@ internal class AppModel(
                 ?: realLoc?.let { MePins.at(it.latitude, it.longitude, it.accuracy.toDouble()) }
 
     /**
-     * Where the player is, for UI defaults (the realm editor's and home picker's centre, ruling T15-me): the simulator, else the
+     * Where the player is, for UI defaults (the realm editor's and camp picker's centre, ruling T15-me): the simulator, else the
      * estimate behind the pin, else the raw fix. Game logic uses [acceptedHere].
      */
     val here: LatLng?
@@ -226,7 +238,7 @@ internal class AppModel(
     /** Reload everything shown from the engine. */
     fun refreshAll() {
         realms = engine.realms()
-        home = engine.home()
+        camps = engine.camps()
         games = engine.games()
         realms.forEach { offers[it.id] = engine.realmOffers(it.id) }
         refreshPlay()

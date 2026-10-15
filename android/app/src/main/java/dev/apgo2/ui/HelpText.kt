@@ -44,7 +44,7 @@ internal object Help {
                 HelpTopic(
                     "Courier",
                     "Pick something up at one spot and deliver it to another, go out and come back, " +
-                        "or gather things scattered around your area and bring enough of them home.",
+                        "or gather things scattered around your area and bring enough of them to a camp.",
                 ),
             "explore" to HelpTopic("Explore", "Visit new map cells you have never been to."),
             "steps" to HelpTopic("Steps", "Take a number of steps. Counted by your phone's step sensor."),
@@ -193,7 +193,7 @@ internal object Help {
     const val PREVIEW_RECAP = "Preview walk recap"
 
     // ---- walk recap
-    const val RECAP_TITLE = "Welcome home"
+    const val RECAP_TITLE = "Welcome back"
     const val RECAP_DONE = "Done"
     const val RECAP_CLOSE = "Close"
     const val WALK_ROW_HINT = "Open this walk's recap"
@@ -206,9 +206,9 @@ internal object Help {
     const val RECAP_GOAL = "Goal"
     const val RECAP_DONE_AT = "Done at"
     const val RECAP_REWARD = "Reward"
-    const val RECAP_NOTICE_TITLE = "Welcome home: see your walk"
+    const val RECAP_NOTICE_TITLE = "Welcome back: see your walk"
     const val RECAP_CHANNEL = "Walk recap"
-    const val RECAP_CHANNEL_DESCRIPTION = "How your walk went, when you get home"
+    const val RECAP_CHANNEL_DESCRIPTION = "How your walk went, when you get back to a camp"
     const val RECAP_ALL_MILESTONES = "All milestones reached"
     const val CHECKS_SENT = "Checks sent"
     const val ITEMS_RECEIVED = "Items received"
@@ -251,20 +251,15 @@ internal object Help {
     }
 }
 
-/** Explanatory copy of the setup wizard and its Home card nag, kept here with the rest of the app's help text. */
+/** Explanatory copy of the setup wizard and its nag, kept here with the rest of the app's help text. */
 internal object SetupText {
-    const val HOME_BASE_NAME = "Home Base"
-    const val HOME_BASE_CARD =
-        "Distances in your games are measured from here. On your home Wi-Fi the game pauses and GPS turns " +
-            "off; while your car is connected nothing counts. Tap to change."
-    const val HOME_BASE_UNSET = "Not set yet. Tap to choose where distances are measured from, and which Wi-Fi and car pause the game."
     const val WIFI_WHY =
         "While you are on any of these networks nothing counts and GPS turns off. That saves battery and " +
-            "stops cheating. Tick every network your home uses."
+            "stops cheating. Tick every network the camp uses."
     const val CAR_WHY =
         "While your car is connected nothing counts, so rides do not turn into pickups. Skip this if you " +
             "never drive while playing."
-    const val WIFI_NONE_FOUND = "No networks found. Connect to your home Wi-Fi, or type its name below."
+    const val WIFI_NONE_FOUND = "No networks found. Connect to the camp's Wi-Fi, or type its name below."
     const val WIFI_NEEDS_LOCATION = "Allow location to list nearby networks."
     const val CAR_NEEDS_BLUETOOTH = "Bluetooth permission lets the app see your paired devices."
     const val CAR_BLUETOOTH_BLOCKED =
@@ -275,17 +270,68 @@ internal object SetupText {
         "Quests are tracked with the screen off. Your phone's battery saver can stop that; this lets the game keep running while you play."
     const val BATTERY_DONE = "Battery saver is off for this app. Tracking will keep running."
     const val BATTERY_BUTTON = "Open battery settings"
-    const val HOME_NEEDS_WIFI = "Add your home Wi-Fi so the game pauses at home"
+    const val WIFI_NEEDS_CAMP = "Set your camp first, then add its Wi-Fi."
+    const val WIFI_FOR_CAMP = "Networks for this camp:"
+    const val WIFI_TITLE = "Camp Wi-Fi · step 2 of 3"
+    const val WIFI_SKIP = "Skip, I'll do this at the camp"
+    const val HOME_NEEDS_WIFI = "Add a camp's Wi-Fi so the game pauses there"
 }
 
-/** The "You're home: add this Wi-Fi?" dialog (see `HomeWifiDialog`). */
+/** The camps card, the camps screen and the camp picker. */
+internal object CampText {
+    const val NAME = "Camps"
+    const val HELP =
+        "A camp is a place you play from. Arriving at any camp pauses the game, banks what you carry and shows your walk."
+    const val CARD = "$HELP Tap to see your camps."
+    const val UNSET = "No camp yet. Tap to add the place you play from."
+    const val ADD = "Add camp"
+    const val FIRST_STEP = "Your first camp · step 1 of 3"
+    const val ADD_TITLE = "New camp"
+    const val EDIT_TITLE = "Edit camp"
+    const val NAME_LABEL = "Camp name"
+    const val NAME_PLACEHOLDER = "Left blank, it gets a name"
+    const val TAP_TO_PLACE = "Tap the map to put your camp there."
+    const val DRAG_TO_MOVE = "Drag the pin or tap the map to move it. Distances in your games are measured from your first camp."
+    const val SAVED = "Camp saved"
+    const val SAVE = "Save camp"
+    const val WIFI_SAVED = "Wi-Fi saved"
+    const val NO_WIFI = "No Wi-Fi"
+    const val WIFI_AND_CAR = "Wi-Fi and car"
+    const val FINISH_SETUP = "Finish setup"
+    const val DELETE = "Delete"
+    const val CANCEL = "Cancel"
+    const val NEXT = "Next"
+    const val WAITING_FOR_LOCATION = "Waiting for your location…"
+    const val USE_MY_LOCATION = "Use my location"
+    const val EDIT_HINT = "Edit camp"
+    const val OPEN_HINT = "Open your camps"
+    const val DELETE_BODY = "The Wi-Fi networks saved for it go with it. Games already started keep their quests."
+    const val BACK = "Back"
+
+    fun campLabel(name: String?) = name?.ifBlank { null } ?: "a camp"
+
+    fun atCamp(name: String?) = "At ${campLabel(name)}: paused"
+
+    fun title(count: Int) = "$NAME · $count"
+
+    fun deleteTitle(name: String) = "Delete $name?"
+
+    fun deleteDescription(name: String) = "Delete $name"
+
+    fun wifiFor(name: String) = "Wi-Fi for $name"
+
+    fun distance(meters: Double?) = meters?.let { "${Units.distance(it)} away" }
+}
+
+/** The "You're at {camp}: add this Wi-Fi?" dialog (see `HomeWifiDialog`). */
 internal object HomeOfferText {
-    const val TITLE = "You're home: add this Wi-Fi?"
     const val ADD = "Add"
     const val MUTE = "Not this one"
     const val LATER = "Later"
 
+    fun title(camp: String?) = "You're at ${CampText.campLabel(camp)}: add this Wi-Fi?"
+
     fun body(ssid: String) =
-        "You are at your home pin and connected to \"$ssid\". Add it as home Wi-Fi so the game pauses and GPS turns off while you " +
-            "are on it. That saves battery, and nothing counts at home."
+        "You are at a camp and connected to \"$ssid\". Add it as this camp's Wi-Fi so the game pauses and GPS turns off while you " +
+            "are on it. That saves battery, and nothing counts at a camp."
 }

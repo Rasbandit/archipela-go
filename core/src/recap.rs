@@ -1,5 +1,5 @@
 //! The walk recap ("Welcome home"): what one outing away from home came to, and whether it is worth showing.
-//! Built by `Game::arrive_home` from the outing's snapshots; the engine adds the route from the journal.
+//! Built by `Game::arrive_at_camp` from the outing's snapshots; the engine adds the route from the journal.
 
 use serde::{Deserialize, Serialize};
 

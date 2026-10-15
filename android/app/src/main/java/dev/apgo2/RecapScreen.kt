@@ -91,7 +91,7 @@ import uniffi.apgo_ffi.RecapForagerOut
 import uniffi.apgo_ffi.RecapOut
 import uniffi.apgo_ffi.RecapQuestOut
 
-/** "Welcome home": how the last walk went, shown over the app until dismissed. */
+/** "Welcome back": how the last walk went, shown over the app until dismissed. */
 @Composable
 internal fun RecapScreen(
     r: RecapOut,

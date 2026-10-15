@@ -10,12 +10,13 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::{Catalog, Geom, Kind, Mode, Verify, FORAGE_THEMES};
 use crate::effort::{cadence_steps_per_min, dist_for, mid, tier_for, travel_min};
 use crate::geo::{bearing_deg, distance_m, distance_to_segment_m, point_in_polygon, point_inside, polyline_len_m, Point};
+use crate::home_watch::CAMP_CIRCLE_M;
 use crate::near_path::{PathIndex, NEAR_PATH_M};
 use crate::num::{count_f64, round_u32};
 use crate::realm::Realm;
 use crate::scan::{point_key, Atlas, Feature};
 use crate::units::{distance, distance_rounded, Round, UnitSystem};
-use crate::verify::{HOME_RADIUS_M, LINE_SAMPLE_M};
+use crate::verify::LINE_SAMPLE_M;
 
 /// A quest slot to fill: one Archipelago location and what it asks for.
 #[derive(Debug, Clone)]
@@ -110,7 +111,7 @@ pub enum Target {
         /// How long to be away from home, in minutes.
         minutes: f64,
     },
-    /// Pick up items around home and bring enough of them home (forager).
+    /// Pick up items around home and bring enough of them to a camp (forager).
     Collect {
         /// Where the items lie: nearest home first. Indexes are stable (saved progress refers to them).
         pts: Vec<Point>,
@@ -133,7 +134,7 @@ impl Target {
             Self::DwellArea { minutes, .. } => format!("Spend {minutes:.0} min inside the area"),
             Self::Line { pts, coverage, .. } => format!("Cover {:.0}% of this {} path", coverage * 100.0, distance(polyline_len_m(pts), units)),
             Self::Courier { time_limit_min, .. } => format!("Pick up at A, deliver to B within {time_limit_min:.0} min"),
-            Self::RoundTrip { .. } => "Reach the far point, then come back home".to_string(),
+            Self::RoundTrip { .. } => "Reach the far point, then come back to a camp".to_string(),
             Self::Cells { n, .. } => format!("Visit {n} new map cells"),
             Self::Steps { n } => format!("Take {n} steps"),
             Self::Away { minutes } => format!("Spend {minutes:.0} min away from home"),
@@ -343,9 +344,9 @@ const MAX_ITEM_CANDIDATES: usize = 2000;
 
 /// The band forager items are placed in for effort `want` (minutes) in `mode`, as `(min_m, far_m)` from home: never nearer than the
 /// minimum distance or the home radius plus the pick-up radius `pick_r_m` (an item there would be picked and banked in the same step),
-/// and the farthest about half the effort's travel out, so out to it and back fits the effort.
+/// and the farthest about half the effort's travel out, so out to it and back fits the effort. Items are placed from home only until Phase B origins, so one may land near a second camp.
 fn item_band(p: &AssignParams, pick_r_m: f64, want: f64, mode: Mode) -> (f64, f64) {
-    (p.min_distance_m.max(HOME_RADIUS_M + pick_r_m), dist_for(want / 2.0, mode))
+    (p.min_distance_m.max(CAMP_CIRCLE_M + pick_r_m), dist_for(want / 2.0, mode))
 }
 
 /// `n` street points for forager items, spread outward from `home`: the k-th of them (counting from 1) about k/n of the way from `min_m`
@@ -1643,7 +1644,7 @@ mod tests {
             assert!((pick - 25.0).abs() < f64::EPSILON);
             assert!(FORAGE_THEMES.contains(&theme.as_str()), "{theme}");
             assert_eq!(place, "Around home");
-            let floor = HOME_RADIUS_M + 25.0;
+            let floor = CAMP_CIRCLE_M + 25.0;
             for (i, q) in pts.iter().enumerate() {
                 assert!(gap_to_paths(*q, &a) <= NEAR_PATH_M + 1e-6, "item {i} is off the paths");
                 assert!(pool.contains(q), "item {i} is not a street point of the zone");
@@ -1904,7 +1905,7 @@ mod goal_text_tests {
             (Target::DwellArea { poly: vec![], center: p, r: 40.0, minutes: 5.0 }, "Spend 5 min inside the area"),
             (Target::Line { pts: vec![p, destination(p, 0.0, 1000.0)], corridor_m: 25.0, coverage: 0.9 }, "Cover 90% of this 1 km path"),
             (Target::Courier { a: p, b: p, r: 40.0, time_limit_min: 12.0 }, "Pick up at A, deliver to B within 12 min"),
-            (Target::RoundTrip { far: p, r: 50.0 }, "Reach the far point, then come back home"),
+            (Target::RoundTrip { far: p, r: 50.0 }, "Reach the far point, then come back to a camp"),
             (Target::Cells { n: 12, cell_m: 100.0 }, "Visit 12 new map cells"),
             (Target::Steps { n: 500 }, "Take 500 steps"),
             (Target::Away { minutes: 20.0 }, "Spend 20 min away from home"),
