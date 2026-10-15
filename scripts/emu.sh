@@ -5,6 +5,8 @@
 #   scripts/emu.sh stop | status
 # GPU mode host renders on the real GPU (GLES on the Intel iGPU, Vulkan on the NVIDIA).
 # swangle_indirect (SwiftShader) renders on the CPU and pegs it; set APGO_EMU_GPU=swangle_indirect if host breaks.
+# The android-37.0 google_apis image does not boot here in any mode (host: qemu SIGSEGV; swangle_indirect: SurfaceFlinger
+# aborts in mapper.ranchu; guest: unsupported), so Android 17 behaviour is checked on the phone.
 set -euo pipefail
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
