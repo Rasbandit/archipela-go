@@ -199,7 +199,7 @@ internal class AppModel(
                 ?: realLoc?.let { MePins.at(it.latitude, it.longitude, it.accuracy.toDouble()) }
 
     /**
-     * Where the player is, for UI defaults (the realm editor's and home picker's centre, ruling T15-me): the simulator, else the
+     * Where the player is, for UI defaults (the realm editor's and camp picker's centre, ruling T15-me): the simulator, else the
      * estimate behind the pin, else the raw fix. Game logic uses [acceptedHere].
      */
     val here: LatLng?

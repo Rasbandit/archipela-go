@@ -199,10 +199,10 @@ internal fun WifiStep(
     LaunchedEffect(state.scanning) { if (state.scanning) state.readScanWhenDone() }
     LaunchedEffect(m.presence.locationPermitted) { if (m.presence.locationPermitted) state.readLastResults() }
     StepPage(
-        title = "Home Wi-Fi · step 2 of 3",
+        title = SetupText.WIFI_TITLE,
         why = SetupText.WIFI_WHY,
         next = "Next",
-        skip = if (state.saved.isEmpty()) "Skip, I'll do this at home" else null,
+        skip = if (state.saved.isEmpty()) SetupText.WIFI_SKIP else null,
         onBack = onBack,
         onNext = onNext,
         header = {

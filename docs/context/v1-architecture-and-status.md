@@ -16,7 +16,7 @@ Win conditions: Treasure Hunt and Completionist (Beta 1, 2026-10-13, cut the oth
 | `apworld/` | Python apworld **0.5.0**, slot_data **schema 5** (`goals`, `goal_requirement`, `goal_need`, per-quest `needs`). 210 tests. Contract: `apworld/docs/contract.md` |
 | `core/` (`apgo-core`) | Rust engine: catalog, realms (+marks, +icon), scan + **tile grid** (`tilegrid.rs`), assign, verify, goal, fog, traps, solo, game, yaml. 132 tests + 1 regression |
 | `core/ffi/` | UniFFI `Engine` (realms, finds, marks, stats, scan plan/progress, games, play) and `ApSession` (Archipelago via a patched `archipelago_rs`, see `core/vendor/PATCHES.md`) |
-| `android/` | Kotlin/Compose. `AppModel`, `Screens.kt` (Realms list/editor/home picker, Play), `NewGame.kt`, `QuestMap.kt` (MapLibre), `ui/` design system |
+| `android/` | Kotlin/Compose. `AppModel`, `Screens.kt` (Realms list/editor/camp picker, Play), `NewGame.kt`, `QuestMap.kt` (MapLibre), `ui/` design system |
 | `scripts/` | `android_core.sh`, `emu.sh`, `android_ui.py` (adb UI driver), `ap_host.sh` (dev Archipelago server, env `APGO_GOALS`, `APGO_REQ`, `APGO_ZONES` (a count), `APGO_RUN_SHARE`), `e2e_*.sh` (STALE, see below) |
 | `docs/context/` | Everything below; index in `CLAUDE.md` |
 
@@ -25,7 +25,8 @@ Win conditions: Treasure Hunt and Completionist (Beta 1, 2026-10-13, cut the oth
 - **Realms**: Camps card (campfire, camp count; opens the Camps screen, which lists, adds on the map, renames, moves and deletes camps; "Finish setup" and "Wi-Fi and car" open the setup flow) above a Realms list. Realm cards: icon, name, finds, quest types, map-snapshot preview. Swipe to delete (confirm + Undo bar).
 - **Realm editor** (full-screen map, autosave, Undo/Redo, no Save/Cancel, Done button): left toolbar = Circle|Polygon pill + Details; Area shows a stats box
   (area, farthest from home, walkable, streets, trails, finds, parks, unpaved); Details shows name, icon, search, finds list with favorite/ban, callout bubbles.
-- **Home picker**: full-screen map, draggable house pin, tap to place, "Use my location".
+- **Camp picker** (`CampPicker.kt`): full-screen map, draggable camp pin, tap to place, "Use my location"; a name field when opened from
+  the Camps screen (left blank, the core names it "Home", then "Camp N"). Saves run off the main thread, one at a time.
 - **New Game** (no tab: opened from the "New game" button on the empty Play screen, over Play; any tab or Back closes it; `AppNav`): zones added once (card = quest types with live counts), several goals + rule, a Run quests switch and share slider, tooltips everywhere (`ui/Help*.kt`), Archipelago join.
 - **Play**: map with kind icons, per-goal progress, quest list, dev simulator buttons.
   Forager quests use live items and the shared backpack (`core/src/forage.rs`, spec
@@ -60,7 +61,7 @@ Win conditions: Treasure Hunt and Completionist (Beta 1, 2026-10-13, cut the oth
 
 ## Progressive chains
 
-Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone marks, "next: ..." text, tap for the milestone list) instead of many separate quests; members are hidden from "Show places on the map". Counters live in `Game.counters` (steps, minutes away, new map squares, `steps_last` baseline); they are in the game file, old saves load with defaults. Steps count only while a game is open (`steps_last` is reset on load, so closed time is never credited). Step Up, Wanderlust and Cartographer count only while their zone is unlocked (a locked zone's bar stays still, unlocking pays nothing out at once, and a zone that locks again when the server's item list shrinks keeps what it had). Cartographer counts squares new to the whole game (`Fog::cells`, anywhere) seen while its zone is unlocked. Saves from before that (`counters.cells_counted` false) start an open zone's Cartographer at the whole game's square count and a locked zone's at 0. Time away (Wanderlust) is event-driven: it runs while presence counts (home Wi-Fi gone, not in the car) from `counters.away_mark`, is credited on events (a fix, counting going off, a scheduled `tick`), and is read live as credited + (now - mark); a fix within 50 m (`CAMP_CIRCLE_M`) of any camp ends it (backup without camp Wi-Fi). The app schedules one wake-up at `next_due_ms` (`DueTimer`). No away settings. The game file (whole JSON + fsync) is saved at once only for lasting events (`Event::saves_at_once`: quest done, check, reward, unlock, goal, shuffle), otherwise at most every 90 s (`SAVE_INTERVAL_MS`), and when the app leaves the screen (`AppModel.onBackground` calls `Engine.save_game`). Reveals and trap starts wait for the periodic save (a trap ending saves at once): a force-stop loses at most 90 s of counters.
+Step Up, Wanderlust and Cartographer are one chain each (one bar with milestone marks, "next: ..." text, tap for the milestone list) instead of many separate quests; members are hidden from "Show places on the map". Counters live in `Game.counters` (steps, minutes away, new map squares, `steps_last` baseline); they are in the game file, old saves load with defaults. Steps count only while a game is open (`steps_last` is reset on load, so closed time is never credited). Step Up, Wanderlust and Cartographer count only while their zone is unlocked (a locked zone's bar stays still, unlocking pays nothing out at once, and a zone that locks again when the server's item list shrinks keeps what it had). Cartographer counts squares new to the whole game (`Fog::cells`, anywhere) seen while its zone is unlocked. Saves from before that (`counters.cells_counted` false) start an open zone's Cartographer at the whole game's square count and a locked zone's at 0. Time away (Wanderlust) is event-driven: it runs while presence counts (not on a camp's Wi-Fi, not in the car) from `counters.away_mark`, is credited on events (a fix, counting going off, a scheduled `tick`), and is read live as credited + (now - mark); a fix within 50 m (`CAMP_CIRCLE_M`) of any camp ends it (backup without camp Wi-Fi). The app schedules one wake-up at `next_due_ms` (`DueTimer`). No away settings. The game file (whole JSON + fsync) is saved at once only for lasting events (`Event::saves_at_once`: quest done, check, reward, unlock, goal, shuffle), otherwise at most every 90 s (`SAVE_INTERVAL_MS`), and when the app leaves the screen (`AppModel.onBackground` calls `Engine.save_game`). Reveals and trap starts wait for the periodic save (a trap ending saves at once): a force-stop loses at most 90 s of counters.
 
 ## Walk recap
 
@@ -101,23 +102,27 @@ and log read `Help.atCamp(name)` ("At Mom's: paused"); the recap says "Welcome b
 
 ## Presence (camp Wi-Fi, car Bluetooth, zone duty cycle)
 
-`android/.../presence/`: `PresencePolicy.decide(Signals)` is a pure function, first match wins: not playing = Stopped; car Bluetooth = InCar; home Wi-Fi = AtHome (all three:
+`android/.../presence/`: `PresencePolicy.decide(Signals)` is a pure function, first match wins: not playing = Stopped; car Bluetooth = InCar; a camp's Wi-Fi = AtHome (all three:
 GPS off, `counting=false`); zone Far = OutsideZones (GPS 90 s / 50 m, counting); otherwise InZone (GPS every 1 s screen on / 5 s off, counting). `PresenceMonitor` gathers the signals
 (Wi-Fi SSID, Bluetooth ACL, nearest zone), applies the decision to the location source and to the counting flag (the engine ignores fixes and steps while it is false), shows
 the chip on Play and writes a "Presence" activity line and a `presence` diag line on each change; heartbeat (at most once a minute, on fixes) adds `presence`/`counting`;
-a pending debounce schedules one re-evaluation for when it settles. Settings (home SSIDs with optional BSSID, car device name+address) live in SharedPreferences `presence` via `PresenceSettings`, not in the core.
+a pending debounce schedules one re-evaluation for when it settles. Settings (camp Wi-Fi networks, keyed by SSID and camp id so one network can serve two camps, with optional BSSID; car device name+address) live in
+SharedPreferences `presence` via `PresenceSettings`, not in the core.
 Setup lives in `SetupFlow` (steps in `SetupSteps.kt`; pure helpers: `presence/SetupProgress.kt` (`SetupProgress`) and `presence/Choices.kt` (`WifiChoices`/`CarChoices`)).
-`PresenceSettings.setupDone` gates the first-run wizard; the Home Base tile has no button: tapping it opens the wizard (at the first missing step when it was never finished or home Wi-Fi is missing; a missing car never triggers that), and it shows a warning while home Wi-Fi is missing. Step 2 keeps search/Rescan at the top, the list scrolling in between, and "Add a network by name" pinned above the buttons. The Play chip reads
+`PresenceSettings.setupDone` gates the first-run wizard; the Camps card opens the Camps screen, and its "Finish setup" button opens the wizard at the first missing
+step (when it was never finished or no camp has Wi-Fi; a missing car never triggers that); it shows a warning while no camp has Wi-Fi. Step 2 starts with a row of
+camp chips, the camp the ticked networks are saved for (a camp row's Wi-Fi button preselects it, else the core's `nearest_camp` of the last fix, else the first
+camp; with no camp it asks for one first), then search/Rescan at the top, the list scrolling in between, and "Add a network by name" pinned above the buttons. The Play chip reads
 "Protection off" when nothing is configured. Wi-Fi choices come from nearby scan results because Android exposes no saved-network list.
-**Home Wi-Fi offer (#11):** a player who skipped home Wi-Fi gets "You're home: add this Wi-Fi?" (`HomeWifiDialog`, text in `HomeOfferText`). The pure rule
-`presence/HomeWifiOffer.decide(OfferSignals)` offers when no home network is saved, a game is open, the last real fix is within 75 m of `realmOps.homePoint()` with
-accuracy at most 50 m, the Wi-Fi has a usable SSID that is not muted, no offer is showing and "Later" was not pressed in the last 10 minutes. `PresenceController`
+**Camp Wi-Fi offer (#11):** a player with no Wi-Fi saved for a camp gets "You're at {camp}: add this Wi-Fi?" (`HomeWifiDialog`, text in `HomeOfferText`). The
+pure rule `presence/HomeWifiOffer.decide(OfferSignals)` offers when a game is open, the last real fix (accuracy at most 50 m) is within 75 m of a camp
+(`Engine.nearest_camp`, `NEAR_CAMP_M` in the core) that has no network saved, the network is not already a camp's, the Wi-Fi has a usable SSID that is not muted, no offer is showing and "Later" was not pressed in the last 10 minutes. `PresenceController`
 checks it in every `evaluate()` (after each fix, each Wi-Fi change and when the wizard closes) through `HomeWifiOffer.next`, which re-decides as if nothing were
-showing and keeps the offer only while the same SSID still qualifies (otherwise it is withdrawn, no cooldown). Add re-checks first, then saves (`addHome`) and
+showing and keeps the offer only while the same SSID still qualifies (otherwise it is withdrawn, no cooldown). Add re-checks first, then saves (`addHome`, for the offer's camp) and
 re-evaluates; "Not this one" adds the already-cleaned SSID as is to `PresenceSettings.mutedHomeOffers` (a preferences string set, no settings UI); "Later" is an
 in-memory cooldown on the wall clock. The fix age uses the monotonic clock (`elapsedRealtimeNanos`, 0..120 s), so the cached last-known location loaded when GPS
 starts and future-stamped fixes cannot trigger it. `AppRoot` holds the dialog back while the away, scan, YAML or background-location dialog is up (`showHomeOffer`).
-Seeding at monitor start reads the signals for up to 3 s and trusts them at once (so a game opened at home shows "At home, paused" immediately); afterwards the
+Seeding at monitor start reads the signals for up to 3 s and trusts them at once (so a game opened at a camp shows "At {camp}: paused" immediately); afterwards the
 **arrival** into AtHome/InCar is debounced 45 s (`Debouncer`) and leaving is immediate. A missing signal (no permission, Wi-Fi off) counts as "not present".
 Known limits: Bluetooth and the outside-zone duty cycle have no outdoor run yet; the SSID needs location permission; matching is by name (BSSID optional); the `gps` field in the
 first diag line prints `GpsMode$Off@hash` (cosmetic, no toString).

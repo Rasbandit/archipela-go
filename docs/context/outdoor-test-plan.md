@@ -21,12 +21,13 @@ honest about items not applied yet) and, with "Show GPS and app notes", why a ne
 ## What to try (about 30 minutes)
 
 - Walk with the screen off in a pocket for 10 min, then look at the map: the trace line should cover the walk.
-- A Point quest (walk to it), an Away quest (be away from home for the minutes it asks), a Steps quest.
+- A Point quest (walk to it), an Away quest (be away from every camp for the minutes it asks), a Steps quest.
 - Stand still 3 min inside a Dwell place: it must finish on time with no new fixes (one scheduled wake-up; GPS only reports movement).
 
 ## Presence checklist (camps, car, zones)
 
-Before leaving: Realms > **Camps** card (add a second camp to test camps), then **Wi-Fi and car**. At home, in step 2 tick the network tagged "Connected now" (needs location permission to read the Wi-Fi name). For the car, pair it in
+Before leaving: Realms > **Camps** card (add a second camp to test camps), then the camp row's **Wi-Fi** button (or **Wi-Fi and car**). At the camp, in step 2
+check the camp chip at the top is that camp, then tick the network tagged "Connected now" (needs location permission to read the Wi-Fi name). For the car, pair it in
 the phone's Bluetooth settings first, then tick it in step 3 (needs the Nearby devices permission). Open the game and read the chip next to the game name:
 
 - **Tracking**: inside a zone, GPS every 5 s once you move 10 m (none while standing), progress counts.
@@ -34,16 +35,16 @@ the phone's Bluetooth settings first, then tick it in step 3 (needs the Nearby d
 - **In car, not counting**: a tagged car device is connected; GPS is off and nothing counts.
 - **Outside zones, saving battery**: far from every zone; GPS every 90 s once you move 50 m, progress still counts.
 - **Not playing**: no game open or tracking paused.
-Verified on the emulator with the old Presence screen (home Wi-Fi only): add/remove network, At home (GPS unregistered, mock fixes ignored), back to Tracking after removing the network. The new setup flow (tap the Home Base tile, steps 1-3) ran on the emulator and on the Pixel 8 Pro: step 2 listed the connected and nearby networks with only location permission (no NEARBY_WIFI_DEVICES needed). Pausing at home with it is still to be checked outdoors.
-**Untested until an outdoor run: car Bluetooth (no paired device on the emulator) and the outside-zone duty cycle with real movement.** Check: leave the home Wi-Fi
+Verified on the emulator with the old Presence screen (home Wi-Fi only): add/remove network, At home (GPS unregistered, mock fixes ignored), back to Tracking after removing the network. The new setup flow (tap the Home Base tile, steps 1-3) ran on the emulator and on the Pixel 8 Pro: step 2 listed the connected and nearby networks with only location permission (no NEARBY_WIFI_DEVICES needed). Pausing at a camp with it is still to be checked outdoors.
+**Untested until an outdoor run: car Bluetooth (no paired device on the emulator) and the outside-zone duty cycle with real movement.** Check: leave the camp's Wi-Fi
 and walk off (leaving is immediate; arriving back needs 45 s of Wi-Fi), start/stop the car connection, walk out of a zone and back in.
-**Home circle (2026-10-13, `core/src/home_watch.rs`).** With a home pin, a Wi-Fi drop no longer leaves home: it starts a GPS check
-(GNSS every second, at most 60 s), and so does a walk at home (30 steps in 30 s; the step counter runs at home in 10 s batches).
-Only a fix clearly outside the 50 m circle (distance minus accuracy) leaves; one clearly inside ends the check (no new check from
-steps for 2 min); an unclear check falls back to home. Two fixes clearly inside bring you home while out. Fixes while home or
-checking reach no game, journal point or trace. Without a pin or a readable step counter (GPS is off at home, so only steps can
-see a walk out), home Wi-Fi alone decides as before. The emulator has no step counter, so it never uses the circle. To check outdoors: sit at home
-with Wi-Fi off (no points, chip "At home"), walk out (tracking within about 30 s of the walk starting plus the 50 m), walk back in.
+**Camp circles (2026-10-13, `core/src/home_watch.rs`; one circle per camp since camps).** With a camp pinned, a Wi-Fi drop no longer leaves the camp: it starts a GPS check
+(GNSS every second, at most 60 s), and so does a walk at a camp (30 steps in 30 s; the step counter runs at a camp in 10 s batches).
+Only a fix clearly outside every 50 m circle (distance minus accuracy) leaves; one clearly inside ends the check (no new check from
+steps for 2 min); an unclear check falls back to the camp. Two fixes clearly inside any camp's circle bring you to that camp while out. Fixes while at a camp or
+checking reach no game, journal point or trace. Without a camp or a readable step counter (GPS is off at a camp, so only steps can
+see a walk out), the camps' Wi-Fi alone decides as before. The emulator has no step counter, so it never uses the circles. To check outdoors: sit at a camp
+with Wi-Fi off (no points, chip "At {camp}: paused"), walk out (tracking within about 30 s of the walk starting plus the 50 m), walk back in.
 Diag: `rawstate` presence lines and `"gps":"Check"` while checking.
 Where to look afterwards: Activity tab, kind **Presence** ("At Home: paused" or another camp's name, "Tracking", "Outside every zone: saving battery"); in the diag, lines with
 `"tag":"presence"` (`msg` = state, `counting`, `gps` mode) and the extra heartbeat fields `presence` and `counting` (no heartbeats while AtHome/InCar: GPS is off, so nothing arrives).
@@ -65,7 +66,7 @@ python3 scripts/diag_report.py diag/<timestamp>    # quick summary; or just hand
   last fix age/accuracy/provider, steps, battery %, screen on, Doze, power save, battery-unrestricted.
 - `files/journal.db`: every accepted GPS point (real/simulated) and the audit events (SQLite; tables `points`, `events`).
 - `files/games/*.json`: full game state. `logcat.txt`: system log (may be short).
-- Reading it: no heartbeat = no fixes arrived (GPS off: at home, in the car, stopped; or the process was frozen/killed: check `presence` lines and service
+- Reading it: no heartbeat = no fixes arrived (GPS off: at a camp, in the car, stopped; or the process was frozen/killed: check `presence` lines and service
   start/stop around the gap); a heartbeat with `rejected` > 0 and few `fixes` = poor accuracy (check `screen_on`, `doze`, `last_acc_m`).
 
 ## Known limits

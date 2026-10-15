@@ -255,11 +255,11 @@ internal object Help {
 internal object SetupText {
     const val WIFI_WHY =
         "While you are on any of these networks nothing counts and GPS turns off. That saves battery and " +
-            "stops cheating. Tick every network your home uses."
+            "stops cheating. Tick every network the camp uses."
     const val CAR_WHY =
         "While your car is connected nothing counts, so rides do not turn into pickups. Skip this if you " +
             "never drive while playing."
-    const val WIFI_NONE_FOUND = "No networks found. Connect to your home Wi-Fi, or type its name below."
+    const val WIFI_NONE_FOUND = "No networks found. Connect to the camp's Wi-Fi, or type its name below."
     const val WIFI_NEEDS_LOCATION = "Allow location to list nearby networks."
     const val CAR_NEEDS_BLUETOOTH = "Bluetooth permission lets the app see your paired devices."
     const val CAR_BLUETOOTH_BLOCKED =
@@ -272,6 +272,8 @@ internal object SetupText {
     const val BATTERY_BUTTON = "Open battery settings"
     const val WIFI_NEEDS_CAMP = "Set your camp first, then add its Wi-Fi."
     const val WIFI_FOR_CAMP = "Networks for this camp:"
+    const val WIFI_TITLE = "Camp Wi-Fi · step 2 of 3"
+    const val WIFI_SKIP = "Skip, I'll do this at the camp"
     const val HOME_NEEDS_WIFI = "Add a camp's Wi-Fi so the game pauses there"
 }
 
