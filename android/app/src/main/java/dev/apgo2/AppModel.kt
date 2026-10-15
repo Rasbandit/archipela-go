@@ -163,7 +163,7 @@ internal class AppModel(
     val log = mutableStateListOf<String>()
     var realLoc by mutableStateOf<Location?>(null)
     var simPos by mutableStateOf<LatLng?>(null)
-    var camps by mutableStateOf<List<CampOut>>(emptyList())
+    var camps by mutableStateOf<List<CampOut>>(engine.camps())
 
     /** The quest anchor until per-zone origins replace it: the camp "home" (as in the core), else the first camp. */
     val home: GeoPoint? get() = (camps.firstOrNull { it.id == "home" } ?: camps.firstOrNull())?.let { GeoPoint(it.lat, it.lon) }

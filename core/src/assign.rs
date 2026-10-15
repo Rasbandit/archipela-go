@@ -111,7 +111,7 @@ pub enum Target {
         /// How long to be away from home, in minutes.
         minutes: f64,
     },
-    /// Pick up items around home and bring enough of them home (forager).
+    /// Pick up items around home and bring enough of them to a camp (forager).
     Collect {
         /// Where the items lie: nearest home first. Indexes are stable (saved progress refers to them).
         pts: Vec<Point>,
@@ -134,7 +134,7 @@ impl Target {
             Self::DwellArea { minutes, .. } => format!("Spend {minutes:.0} min inside the area"),
             Self::Line { pts, coverage, .. } => format!("Cover {:.0}% of this {} path", coverage * 100.0, distance(polyline_len_m(pts), units)),
             Self::Courier { time_limit_min, .. } => format!("Pick up at A, deliver to B within {time_limit_min:.0} min"),
-            Self::RoundTrip { .. } => "Reach the far point, then come back home".to_string(),
+            Self::RoundTrip { .. } => "Reach the far point, then come back to a camp".to_string(),
             Self::Cells { n, .. } => format!("Visit {n} new map cells"),
             Self::Steps { n } => format!("Take {n} steps"),
             Self::Away { minutes } => format!("Spend {minutes:.0} min away from home"),
@@ -1905,7 +1905,7 @@ mod goal_text_tests {
             (Target::DwellArea { poly: vec![], center: p, r: 40.0, minutes: 5.0 }, "Spend 5 min inside the area"),
             (Target::Line { pts: vec![p, destination(p, 0.0, 1000.0)], corridor_m: 25.0, coverage: 0.9 }, "Cover 90% of this 1 km path"),
             (Target::Courier { a: p, b: p, r: 40.0, time_limit_min: 12.0 }, "Pick up at A, deliver to B within 12 min"),
-            (Target::RoundTrip { far: p, r: 50.0 }, "Reach the far point, then come back home"),
+            (Target::RoundTrip { far: p, r: 50.0 }, "Reach the far point, then come back to a camp"),
             (Target::Cells { n: 12, cell_m: 100.0 }, "Visit 12 new map cells"),
             (Target::Steps { n: 500 }, "Take 500 steps"),
             (Target::Away { minutes: 20.0 }, "Spend 20 min away from home"),
