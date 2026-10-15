@@ -295,14 +295,13 @@ internal class PresenceController(
                 // Monotonic age, immune to GPS/wall-clock skew; the "Later" cooldown stays on the wall clock (nowMs).
                 loc?.let { (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / NANOS_PER_MS },
             )
-        val camps = model.camps.map { OfferCamp(it.id, it.name, GeoFix(it.lat, it.lon, 0.0)) }
         val signals =
             OfferSignals(
                 saved = savedNetworks(),
                 playing = model.hud != null,
                 fix = fix,
                 fixAgeMs = fixAgeMs,
-                camps = camps,
+                campNear = { f -> model.engine.nearestCamp(f.lat, f.lon)?.let { OfferCamp(it.id, it.name, GeoFix(it.lat, it.lon, 0.0)) } },
                 wifi = monitor.currentWifi,
                 muted = model.settings.mutedHomeOffers,
                 showing = homeOffer != null,

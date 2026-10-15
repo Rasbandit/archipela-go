@@ -1,11 +1,5 @@
 package dev.apgo2.presence
 
-import kotlin.math.asin
-import kotlin.math.cos
-import kotlin.math.min
-import kotlin.math.sin
-import kotlin.math.sqrt
-
 /** A position in degrees with its accuracy in metres (0 for a pin). */
 internal data class GeoFix(
     val lat: Double,
@@ -33,7 +27,8 @@ internal data class OfferSignals(
     val fix: GeoFix?,
     /** How long ago [fix] was taken, on the monotonic clock (`elapsedRealtimeNanos`); `null` when unknown. */
     val fixAgeMs: Long?,
-    val camps: List<OfferCamp>,
+    /** The core's nearest camp within reach of a fix (`Engine.nearestCamp`), or `null`. */
+    val campNear: (GeoFix) -> OfferCamp?,
     val wifi: WifiId?,
     val muted: Set<String>,
     val showing: Boolean,
@@ -46,11 +41,9 @@ internal data class OfferSignals(
  * that camp while on a named network, offer to save that network for it. Pure.
  */
 internal object HomeWifiOffer {
-    const val NEAR_HOME_M = 75.0
     const val MAX_ACCURACY_M = 50.0
     const val LATER_COOLDOWN_MS = 10 * 60 * 1000L
     const val MAX_FIX_AGE_MS = 2 * 60 * 1000L
-    private const val EARTH_RADIUS_M = 6_371_000.0
 
     /** The network to offer (SSID cleaned) and its camp, or `null` when no offer should appear now. */
     fun decide(s: OfferSignals): Offer? {
@@ -60,15 +53,6 @@ internal object HomeWifiOffer {
         val needed = camp != null && s.saved.none { it.campId == camp.id } && PresenceSignals.campOf(net, s.saved) == null
         val ok = needed && s.playing && !s.showing && !cooling && net.ssid !in s.muted
         return camp?.takeIf { ok }?.let { Offer(net, it) }
-    }
-
-    /** The camp a Wi-Fi chosen in setup is saved for: the nearest within [NEAR_HOME_M], else the only camp, else none. */
-    fun campToSave(
-        fix: GeoFix?,
-        camps: List<OfferCamp>,
-    ): OfferCamp? {
-        val near = fix?.let { f -> camps.minByOrNull { distanceM(f, it.pin) }?.takeIf { distanceM(f, it.pin) <= NEAR_HOME_M } }
-        return near ?: camps.singleOrNull()
     }
 
     /**
@@ -95,27 +79,12 @@ internal object HomeWifiOffer {
     ): Set<String> = muted + ssid
 
     /**
-     * The camp the player is at: the nearest within [NEAR_HOME_M] of a fresh, accurate fix. The age check keeps out a cached last-known
-     * location (it keeps its original time), and a negative age (a fix stamped in the future) never passes.
+     * The camp the player is at: the one the core finds within reach of a fresh, accurate fix. The age check keeps out a cached
+     * last-known location (it keeps its original time), and a negative age (a fix stamped in the future) never passes.
      */
     fun nearestCamp(s: OfferSignals): OfferCamp? {
         val fix = s.fix
         val fresh = s.fixAgeMs != null && s.fixAgeMs in 0..MAX_FIX_AGE_MS
-        return if (fix == null || !fresh || fix.accuracyM > MAX_ACCURACY_M) {
-            null
-        } else {
-            s.camps.minByOrNull { distanceM(fix, it.pin) }?.takeIf { distanceM(fix, it.pin) <= NEAR_HOME_M }
-        }
-    }
-
-    /** Great-circle distance in metres (haversine). */
-    fun distanceM(
-        a: GeoFix,
-        b: GeoFix,
-    ): Double {
-        val dLat = Math.toRadians(b.lat - a.lat)
-        val dLon = Math.toRadians(b.lon - a.lon)
-        val h = sin(dLat / 2).let { it * it } + cos(Math.toRadians(a.lat)) * cos(Math.toRadians(b.lat)) * sin(dLon / 2).let { it * it }
-        return 2 * EARTH_RADIUS_M * asin(min(1.0, sqrt(h)))
+        return if (fix == null || !fresh || fix.accuracyM > MAX_ACCURACY_M) null else s.campNear(fix)
     }
 }

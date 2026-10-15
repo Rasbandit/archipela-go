@@ -286,6 +286,7 @@ internal object CampText {
     const val ADD_TITLE = "New camp"
     const val EDIT_TITLE = "Edit camp"
     const val NAME_LABEL = "Camp name"
+    const val NAME_PLACEHOLDER = "Left blank, it gets a name"
     const val TAP_TO_PLACE = "Tap the map to put your camp there."
     const val DRAG_TO_MOVE = "Drag the pin or tap the map to move it. Distances in your games are measured from your first camp."
     const val SAVED = "Camp saved"

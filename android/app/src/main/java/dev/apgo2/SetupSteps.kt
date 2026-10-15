@@ -46,10 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.apgo2.presence.CarChoices
 import dev.apgo2.presence.CarDevice
-import dev.apgo2.presence.GeoFix
 import dev.apgo2.presence.HomeNetwork
-import dev.apgo2.presence.HomeWifiOffer
-import dev.apgo2.presence.OfferCamp
 import dev.apgo2.presence.PresenceSignals
 import dev.apgo2.presence.WifiChoice
 import dev.apgo2.presence.WifiChoices
@@ -58,6 +55,7 @@ import dev.apgo2.ui.FeedbackText
 import dev.apgo2.ui.SetupText
 import dev.apgo2.ui.Tone
 import kotlinx.coroutines.delay
+import uniffi.apgo_ffi.CampOut
 
 /**
  * The frame every text step shares: title, why it matters, a fixed [header] (search), a list that scrolls in the space left over,
@@ -148,11 +146,8 @@ private class WifiStepState(
         }
     }
 
-    // The nearest camp to where the phone is, else the only camp; none when there is no camp to attach the network to.
-    private fun campToSave(): OfferCamp? {
-        val camps = m.engine.camps().map { OfferCamp(it.id, it.name, GeoFix(it.lat, it.lon, 0.0)) }
-        return HomeWifiOffer.campToSave(m.realLoc?.let { GeoFix(it.latitude, it.longitude, it.accuracy.toDouble()) }, camps)
-    }
+    // The nearest camp to where the phone is (the core decides), else the only camp; none when there is no camp to attach the network to.
+    private fun campToSave(): CampOut? = m.realLoc?.let { m.engine.nearestCamp(it.latitude, it.longitude) } ?: m.camps.singleOrNull()
 
     private fun noCamp() {
         note = SetupText.WIFI_NEEDS_CAMP

@@ -236,6 +236,23 @@ impl Camp {
     }
 }
 
+/// The point of the camp `"home"`, else of the first camp, else `None`.
+#[must_use]
+pub fn home_point_of(camps: &[Camp]) -> Option<Point> {
+    camps.iter().find(|c| c.id == HOME_CAMP_ID).or(camps.first()).map(|c| c.point)
+}
+
+/// The name a new camp gets when the player gives none: "Home" for the first camp, else "Camp N" with the lowest N not taken,
+/// counting from the number of camps plus one.
+#[must_use]
+pub fn default_camp_name(camps: &[Camp]) -> String {
+    if camps.is_empty() {
+        return "Home".into();
+    }
+    // N camps take at most N of the N + 1 names tried, so one is always free.
+    (camps.len() + 1..=2 * camps.len() + 1).map(|n| format!("Camp {n}")).find(|name| camps.iter().all(|c| &c.name != name)).unwrap_or_default()
+}
+
 /// Files under one directory: `realms.json`, `camps.json` (once saved; `home.json` before), `atlas/<realm id>.json`.
 pub struct RealmStore {
     dir: PathBuf,
@@ -393,8 +410,7 @@ impl RealmStore {
     /// The point of the camp `"home"`, else of the first camp, else `None`.
     #[must_use]
     pub fn home(&self) -> Option<Point> {
-        let camps = self.camps();
-        camps.iter().find(|c| c.id == HOME_CAMP_ID).or(camps.first()).map(|c| c.point)
+        home_point_of(&self.camps())
     }
 
     /// The pre-camps single home point.

@@ -28,9 +28,8 @@ internal class RealmManager(
     /** The realms to show: those waiting out their undo window are hidden but not yet deleted. */
     val shown: List<RealmOut> get() = model.realms.filter { it.id !in hidden }
 
-    /** Home, or failing that the first point of the first realm; null when there is neither. */
-    fun homePoint(): GeoPoint? =
-        model.home ?: model.realms.firstOrNull()?.let { r -> if (r.polygonActive) r.polygon.firstOrNull() else r.circle?.center }
+    /** The quest anchor for a new game, as the core picks it: the home camp, else the first camp, else the first realm's centre. */
+    fun homePoint(): GeoPoint? = model.engine.homePoint()
 
     /** "Realm N" with the lowest N not already used by a realm. */
     fun defaultName(): String {

@@ -1,8 +1,13 @@
 package dev.apgo2.presence
 
+import dev.apgo2.distanceM
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+
+// Stands in for the core's nearest-camp lookup (`Engine.nearestCamp`, tested in the core): the nearest camp within 75 m.
+private fun nearOf(camps: List<OfferCamp>): (GeoFix) -> OfferCamp? =
+    { f -> camps.filter { distanceM(f, it.pin) <= 75.0 }.minByOrNull { distanceM(f, it.pin) } }
 
 class HomeWifiOfferTest {
     private val home = GeoFix(lat = 47.0, lon = 8.0, accuracyM = 0.0)
@@ -17,7 +22,7 @@ class HomeWifiOfferTest {
             playing = true,
             fix = GeoFix(home.lat, home.lon, accuracyM = 10.0),
             fixAgeMs = 1_000L,
-            camps = listOf(homeCamp),
+            campNear = nearOf(listOf(homeCamp)),
             wifi = WifiId("\"HomeNet\"", "aa:bb:cc:dd:ee:01"),
             muted = emptySet(),
             showing = false,
@@ -42,7 +47,7 @@ class HomeWifiOfferTest {
 
     @Test fun noOfferWithoutAFixOrAHomePin() {
         assertNull(HomeWifiOffer.decide(base.copy(fix = null)))
-        assertNull(HomeWifiOffer.decide(base.copy(camps = emptyList())))
+        assertNull(HomeWifiOffer.decide(base.copy(campNear = nearOf(emptyList()))))
     }
 
     @Test fun theFixMustBeWithin75mOfHome() {
@@ -130,21 +135,20 @@ class HomeWifiOfferTest {
         assertNull("another network", HomeWifiOffer.next(showing, base.copy(wifi = WifiId("CafeWifi", null))))
     }
 
-    @Test fun distanceIsMeasuredInMetres() {
-        assertEquals(0.0, HomeWifiOffer.distanceM(home, home), 1e-9)
-        assertEquals(100.0, HomeWifiOffer.distanceM(home, GeoFix(north(100.0), home.lon, 0.0)), 0.1)
-    }
-
     @Test fun offersAtTheNearestCampAndSavesItsId() {
         val cabin = OfferCamp("cabin", "Cabin", GeoFix(north(60.0), home.lon, 0.0))
-        val s = base.copy(camps = listOf(OfferCamp("home", "Home", home), cabin), fix = GeoFix(north(55.0), home.lon, 10.0))
+        val s = base.copy(campNear = nearOf(listOf(OfferCamp("home", "Home", home), cabin)), fix = GeoFix(north(55.0), home.lon, 10.0))
         assertEquals(cabin, HomeWifiOffer.nearestCamp(s))
         assertNull("beyond 75 m of every camp", HomeWifiOffer.nearestCamp(s.copy(fix = GeoFix(north(500.0), home.lon, 10.0))))
     }
 
     @Test fun aCampWithItsOwnNetworkIsNotOfferedAgainButAnotherCampIs() {
         val cabin = OfferCamp("cabin", "Cabin", GeoFix(north(2000.0), home.lon, 0.0))
-        val atCabin = base.copy(camps = listOf(OfferCamp("home", "Home", home), cabin), fix = GeoFix(cabin.pin.lat, home.lon, 10.0))
+        val atCabin =
+            base.copy(
+                campNear = nearOf(listOf(OfferCamp("home", "Home", home), cabin)),
+                fix = GeoFix(cabin.pin.lat, home.lon, 10.0),
+            )
         val homeSaved = listOf(HomeNetwork("HomeNet2", null, "home"))
         assertEquals(
             "cabin has none yet",
@@ -170,20 +174,5 @@ class HomeWifiOfferTest {
             WifiId("HomeNet", "aa:bb:cc:dd:ee:01"),
             HomeWifiOffer.decide(base.copy(saved = PresenceSignals.forCamps(saved, setOf("home"))))?.net,
         )
-    }
-
-    @Test fun setupSavesForTheNearestCampElseTheOnlyCampElseNone() {
-        val cabin = OfferCamp("cabin", "Cabin", GeoFix(north(2000.0), home.lon, 0.0))
-        val nearHome = GeoFix(north(10.0), home.lon, 5.0)
-        assertEquals(homeCamp, HomeWifiOffer.campToSave(nearHome, listOf(homeCamp, cabin)))
-        assertEquals(
-            "far from both, two camps",
-            null,
-            HomeWifiOffer.campToSave(GeoFix(north(900.0), home.lon, 5.0), listOf(homeCamp, cabin)),
-        )
-        assertEquals("no fix, one camp", homeCamp, HomeWifiOffer.campToSave(null, listOf(homeCamp)))
-        assertEquals("far, one camp", homeCamp, HomeWifiOffer.campToSave(GeoFix(north(900.0), home.lon, 5.0), listOf(homeCamp)))
-        assertNull("no camps", HomeWifiOffer.campToSave(nearHome, emptyList()))
-        assertNull("no fix, two camps", HomeWifiOffer.campToSave(null, listOf(homeCamp, cabin)))
     }
 }

@@ -1,7 +1,6 @@
 package dev.apgo2
 
 import dev.apgo2.presence.GeoFix
-import dev.apgo2.presence.HomeWifiOffer
 import uniffi.apgo_ffi.CampIn
 import uniffi.apgo_ffi.CampOut
 
@@ -9,7 +8,8 @@ import uniffi.apgo_ffi.CampOut
 internal interface CampStore {
     fun camps(): List<CampOut>
 
-    fun save(c: CampIn)
+    /** Saves [c] and returns its id; the core names a camp saved with a blank name. */
+    fun save(c: CampIn): String
 
     fun delete(id: String)
 }
@@ -31,42 +31,27 @@ internal data class CampRow(
     val hasWifi: Boolean,
 )
 
-private const val FIRST_CAMP_NAME = "Home"
-
 /** Adding, renaming, moving and deleting camps, and the list the camps screen shows. Pure over [CampStore] and [CampWifi]. */
 internal class CampBook(
     private val store: CampStore,
     private val wifi: CampWifi,
 ) {
-    /** "Home" for the first camp, else "Camp N" with the lowest N not taken (counting from the number of camps plus one). */
-    fun defaultName(): String {
-        val camps = store.camps()
-        if (camps.isEmpty()) return FIRST_CAMP_NAME
-        val taken = camps.map { it.name }.toSet()
-        return generateSequence(camps.size + 1) { it + 1 }.map { "Camp $it" }.first { it !in taken }
-    }
-
-    /** Saves a new camp (a blank [name] takes [defaultName]) and returns its id. */
+    /** Saves a new camp (a blank [name] gets the core's default) and returns its id. */
     fun add(
         name: String,
         lat: Double,
         lon: Double,
-    ): String {
-        val label = name.trim().ifEmpty { defaultName() }
-        val before = store.camps().map { it.id }.toSet()
-        store.save(CampIn("", label, lat, lon))
-        return store.camps().first { it.id !in before }.id
-    }
+    ): String = store.save(CampIn("", name.trim(), lat, lon))
 
-    /** Renames and/or moves camp [id]; a blank [name] keeps the old name. False (nothing saved) when there is no such camp. */
+    /** Renames and/or moves camp [id]; the core keeps the old name for a blank [name]. False (nothing saved) when there is no such camp. */
     fun edit(
         id: String,
         name: String,
         lat: Double,
         lon: Double,
     ): Boolean {
-        val old = store.camps().firstOrNull { it.id == id } ?: return false
-        store.save(CampIn(id, name.trim().ifEmpty { old.name }, lat, lon))
+        if (store.camps().none { it.id == id }) return false
+        store.save(CampIn(id, name.trim(), lat, lon))
         return true
     }
 
@@ -82,7 +67,7 @@ internal class CampBook(
         here: GeoFix?,
     ): List<CampRow> =
         camps.map {
-            val distance = here?.let { h -> HomeWifiOffer.distanceM(h, GeoFix(it.lat, it.lon, 0.0)) }
+            val distance = here?.let { h -> distanceM(h, GeoFix(it.lat, it.lon, 0.0)) }
             CampRow(it.id, it.name, it.lat, it.lon, distance, wifi.networkCount(it.id) > 0)
         }
 }

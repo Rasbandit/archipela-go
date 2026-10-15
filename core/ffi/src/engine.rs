@@ -12,13 +12,13 @@ use apgo_core::catalog::{Catalog, Kind, Mode};
 use apgo_core::chain::ChainUnit;
 use apgo_core::game::{ApServer, Backend, Event, Game, NearMiss, NewGame, QuestState, Streets};
 use apgo_core::geo::{distance_m, simplify_spaced, Point};
-use apgo_core::home_watch::{HomeState, HomeWatch};
+use apgo_core::home_watch::{HomeState, HomeWatch, NEAR_CAMP_M};
 use apgo_core::journal::{kind, Journal, JournalEvent, TrackPoint, DEFAULT_MAX_GAP_MS};
 use apgo_core::loc::calib::StepCal;
 use apgo_core::loc::{DisplayPosition, DisplaySource, Estimate, HeadingSource, Provider, RawFix, Verdict};
 use apgo_core::marks::Mark;
 use apgo_core::num::count_u32;
-use apgo_core::realm::{Camp, Proximity, Realm, RealmStore, Shape};
+use apgo_core::realm::{default_camp_name, home_point_of, Camp, Proximity, Realm, RealmStore, Shape};
 use apgo_core::recap::{walk_summary, Recap};
 use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_with_stop, Atlas, Fetch, Pacing, SCAN_BUDGET};
@@ -1424,15 +1424,20 @@ impl Engine {
 
     // Change the saved camps with the game guard held (lock order: game, then watch), so two edits cannot interleave their
     // read-modify-write of camps.json, then hand the result on.
-    fn edit_camps(&self, edit: impl FnOnce(&mut Vec<Camp>)) -> Result<(), CoreError> {
+    fn edit_camps<T>(&self, edit: impl FnOnce(&mut Vec<Camp>) -> T) -> Result<T, CoreError> {
         let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut camps = self.camps_now();
-        edit(&mut camps);
-        let saved = self.store().set_camps(&camps).map_err(err);
-        if saved.is_ok() {
-            self.apply_camps(slot, camps);
+        let out = edit(&mut camps);
+        match self.store().set_camps(&camps) {
+            Ok(()) => {
+                self.apply_camps(slot, camps);
+                Ok(out)
+            }
+            Err(e) => {
+                drop(slot);
+                Err(err(e))
+            }
         }
-        saved
     }
 
     // Hand the camps to the open game and to the presence watch. Takes the game guard, so the camps only ever change together
@@ -1707,7 +1712,12 @@ impl Engine {
     }
 
     fn home_for(&self, realms: &[(Realm, Atlas)]) -> Point {
-        self.store().home().or_else(|| realms.first().map(|(r, _)| r.shape.center())).unwrap_or(Point::new(0.0, 0.0))
+        self.anchor(realms.first().map(|(r, _)| r)).unwrap_or(Point::new(0.0, 0.0))
+    }
+
+    // The quest anchor: the home camp, else the first camp, else the centre of `first_realm`.
+    fn anchor(&self, first_realm: Option<&Realm>) -> Option<Point> {
+        home_point_of(&self.camps_now()).or_else(|| first_realm.map(|r| r.shape.center()))
     }
 
     fn offers_of(&self, atlas: &Atlas) -> Vec<OfferOut> {
@@ -2012,17 +2022,40 @@ impl Engine {
         self.camps_now().into_iter().map(camp_out).collect()
     }
 
-    /// Add a camp, or change the one with the same id (an empty id makes a new camp). The open game and presence follow at once.
+    /// Add a camp, or change the one with the same id (an empty id makes a new camp), and return its id. A blank name keeps an
+    /// existing camp's name and gives a new camp the default ("Home", then "Camp N"). The open game and presence follow at once.
     ///
     /// # Errors
     /// Returns an error if the file cannot be written.
-    pub fn save_camp(&self, c: CampIn) -> Result<(), CoreError> {
+    pub fn save_camp(&self, c: CampIn) -> Result<String, CoreError> {
         let id = if c.id.is_empty() { new_camp_id() } else { c.id };
-        let camp = Camp { id, name: c.name, point: Point::new(c.lat, c.lon) };
-        self.edit_camps(|camps| match camps.iter_mut().find(|x| x.id == camp.id) {
-            Some(x) => *x = camp,
-            None => camps.push(camp),
+        let name = c.name.trim().to_owned();
+        let point = Point::new(c.lat, c.lon);
+        self.edit_camps(|camps| {
+            if let Some(x) = camps.iter_mut().find(|x| x.id == id) {
+                *x = Camp { id: id.clone(), name: if name.is_empty() { x.name.clone() } else { name }, point };
+            } else {
+                let name = if name.is_empty() { default_camp_name(camps) } else { name };
+                camps.push(Camp { id: id.clone(), name, point });
+            }
+            id
         })
+    }
+
+    /// The nearest camp within [`NEAR_CAMP_M`] of (`lat`, `lon`), if any: the camp a Wi-Fi network there is offered for.
+    pub fn nearest_camp(&self, lat: f64, lon: f64) -> Option<CampOut> {
+        let here = Point::new(lat, lon);
+        self.camps_now()
+            .into_iter()
+            .map(|c| (distance_m(here, c.point), c))
+            .filter(|(d, _)| *d <= NEAR_CAMP_M)
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, c)| camp_out(c))
+    }
+
+    /// The quest anchor for a new game: the home camp, else the first camp, else the first realm's centre; `None` with neither.
+    pub fn home_point(&self) -> Option<GeoPoint> {
+        self.anchor(self.store().list().first()).map(gp)
     }
 
     /// Remove a camp (an unknown id is ignored). The open game and presence follow at once.
@@ -3586,6 +3619,49 @@ mod tests {
 
     fn camp_in(id: &str, name: &str, p: Point) -> CampIn {
         CampIn { id: id.into(), name: name.into(), lat: p.lat, lon: p.lon }
+    }
+
+    #[test]
+    fn the_nearest_camp_is_the_closest_within_75_m() {
+        let e = engine_with_game("camps-nearest");
+        let at = |m: f64| destination(home(), 0.0, m);
+        assert!(e.nearest_camp(home().lat, home().lon).is_none(), "no camps");
+        e.save_camp(camp_in("home", "Home", home())).unwrap();
+        e.save_camp(camp_in("cabin", "Cabin", at(60.0))).unwrap();
+        assert_eq!(e.nearest_camp(at(55.0).lat, at(55.0).lon).map(|c| c.id).as_deref(), Some("cabin"));
+        assert_eq!(e.nearest_camp(at(-74.9).lat, at(-74.9).lon).map(|c| c.id).as_deref(), Some("home"));
+        assert!(e.nearest_camp(at(-75.1).lat, at(-75.1).lon).is_none(), "beyond {NEAR_CAMP_M} m of every camp");
+    }
+
+    #[test]
+    fn a_blank_camp_name_is_home_then_camp_n_and_the_id_is_returned() {
+        let e = engine_with_game("camps-default-name");
+        let first = e.save_camp(camp_in("", " ", home())).unwrap();
+        assert_eq!(e.camps()[0].id, first);
+        let second = e.save_camp(camp_in("", "", home())).unwrap();
+        assert_ne!(first, second);
+        e.save_camp(camp_in("", "Camp 3", home())).unwrap();
+        e.save_camp(camp_in("", "", home())).unwrap();
+        let names: Vec<String> = e.camps().into_iter().map(|c| c.name).collect();
+        assert_eq!(names, ["Home", "Camp 2", "Camp 3", "Camp 4"]);
+        assert_eq!(e.save_camp(camp_in(&second, "", home())).unwrap(), second);
+        assert_eq!(e.camps()[1].name, "Camp 2", "a blank rename keeps the old name");
+        e.delete_camp(first).unwrap();
+        e.save_camp(camp_in("", "", home())).unwrap();
+        assert_eq!(e.camps()[3].name, "Camp 5", "four camps: counting starts at 5");
+    }
+
+    #[test]
+    fn the_home_point_is_the_home_camp_else_the_first_camp_else_the_first_realm() {
+        let e = engine_with_game("camps-home-point");
+        let at = |m: f64| destination(home(), 0.0, m);
+        assert_eq!(e.home_point().map(|p| (p.lat, p.lon)), Some((home().lat, home().lon)), "the first realm's centre");
+        e.save_camp(camp_in("b", "Cabin", at(3000.0))).unwrap();
+        assert_eq!(e.home_point().map(|p| (p.lat, p.lon)), Some((at(3000.0).lat, at(3000.0).lon)));
+        e.save_camp(camp_in("home", "Home", at(100.0))).unwrap();
+        assert_eq!(e.home_point().map(|p| (p.lat, p.lon)), Some((at(100.0).lat, at(100.0).lon)));
+        let empty = Engine::new(e.dir.join("empty").to_string_lossy().into_owned());
+        assert!(empty.home_point().is_none());
     }
 
     #[test]

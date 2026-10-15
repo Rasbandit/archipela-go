@@ -15,10 +15,12 @@ private class FakeCamps : CampStore {
 
     override fun camps() = saved.toList()
 
-    override fun save(c: CampIn) {
+    // Stores the name as given: naming a blank camp is the core's rule, tested there.
+    override fun save(c: CampIn): String {
         val camp = CampOut(c.id.ifEmpty { "c${next++}" }, c.name, c.lat, c.lon)
         val at = saved.indexOfFirst { it.id == camp.id }
         if (at >= 0) saved[at] = camp else saved.add(camp)
+        return camp.id
     }
 
     override fun delete(id: String) {
@@ -41,30 +43,22 @@ class CampBookTest {
     private val wifi = FakeWifi()
     private val book = CampBook(store, wifi)
 
-    @Test fun theFirstCampIsHomeThenCampNWithTheLowestFreeNumber() {
-        assertEquals("Home", book.defaultName())
-        book.add("", 1.0, 2.0)
-        assertEquals("Camp 2", book.defaultName())
-        book.add("Camp 2", 3.0, 4.0)
-        assertEquals("Camp 3", book.defaultName())
-        book.delete(store.saved[0].id)
-        assertEquals("one camp left, Camp 2 is taken", "Camp 3", book.defaultName())
-    }
-
-    @Test fun addingWithABlankNameUsesTheDefaultAndAssignsAnId() {
+    @Test fun addingHandsTheCoreATrimmedNameAndReturnsTheIdItGave() {
         val id = book.add("  ", 40.0, -111.0)
         val c = store.saved.single()
-        assertEquals("Home", c.name)
+        assertEquals("a blank name goes to the core, which picks the default", "", c.name)
         assertEquals(id, c.id)
         assertTrue(id.isNotEmpty())
+        val cabin = book.add(" Cabin ", 1.0, 2.0)
+        assertEquals("Cabin", store.saved.first { it.id == cabin }.name)
     }
 
     @Test fun renameAndMoveKeepTheIdAndDoNotAddACamp() {
         val id = book.add("Cabin", 1.0, 2.0)
         book.edit(id, "Lake house", 5.0, 6.0)
         assertEquals(CampOut(id, "Lake house", 5.0, 6.0), store.saved.single())
-        book.edit(id, " ", 5.0, 6.0)
-        assertEquals("a blank rename keeps the old name", "Lake house", store.saved.single().name)
+        book.edit(id, " Lake ", 5.0, 6.0)
+        assertEquals("the name is trimmed", "Lake", store.saved.single().name)
     }
 
     @Test fun editingAnUnknownCampSavesNothingAndSaysSo() {

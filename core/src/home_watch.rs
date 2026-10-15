@@ -10,6 +10,9 @@ use crate::geo::{distance_m, Point};
 
 /// Radius of a camp circle, metres: it covers how far GPS wanders at a camp (indoors 10-30 m).
 pub const CAMP_CIRCLE_M: f64 = 50.0;
+/// The Wi-Fi offer's reach, metres: a network seen this close to a camp is offered for it. Wider than the [`CAMP_CIRCLE_M`]
+/// circle because GPS wanders indoors.
+pub const NEAR_CAMP_M: f64 = 75.0;
 /// A walk starts with this many steps ...
 pub const WALK_BURST_STEPS: i64 = 30;
 /// ... within this long, ms (pacing a room rarely keeps it up).

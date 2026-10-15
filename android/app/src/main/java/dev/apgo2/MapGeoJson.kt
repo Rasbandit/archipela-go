@@ -2,7 +2,6 @@ package dev.apgo2
 
 import androidx.compose.ui.geometry.Offset
 import dev.apgo2.presence.GeoFix
-import dev.apgo2.presence.HomeWifiOffer
 import dev.apgo2.ui.ApgoPalette
 import dev.apgo2.ui.METERS_PER_DEGREE
 import dev.apgo2.ui.MapMarkers
@@ -352,7 +351,7 @@ internal object MeFeatures {
         pin: MePin?,
     ): List<JSONObject> {
         if (end == null || pin == null || pin.spec.state == "stale") return emptyList()
-        val gap = HomeWifiOffer.distanceM(GeoFix(end.latitude, end.longitude, 0.0), GeoFix(pin.lat, pin.lon, 0.0))
+        val gap = distanceM(GeoFix(end.latitude, end.longitude, 0.0), GeoFix(pin.lat, pin.lon, 0.0))
         return if (gap > TRACE_HEAD_MAX_M) {
             emptyList()
         } else {

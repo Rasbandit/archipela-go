@@ -24,9 +24,6 @@ internal class CampManager(
             },
         )
 
-    /** The name a new camp starts with. */
-    fun defaultName() = book.defaultName()
-
     /** The list rows, from the camps in memory, with distances from where the phone is. */
     fun rows() = book.rows(model.camps, model.here?.let { GeoFix(it.latitude, it.longitude, 0.0) })
 

@@ -2,6 +2,7 @@ package dev.apgo2
 
 import android.content.Context
 import android.location.Location
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -165,8 +166,11 @@ internal class AppModel(
     var simPos by mutableStateOf<LatLng?>(null)
     var camps by mutableStateOf<List<CampOut>>(engine.camps())
 
-    /** The quest anchor until per-zone origins replace it: the camp "home" (as in the core), else the first camp. */
-    val home: GeoPoint? get() = (camps.firstOrNull { it.id == "home" } ?: camps.firstOrNull())?.let { GeoPoint(it.lat, it.lon) }
+    /**
+     * The quest anchor until per-zone origins replace it, as the core picks it (`Engine.homePoint`). Recomputed only when the camps
+     * or the realms change; with neither there is none, so the core is not asked.
+     */
+    val home: GeoPoint? by derivedStateOf { if (camps.isEmpty() && realms.isEmpty()) null else engine.homePoint() }
     val draft = mutableStateListOf<LatLng>()
     var selected by mutableStateOf<Long?>(null)
     var chains by mutableStateOf<List<ChainOut>>(emptyList())

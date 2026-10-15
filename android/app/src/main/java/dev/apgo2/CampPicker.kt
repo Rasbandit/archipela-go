@@ -57,7 +57,7 @@ private class CampPickerState(
                 r.circle?.let { LatLng(it.center.lat, it.center.lon) } ?: r.polygon.firstOrNull()?.let { LatLng(it.lat, it.lon) }
             }
     var pin by mutableStateOf(start)
-    var name by mutableStateOf(existing?.name ?: m.campOps.defaultName())
+    var name by mutableStateOf(existing?.name.orEmpty())
 
     // The id of the camp being edited, or of the one this picker created.
     private var savedId by mutableStateOf(existing?.id)
@@ -178,7 +178,9 @@ private fun BoxScope.PickerButtons(
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(s.hint, style = MaterialTheme.typography.bodyMedium)
         if (s.askName) {
-            OutlinedTextField(s.name, { s.name = it }, Modifier.fillMaxWidth(), label = { Text(CampText.NAME_LABEL) }, singleLine = true)
+            OutlinedTextField(s.name, { s.name = it }, Modifier.fillMaxWidth(), label = { Text(CampText.NAME_LABEL) }, placeholder = {
+                Text(CampText.NAME_PLACEHOLDER)
+            }, singleLine = true)
         }
         Button(onClick = s::useMyLocation, enabled = m.here != null, modifier = Modifier.fillMaxWidth()) {
             IconLabel(if (m.here == null) CampText.WAITING_FOR_LOCATION else CampText.USE_MY_LOCATION, ApgoIcons.Me, textSize = 14.sp)
