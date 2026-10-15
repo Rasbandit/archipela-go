@@ -25,6 +25,11 @@ is". A zone far from home, or a small park, gets a sensible spread of near and f
 | **No caps or policing**: any number of camps, placed anywhere | Not our job to police play; explain the effect of a choice, never block it |
 | Home becomes **camp #1** | One concept, no special case |
 | Difficulty is a **share of the zone's reach from its origin** | Zone size decides the scale; "far" means the far side of this zone |
+| Bands **near 0-30 %, middle 30-60 %, far 60-90 %** of reach | The farthest quests stay inside the zone's outer streets |
+| **No length cap**: the zone the player draws decides how far quests go | The player defines the play zone; we show the result ("far side is about a 2 h walk"), never trim it |
+| `minutes_per_tier` is **removed** (YAML and slot_data) | Zone size now sets every distance |
+| Carried items bank **at camps** (shops may bank later) | Round trips for foragers and fetch quests end at the nearest camp |
+| One circle: the camp circle (**50 m**) is also the time-away circle | Today's separate 100 m `HOME_RADIUS_M` and 50 m `HOME_CIRCLE_M` merge into one |
 
 ## Concepts
 
@@ -62,15 +67,14 @@ turn into distance.
 
 - **Reach** of a zone is the 90th percentile of street distance from the origin to the zone's street points. A percentile is
   used because one long arm of the zone, or one far street, would otherwise stretch every tier.
-- **Cap:** reach is at most the longest-quest limit, about 2 h of walking (the replacement for `minutes_per_tier`, below). A
-  huge zone therefore never makes six-hour quests.
-- **Tier to distance:** tier `t` of 10 targets a share of reach, for example `t / 10 x reach`. The near, middle and far bands
-  are about 0-30 %, 30-70 % and 70-100 %.
+- **No cap:** a huge zone makes long quests. The new-game screen shows how long the far side is on foot, so the player can
+  draw a smaller zone if they want shorter quests.
+- **Tier to distance:** tier `t` of 10 targets `t x 9 %` of reach, so tier 10 lands at 90 %. The bands are near 0-30 %
+  (tiers 1-3), middle 30-60 % (tiers 4-7, compressed) and far 60-90 % (tiers 8-10).
 - **Small zones:** when reach cannot give a tier its effort (a park that reaches 0.3 mi), the extra effort comes from dwell
   time or a second stop instead of distance. The new-game screen says so ("Lehi Park is small: hard quests will be longer
   stays, not farther walks").
-- **Round trips:** foragers and fetch quests count the walk back to the nearest camp or the origin. Plain reach quests stay
-  one way.
+- **Round trips:** foragers and fetch quests count the walk back to the nearest camp. Plain reach quests stay one way.
 
 ## What changes, by layer
 
@@ -80,7 +84,7 @@ turn into distance.
 | -- | -- |
 | `realm.rs` (store) | `home.json` becomes `camps.json`, a list of `{id, name, point, wifi}`. On first load, `home.json` migrates to camp #1 "Home" |
 | `home_watch.rs` | Watches every camp's circle and Wi-Fi. The state says which camp (`AtCamp(id)`, `Checking`, `Away`) |
-| `game.rs` | `home` becomes `origins: BTreeMap<zone, Point>`. The 100 m time-away circle and `bank_at_home` use "at any camp". Rename `bank_at_home` to `bank_at_camp` |
+| `game.rs` | `home` becomes `origins: BTreeMap<zone, Point>`. `HOME_RADIUS_M` (100 m) goes: time away and `bank_at_home` use "within 50 m of any camp" (the camp circle). Rename `bank_at_home` to `bank_at_camp` |
 | `assign.rs` | Each zone's `p.home` becomes its origin. Want-to-distance goes through the zone's reach |
 | reach | New: reach of a zone from its origin over the zone's street graph (built with the streets) |
 | recap | "Welcome back" (the camp's name optional). Walk history is unchanged |
@@ -92,8 +96,8 @@ not a game.
 ### Apworld and Archipelago
 
 - The apworld still assigns tiers only, and the core maps them onto each zone. So Archipelago logic is unchanged.
-- `minutes_per_tier` becomes **`longest_quest_minutes`** (the cap above): a clearer YAML option and a slot_data schema bump.
-  Coordinate with the progression-beta roadmap (schema 5 today).
+- `minutes_per_tier` is **removed** from the YAML options and slot_data (a schema bump). Coordinate with the progression-beta
+  roadmap (schema 5 today).
 
 ### Android
 
@@ -108,7 +112,7 @@ not a game.
 - **Presence text:** "At Mom's camp: paused" instead of "At home: paused".
 - **Quests section of the new-game screen:**
   - "How far quests reach" goes; the zone decides.
-  - "Near or far" stays as the mix, and its bands show real distances per zone.
+  - "Near or far" stays as the mix, and its bands show real distances per zone (30 / 60 / 90 % of reach).
 
 ## Out of scope
 
@@ -123,7 +127,8 @@ not a game.
   - arriving at any camp pauses counting and banks;
   - the walk recap closes at a second camp;
   - origins default to a camp in the zone, else the street nearest the centre;
-  - reach uses the percentile and the cap;
+  - reach uses the percentile, with no cap;
+  - tier 10 lands at 90 % of reach;
   - tiers scale with zone size: a small and a big zone get different distances for the same tier;
   - small-zone fallback adds dwell.
 - **Engine:**
@@ -136,7 +141,4 @@ not a game.
 
 ## Open questions
 
-1. The near, middle and far shares of reach (30 / 70 / 100 %): right?
-2. The longest-quest cap default (about 2 h)?
-3. Round trips for foragers: to the nearest camp, or always to the origin?
-4. Does `HOME_RADIUS_M` (100 m, time away) stay a separate, larger circle, or merge with the camp circle?
+None. The four from the first draft were answered by the owner on 2026-10-15 (see Decisions).
