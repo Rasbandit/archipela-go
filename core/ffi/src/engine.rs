@@ -1993,21 +1993,6 @@ impl Engine {
         store.save_marks(&realm_id, &marks).map_err(err)
     }
 
-    /// The saved home point, if any.
-    pub fn home(&self) -> Option<GeoPoint> {
-        self.store().home().map(gp)
-    }
-
-    /// Save the home point.
-    ///
-    /// # Errors
-    /// Returns an error if the file cannot be written.
-    pub fn set_home(&self, p: GeoPoint) -> Result<(), CoreError> {
-        self.store().set_home(pt(&p)).map_err(err)?;
-        self.sync_camps();
-        Ok(())
-    }
-
     /// The saved camps.
     pub fn camps(&self) -> Vec<CampOut> {
         self.store().camps().into_iter().map(camp_out).collect()
@@ -2930,6 +2915,11 @@ mod tests {
     use apgo_core::geo::destination;
     use apgo_core::scan::{build_atlas, Feature};
 
+    fn put_home(e: &Engine) {
+        let h = home();
+        e.save_camp(CampIn { id: "home".into(), name: "Home".into(), lat: h.lat, lon: h.lon }).unwrap();
+    }
+
     fn home() -> Point {
         Point::new(40.0, -111.0)
     }
@@ -3656,7 +3646,7 @@ mod tests {
         // The owner's phone drops home Wi-Fi for minutes: GPS may look once, but nothing at home reaches the game, journal or trace.
         let e = engine_with_game("homewatch");
         assert!(e.presence_circles().is_empty(), "no home pin yet: nothing to draw");
-        e.set_home(gp(home())).unwrap();
+        put_home(&e);
         assert!(e.presence_circles().is_empty(), "no step counter yet");
         e.presence_set_walk_sensor(true);
         let drawn = e.presence_circles().remove(0);
@@ -3675,7 +3665,7 @@ mod tests {
     #[test]
     fn a_walk_out_of_the_home_circle_leaves_and_records_from_there() {
         let e = engine_with_game("homewalk");
-        e.set_home(gp(home())).unwrap();
+        put_home(&e);
         e.presence_set_walk_sensor(true);
         e.presence_wifi_camp(Some("home".into()), FIX_T_MS);
         e.presence_start(FIX_T_MS);
@@ -3694,7 +3684,7 @@ mod tests {
     #[test]
     fn a_simulated_fix_never_moves_presence() {
         let e = engine_with_game("homesim");
-        e.set_home(gp(home())).unwrap();
+        put_home(&e);
         e.presence_set_walk_sensor(true);
         e.presence_start(FIX_T_MS);
         e.on_fix(fix_at(destination(home(), 90.0, 500.0), FIX_T_MS + 1000), None, true);

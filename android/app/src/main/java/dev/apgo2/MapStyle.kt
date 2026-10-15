@@ -57,7 +57,7 @@ import uniffi.apgo_ffi.lineWidthStops
 // How things look on the map. Sizes are in map pixels, opacities 0..1, icon sizes are factors of the bitmap.
 // Line widths scale with zoom and come from the core (lineWidthStops), so iOS draws them the same.
 private const val REALM_FILL_OPACITY = 0.07f
-private const val HOME_ZONE_FILL_OPACITY = 0.1f
+private const val CAMP_ZONE_FILL_OPACITY = 0.1f
 
 // Area quests fill in as they progress: empty until started, strongest while in progress, faint once done.
 private const val AREA_FILL_PROGRESS = 0.22f
@@ -65,7 +65,7 @@ private const val AREA_FILL_DONE = 0.1f
 
 // A park's outline: thin, in its state colour, always dashed (in line widths: dash, gap).
 private val PARK_DASH = arrayOf(3f, 2f)
-private val HOME_ZONE_DASH = arrayOf(2f, 2f)
+private val CAMP_ZONE_DASH = arrayOf(2f, 2f)
 
 // A route (trail): its state colour on a white casing; done routes fade.
 private const val DONE_ROUTE_OPACITY = 0.5f
@@ -85,10 +85,10 @@ private const val KNOB_STROKE = 3f
 private const val LABEL_SIZE = 14f
 private const val LABEL_HALO_WIDTH = 2.5f
 private const val LABEL_RAISE = -0.3f
-private const val HOME_PIN_PX = 168
-private const val HOME_SIZE = 0.8f
+private const val CAMP_PIN_PX = 168
+private const val CAMP_SIZE = 0.8f
 private const val ROUND = "round"
-private const val BADGE_HOME = "marker-home"
+private const val BADGE_CAMP = "marker-camp"
 private const val GEOMETRY_POINT = "Point"
 private const val GEOMETRY_POLYGON = "Polygon"
 
@@ -126,7 +126,7 @@ internal object MapSource {
     const val TRACE_OLD = "trace-old"
     const val TRACE = "trace"
     const val TRACE_HEAD = "trace-head"
-    const val HOME_ZONE = "home-zone"
+    const val CAMP_ZONE = "camp-zone"
     const val QUESTS = "quests"
     const val QUEST_SEL = "quest-sel"
     const val ITEMS = "items"
@@ -134,7 +134,7 @@ internal object MapSource {
     const val FIND_SEL = "find-sel"
     const val DRAFT = "draft"
     const val MARKS = "marks"
-    const val HOME = "home"
+    const val CAMPS = "camps"
     const val HANDLES = "handles"
     const val RADIUS = "radius"
     const val RING_KNOBS = "ringknobs"
@@ -142,7 +142,7 @@ internal object MapSource {
     val ALL =
         listOf(
             REALMS,
-            HOME_ZONE,
+            CAMP_ZONE,
             AREAS,
             LINES,
             TRACE_OLD,
@@ -155,7 +155,7 @@ internal object MapSource {
             FIND_SEL,
             DRAFT,
             MARKS,
-            HOME,
+            CAMPS,
             HANDLES,
             RADIUS,
             RING_KNOBS,
@@ -180,8 +180,8 @@ internal object MapStyle {
      */
     const val CREDIT = "© OpenStreetMap · © OpenMapTiles"
 
-    /** The home badge; the player's pin is drawn just below it. */
-    const val HOME_LAYER = "home-layer"
+    /** The camp badges; the player's pin is drawn just below it. */
+    const val CAMP_LAYER = "camp-layer"
 
     /** The layers a tap on a find pin is looked up in. */
     val FIND_LAYERS = arrayOf("finds-layer", "finds-sel")
@@ -205,13 +205,13 @@ internal object MapStyle {
         }
         addLayers(
             style,
-            realmLayers() + homeZoneLayers() + traceLayers() + itemLayers() + questLayers() + findLayers() + draftLayers() + markLayers(),
+            realmLayers() + campZoneLayers() + traceLayers() + itemLayers() + questLayers() + findLayers() + draftLayers() + markLayers(),
         )
         addLayers(style, radiusLayers())
-        // Home is a house on green. You are MapLibre's location component (see MapHolder.showMe), drawn just below home: when you
+        // A camp is a campfire on green. You are MapLibre's location component (see MapHolder.showMe), drawn just below the camps: when you
         // are both in the same spot the house is the one you see.
-        style.addImage(BADGE_HOME, renderMarker(ApgoIcons.Home, HOME_PIN_PX, ApgoPalette.home))
-        addLayers(style, listOf(badgeLayer(HOME_LAYER, MapSource.HOME, BADGE_HOME, HOME_SIZE)))
+        style.addImage(BADGE_CAMP, renderMarker(ApgoIcons.Campfire, CAMP_PIN_PX, ApgoPalette.camp))
+        addLayers(style, listOf(badgeLayer(CAMP_LAYER, MapSource.CAMPS, BADGE_CAMP, CAMP_SIZE)))
     }
 
     private fun addLayers(
@@ -238,13 +238,13 @@ internal object MapStyle {
             FillLayer("areas-fill", MapSource.AREAS).withProperties(fillColor(stateColor()), fillOpacity(areaFillOpacity())),
         )
 
-    // The home circle (presence: inside it you are home): a faint home-green fill with a dashed ring, under the trace and pins.
-    private fun homeZoneLayers() =
+    // Each camp circle (presence: inside one you are at a camp): a faint camp-green fill with a dashed ring, under the trace and pins.
+    private fun campZoneLayers() =
         listOf(
-            FillLayer("home-zone-fill", MapSource.HOME_ZONE)
-                .withProperties(fillColor(ApgoPalette.home.hex()), fillOpacity(HOME_ZONE_FILL_OPACITY)),
-            LineLayer("home-zone-line", MapSource.HOME_ZONE)
-                .withProperties(lineColor(ApgoPalette.home.hex()), scaledWidth(LineKind.PARK_OUTLINE), lineDasharray(HOME_ZONE_DASH)),
+            FillLayer("camp-zone-fill", MapSource.CAMP_ZONE)
+                .withProperties(fillColor(ApgoPalette.camp.hex()), fillOpacity(CAMP_ZONE_FILL_OPACITY)),
+            LineLayer("camp-zone-line", MapSource.CAMP_ZONE)
+                .withProperties(lineColor(ApgoPalette.camp.hex()), scaledWidth(LineKind.PARK_OUTLINE), lineDasharray(CAMP_ZONE_DASH)),
         )
 
     private fun areaFillOpacity() =

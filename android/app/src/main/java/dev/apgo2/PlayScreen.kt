@@ -448,7 +448,7 @@ private fun PlayMap(
                 touched = spotAt?.let { id to (q?.takeIf { it.collect != null }?.nearestItem(spotAt) ?: spotAt) }
                 m.selected = id
             },
-            home = m.home?.let { LatLng(it.lat, it.lon) },
+            camps = m.camps.map { LatLng(it.lat, it.lon) },
             campZones = m.presence.campZones,
             trace = trace,
             traceOld = traceOld,

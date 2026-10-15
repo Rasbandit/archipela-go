@@ -7,19 +7,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import dev.apgo2.presence.SetupStep
-import dev.apgo2.ui.SetupText
+import dev.apgo2.ui.CampText
 
-/** First-run and edit wizard for Home Base: where home is, which Wi-Fi networks are home, which Bluetooth device is the car. */
+/** First-run and edit wizard: where your first camp is, which Wi-Fi networks are camps, which Bluetooth device is the car. */
 @Composable
 internal fun SetupFlow(m: AppModel) {
     val ctx = LocalContext.current
     var step by rememberSaveable { mutableStateOf(m.setup.startStep) }
     when (step) {
         SetupStep.Home -> {
-            HomePicker(m, title = "${SetupText.HOME_BASE_NAME} · step 1 of 3", onBack = { m.setup.leave() }, onNext = {
-                step =
-                    SetupStep.Wifi
-            })
+            CampPicker(
+                m,
+                title = CampText.FIRST_STEP,
+                campId = m.camps.firstOrNull()?.id,
+                askName = false,
+                onBack = { m.setup.leave() },
+                onNext = { step = SetupStep.Wifi },
+            )
         }
 
         SetupStep.Wifi -> {

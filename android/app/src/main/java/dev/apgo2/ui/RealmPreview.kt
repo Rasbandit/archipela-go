@@ -52,8 +52,8 @@ internal data class PreviewDot(
 /** Side of the square preview, in dp. The snapshot and the drawing over it use the same units. */
 internal const val PREVIEW_DP = 104
 
-/** The zoom a home preview is drawn at: a few blocks around the spot. */
-internal const val HOME_PREVIEW_ZOOM = 15.2
+/** The zoom a camp preview is drawn at: a few blocks around the spot. */
+internal const val CAMP_PREVIEW_ZOOM = 15.2
 
 private const val WORLD_TILE_PX = 512.0
 private const val QUARTER_PI = PI / 4.0
@@ -65,8 +65,8 @@ private const val MAX_ZOOM = 17.0
 private const val OUTLINE_FILL_FRACTION = 0.76
 private const val MIN_EXTENT = 1e-9
 private const val PNG_QUALITY = 100
-private const val HOUSE_PX = 120
-private const val HOUSE_FRACTION = 0.46f
+private const val CAMP_PX = 120
+private const val CAMP_FRACTION = 0.46f
 private const val CARD_CORNER_DP = 12
 private const val BORDER_DP = 4
 private const val OUTLINE_DP = 2
@@ -198,19 +198,19 @@ internal fun RealmPreview(
     }
 }
 
-/** A preview of the home spot: the map around it with the house marker, and nothing else (no outline, no you). */
+/** A preview of a camp: the map around it with the campfire marker, and nothing else (no outline, no you). */
 @Composable
-internal fun HomePreview(
+internal fun CampPreview(
     map: Bitmap?,
     modifier: Modifier = Modifier,
 ) {
     val frameColor = MaterialTheme.colorScheme.outline
-    val house = remember { renderMarker(ApgoIcons.Home, HOUSE_PX, ApgoPalette.home) }
+    val fire = remember { renderMarker(ApgoIcons.Campfire, CAMP_PX, ApgoPalette.camp) }
     Canvas(modifier.clip(RoundedCornerShape(CARD_CORNER_DP.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
         map?.let { drawMap(it) }
-        val side = (size.minDimension * HOUSE_FRACTION).toInt()
+        val side = (size.minDimension * CAMP_FRACTION).toInt()
         drawImage(
-            house.asImageBitmap(),
+            fire.asImageBitmap(),
             dstOffset = IntOffset(((size.width - side) / 2).toInt(), ((size.height - side) / 2).toInt()),
             dstSize = IntSize(side, side),
         )

@@ -18,7 +18,7 @@ internal data class UndoDelete(
     val name: String,
 )
 
-/** Saving, marking and deleting realms, and the player's home point. */
+/** Saving, marking and deleting realms. */
 internal class RealmManager(
     private val model: AppModel,
 ) {
@@ -30,7 +30,7 @@ internal class RealmManager(
 
     /** Home, or failing that the first point of the first realm; null when there is neither. */
     fun homePoint(): GeoPoint? =
-        model.engine.home() ?: model.realms.firstOrNull()?.let { r -> if (r.polygonActive) r.polygon.firstOrNull() else r.circle?.center }
+        model.home ?: model.realms.firstOrNull()?.let { r -> if (r.polygonActive) r.polygon.firstOrNull() else r.circle?.center }
 
     /** "Realm N" with the lowest N not already used by a realm. */
     fun defaultName(): String {
@@ -109,29 +109,5 @@ internal class RealmManager(
         hidden.remove(id)
         if (undo?.id == id) undo = null
         model.refreshAll()
-    }
-
-    /** Make the current position home. */
-    fun setHomeHere() {
-        val c = model.here
-        if (c == null) {
-            model.status = "No location yet"
-            return
-        }
-        setHome(c)
-    }
-
-    /** Saves home. [announce] shows "Home set" in the global status line; screens that show their own confirmation pass false. */
-    fun setHome(
-        p: LatLng,
-        announce: Boolean = true,
-    ) {
-        val saved = runCatching { model.engine.setHome(GeoPoint(p.latitude, p.longitude)) }
-        saved.onSuccess {
-            model.home = model.engine.home()
-            model.presence.evaluate() // the home circle moved with the pin
-            if (announce) model.status = "Home set"
-        }
-        saved.onFailure { model.fail("set_home", "Could not set home", it) }
     }
 }

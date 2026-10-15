@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 import com.composables.icons.lucide.Anchor
 import com.composables.icons.lucide.Armchair
+import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.ArrowLeftRight
 import com.composables.icons.lucide.Ban
 import com.composables.icons.lucide.Bike
@@ -150,7 +151,8 @@ internal object ApgoIcons {
     val Saved = Lucide.CircleCheck
     val Me = Lucide.User
     val Locate = Lucide.LocateFixed
-    val Home = Lucide.House
+    val Campfire: ImageVector get() = campfireIcon
+    val Back = Lucide.ArrowLeft
     val Circle = Lucide.Circle
     val Polygon = Lucide.Pentagon
     val More = Lucide.EllipsisVertical
@@ -198,6 +200,31 @@ internal object ApgoIcons {
             moveTo(12.4f, 13.2f)
             lineTo(9f, 16.4f)
             lineTo(5.4f, 16.8f)
+        }
+        builder.build()
+    }
+
+    // A campfire, drawn to match Lucide (round 2 px strokes on a 24 px grid): a flame over two crossed logs.
+    private val campfireIcon: ImageVector by lazy {
+        val builder = ImageVector.Builder("Campfire", 24.dp, 24.dp, 24f, 24f)
+        builder.path(
+            fill = null,
+            stroke = SolidColor(ApgoPalette.iconStroke),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+        ) {
+            // flame: a point at the top, a round belly
+            moveTo(12f, 2.5f)
+            curveTo(12.6f, 5.6f, 15.8f, 7f, 15.8f, 10.4f)
+            arcTo(3.8f, 3.8f, 0f, false, true, 8.2f, 10.4f)
+            curveTo(8.2f, 8.6f, 9.4f, 7.6f, 10.2f, 6.6f)
+            curveTo(10.9f, 5.7f, 11.6f, 4.4f, 12f, 2.5f)
+            // two logs crossing under it
+            moveTo(4f, 16.5f)
+            lineTo(20f, 21.5f)
+            moveTo(4f, 21.5f)
+            lineTo(20f, 16.5f)
         }
         builder.build()
     }

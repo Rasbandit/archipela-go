@@ -116,8 +116,12 @@ class HelpTextTest {
 
     @Test fun setupCopyHasNoBrokenJoins() {
         listOf(
-            SetupText.HOME_BASE_CARD,
-            SetupText.HOME_BASE_UNSET,
+            CampText.HELP,
+            CampText.CARD,
+            CampText.UNSET,
+            CampText.TAP_TO_PLACE,
+            CampText.DRAG_TO_MOVE,
+            CampText.DELETE_BODY,
             SetupText.WIFI_WHY,
             SetupText.CAR_WHY,
             SetupText.BATTERY_WHY,

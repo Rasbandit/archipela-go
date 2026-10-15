@@ -542,8 +542,8 @@ internal fun QuestMap(
     selected: Long?,
     onMapClick: (LatLng) -> Unit,
     modifier: Modifier = Modifier,
-    home: LatLng? = null,
-    /** The circle round home that counts as home (presence), drawn faintly; null when there is none. */
+    camps: List<LatLng> = emptyList(),
+    /** The circle round each camp that counts as being there (presence), drawn faintly; none while Wi-Fi alone decides. */
     campZones: List<CircleOut> = emptyList(),
     onMapLongClick: ((LatLng) -> Unit)? = null,
     /** Circle being edited: center and radius in metres. */
@@ -612,15 +612,15 @@ internal fun QuestMap(
     val meAt = { meNow.value()?.let { LatLng(it.lat, it.lon) } }
     val meKnown by remember { derivedStateOf { meNow.value() != null } }
     val points =
-        remember(quests, realms, meKnown, home, draft) {
-            framePoints(quests, realms, Snapshot.withoutReadObservation(meAt), home, draft)
+        remember(quests, realms, meKnown, camps, draft) {
+            framePoints(quests, realms, Snapshot.withoutReadObservation(meAt), camps, draft)
         }
     val holder = remember { MapHolder(context, density, inputs, MapStart.center(listOfNotNull(circle?.first) + points, lastPlace)) }
     MapLifecycle(holder.view, onShow)
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
     SyncContent(holder, quests, realms, selected, anchor, finds, trace, traceOld)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
-    SyncPins(holder, thaw, waypoint, home, campZones, me, onShow)
+    SyncPins(holder, thaw, waypoint, camps, campZones, me, onShow)
     MapCamera(holder, inputs, overlaysFollowed, fit, focus, anchor)
     MapFraming(holder, circle, meKnown, quests, realms, points)
     // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
@@ -782,22 +782,22 @@ private fun SyncDrawing(
     }
 }
 
-// The thaw point, the detour waypoint, home and you.
+// The thaw point, the detour waypoint, the camps and you.
 @Composable
 private fun SyncPins(
     holder: MapHolder,
     thaw: LatLng?,
     waypoint: LatLng?,
-    home: LatLng?,
+    camps: List<LatLng>,
     campZones: List<CircleOut>,
     me: () -> MePin?,
     onShow: Boolean,
 ) {
     val style = holder.style
     LaunchedEffect(style, thaw, waypoint) { holder.show(MapSource.MARKS, MapFeatures.marks(thaw, waypoint)) }
-    LaunchedEffect(style, campZones) { holder.show(MapSource.HOME_ZONE, MeFeatures.campZones(campZones)) }
-    LaunchedEffect(style, home) {
-        holder.show(MapSource.HOME, MapFeatures.pin(home))
+    LaunchedEffect(style, campZones) { holder.show(MapSource.CAMP_ZONE, MeFeatures.campZones(campZones)) }
+    LaunchedEffect(style, camps) {
+        holder.show(MapSource.CAMPS, MeFeatures.campPins(camps))
         holder.repaint()
     }
     // Collected only while on show: a hidden map is not drawn, and showing it again emits the current pin at once.
@@ -842,16 +842,16 @@ private fun MapFraming(
     LaunchedEffect(style, meKnown, quests.isNotEmpty(), realms.size) { holder.frameAction(points) }
 }
 
-// What the first view should show: the visible quests, you, home and the shape being drawn; the realms when there is none of those.
+// What the first view should show: the visible quests, you, the camps and the shape being drawn; the realms when there is none of those.
 private fun framePoints(
     quests: List<QuestOut>,
     realms: List<RealmOut>,
     me: LatLng?,
-    home: LatLng?,
+    camps: List<LatLng>,
     draft: List<LatLng>,
 ): List<LatLng> {
     val pts =
-        quests.filter { it.state != "hidden" }.mapNotNull { q -> q.anchor?.let { LatLng(it.lat, it.lon) } } + listOfNotNull(me, home) +
+        quests.filter { it.state != "hidden" }.mapNotNull { q -> q.anchor?.let { LatLng(it.lat, it.lon) } } + listOfNotNull(me) + camps +
             draft
     val realmPts = if (pts.isEmpty()) realms.flatMap(::realmPoints) else emptyList()
     return (pts + realmPts).distinctBy { it.latitude to it.longitude }
@@ -864,7 +864,7 @@ private fun realmPoints(r: RealmOut): List<LatLng> =
         listOfNotNull(r.circle?.let { LatLng(it.center.lat, it.center.lon) })
     }
 
-// The location component's look for the player's pin [spec]: its images, the accuracy circle in the palette colour, below home.
+// The location component's look for the player's pin [spec]: its images, the accuracy circle in the palette colour, below the camps.
 private fun meOptions(
     context: android.content.Context,
     spec: MarkerSpec.Me,
@@ -880,7 +880,7 @@ private fun meOptions(
         .enableStaleState(false)
         .minZoomIconScale(ME_ICON_SCALE)
         .maxZoomIconScale(ME_ICON_SCALE)
-        .layerBelow(MapStyle.HOME_LAYER)
+        .layerBelow(MapStyle.CAMP_LAYER)
         .build()
 
 // The player: MapLibre's location component in custom mode. We push the core's position as a look-ahead update, which glides

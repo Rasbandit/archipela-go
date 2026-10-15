@@ -6,7 +6,7 @@ import androidx.compose.runtime.setValue
 import dev.apgo2.presence.SetupProgress
 import dev.apgo2.presence.SetupStep
 
-/** The setup wizard (home pin, home Wi-Fi, car Bluetooth). */
+/** The setup wizard (first camp, camp Wi-Fi, car Bluetooth). */
 internal class SetupWizard(
     private val model: AppModel,
 ) {
@@ -20,10 +20,10 @@ internal class SetupWizard(
     var startStep = SetupStep.Home
         private set
 
-    /** How far along the wizard the player is, for the Home card. */
+    /** How far along the wizard the player is, for the camps card. */
     fun progress() =
         SetupProgress(
-            model.home != null,
+            model.camps.isNotEmpty(),
             model.settings.homeNetworks.size,
             model.settings.carDevices.size,
             model.settings.setupDone,
@@ -35,7 +35,7 @@ internal class SetupWizard(
         visible = true
     }
 
-    /** Close without marking it done (Back on the first step): the Home card keeps offering it. */
+    /** Close without marking it done (Back on the first step): the camps card keeps offering it. */
     fun leave() {
         visible = false
         model.presence.evaluate() // a home Wi-Fi saved in the wizard withdraws a pending "add this Wi-Fi?" offer

@@ -84,6 +84,14 @@ internal class PresenceSettings(
         homeNetworks = homeNetworks.filterNot { (PresenceSignals.cleanSsid(it.ssid) ?: it.ssid) == key }
     }
 
+    /** How many saved networks pause camp [campId]. */
+    fun networkCount(campId: String): Int = homeNetworks.count { it.campId == campId }
+
+    /** Forget every network saved for camp [campId] (the camp was deleted). */
+    fun removeCamp(campId: String) {
+        homeNetworks = homeNetworks.filterNot { it.campId == campId }
+    }
+
     fun setCar(devices: List<CarDevice>) {
         carDevices = devices
     }

@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
 import uniffi.apgo_ffi.AuditEventOut
 import uniffi.apgo_ffi.BagOut
+import uniffi.apgo_ffi.CampOut
 import uniffi.apgo_ffi.ChainOut
 import uniffi.apgo_ffi.Engine
 import uniffi.apgo_ffi.EventOut
@@ -98,6 +99,7 @@ internal class AppModel(
     val setup = SetupWizard(this)
     val scans = ScanCoordinator(this, scope)
     val realmOps = RealmManager(this)
+    val campOps = CampManager(this)
     val library = GameLibrary(this, scope)
     val ap = ApController(this, ctx, scope)
     val sim = DevSimulator(this, scope)
@@ -132,6 +134,9 @@ internal class AppModel(
 
     /** The realm editor: null shows the realm list, "" a new realm, otherwise the id of the realm being edited. */
     var editing by mutableStateOf<String?>(null)
+
+    /** The camps screen is open over the realm list. */
+    var campsOpen by mutableStateOf(false)
     var realms by mutableStateOf<List<RealmOut>>(emptyList())
     val offers = mutableStateMapOf<String, List<OfferOut>>()
     var busy by mutableStateOf<String?>(null)
@@ -158,7 +163,10 @@ internal class AppModel(
     val log = mutableStateListOf<String>()
     var realLoc by mutableStateOf<Location?>(null)
     var simPos by mutableStateOf<LatLng?>(null)
-    var home by mutableStateOf<GeoPoint?>(null)
+    var camps by mutableStateOf<List<CampOut>>(emptyList())
+
+    /** The quest anchor until per-zone origins replace it: the camp "home" (as in the core), else the first camp. */
+    val home: GeoPoint? get() = (camps.firstOrNull { it.id == "home" } ?: camps.firstOrNull())?.let { GeoPoint(it.lat, it.lon) }
     val draft = mutableStateListOf<LatLng>()
     var selected by mutableStateOf<Long?>(null)
     var chains by mutableStateOf<List<ChainOut>>(emptyList())
@@ -226,7 +234,7 @@ internal class AppModel(
     /** Reload everything shown from the engine. */
     fun refreshAll() {
         realms = engine.realms()
-        home = engine.home()
+        camps = engine.camps()
         games = engine.games()
         realms.forEach { offers[it.id] = engine.realmOffers(it.id) }
         refreshPlay()

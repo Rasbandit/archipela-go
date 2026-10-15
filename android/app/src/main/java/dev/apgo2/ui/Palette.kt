@@ -143,7 +143,7 @@ internal object ApgoPalette {
     val trace = Color(0xFFB39DDB) // where you walked: pale lavender, solid (transparency would darken overlaps); no quest state uses it
     val meUncertain = Color(0xFF90A4AE) // a pin whose position is old: greyed blue
     val realm = Color(0xFF78858C) // a neutral grey: the boundary is background, and blue is kept for you
-    val home = Color(0xFF2E7D32)
+    val camp = Color(0xFF2E7D32)
     val draft = Color(0xFFEF6C00) // the shape being edited
     val draftStrong = Color(0xFFBF360C) // radius line and label
     val thaw = Color(0xFF00ACC1)

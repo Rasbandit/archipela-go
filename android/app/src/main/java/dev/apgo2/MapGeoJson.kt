@@ -336,6 +336,9 @@ private fun questProps(
 
 /** What the map draws around you: the camp circles and the line joining your trace to your pin. */
 internal object MeFeatures {
+    /** One campfire pin per camp. */
+    fun campPins(camps: List<LatLng>): List<JSONObject> = camps.map { GeoJson.pointFeature(it.latitude, it.longitude) }
+
     /** The circle round each camp that counts as being there (presence), or nothing while Wi-Fi alone decides. */
     fun campZones(cs: List<CircleOut>): List<JSONObject> =
         cs.map { GeoJson.feature(GeoJson.polygon(circleRing(it.center.lat, it.center.lon, it.radiusM))) }

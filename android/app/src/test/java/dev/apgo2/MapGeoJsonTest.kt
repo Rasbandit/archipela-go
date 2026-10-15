@@ -237,6 +237,15 @@ class MapFeaturesTest {
         }
     }
 
+    @Test fun everyCampIsOnePointPin() {
+        assertTrue(MeFeatures.campPins(emptyList()).isEmpty())
+        val f = MeFeatures.campPins(listOf(LatLng(40.0, -111.0), LatLng(41.0, -112.0)))
+        assertEquals(2, f.size)
+        assertEquals("Point", f[1].geomType())
+        assertEquals(-112.0, f[1].coords().getDouble(0), 1e-9)
+        assertEquals(41.0, f[1].coords().getDouble(1), 1e-9)
+    }
+
     @Test fun theTraceHeadJoinsTheTraceEndToThePinUnlessFarAwayOrStale() {
         // The trace reloads every 10 s and ends at the matcher's newest input: the head keeps the line touching the pin meanwhile.
         val end = LatLng(40.0, -111.0)

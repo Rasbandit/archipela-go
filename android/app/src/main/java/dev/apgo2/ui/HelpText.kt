@@ -256,13 +256,8 @@ internal object Help {
     }
 }
 
-/** Explanatory copy of the setup wizard and its Home card nag, kept here with the rest of the app's help text. */
+/** Explanatory copy of the setup wizard and its nag, kept here with the rest of the app's help text. */
 internal object SetupText {
-    const val HOME_BASE_NAME = "Home Base"
-    const val HOME_BASE_CARD =
-        "Distances in your games are measured from here. On your home Wi-Fi the game pauses and GPS turns " +
-            "off; while your car is connected nothing counts. Tap to change."
-    const val HOME_BASE_UNSET = "Not set yet. Tap to choose where distances are measured from, and which Wi-Fi and car pause the game."
     const val WIFI_WHY =
         "While you are on any of these networks nothing counts and GPS turns off. That saves battery and " +
             "stops cheating. Tick every network your home uses."
@@ -281,7 +276,39 @@ internal object SetupText {
     const val BATTERY_DONE = "Battery saver is off for this app. Tracking will keep running."
     const val BATTERY_BUTTON = "Open battery settings"
     const val WIFI_NEEDS_CAMP = "Set your camp first, then add its Wi-Fi."
-    const val HOME_NEEDS_WIFI = "Add your home Wi-Fi so the game pauses at home"
+    const val HOME_NEEDS_WIFI = "Add a camp's Wi-Fi so the game pauses there"
+}
+
+/** The camps card, the camps screen and the camp picker. */
+internal object CampText {
+    const val NAME = "Camps"
+    const val HELP =
+        "A camp is a place you play from. Arriving at any camp pauses the game, banks what you carry and shows your walk."
+    const val CARD = "$HELP Tap to see your camps."
+    const val UNSET = "No camp yet. Tap to add the place you play from."
+    const val ADD = "Add camp"
+    const val FIRST_STEP = "Your first camp · step 1 of 3"
+    const val ADD_TITLE = "New camp"
+    const val EDIT_TITLE = "Edit camp"
+    const val NAME_LABEL = "Camp name"
+    const val TAP_TO_PLACE = "Tap the map to put your camp there."
+    const val DRAG_TO_MOVE = "Drag the pin or tap the map to move it. Distances in your games are measured from your first camp."
+    const val SAVED = "Camp saved"
+    const val SAVE = "Save camp"
+    const val WIFI_SAVED = "Wi-Fi saved"
+    const val NO_WIFI = "No Wi-Fi"
+    const val WIFI_AND_CAR = "Wi-Fi and car"
+    const val FINISH_SETUP = "Finish setup"
+    const val EDIT_DESCRIPTION = "Edit camp"
+    const val DELETE_DESCRIPTION = "Delete camp"
+    const val DELETE_BODY = "The Wi-Fi networks saved for it go with it. Games already started keep their quests."
+    const val BACK = "Back"
+
+    fun title(count: Int) = "$NAME · $count"
+
+    fun deleteTitle(name: String) = "Delete $name?"
+
+    fun distance(meters: Double?) = meters?.let { "${Units.distance(it)} away" }
 }
 
 /** The "You're at {camp}: add this Wi-Fi?" dialog (see `HomeWifiDialog`). */
