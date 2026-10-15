@@ -84,8 +84,7 @@ private fun CampList(
         asking = null
         m.campOps.delete(it.id)
     }, onDismiss = { asking = null })
-    val here = m.here
-    val rows = remember(m.camps, here) { m.campOps.rows() }
+    val rows = m.campOps.rows() // from memory; reads the camps, the position and the saved networks, so it follows all three
     Column(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         CampsHeader(rows.size, onClose, onAdd)
         Text(CampText.HELP, style = MaterialTheme.typography.bodyMedium)
@@ -111,7 +110,7 @@ private fun CampRowCard(
         ) {
             Icon(
                 ApgoIcons.Campfire,
-                contentDescription = CampText.EDIT_DESCRIPTION,
+                contentDescription = null,
                 tint = ApgoPalette.camp,
                 modifier = Modifier.size(26.dp),
             )
@@ -138,8 +137,8 @@ private fun ConfirmDeleteCamp(
         onDismissRequest = onDismiss,
         title = { Text(CampText.deleteTitle(c.name)) },
         text = { Text(CampText.DELETE_BODY) },
-        confirmButton = { TextButton(onClick = { onConfirm(c) }) { Text("Delete", color = ApgoPalette.tone(Tone.Danger)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onConfirm(c) }) { Text(CampText.DELETE, color = ApgoPalette.tone(Tone.Danger)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(CampText.CANCEL) } },
     )
 }
 

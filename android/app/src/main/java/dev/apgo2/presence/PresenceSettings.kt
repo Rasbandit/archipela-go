@@ -1,6 +1,9 @@
 package dev.apgo2.presence
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
@@ -12,7 +15,8 @@ internal class PresenceSettings(
     private val prefs = ctx.getSharedPreferences("presence", Context.MODE_PRIVATE)
 
     // Parsed lists are kept in memory (evaluation and the Play chip read them constantly); only this class writes the preferences.
-    private var homeCache: List<HomeNetwork>? = null
+    // Compose state, so a screen listing the saved networks redraws when one is added or removed.
+    private var homeCache by mutableStateOf<List<HomeNetwork>?>(null)
     private var carCache: List<CarDevice>? = null
 
     var homeNetworks: List<HomeNetwork>

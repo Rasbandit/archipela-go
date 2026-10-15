@@ -58,15 +58,16 @@ internal class CampBook(
         return store.camps().first { it.id !in before }.id
     }
 
-    /** Renames and/or moves camp [id]; a blank [name] keeps the old name. */
+    /** Renames and/or moves camp [id]; a blank [name] keeps the old name. False (nothing saved) when there is no such camp. */
     fun edit(
         id: String,
         name: String,
         lat: Double,
         lon: Double,
-    ) {
-        val old = store.camps().firstOrNull { it.id == id } ?: return
+    ): Boolean {
+        val old = store.camps().firstOrNull { it.id == id } ?: return false
         store.save(CampIn(id, name.trim().ifEmpty { old.name }, lat, lon))
+        return true
     }
 
     /** Deletes camp [id] and forgets the Wi-Fi networks saved for it. */
@@ -75,9 +76,12 @@ internal class CampBook(
         wifi.forget(id)
     }
 
-    /** The list rows, with the distance from [here] when known. */
-    fun rows(here: GeoFix?): List<CampRow> =
-        store.camps().map {
+    /** The list rows for [camps] (in memory, so cheap enough to call while drawing), with the distance from [here] when known. */
+    fun rows(
+        camps: List<CampOut>,
+        here: GeoFix?,
+    ): List<CampRow> =
+        camps.map {
             val distance = here?.let { h -> HomeWifiOffer.distanceM(h, GeoFix(it.lat, it.lon, 0.0)) }
             CampRow(it.id, it.name, it.lat, it.lon, distance, wifi.networkCount(it.id) > 0)
         }

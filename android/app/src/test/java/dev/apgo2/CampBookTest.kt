@@ -67,6 +67,13 @@ class CampBookTest {
         assertEquals("a blank rename keeps the old name", "Lake house", store.saved.single().name)
     }
 
+    @Test fun editingAnUnknownCampSavesNothingAndSaysSo() {
+        assertFalse(book.edit("nope", "X", 1.0, 1.0))
+        assertTrue(store.saved.isEmpty())
+        val id = book.add("A", 1.0, 1.0)
+        assertTrue(book.edit(id, "B", 1.0, 1.0))
+    }
+
     @Test fun deletingACampForgetsItsWifiAndOnlyItsWifi() {
         val a = book.add("A", 1.0, 1.0)
         val b = book.add("B", 2.0, 2.0)
@@ -82,7 +89,7 @@ class CampBookTest {
         val a = book.add("A", 40.0, -111.0)
         val b = book.add("B", 40.01, -111.0)
         wifi.byCamp[b] = 1
-        val rows = book.rows(GeoFix(40.0, -111.0, 5.0))
+        val rows = book.rows(store.camps(), GeoFix(40.0, -111.0, 5.0))
         assertEquals(listOf("A", "B"), rows.map { it.name })
         assertEquals(0.0, rows[0].distanceM!!, 1.0)
         assertEquals(1_112.0, rows[1].distanceM!!, 5.0)
@@ -94,10 +101,10 @@ class CampBookTest {
 
     @Test fun withoutAFixThereIsNoDistance() {
         book.add("A", 1.0, 1.0)
-        assertNull(book.rows(null).single().distanceM)
+        assertNull(book.rows(store.camps(), null).single().distanceM)
     }
 
     @Test fun noCampsMeansNoRows() {
-        assertTrue(book.rows(null).isEmpty())
+        assertTrue(book.rows(emptyList(), null).isEmpty())
     }
 }

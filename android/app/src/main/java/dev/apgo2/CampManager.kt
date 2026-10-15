@@ -27,8 +27,8 @@ internal class CampManager(
     /** The name a new camp starts with. */
     fun defaultName() = book.defaultName()
 
-    /** The list rows, with distances from where the phone is. */
-    fun rows() = book.rows(model.here?.let { GeoFix(it.latitude, it.longitude, 0.0) })
+    /** The list rows, from the camps in memory, with distances from where the phone is. */
+    fun rows() = book.rows(model.camps, model.here?.let { GeoFix(it.latitude, it.longitude, 0.0) })
 
     /** Creates ([id] null) or updates a camp and returns its id, or null (with a status message) when it could not be saved. */
     fun save(
@@ -37,7 +37,11 @@ internal class CampManager(
         at: LatLng,
     ): String? =
         changed("save") {
-            if (id == null) book.add(name, at.latitude, at.longitude) else id.also { book.edit(it, name, at.latitude, at.longitude) }
+            when {
+                id == null -> book.add(name, at.latitude, at.longitude)
+                book.edit(id, name, at.latitude, at.longitude) -> id
+                else -> error("No camp $id")
+            }
         }
 
     /** Deletes a camp and the Wi-Fi networks saved for it. */

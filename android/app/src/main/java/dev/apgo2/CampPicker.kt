@@ -74,7 +74,7 @@ private class CampPickerState(
             if (pts.size >= MIN_FRAME_POINTS) MapFit(pts, 1) else null
         }
 
-    val doneLabel get() = if (askName) CampText.SAVE else "Next"
+    val doneLabel get() = if (askName) CampText.SAVE else CampText.NEXT
     val canFinish get() = if (askName) pin != null else saved
     val hint get() = if (pin == null) CampText.TAP_TO_PLACE else CampText.DRAG_TO_MOVE
 
@@ -181,7 +181,7 @@ private fun BoxScope.PickerButtons(
             OutlinedTextField(s.name, { s.name = it }, Modifier.fillMaxWidth(), label = { Text(CampText.NAME_LABEL) }, singleLine = true)
         }
         Button(onClick = s::useMyLocation, enabled = m.here != null, modifier = Modifier.fillMaxWidth()) {
-            IconLabel(if (m.here == null) "Waiting for your location…" else "Use my location", ApgoIcons.Me, textSize = 14.sp)
+            IconLabel(if (m.here == null) CampText.WAITING_FOR_LOCATION else CampText.USE_MY_LOCATION, ApgoIcons.Me, textSize = 14.sp)
         }
     }
 }
