@@ -181,8 +181,17 @@ internal class PresenceController(
     ): PresenceHome {
         val e = model.engine
         e.presenceSetWalkSensor(model.sensors.stepsAvailable)
-        homeZone = e.presenceCircle()
-        e.presenceWifi(wifi, t)
+        homeZone = e.presenceCircles().firstOrNull()
+        e.presenceWifiCamp(
+            if (wifi == true) {
+                "home"
+            } else if (wifi == false) {
+                "other"
+            } else {
+                null
+            },
+            t,
+        )
         if (!homeStarted) {
             e.presenceStart(t)
             homeStarted = true
@@ -214,7 +223,7 @@ internal class PresenceController(
         if (!model.engine.hasGame()) return
         val t = model.now()
         scope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { model.engine.bankAtHome(t) } }
+            val r = withContext(Dispatchers.IO) { runCatching { model.engine.bankAtCamp(t) } }
             r.onFailure { Diag.error(TAG, "bank at home failed", it) }
             model.handle(r.getOrDefault(emptyList())) // a new recap comes back as RecapReady
             model.refreshPlay(withTrace = false)

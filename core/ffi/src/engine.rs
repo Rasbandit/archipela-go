@@ -18,7 +18,7 @@ use apgo_core::loc::calib::StepCal;
 use apgo_core::loc::{DisplayPosition, DisplaySource, Estimate, HeadingSource, Provider, RawFix, Verdict};
 use apgo_core::marks::Mark;
 use apgo_core::num::count_u32;
-use apgo_core::realm::{Proximity, Realm, RealmStore, Shape};
+use apgo_core::realm::{Camp, Proximity, Realm, RealmStore, Shape};
 use apgo_core::recap::{walk_summary, Recap};
 use apgo_core::save_policy::SavePolicy;
 use apgo_core::scan::{scan_with_stop, Atlas, Fetch, Pacing, SCAN_BUDGET};
@@ -30,6 +30,44 @@ use apgo_core::verify::Collected;
 use apgo_core::yaml::build_yaml;
 
 use crate::{CoreError, GeoPoint};
+
+/// A saved camp: a place where the game pauses, with a circle round it.
+#[derive(Debug, uniffi::Record)]
+pub struct CampOut {
+    /// Stable id.
+    pub id: String,
+    /// The name shown.
+    pub name: String,
+    /// Latitude in degrees.
+    pub lat: f64,
+    /// Longitude in degrees.
+    pub lon: f64,
+}
+
+/// A camp to save; an empty `id` makes a new camp.
+#[derive(Debug, uniffi::Record)]
+pub struct CampIn {
+    /// Stable id, or empty for a new camp.
+    pub id: String,
+    /// The name shown.
+    pub name: String,
+    /// Latitude in degrees.
+    pub lat: f64,
+    /// Longitude in degrees.
+    pub lon: f64,
+}
+
+fn camp_out(c: Camp) -> CampOut {
+    CampOut { id: c.id, name: c.name, lat: c.point.lat, lon: c.point.lon }
+}
+
+/// A new camp id from the clock plus a counter (unique within and across runs; no uuid dependency).
+fn new_camp_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    format!("camp-{nanos:x}-{:x}", COUNTER.fetch_add(1, Ordering::Relaxed))
+}
 
 #[allow(clippy::needless_pass_by_value)] // used as a `map_err` callback, which hands over the error by value
 fn err<E: ToString>(e: E) -> CoreError {
@@ -1367,8 +1405,19 @@ impl Engine {
     }
 
     fn sync_camps(&self) {
-        let camps = self.store().camps().into_iter().map(|c| (c.id, c.point)).collect();
-        self.watch().set_camps(camps);
+        let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.apply_camps(slot);
+    }
+
+    // Hand the saved camps to the open game and to the presence watch. Takes the game guard (lock order: game, then watch), so
+    // the camps only ever change together with the game, and a game installed meanwhile gets them too.
+    fn apply_camps(&self, mut game: MutexGuard<'_, Option<Game>>) {
+        let camps = self.store().camps();
+        if let Some(g) = game.as_mut() {
+            g.set_camps(camps.iter().map(|c| c.point).collect());
+        }
+        self.watch().set_camps(camps.into_iter().map(|c| (c.id, c.point)).collect());
+        drop(game);
     }
 
     fn watch(&self) -> MutexGuard<'_, HomeWatch> {
@@ -1530,6 +1579,9 @@ impl Engine {
         }
         let zones = zone_cache_of(&game, realms);
         *slot = Some(game);
+        if let Some(g) = slot.as_mut() {
+            g.set_camps(self.store().camps().iter().map(|c| c.point).collect());
+        }
         self.set_zones(slot, zones);
     }
 
@@ -1943,15 +1995,63 @@ impl Engine {
         Ok(())
     }
 
+    /// The saved camps.
+    pub fn camps(&self) -> Vec<CampOut> {
+        self.store().camps().into_iter().map(camp_out).collect()
+    }
+
+    /// Add a camp, or change the one with the same id (an empty id makes a new camp). The open game and presence follow at once.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be written.
+    pub fn save_camp(&self, c: CampIn) -> Result<(), CoreError> {
+        let store = self.store();
+        let mut camps = store.camps();
+        let id = if c.id.is_empty() { new_camp_id() } else { c.id };
+        let camp = Camp { id, name: c.name, point: Point::new(c.lat, c.lon) };
+        match camps.iter_mut().find(|x| x.id == camp.id) {
+            Some(x) => *x = camp,
+            None => camps.push(camp),
+        }
+        store.set_camps(&camps).map_err(err)?;
+        self.sync_camps();
+        Ok(())
+    }
+
+    /// Remove a camp (an unknown id is ignored). The open game and presence follow at once.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be written.
+    pub fn delete_camp(&self, id: String) -> Result<(), CoreError> {
+        let store = self.store();
+        let mut camps = store.camps();
+        camps.retain(|c| c.id != id);
+        store.set_camps(&camps).map_err(err)?;
+        self.sync_camps();
+        Ok(())
+    }
+
+    /// The camp the player is at (the Wi-Fi's camp, else the last circle), `None` when not at a camp.
+    pub fn presence_camp(&self) -> Option<CampOut> {
+        let id = {
+            let w = self.watch();
+            if w.state() != HomeState::Home {
+                return None;
+            }
+            w.camp()?.to_owned()
+        };
+        self.store().camps().into_iter().find(|c| c.id == id).map(camp_out)
+    }
+
     // ---------- presence: home ----------
     /// Presence started (or restarted) at `t_ms`: decide home from the home Wi-Fi reading given so far and the home circle.
     pub fn presence_start(&self, t_ms: i64) {
         self.watch().start(t_ms);
     }
 
-    /// The (debounced) home Wi-Fi reading: `Some(true)` on it, `Some(false)` on another network, `None` unknown or off.
-    pub fn presence_wifi(&self, home: Option<bool>, t_ms: i64) {
-        self.watch().on_wifi(home, t_ms);
+    /// The (debounced) Wi-Fi reading: `Some(id)` on that camp's Wi-Fi, `Some` of an unknown id on another network, `None` unknown or off.
+    pub fn presence_wifi_camp(&self, camp_id: Option<String>, t_ms: i64) {
+        self.watch().on_wifi_camp(camp_id, t_ms);
     }
 
     /// The scheduled wake-up at [`Self::presence_due_ms`]: a GPS check that found nothing clear falls back.
@@ -1978,9 +2078,9 @@ impl Engine {
         self.watch().set_walk_sensor(on);
     }
 
-    /// The home circle in use, to draw on the map; `None` when home Wi-Fi alone decides.
-    pub fn presence_circle(&self) -> Option<CircleOut> {
-        self.watch().circles().first().map(|&c| CircleOut { center: gp(c), radius_m: apgo_core::home_watch::CAMP_CIRCLE_M })
+    /// The camp circles in use, to draw on the map; none when Wi-Fi alone decides.
+    pub fn presence_circles(&self) -> Vec<CircleOut> {
+        self.watch().circles().iter().map(|&c| CircleOut { center: gp(c), radius_m: apgo_core::home_watch::CAMP_CIRCLE_M }).collect()
     }
 
     /// When the walk that left home began (its first step), while away after a check.
@@ -2495,7 +2595,7 @@ impl Engine {
     /// The phone arrived home (home Wi-Fi or the home circle): forager quests bank what they carry and the walk closes into its
     /// recap (see `Game::arrive_at_camp`), kept with the game until dismissed; `RecapReady` says this call stored a new one. Safe to call
     /// again.
-    pub fn bank_at_home(&self, t_ms: i64) -> Vec<EventOut> {
+    pub fn bank_at_camp(&self, t_ms: i64) -> Vec<EventOut> {
         // Read the trace first (no game lock held), so closing the outing, storing the recap and saving happen in one pass.
         let Some((game_id, start)) = self.with_game(|g| (g.id.clone(), g.outing.as_ref().map(|o| o.start_ms))) else {
             return Vec::new();
@@ -2920,11 +3020,11 @@ mod tests {
         });
         e.set_counting(false, 599_000);
         let ready = |ev: &[EventOut]| ev.iter().filter(|x| matches!(x, EventOut::RecapReady)).count();
-        assert_eq!(ready(&e.bank_at_home(600_000)), 1, "this arrival stored a new recap");
+        assert_eq!(ready(&e.bank_at_camp(600_000)), 1, "this arrival stored a new recap");
         let r = e.pending_recap().expect("a 10 min walk with 900 steps");
         assert_eq!((r.steps, r.route.len(), r.route[0].len()), (900, 1, 2), "a straight line thins to its ends");
         assert!((r.distance_m - 100.0).abs() < 1.0);
-        assert_eq!(ready(&e.bank_at_home(610_000)), 0, "no walk to close: the old recap is not announced again");
+        assert_eq!(ready(&e.bank_at_camp(610_000)), 0, "no walk to close: the old recap is not announced again");
         assert!(e.pending_recap().is_some_and(|r| r.end_ms == 600_000), "a second arrival keeps the recap");
         let restarted = Engine::new(e.dir.to_string_lossy().into_owned());
         restarted.open_game("g1".into()).unwrap();
@@ -2940,13 +3040,13 @@ mod tests {
         leave_into_zone(&e, 1_000);
         e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
         e.set_counting(false, 599_000);
-        e.bank_at_home(600_000);
+        e.bank_at_camp(600_000);
         let rows = |e: &Engine| e.activity(50).into_iter().filter(|a| a.kind == "walk").collect::<Vec<_>>();
         assert_eq!(rows(&e).len(), 1);
         assert_eq!(rows(&e)[0].t_ms, 600_000);
         assert!(e.walk_recap(600_000).is_some_and(|r| r.end_ms == 600_000 && r.steps == 900));
         assert!(e.walk_recap(1).is_none());
-        e.bank_at_home(610_000);
+        e.bank_at_camp(610_000);
         assert_eq!(rows(&e).len(), 1, "a second arrival adds no row");
         e.dismiss_recap();
         assert!(e.walk_recap(600_000).is_some(), "dismissing leaves the kept walk");
@@ -2977,7 +3077,7 @@ mod tests {
                 name
             })
             .unwrap();
-        e.bank_at_home(600_000);
+        e.bank_at_camp(600_000);
         let r = e.pending_recap().expect("recap");
         assert_eq!(r.counted_steps, 700);
         let q = r.quests.iter().find(|q| q.name == name).expect("standalone quest listed");
@@ -2998,7 +3098,7 @@ mod tests {
             let c = Collected { picked: [0u16, 1].into(), carried: 2, banked: 0 };
             g.collected.insert(a.location_id, c);
         });
-        e.bank_at_home(600_000);
+        e.bank_at_camp(600_000);
         let r = e.pending_recap().expect("recap");
         let f = r.foragers.first().expect("forager listed");
         assert_eq!((f.theme.as_str(), f.need, f.banked_before, f.banked_after, f.picked, f.carried), ("acorns", 4, 0, 2, 2, 0));
@@ -3010,7 +3110,7 @@ mod tests {
         e.set_counting(false, 0);
         leave_into_zone(&e, 1_000);
         e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
-        e.bank_at_home(600_000);
+        e.bank_at_camp(600_000);
         assert!(e.pending_recap().is_some_and(|r| r.distance_m == 0.0 && r.route.is_empty()));
     }
 
@@ -3482,20 +3582,72 @@ mod tests {
         e.journal.as_ref().unwrap().lock().unwrap().track("g1", 0, i64::MAX).unwrap().len()
     }
 
+    fn camp_in(id: &str, name: &str, p: Point) -> CampIn {
+        CampIn { id: id.into(), name: name.into(), lat: p.lat, lon: p.lon }
+    }
+
+    #[test]
+    fn camps_are_saved_by_id_and_survive_a_restart() {
+        let e = engine_with_game("camps-save");
+        e.save_camp(camp_in("", "Cabin", destination(home(), 0.0, 3000.0))).unwrap();
+        e.save_camp(camp_in("b", "Lodge", destination(home(), 0.0, 6000.0))).unwrap();
+        e.save_camp(camp_in("b", "Lodge 2", destination(home(), 0.0, 6000.0))).unwrap();
+        let names: Vec<String> = e.camps().into_iter().map(|c| c.name).collect();
+        assert_eq!(names, ["Cabin", "Lodge 2"]);
+        assert!(!e.camps()[0].id.is_empty(), "an empty id gets a new one");
+        let again = Engine::new(e.dir.to_string_lossy().into_owned());
+        assert_eq!(again.camps().len(), 2);
+        assert_eq!(again.presence_circles().len(), 0, "circles need a step counter");
+    }
+
+    #[test]
+    fn a_fix_at_a_second_camp_is_home_and_names_it_then_deleting_it_leaves() {
+        let e = engine_with_game("camps-second");
+        let far = destination(home(), 0.0, 3000.0);
+        e.save_camp(camp_in("home", "Home", home())).unwrap();
+        e.save_camp(camp_in("b", "Cabin", far)).unwrap();
+        e.presence_set_walk_sensor(true);
+        assert_eq!(e.presence_circles().len(), 2);
+        e.presence_start(FIX_T_MS);
+        e.on_fix(fix_at(destination(home(), 0.0, 1500.0), FIX_T_MS + 1000), None, false);
+        assert_eq!(e.presence_state(), PresenceHome::Away);
+        assert!(e.presence_camp().is_none());
+        for i in 0..apgo_core::home_watch::ARRIVE_FIXES {
+            e.on_fix(fix_at(far, FIX_T_MS + 20_000 + i64::from(i) * 5_000), None, false);
+        }
+        assert_eq!(e.presence_state(), PresenceHome::Home);
+        assert_eq!(e.presence_camp().map(|c| c.name), Some("Cabin".to_string()));
+        e.delete_camp("home".into()).unwrap();
+        assert_eq!(e.presence_circles().len(), 1);
+        e.delete_camp("b".into()).unwrap();
+        assert_eq!(e.presence_state(), PresenceHome::Away, "the last camp is gone and there is no Wi-Fi");
+        assert!(e.presence_camp().is_none());
+    }
+
+    #[test]
+    fn a_game_opened_after_the_camps_were_saved_gets_them() {
+        let e = engine_with_game("camps-install");
+        let far = destination(home(), 0.0, 3000.0);
+        e.save_camp(camp_in("b", "Cabin", far)).unwrap();
+        e.close_game();
+        e.open_game("g1".into()).unwrap();
+        assert_eq!(e.with_game(|g| (g.at_camp(far), g.at_camp(home()))), Some((true, false)));
+    }
+
     #[test]
     fn with_a_home_pin_a_wifi_drop_only_checks_and_fixes_at_home_are_never_recorded() {
         // The owner's phone drops home Wi-Fi for minutes: GPS may look once, but nothing at home reaches the game, journal or trace.
         let e = engine_with_game("homewatch");
-        assert!(e.presence_circle().is_none(), "no home pin yet: nothing to draw");
+        assert!(e.presence_circles().is_empty(), "no home pin yet: nothing to draw");
         e.set_home(gp(home())).unwrap();
-        assert!(e.presence_circle().is_none(), "no step counter yet");
+        assert!(e.presence_circles().is_empty(), "no step counter yet");
         e.presence_set_walk_sensor(true);
-        let drawn = e.presence_circle().unwrap();
+        let drawn = e.presence_circles().remove(0);
         assert_eq!((pt(&drawn.center), drawn.radius_m), (home(), apgo_core::home_watch::CAMP_CIRCLE_M), "the map draws the circle in use");
-        e.presence_wifi(Some(true), FIX_T_MS);
+        e.presence_wifi_camp(Some("home".into()), FIX_T_MS);
         e.presence_start(FIX_T_MS);
         assert_eq!(e.presence_state(), PresenceHome::Home);
-        e.presence_wifi(None, FIX_T_MS + 1000);
+        e.presence_wifi_camp(None, FIX_T_MS + 1000);
         assert_eq!((e.presence_state(), e.presence_due_ms()), (PresenceHome::Checking, Some(FIX_T_MS + 1000 + apgo_core::home_watch::CHECK_MS)));
         e.on_fix(fix_at(destination(home(), 90.0, 10.0), FIX_T_MS + 2000), None, false);
         assert_eq!(e.presence_state(), PresenceHome::Home);
@@ -3508,7 +3660,7 @@ mod tests {
         let e = engine_with_game("homewalk");
         e.set_home(gp(home())).unwrap();
         e.presence_set_walk_sensor(true);
-        e.presence_wifi(Some(true), FIX_T_MS);
+        e.presence_wifi_camp(Some("home".into()), FIX_T_MS);
         e.presence_start(FIX_T_MS);
         for s in 1..=16 {
             e.on_steps(1000 + 2 * s, FIX_T_MS + s * 1000, None);
