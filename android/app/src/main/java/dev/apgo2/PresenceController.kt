@@ -294,7 +294,7 @@ internal class PresenceController(
                 // Monotonic age, immune to GPS/wall-clock skew; the "Later" cooldown stays on the wall clock (nowMs).
                 loc?.let { (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / NANOS_PER_MS },
             )
-        val camps = model.engine.camps().map { OfferCamp(it.id, it.name, GeoFix(it.lat, it.lon, 0.0)) }
+        val camps = model.camps.map { OfferCamp(it.id, it.name, GeoFix(it.lat, it.lon, 0.0)) }
         val signals =
             OfferSignals(
                 saved = savedNetworks(),
@@ -337,11 +337,8 @@ internal class PresenceController(
     }
 
     // Only networks of camps that still exist count: a deleted camp's Wi-Fi is nothing any more.
-    private fun knownCampIds() =
-        model.engine
-            .camps()
-            .map { it.id }
-            .toSet()
+    // Read from the model's in-memory list (kept current by [CampManager] and [AppModel.refreshAll]), never from disk per evaluation.
+    private fun knownCampIds() = model.camps.map { it.id }.toSet()
 
     private fun savedNetworks(known: Set<String> = knownCampIds()) = PresenceSignals.forCamps(model.settings.homeNetworks, known)
 

@@ -357,13 +357,17 @@ impl RealmStore {
         }
     }
 
-    /// Replace the saved camps.
+    /// Replace the saved camps. The file is replaced in one step (written beside it, then renamed over it), so a read at the same
+    /// moment never sees half a file.
     ///
     /// # Errors
     /// Returns a message if the file cannot be written.
     pub fn set_camps(&self, camps: &[Camp]) -> Result<(), String> {
         std::fs::create_dir_all(&self.dir).map_err(io)?;
-        std::fs::write(self.dir.join("camps.json"), serde_json::to_string(camps).map_err(|e| e.to_string())?).map_err(io)
+        let body = serde_json::to_string(camps).map_err(|e| e.to_string())?;
+        let tmp = self.dir.join("camps.json.tmp");
+        std::fs::write(&tmp, body).map_err(io)?;
+        std::fs::rename(&tmp, self.dir.join("camps.json")).map_err(io)
     }
 
     /// The point of the camp `"home"`, else of the first camp, else `None`.
@@ -371,19 +375,6 @@ impl RealmStore {
     pub fn home(&self) -> Option<Point> {
         let camps = self.camps();
         camps.iter().find(|c| c.id == HOME_CAMP_ID).or(camps.first()).map(|c| c.point)
-    }
-
-    /// Move the camp `"home"` to `home`, adding it (named "Home") when missing.
-    ///
-    /// # Errors
-    /// Returns a message if the file cannot be written.
-    pub fn set_home(&self, home: Point) -> Result<(), String> {
-        let mut camps = self.camps();
-        match camps.iter_mut().find(|c| c.id == HOME_CAMP_ID) {
-            Some(c) => c.point = home,
-            None => camps.insert(0, Camp::home(home)),
-        }
-        self.set_camps(&camps)
     }
 
     /// The pre-camps single home point.
@@ -611,8 +602,8 @@ mod tests {
     fn home_and_corrupt_files_are_handled() {
         let store = RealmStore::new(tmp("home"));
         assert!(store.home().is_none());
-        store.set_home(Point::new(1.5, 2.5)).unwrap();
-        assert_eq!(store.home(), Some(Point::new(1.5, 2.5)));
+        store.set_camps(&[camp("home", "Home", 1.5)]).unwrap();
+        assert_eq!(store.home(), Some(Point::new(1.5, 2.0)));
         std::fs::write(store.dir().join("realms.json"), "not json").unwrap();
         assert!(store.list().is_empty(), "corrupt file must not crash");
     }
@@ -635,29 +626,23 @@ mod tests {
     }
 
     #[test]
+    fn saving_camps_replaces_the_file_in_one_step() {
+        let store = RealmStore::new(tmp("camps-atomic"));
+        store.set_camps(&[camp("a", "A", 1.0)]).unwrap();
+        store.set_camps(&[camp("b", "B", 2.0)]).unwrap();
+        assert_eq!(store.camps(), vec![camp("b", "B", 2.0)]);
+        assert!(!store.dir().join("camps.json.tmp").exists(), "written beside and renamed over, leaving no temp file");
+        std::fs::create_dir(store.dir().join("camps.json.tmp")).unwrap(); // a blocked temp path fails the save, never the old file
+        assert!(store.set_camps(&[camp("c", "C", 3.0)]).is_err());
+        assert_eq!(store.camps(), vec![camp("b", "B", 2.0)], "the saved camps are untouched");
+    }
+
+    #[test]
     fn camps_round_trip_two_camps() {
         let store = RealmStore::new(tmp("camps-rt"));
         let two = vec![camp("home", "Home", 1.0), camp("b", "Cabin", 3.0)];
         store.set_camps(&two).unwrap();
         assert_eq!(store.camps(), two);
-    }
-
-    #[test]
-    fn set_home_updates_the_home_camp_without_adding_one() {
-        let store = RealmStore::new(tmp("camps-sethome"));
-        store.set_camps(&[camp("b", "Cabin", 3.0), camp("home", "Home", 1.0)]).unwrap();
-        store.set_home(Point::new(9.0, 9.0)).unwrap();
-        let camps = store.camps();
-        assert_eq!(camps.len(), 2);
-        assert_eq!(store.home(), Some(Point::new(9.0, 9.0)));
-        assert_eq!(camps[1].name, "Home");
-        store.set_camps(&[camp("b", "Cabin", 3.0)]).unwrap();
-        store.set_home(Point::new(4.0, 4.0)).unwrap();
-        let camps = store.camps();
-        assert_eq!(camps.len(), 2, "inserted once");
-        assert_eq!(camps[0].id, HOME_CAMP_ID);
-        assert_eq!(camps.iter().filter(|c| c.id == HOME_CAMP_ID).count(), 1);
-        assert_eq!(camps.iter().find(|c| c.id == HOME_CAMP_ID).unwrap().name, "Home");
     }
 
     #[test]
@@ -676,15 +661,6 @@ mod tests {
         std::fs::create_dir_all(store.dir().join("camps.json")).unwrap();
         std::fs::write(store.dir().join("home.json"), serde_json::to_string(&Point::new(1.0, 1.0)).unwrap()).unwrap();
         assert!(store.camps().is_empty());
-    }
-
-    #[test]
-    fn set_home_on_a_legacy_store_migrates_to_one_camp() {
-        let store = RealmStore::new(tmp("camps-legacy-sethome"));
-        std::fs::create_dir_all(store.dir()).unwrap();
-        std::fs::write(store.dir().join("home.json"), serde_json::to_string(&Point::new(1.0, 1.0)).unwrap()).unwrap();
-        store.set_home(Point::new(7.0, 8.0)).unwrap();
-        assert_eq!(store.camps(), vec![Camp { id: HOME_CAMP_ID.into(), name: "Home".into(), point: Point::new(7.0, 8.0) }]);
     }
 
     #[test]
