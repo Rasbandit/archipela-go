@@ -1,6 +1,6 @@
 package dev.apgo2.presence
 
-import dev.apgo2.distanceM
+import dev.apgo2.ui.distanceM
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

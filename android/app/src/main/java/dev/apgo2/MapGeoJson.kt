@@ -9,6 +9,7 @@ import dev.apgo2.ui.MarkerSpec
 import dev.apgo2.ui.ToolBadge
 import dev.apgo2.ui.Units
 import dev.apgo2.ui.circleRing
+import dev.apgo2.ui.distanceM
 import dev.apgo2.ui.hex
 import dev.apgo2.ui.openItems
 import org.json.JSONArray

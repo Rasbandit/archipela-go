@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import dev.apgo2.presence.GeoFix
+import dev.apgo2.ui.distanceM
 import uniffi.apgo_ffi.CampIn
 import uniffi.apgo_ffi.CampOut
 

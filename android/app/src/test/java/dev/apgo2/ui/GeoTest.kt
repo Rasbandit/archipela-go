@@ -1,5 +1,6 @@
 package dev.apgo2.ui
 
+import dev.apgo2.presence.GeoFix
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -61,5 +62,11 @@ class GeoTest {
         assertTrue(e.longitude > 7.0 && w.longitude < 7.0)
         assertEquals("symmetric about the centre", 7.0 - e.longitude, w.longitude - 7.0, eps)
         assertEquals(dLat / cos(Math.toRadians(45.0)), e.longitude - 7.0, eps)
+    }
+
+    @Test fun distanceIsMeasuredInMetres() {
+        val home = GeoFix(lat = 47.0, lon = 8.0, accuracyM = 0.0)
+        assertEquals(0.0, distanceM(home, home), eps)
+        assertEquals(100.0, distanceM(home, GeoFix(home.lat + 100.0 / METERS_PER_DEGREE, home.lon, 0.0)), 0.1)
     }
 }
