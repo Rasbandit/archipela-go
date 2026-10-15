@@ -18,6 +18,8 @@ import uniffi.apgo_ffi.Engine
 import uniffi.apgo_ffi.GeoPoint
 import uniffi.apgo_ffi.RecapOut
 
+private const val TAG = "recap"
+
 /** "Welcome home: see your walk": posted when a walk's recap is ready while the app is off screen. Opening the app shows it. */
 internal class RecapNotice(
     private val ctx: Context,
@@ -26,8 +28,8 @@ internal class RecapNotice(
 
     init {
         val channel =
-            NotificationChannel(CHANNEL, "Walk recap", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "How your walk went, when you get home"
+            NotificationChannel(CHANNEL, Help.RECAP_CHANNEL, NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = Help.RECAP_CHANNEL_DESCRIPTION
                 enableVibration(false)
                 setSound(null, null)
             }
@@ -41,7 +43,7 @@ internal class RecapNotice(
         val n =
             Notification
                 .Builder(ctx, CHANNEL)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(R.drawable.ic_launcher_monochrome)
                 .setContentTitle(Help.RECAP_NOTICE_TITLE)
                 .setContentText(Help.recapNoticeText(recap))
                 .setAutoCancel(true)
@@ -114,9 +116,9 @@ internal class RecapController(
     fun openWalk(endMs: Long) {
         scope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { engine.walkRecap(endMs) } }
-            r.onFailure { Diag.error("recap", "open walk failed", it) }
+            r.onFailure { Diag.error(TAG, "open walk failed", it) }
             val walk = r.getOrNull()
-            if (walk == null) Diag.warn("recap", "no recap for the walk", "end_ms" to endMs) else showHistory(walk)
+            if (walk == null) Diag.warn(TAG, "no recap for the walk", "end_ms" to endMs) else showHistory(walk)
         }
     }
 

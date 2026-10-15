@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import dev.apgo2.ui.Help
 import dev.apgo2.ui.Units
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -36,7 +37,7 @@ class RecapFormatTest {
         assertEquals("+4,090 steps", RecapFormat.barGain(c, 6230.0))
         assertEquals("6,230 total (was 2,140)", RecapFormat.barTotal(c, 6230.0))
         assertEquals("next: 7,500", RecapFormat.barNext(c, 6230.0))
-        assertEquals("All milestones reached", RecapFormat.barNext(c, 10_000.0))
+        assertEquals(Help.RECAP_ALL_MILESTONES, RecapFormat.barNext(c, 10_000.0))
     }
 
     @Test fun barGainForMinutesAndCells() {
@@ -99,15 +100,22 @@ class RecapFormatTest {
         val r = recap(minutes = 10, quests = listOf("Reach the park")).copy(items = listOf("Hydrate!"), banked = 3u)
         assertEquals(
             listOf(
-                "Items received" to listOf("Hydrate!"),
+                Help.ITEMS_RECEIVED to listOf("Hydrate!"),
             ),
             RecapFormat.sections(r),
         )
         assertEquals(emptyList<Pair<String, List<String>>>(), RecapFormat.sections(recap(minutes = 10)))
     }
 
+    @Test fun sectionTitlesMatchTheActivityLabels() {
+        assertEquals(
+            listOf(Help.CHECKS_SENT, Help.ITEMS_RECEIVED, Help.ZONES_UNLOCKED),
+            listOf("check_sent", "item_received", "zone_unlocked").map(AwayFormat::kindLabel),
+        )
+    }
+
     @Test fun zonesAndChecksAreNamed() {
         val r = recap(minutes = 10).copy(zonesUnlocked = listOf(2u), checksSent = 4u)
-        assertEquals(listOf("Checks sent" to listOf("4"), "Zones unlocked" to listOf("Zone 2")), RecapFormat.sections(r))
+        assertEquals(listOf(Help.CHECKS_SENT to listOf("4"), Help.ZONES_UNLOCKED to listOf("Zone 2")), RecapFormat.sections(r))
     }
 }

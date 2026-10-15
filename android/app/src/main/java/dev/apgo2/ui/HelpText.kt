@@ -207,6 +207,42 @@ internal object Help {
     const val RECAP_DONE_AT = "Done at"
     const val RECAP_REWARD = "Reward"
     const val RECAP_NOTICE_TITLE = "Welcome home: see your walk"
+    const val RECAP_CHANNEL = "Walk recap"
+    const val RECAP_CHANNEL_DESCRIPTION = "How your walk went, when you get home"
+    const val RECAP_ALL_MILESTONES = "All milestones reached"
+    const val CHECKS_SENT = "Checks sent"
+    const val ITEMS_RECEIVED = "Items received"
+    const val ZONES_UNLOCKED = "Zones unlocked"
+
+    /** "+2 banked" on a forager's recap bar. */
+    fun recapBanked(n: Long) = "+$n banked"
+
+    /** "2 still in your bag" under a forager's recap bar. */
+    fun recapInBag(n: UInt) = "$n still in your bag"
+
+    /** "4,812 walked · 4,090 counted" (counts already formatted). */
+    fun recapStepsLine(
+        walked: String,
+        counted: String,
+    ) = "$walked walked \u00b7 $counted counted"
+
+    /** "6,230 total (was 2,140)" on a chain's recap bar (counts already formatted). */
+    fun recapTotal(
+        total: String,
+        was: String,
+    ) = "$total total (was $was)"
+
+    /** "next: 7,500" on a chain's recap bar (the mark already formatted). */
+    fun recapNext(mark: String) = "next: $mark"
+
+    fun recapGainMinutes(n: Long) = "+$n min"
+
+    fun recapGainSquares(n: Long) = "+$n new squares"
+
+    /** "+4,090 steps" (the count already formatted). */
+    fun recapGainSteps(n: String) = "+$n steps"
+
+    fun recapZone(n: UInt) = "Zone $n"
 
     fun recapNoticeText(r: RecapOut): String {
         val time = "${AwayFormat.duration(r.endMs - r.startMs)} out"

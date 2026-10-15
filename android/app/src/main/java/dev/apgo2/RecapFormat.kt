@@ -1,5 +1,6 @@
 package dev.apgo2
 
+import dev.apgo2.ui.Help
 import dev.apgo2.ui.Units
 import uniffi.apgo_ffi.RecapChainOut
 import uniffi.apgo_ffi.RecapForagerOut
@@ -29,13 +30,14 @@ internal object RecapFormat {
     fun foragerLine(
         f: RecapForagerOut,
         banked: Double,
-    ): String =
-        "${f.theme.replaceFirstChar {
-            it.uppercase()
-        }} \u00b7 +${banked.roundToLong() - f.bankedBefore.toLong()} banked \u00b7 ${banked.roundToLong()} / ${f.need}"
+    ): String {
+        val theme = f.theme.replaceFirstChar { it.uppercase() }
+        val gain = Help.recapBanked(banked.roundToLong() - f.bankedBefore.toLong())
+        return "$theme \u00b7 $gain \u00b7 ${banked.roundToLong()} / ${f.need}"
+    }
 
     /** "2 still in your bag", or null when nothing is left unbanked. */
-    fun bagLine(f: RecapForagerOut): String? = if (f.carried == 0u) null else "${f.carried} still in your bag"
+    fun bagLine(f: RecapForagerOut): String? = if (f.carried == 0u) null else Help.recapInBag(f.carried)
 
     /** What a chain's bar gained so far, at counter [value]. */
     fun barGain(
@@ -44,9 +46,9 @@ internal object RecapFormat {
     ): String {
         val gain = (value - c.before).roundToLong()
         return when (c.unit) {
-            "minutes" -> "+$gain min"
-            "cells" -> "+$gain new squares"
-            else -> "+${count(gain)} steps"
+            "minutes" -> Help.recapGainMinutes(gain)
+            "cells" -> Help.recapGainSquares(gain)
+            else -> Help.recapGainSteps(count(gain))
         }
     }
 
@@ -54,17 +56,17 @@ internal object RecapFormat {
     fun barTotal(
         c: RecapChainOut,
         value: Double,
-    ): String = "${count(value.roundToLong())} total (was ${count(c.before.roundToLong())})"
+    ): String = Help.recapTotal(count(value.roundToLong()), count(c.before.roundToLong()))
 
     /** The next milestone past [value], or that they are all done. */
     fun barNext(
         c: RecapChainOut,
         value: Double,
-    ): String = c.marks.firstOrNull { it > value }?.let { "next: ${count(it.roundToLong())}" } ?: "All milestones reached"
+    ): String = c.marks.firstOrNull { it > value }?.let { Help.recapNext(count(it.roundToLong())) } ?: Help.RECAP_ALL_MILESTONES
 
     /** "4,812 walked · 4,090 counted", or null when every step counted. */
     fun stepsLine(r: RecapOut): String? =
-        if (r.steps == r.countedSteps) null else "${count(r.steps)} walked · ${count(r.countedSteps)} counted"
+        if (r.steps == r.countedSteps) null else Help.recapStepsLine(count(r.steps), count(r.countedSteps))
 
     /** The short time of day a quest was finished. */
     fun questTime(q: RecapQuestOut): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(q.tMs))
@@ -73,8 +75,8 @@ internal object RecapFormat {
 
     fun sections(r: RecapOut): List<Pair<String, List<String>>> =
         listOf(
-            AwayFormat.kindLabel("check_sent") to if (r.checksSent > 0u) listOf(r.checksSent.toString()) else emptyList(),
-            AwayFormat.kindLabel("item_received") to r.items,
-            AwayFormat.kindLabel("zone_unlocked") to r.zonesUnlocked.map { "Zone $it" },
+            Help.CHECKS_SENT to if (r.checksSent > 0u) listOf(r.checksSent.toString()) else emptyList(),
+            Help.ITEMS_RECEIVED to r.items,
+            Help.ZONES_UNLOCKED to r.zonesUnlocked.map(Help::recapZone),
         ).filter { it.second.isNotEmpty() }
 }
