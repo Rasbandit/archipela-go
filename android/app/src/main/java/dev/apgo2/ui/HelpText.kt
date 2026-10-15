@@ -193,7 +193,7 @@ internal object Help {
     const val PREVIEW_RECAP = "Preview walk recap"
 
     // ---- walk recap
-    const val RECAP_TITLE = "Welcome home"
+    const val RECAP_TITLE = "Welcome back"
     const val RECAP_DONE = "Done"
     const val RECAP_CLOSE = "Close"
     const val WALK_ROW_HINT = "Open this walk's recap"
@@ -206,9 +206,9 @@ internal object Help {
     const val RECAP_GOAL = "Goal"
     const val RECAP_DONE_AT = "Done at"
     const val RECAP_REWARD = "Reward"
-    const val RECAP_NOTICE_TITLE = "Welcome home: see your walk"
+    const val RECAP_NOTICE_TITLE = "Welcome back: see your walk"
     const val RECAP_CHANNEL = "Walk recap"
-    const val RECAP_CHANNEL_DESCRIPTION = "How your walk went, when you get home"
+    const val RECAP_CHANNEL_DESCRIPTION = "How your walk went, when you get back to a camp"
     const val RECAP_ALL_MILESTONES = "All milestones reached"
     const val CHECKS_SENT = "Checks sent"
     const val ITEMS_RECEIVED = "Items received"
@@ -278,14 +278,15 @@ internal object SetupText {
     const val HOME_NEEDS_WIFI = "Add your home Wi-Fi so the game pauses at home"
 }
 
-/** The "You're home: add this Wi-Fi?" dialog (see `HomeWifiDialog`). */
+/** The "You're at {camp}: add this Wi-Fi?" dialog (see `HomeWifiDialog`). */
 internal object HomeOfferText {
-    const val TITLE = "You're home: add this Wi-Fi?"
     const val ADD = "Add"
     const val MUTE = "Not this one"
     const val LATER = "Later"
 
+    fun title(camp: String?) = "You're at ${camp?.ifBlank { null } ?: "a camp"}: add this Wi-Fi?"
+
     fun body(ssid: String) =
-        "You are at your home pin and connected to \"$ssid\". Add it as home Wi-Fi so the game pauses and GPS turns off while you " +
-            "are on it. That saves battery, and nothing counts at home."
+        "You are at a camp and connected to \"$ssid\". Add it as this camp's Wi-Fi so the game pauses and GPS turns off while you " +
+            "are on it. That saves battery, and nothing counts at a camp."
 }

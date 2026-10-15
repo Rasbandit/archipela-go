@@ -224,9 +224,10 @@ class MapFeaturesTest {
         assertEquals(setOf(q.mapImageKey), listOf(q).pinImages)
     }
 
-    @Test fun theHomeCircleIsOneRingAtItsRadiusAndNothingWithoutOne() {
-        assertTrue(MeFeatures.homeZone(null).isEmpty())
-        val f = MeFeatures.homeZone(CircleOut(GeoPoint(40.0, -111.0), 50.0)).single()
+    @Test fun everyCampCircleIsOneRingAtItsRadiusAndNothingWithoutOne() {
+        assertTrue(MeFeatures.campZones(emptyList()).isEmpty())
+        assertEquals(2, MeFeatures.campZones(listOf(CircleOut(GeoPoint(1.0, 1.0), 50.0), CircleOut(GeoPoint(2.0, 2.0), 50.0))).size)
+        val f = MeFeatures.campZones(listOf(CircleOut(GeoPoint(40.0, -111.0), 50.0))).single()
         assertEquals("Polygon", f.geomType())
         val ring = f.coords().getJSONArray(0)
         for (i in 0 until ring.length()) {

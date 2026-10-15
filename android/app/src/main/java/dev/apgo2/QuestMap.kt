@@ -544,7 +544,7 @@ internal fun QuestMap(
     modifier: Modifier = Modifier,
     home: LatLng? = null,
     /** The circle round home that counts as home (presence), drawn faintly; null when there is none. */
-    homeZone: CircleOut? = null,
+    campZones: List<CircleOut> = emptyList(),
     onMapLongClick: ((LatLng) -> Unit)? = null,
     /** Circle being edited: center and radius in metres. */
     circle: Pair<LatLng, Double>? = null,
@@ -620,7 +620,7 @@ internal fun QuestMap(
     LaunchedEffect(holder) { holder.view.getMapAsync(holder::attach) }
     SyncContent(holder, quests, realms, selected, anchor, finds, trace, traceOld)
     SyncDrawing(holder, draft, circle, editable, handles, handlesVisible)
-    SyncPins(holder, thaw, waypoint, home, homeZone, me, onShow)
+    SyncPins(holder, thaw, waypoint, home, campZones, me, onShow)
     MapCamera(holder, inputs, overlaysFollowed, fit, focus, anchor)
     MapFraming(holder, circle, meKnown, quests, realms, points)
     // Covered until the first framing (or, with nothing to frame, until the style is in), then faded in: the camera jump and the
@@ -789,13 +789,13 @@ private fun SyncPins(
     thaw: LatLng?,
     waypoint: LatLng?,
     home: LatLng?,
-    homeZone: CircleOut?,
+    campZones: List<CircleOut>,
     me: () -> MePin?,
     onShow: Boolean,
 ) {
     val style = holder.style
     LaunchedEffect(style, thaw, waypoint) { holder.show(MapSource.MARKS, MapFeatures.marks(thaw, waypoint)) }
-    LaunchedEffect(style, homeZone) { holder.show(MapSource.HOME_ZONE, MeFeatures.homeZone(homeZone)) }
+    LaunchedEffect(style, campZones) { holder.show(MapSource.HOME_ZONE, MeFeatures.campZones(campZones)) }
     LaunchedEffect(style, home) {
         holder.show(MapSource.HOME, MapFeatures.pin(home))
         holder.repaint()

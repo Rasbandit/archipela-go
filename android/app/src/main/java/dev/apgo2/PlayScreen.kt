@@ -378,7 +378,8 @@ private fun GameHeader(
             Text(
                 PresenceText.chip(
                     m.presence.decision.state,
-                    m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty() || m.presence.homeZone != null,
+                    m.settings.homeNetworks.isNotEmpty() || m.settings.carDevices.isNotEmpty() || m.presence.campZones.isNotEmpty(),
+                    m.presence.campName,
                 ),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.primary,
@@ -448,7 +449,7 @@ private fun PlayMap(
                 m.selected = id
             },
             home = m.home?.let { LatLng(it.lat, it.lon) },
-            homeZone = m.presence.homeZone,
+            campZones = m.presence.campZones,
             trace = trace,
             traceOld = traceOld,
             lastPlace = m.lastPlace,

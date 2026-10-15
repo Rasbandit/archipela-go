@@ -21,6 +21,32 @@ class PresenceSignalsTest {
         assertEquals(false, PresenceSignals.isHome(WifiId("CafeWifi", "11:22:33:44:55:66"), saved))
     }
 
+    @Test fun campOfNamesTheCampWhoseNetworkMatchesByBssidThenSsid() {
+        val saved =
+            listOf(
+                HomeNetwork("HomeNet", "aa:bb:cc:dd:ee:01", "home"),
+                HomeNetwork("CabinNet", "aa:bb:cc:dd:ee:09", "cabin"),
+            )
+        assertEquals("home", PresenceSignals.campOf(WifiId("HomeNet", null), saved))
+        assertEquals("cabin", PresenceSignals.campOf(WifiId("Renamed", "AA:BB:CC:DD:EE:09"), saved))
+        assertEquals("cabin", PresenceSignals.campOf(WifiId("CabinNet", "11:22:33:44:55:66"), saved))
+        assertNull("another network", PresenceSignals.campOf(WifiId("CafeWifi", "11:22:33:44:55:66"), saved))
+        assertNull("unreadable", PresenceSignals.campOf(WifiId("<unknown ssid>", "02:00:00:00:00:00"), saved))
+        assertNull("nothing saved", PresenceSignals.campOf(WifiId("HomeNet", null), emptyList()))
+    }
+
+    @Test fun aSavedNetworkWithoutACampIdReadsAsHome() {
+        assertEquals("home", HomeNetwork("HomeNet", null).campId)
+        assertEquals("home", PresenceSignals.campOf(WifiId("HomeNet", null), listOf(HomeNetwork("HomeNet", null))))
+    }
+
+    @Test fun theChipNamesTheCampAndFallsBackWhenUnnamed() {
+        assertEquals("At Cabin, paused", PresenceText.chip(PresenceState.AtHome, true, "Cabin"))
+        assertEquals("At a camp, paused", PresenceText.chip(PresenceState.AtHome, true, null))
+        assertEquals("At a camp, paused", PresenceText.chip(PresenceState.AtHome, true, ""))
+        assertEquals("Tracking", PresenceText.chip(PresenceState.InZone, true, "Cabin"))
+    }
+
     @Test fun aBssidMismatchWithTheSameSsidStillCountsBecauseHomesHaveSeveralAccessPoints() {
         val saved = listOf(HomeNetwork("HomeNet", "aa:bb:cc:dd:ee:01"))
         assertEquals(true, PresenceSignals.isHome(WifiId("HomeNet", "aa:bb:cc:dd:ee:02"), saved))
@@ -71,7 +97,7 @@ class PresenceSignalsTest {
     }
 
     @Test fun theChipSaysWhatIsHappeningAndReadsProtectionOffWhenNothingIsConfigured() {
-        assertEquals("At home, paused", PresenceText.chip(PresenceState.AtHome, configured = true))
+        assertEquals("At Home, paused", PresenceText.chip(PresenceState.AtHome, configured = true, camp = "Home"))
         assertEquals("In car, not counting", PresenceText.chip(PresenceState.InCar, configured = true))
         assertEquals("Outside zones, saving battery", PresenceText.chip(PresenceState.OutsideZones, configured = true))
         assertEquals("Tracking", PresenceText.chip(PresenceState.InZone, configured = true))

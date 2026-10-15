@@ -13,6 +13,13 @@ internal data class GeoFix(
     val accuracyM: Double,
 )
 
+/** A camp's pin, for choosing which camp a Wi-Fi offer is for. */
+internal data class OfferCamp(
+    val id: String,
+    val name: String,
+    val pin: GeoFix,
+)
+
 /** What [HomeWifiOffer.decide] looks at. */
 internal data class OfferSignals(
     val saved: List<HomeNetwork>,
@@ -20,7 +27,7 @@ internal data class OfferSignals(
     val fix: GeoFix?,
     /** How long ago [fix] was taken, on the monotonic clock (`elapsedRealtimeNanos`); `null` when unknown. */
     val fixAgeMs: Long?,
-    val home: GeoFix?,
+    val camps: List<OfferCamp>,
     val wifi: WifiId?,
     val muted: Set<String>,
     val showing: Boolean,
@@ -29,8 +36,8 @@ internal data class OfferSignals(
 )
 
 /**
- * "You're home: add this Wi-Fi?" A player who skipped home Wi-Fi in setup never gets the at-home pause; when a good fix puts them at
- * the home pin while on a named network, offer to save that network. Pure.
+ * "You're at {camp}: add this Wi-Fi?" A player with no Wi-Fi saved for a camp never gets its pause; when a good fix puts them at
+ * that camp while on a named network, offer to save that network for it. Pure.
  */
 internal object HomeWifiOffer {
     const val NEAR_HOME_M = 75.0
@@ -43,7 +50,9 @@ internal object HomeWifiOffer {
     fun decide(s: OfferSignals): WifiId? {
         val net = PresenceSignals.usableNetwork(s.wifi) ?: return null
         val cooling = s.dismissedAtMs != null && s.nowMs - s.dismissedAtMs < LATER_COOLDOWN_MS
-        val ok = s.saved.isEmpty() && s.playing && !s.showing && !cooling && net.ssid !in s.muted && atHome(s)
+        val camp = nearestCamp(s)
+        val needed = camp != null && s.saved.none { it.campId == camp.id } && PresenceSignals.campOf(net, s.saved) == null
+        val ok = needed && s.playing && !s.showing && !cooling && net.ssid !in s.muted
         return if (ok) net else null
     }
 
@@ -70,13 +79,18 @@ internal object HomeWifiOffer {
         ssid: String,
     ): Set<String> = muted + ssid
 
-    // A fresh, accurate fix near the pin. The age check keeps out a cached last-known location (it keeps its original time), and a
-    // negative age (a fix stamped in the future) never passes.
-    private fun atHome(s: OfferSignals): Boolean {
+    /**
+     * The camp the player is at: the nearest within [NEAR_HOME_M] of a fresh, accurate fix. The age check keeps out a cached last-known
+     * location (it keeps its original time), and a negative age (a fix stamped in the future) never passes.
+     */
+    fun nearestCamp(s: OfferSignals): OfferCamp? {
         val fix = s.fix
-        val home = s.home
         val fresh = s.fixAgeMs != null && s.fixAgeMs in 0..MAX_FIX_AGE_MS
-        return fix != null && home != null && fresh && fix.accuracyM <= MAX_ACCURACY_M && distanceM(fix, home) <= NEAR_HOME_M
+        return if (fix == null || !fresh || fix.accuracyM > MAX_ACCURACY_M) {
+            null
+        } else {
+            s.camps.minByOrNull { distanceM(fix, it.pin) }?.takeIf { distanceM(fix, it.pin) <= NEAR_HOME_M }
+        }
     }
 
     /** Great-circle distance in metres (haversine). */

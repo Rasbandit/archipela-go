@@ -334,11 +334,11 @@ private fun questProps(
     .put(MapProp.SORT, MapMarkers.drawOrder(q.state))
     .put(MapProp.ID, q.locationId.toString())
 
-/** What the map draws around you: the home circle and the line joining your trace to your pin. */
+/** What the map draws around you: the camp circles and the line joining your trace to your pin. */
 internal object MeFeatures {
-    /** The circle round the home pin that counts as home (presence), or nothing while home Wi-Fi alone decides. */
-    fun homeZone(c: CircleOut?): List<JSONObject> =
-        listOfNotNull(c?.let { GeoJson.feature(GeoJson.polygon(circleRing(it.center.lat, it.center.lon, it.radiusM))) })
+    /** The circle round each camp that counts as being there (presence), or nothing while Wi-Fi alone decides. */
+    fun campZones(cs: List<CircleOut>): List<JSONObject> =
+        cs.map { GeoJson.feature(GeoJson.polygon(circleRing(it.center.lat, it.center.lon, it.radiusM))) }
 
     /**
      * The line from the trace's newest point to the pin, sent with every pin move: the trace reloads every 10 s and ends at the

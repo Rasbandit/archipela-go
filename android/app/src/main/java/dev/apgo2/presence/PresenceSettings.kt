@@ -18,7 +18,10 @@ internal class PresenceSettings(
     var homeNetworks: List<HomeNetwork>
         get() = homeCache ?: parseHome().also { homeCache = it }
         private set(v) {
-            val json = JSONArray(v.map { JSONObject().put("ssid", it.ssid).put("bssid", it.bssid ?: "") }).toString()
+            val json =
+                JSONArray(
+                    v.map { JSONObject().put("ssid", it.ssid).put("bssid", it.bssid ?: "").put("campId", it.campId) },
+                ).toString()
             prefs.edit { putString("home", json) }
             homeCache = v
         }
@@ -53,7 +56,11 @@ internal class PresenceSettings(
             (0 until a.length()).mapNotNull { i ->
                 runCatching {
                     a.getJSONObject(i).let { o ->
-                        HomeNetwork(o.getString("ssid"), o.optString("bssid").takeIf { b -> b.isNotBlank() })
+                        HomeNetwork(
+                            o.getString("ssid"),
+                            o.optString("bssid").takeIf { b -> b.isNotBlank() },
+                            o.optString("campId").ifBlank { "home" },
+                        )
                     }
                 }.getOrNull()
             }

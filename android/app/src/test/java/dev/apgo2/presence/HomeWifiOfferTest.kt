@@ -15,7 +15,7 @@ class HomeWifiOfferTest {
             playing = true,
             fix = GeoFix(home.lat, home.lon, accuracyM = 10.0),
             fixAgeMs = 1_000L,
-            home = home,
+            camps = listOf(OfferCamp("home", "Home", home)),
             wifi = WifiId("\"HomeNet\"", "aa:bb:cc:dd:ee:01"),
             muted = emptySet(),
             showing = false,
@@ -40,7 +40,7 @@ class HomeWifiOfferTest {
 
     @Test fun noOfferWithoutAFixOrAHomePin() {
         assertNull(HomeWifiOffer.decide(base.copy(fix = null)))
-        assertNull(HomeWifiOffer.decide(base.copy(home = null)))
+        assertNull(HomeWifiOffer.decide(base.copy(camps = emptyList())))
     }
 
     @Test fun theFixMustBeWithin75mOfHome() {
@@ -128,5 +128,24 @@ class HomeWifiOfferTest {
     @Test fun distanceIsMeasuredInMetres() {
         assertEquals(0.0, HomeWifiOffer.distanceM(home, home), 1e-9)
         assertEquals(100.0, HomeWifiOffer.distanceM(home, GeoFix(north(100.0), home.lon, 0.0)), 0.1)
+    }
+
+    @Test fun offersAtTheNearestCampAndSavesItsId() {
+        val cabin = OfferCamp("cabin", "Cabin", GeoFix(north(60.0), home.lon, 0.0))
+        val s = base.copy(camps = listOf(OfferCamp("home", "Home", home), cabin), fix = GeoFix(north(55.0), home.lon, 10.0))
+        assertEquals(cabin, HomeWifiOffer.nearestCamp(s))
+        assertNull("beyond 75 m of every camp", HomeWifiOffer.nearestCamp(s.copy(fix = GeoFix(north(500.0), home.lon, 10.0))))
+    }
+
+    @Test fun aCampWithItsOwnNetworkIsNotOfferedAgainButAnotherCampIs() {
+        val cabin = OfferCamp("cabin", "Cabin", GeoFix(north(2000.0), home.lon, 0.0))
+        val atCabin = base.copy(camps = listOf(OfferCamp("home", "Home", home), cabin), fix = GeoFix(cabin.pin.lat, home.lon, 10.0))
+        val homeSaved = listOf(HomeNetwork("HomeNet2", null, "home"))
+        assertEquals("cabin has none yet", WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(atCabin.copy(saved = homeSaved)))
+        assertNull("cabin has one", HomeWifiOffer.decide(atCabin.copy(saved = homeSaved + HomeNetwork("CabinNet", null, "cabin"))))
+        assertNull(
+            "this network is already a camp's",
+            HomeWifiOffer.decide(atCabin.copy(saved = listOf(HomeNetwork("HomeNet", null, "home")))),
+        )
     }
 }

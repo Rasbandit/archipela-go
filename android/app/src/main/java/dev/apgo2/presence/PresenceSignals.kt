@@ -8,6 +8,8 @@ internal data class WifiId(
 internal data class HomeNetwork(
     val ssid: String,
     val bssid: String?,
+    /** The camp this network pauses; networks saved before camps existed read as the migrated camp, `"home"`. */
+    val campId: String = "home",
 )
 
 internal data class CarDevice(
@@ -35,17 +37,29 @@ internal object PresenceSignals {
         saved: List<HomeNetwork>,
     ): Boolean? {
         if (saved.isEmpty()) return null
+        val unreadable = cleanSsid(current?.ssid) == null && readableBssid(current) == null
+        return if (unreadable) null else matching(current, saved).isNotEmpty()
+    }
+
+    /** The camp whose saved network [current] is (a BSSID match wins over an SSID match), or `null` on none or when unreadable. */
+    fun campOf(
+        current: WifiId?,
+        saved: List<HomeNetwork>,
+    ): String? {
+        val bssid = readableBssid(current)
+        val byBssid = bssid?.let { b -> saved.firstOrNull { it.bssid?.lowercase() == b } }
+        return (byBssid ?: matching(current, saved).firstOrNull())?.campId
+    }
+
+    private fun readableBssid(current: WifiId?) = current?.bssid?.lowercase()?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }
+
+    private fun matching(
+        current: WifiId?,
+        saved: List<HomeNetwork>,
+    ): List<HomeNetwork> {
         val ssid = cleanSsid(current?.ssid)
-        val bssid = current?.bssid?.lowercase()?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }
-        val unreadable = ssid == null && bssid == null
-        return if (unreadable) {
-            null
-        } else {
-            saved.any { h ->
-                (bssid != null && h.bssid?.lowercase() == bssid) ||
-                    (ssid != null && h.ssid == ssid)
-            }
-        }
+        val bssid = readableBssid(current)
+        return saved.filter { h -> (bssid != null && h.bssid?.lowercase() == bssid) || (ssid != null && h.ssid == ssid) }
     }
 
     fun carConnected(
@@ -64,13 +78,14 @@ internal object PresenceText {
     fun chip(
         state: PresenceState,
         configured: Boolean,
+        camp: String? = null,
     ): String =
         if (!configured) {
             "Protection off"
         } else {
             when (state) {
                 PresenceState.InZone -> "Tracking"
-                PresenceState.AtHome -> "At home, paused"
+                PresenceState.AtHome -> "At ${camp.orEmpty().ifBlank { "a camp" }}, paused"
                 PresenceState.InCar -> "In car, not counting"
                 PresenceState.OutsideZones -> "Outside zones, saving battery"
                 PresenceState.Stopped -> "Not playing"

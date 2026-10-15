@@ -131,4 +131,11 @@ class HelpTextTest {
             assertTrue(it, "  " !in it)
         }
     }
+
+    @Test fun recapAndOfferTextSpeakOfCampsNotHome() {
+        assertEquals("Welcome back", Help.RECAP_TITLE)
+        assertEquals("Welcome back: see your walk", Help.RECAP_NOTICE_TITLE)
+        assertEquals("You're at Cabin: add this Wi-Fi?", HomeOfferText.title("Cabin"))
+        assertEquals("You're at a camp: add this Wi-Fi?", HomeOfferText.title(null))
+    }
 }

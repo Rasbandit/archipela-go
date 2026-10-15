@@ -66,7 +66,7 @@ internal object PresencePolicy {
      * A home check ([checking]: the core still telling with GPS, e.g. started away with no home Wi-Fi) is not arriving; a check that
      * ends at home ([wasChecking], state still AtHome) is.
      */
-    fun arrivedHome(
+    fun arrivedAtCamp(
         before: PresenceState,
         after: PresenceState,
         checking: Boolean = false,

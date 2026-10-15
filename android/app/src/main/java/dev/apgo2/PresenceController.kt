@@ -13,6 +13,7 @@ import dev.apgo2.presence.GeoFix
 import dev.apgo2.presence.GpsMode
 import dev.apgo2.presence.HomeNetwork
 import dev.apgo2.presence.HomeWifiOffer
+import dev.apgo2.presence.OfferCamp
 import dev.apgo2.presence.OfferSignals
 import dev.apgo2.presence.PresenceMonitor
 import dev.apgo2.presence.PresencePolicy
@@ -80,8 +81,17 @@ internal class PresenceController(
     private var homeState = PresenceHome.AWAY
     private var homeStarted = false
 
-    /** The home circle presence uses (the map draws it), or `null` while home Wi-Fi alone decides. Set on every evaluation. */
-    var homeZone by mutableStateOf<CircleOut?>(null)
+    /** The camp circles presence uses (the map draws them); empty while Wi-Fi alone decides. Set on every evaluation. */
+    var campZones by mutableStateOf<List<CircleOut>>(emptyList())
+
+    /** The camp presence is at, or `null` when unnamed or not at one. Set on every evaluation. */
+    var campName by mutableStateOf<String?>(null)
+
+    /** The camp the offered network would be saved for (the nearest one). */
+    var homeOfferCamp by mutableStateOf<OfferCamp?>(null)
+
+    // The camp of the last Wi-Fi seen on a saved network: the debounced signal can outlive the reading by a few seconds.
+    private var lastWifiCamp: String? = null
         private set
 
     /**
@@ -168,8 +178,8 @@ internal class PresenceController(
         Diag.raw("rawstate", RawLines.state(d.state.name, d.counting, zone.name.lowercase(), appVisible))
         if (d.state != prev.state) onStateChange(prev.state, d, t)
         // Also a home check that ends at home: the state stays AtHome, only its GPS mode changes.
-        val arrived = PresencePolicy.arrivedHome(prev.state, d.state, d.gps == GpsMode.Check, prev.gps == GpsMode.Check)
-        if (arrived && model.hud != null) bankAtHome()
+        val arrived = PresencePolicy.arrivedAtCamp(prev.state, d.state, d.gps == GpsMode.Check, prev.gps == GpsMode.Check)
+        if (arrived && model.hud != null) bankAtCamp()
         applyLocation()
     }
 
@@ -181,16 +191,14 @@ internal class PresenceController(
     ): PresenceHome {
         val e = model.engine
         e.presenceSetWalkSensor(model.sensors.stepsAvailable)
-        homeZone = e.presenceCircles().firstOrNull()
-        e.presenceWifiCamp(
-            if (wifi == true) "home" else null,
-            t,
-        )
+        campZones = e.presenceCircles()
+        e.presenceWifiCamp(if (wifi == true) wifiCamp() else null, t)
         if (!homeStarted) {
             e.presenceStart(t)
             homeStarted = true
         }
         e.presenceTick(t)
+        campName = e.presenceCamp()?.name
         return e.presenceState()
     }
 
@@ -213,12 +221,12 @@ internal class PresenceController(
 
     // Presence arrived home (home Wi-Fi or the home circle): forager quests bank what they carry, even with no GPS fix. The core
     // reads and thins the walk's trace for the recap, so it runs off the main thread; the events and the redraw come back to it.
-    private fun bankAtHome() {
+    private fun bankAtCamp() {
         if (!model.engine.hasGame()) return
         val t = model.now()
         scope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { model.engine.bankAtCamp(t) } }
-            r.onFailure { Diag.error(TAG, "bank at home failed", it) }
+            r.onFailure { Diag.error(TAG, "bank at camp failed", it) }
             model.handle(r.getOrDefault(emptyList())) // a new recap comes back as RecapReady
             model.refreshPlay(withTrace = false)
         }
@@ -266,7 +274,7 @@ internal class PresenceController(
         // Home or car signal gone but not yet confirmed: count steps from the door (backfilled once it is).
         val leaving = StepRate.leaving(decision.state, homeDebounce.pending, carDebounce.pending)
         val onScreen = screenOn && appVisible
-        val homeCircle = homeZone != null
+        val homeCircle = campZones.isNotEmpty()
         model.sensors.setStepBatch(
             StepRate.batchUs(decision.state, inZone, leaving, onScreen, homeCircle),
             StepRate.wakeUp(decision.state, inZone, leaving, onScreen, homeCircle),
@@ -285,14 +293,14 @@ internal class PresenceController(
                 // Monotonic age, immune to GPS/wall-clock skew; the "Later" cooldown stays on the wall clock (nowMs).
                 loc?.let { (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / NANOS_PER_MS },
             )
-        val pin = model.realmOps.homePoint()
+        val camps = model.engine.camps().map { OfferCamp(it.id, it.name, GeoFix(it.lat, it.lon, 0.0)) }
         val signals =
             OfferSignals(
                 saved = model.settings.homeNetworks,
                 playing = model.hud != null,
                 fix = fix,
                 fixAgeMs = fixAgeMs,
-                home = pin?.let { GeoFix(it.lat, it.lon, 0.0) },
+                camps = camps,
                 wifi = monitor.currentWifi,
                 muted = model.settings.mutedHomeOffers,
                 showing = homeOffer != null,
@@ -302,14 +310,18 @@ internal class PresenceController(
         val next = HomeWifiOffer.next(homeOffer, signals)
         if (next != homeOffer) Diag.info(TAG, if (next == null) "home wifi offer withdrawn" else "home wifi offer")
         homeOffer = next
+        homeOfferCamp = next?.let { HomeWifiOffer.nearestCamp(signals) }
     }
 
-    /** "Add": save the offered network as home; the at-home rule takes over from here. */
+    /** "Add": save the offered network for the nearest camp; the at-camp rule takes over from here. */
     fun acceptHomeOffer() {
         checkHomeOffer(model.now()) // things may have changed while the dialog was up (e.g. Wi-Fi saved in setup)
-        val w = homeOffer ?: return
+        val w = homeOffer
+        val camp = homeOfferCamp
+        val ssid = w?.ssid
+        if (w == null || camp == null || ssid == null) return
         homeOffer = null
-        model.settings.addHome(HomeNetwork(w.ssid ?: return, w.bssid))
+        model.settings.addHome(HomeNetwork(ssid, w.bssid, camp.id))
         evaluate()
     }
 
@@ -326,6 +338,10 @@ internal class PresenceController(
     }
 
     private fun rawHome() = PresenceSignals.isHome(monitor.currentWifi, model.settings.homeNetworks)
+
+    // The camp the Wi-Fi belongs to; the last one seen while the debounced signal still says "on camp Wi-Fi".
+    private fun wifiCamp(): String? =
+        (PresenceSignals.campOf(monitor.currentWifi, model.settings.homeNetworks) ?: lastWifiCamp).also { lastWifiCamp = it }
 
     private fun rawCar() =
         PresenceSignals.carConnected(monitor.connectedCarCandidates, model.settings.carDevices).also {
@@ -350,7 +366,7 @@ internal class PresenceController(
 
     private fun presenceText(s: PresenceState) =
         when (s) {
-            PresenceState.AtHome -> "At home: paused"
+            PresenceState.AtHome -> "At ${campName.orEmpty().ifBlank { "a camp" }}: paused"
             PresenceState.InCar -> "Car Bluetooth connected: not counting"
             PresenceState.OutsideZones -> "Outside every zone: saving battery"
             PresenceState.InZone -> "Tracking"
