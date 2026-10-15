@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -24,6 +25,13 @@ import java.net.InetAddress
 /** Shown next to the connection status when local network access is missing and a connection is not getting through. */
 internal const val LAN_HINT = "If this server is on your home network, allow Nearby devices for this app in Settings."
 
+/** The local network permission; only asked when lacksLocalNetwork() is true, which cannot happen before Android 17. */
+@SuppressLint("InlinedApi")
+internal const val LOCAL_NETWORK_PERMISSION = Manifest.permission.ACCESS_LOCAL_NETWORK
+
+/** Shown on Play while the open game's home-network server waits for local network access (Nearby devices). */
+internal const val LAN_HELD = "This game's server is on your home network. Allow Nearby devices to connect."
+
 private val LAN_SUFFIXES = listOf(".local", ".lan", ".home", ".home.arpa", ".internal")
 private const val IPV4_PARTS = 4
 private const val OCTET_MAX = 255
@@ -46,6 +54,16 @@ internal fun needsLocalNetworkPrompt(
     url: String,
     resolved: List<String>,
 ) = isLocalNetworkServer(url) || resolved.any(::isLocalAddress)
+
+/**
+ * Whether an automatic connect to [url] (the open game's saved server) waits for local network access: this Android [lacks] it
+ * and the server, by name or by its [resolved] addresses, is on the LAN.
+ */
+internal fun holdsForLocalNetwork(
+    lacks: Boolean,
+    url: String,
+    resolved: List<String>,
+) = lacks && needsLocalNetworkPrompt(url, resolved)
 
 /** The host part of [url], lower-cased, without IPv6 brackets or a trailing dot; null when there is none. */
 internal fun serverHost(url: String): String? {
@@ -89,7 +107,13 @@ private val LOCAL_IPV6 = Regex("^(fe[89ab]|f[cd])")
 
 /** True when this Android blocks the local network for us: Android 17+ and ACCESS_LOCAL_NETWORK not granted. */
 internal fun Context.lacksLocalNetwork() =
-    Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN && !hasPermission(Manifest.permission.ACCESS_LOCAL_NETWORK)
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN && !hasPermission(LOCAL_NETWORK_PERMISSION)
+
+/** True when a connect to [url] would be blocked for missing local network access; resolves the host only when access is missing. */
+internal suspend fun Context.blocksLocalNetwork(url: String): Boolean {
+    val host = serverHost(url)
+    return lacksLocalNetwork() && host != null && holdsForLocalNetwork(lacks = true, url, resolve(host))
+}
 
 // The addresses [host] resolves to, as literals; empty when the lookup fails (the connect will report the error).
 private suspend fun resolve(host: String): List<String> =
@@ -119,11 +143,9 @@ internal fun rememberLanAwareConnect(
         }
     return { url ->
         scope.launch {
-            val host = serverHost(url)
-            val prompt = ctx.lacksLocalNetwork() && host != null && needsLocalNetworkPrompt(url, resolve(host))
-            if (prompt) {
+            if (ctx.blocksLocalNetwork(url)) {
                 pending = url
-                ask.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                ask.launch(LOCAL_NETWORK_PERMISSION)
             } else {
                 connect(url)
             }

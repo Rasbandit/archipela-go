@@ -109,6 +109,11 @@ internal class ApController(
     // when a game opens or refreshes, not on every recomposition.
     var savedServer by mutableStateOf<ApServerOut?>(null)
         private set
+
+    // The open game's saved server on the home network, not connected because local network access is missing (#171): Play asks
+    // for it instead of a reconnect loop that could never get through.
+    var lanHeld by mutableStateOf<ApServerOut?>(null)
+        private set
     private var syncedChecked = false
     private var pollJob: Job? = null
 
@@ -214,6 +219,12 @@ internal class ApController(
      * else drain and sync now rather than at the next server message (the player is looking).
      */
     fun onForeground() {
+        // Back from the settings page, perhaps with local network access now: try the held server again (still open, not paused).
+        val held = lanHeld?.takeIf { model.engine.openGameId() != null }
+        if (held != null) connectSaved(held) else refreshSession()
+    }
+
+    private fun refreshSession() {
         val s = session ?: return
         if (!ApWait.stale(status, everConnected, SystemClock.elapsedRealtime() - lastDataMs)) return syncNow()
         scope.launch {
@@ -240,15 +251,45 @@ internal class ApController(
      * core decides, Engine.apServerToConnect). Not on every refresh: a player connecting elsewhere from New Game stays there.
      */
     fun onGameOpened() {
+        lanHeld = null // another game's server, or this one's again below
         savedServer = model.engine.apSavedServer()
         val here = lastTarget?.takeIf { session != null }?.let { (url, slot) -> ApServerOut(url, slot) }
         model.engine.apServerToConnect(here)?.let(::connectSaved)
     }
 
-    // The open game's own server: it connected there before, so a drop or refusal is retried like a reconnect.
+    // The open game's own server: it connected there before, so a drop or refusal is retried like a reconnect. A home-network
+    // server without local network access is held instead (Android 17 would block every try): Play shows the prompt.
     private fun connectSaved(server: ApServerOut) {
+        if (!ctx.lacksLocalNetwork()) return connectNow(server)
+        stopSession() // the lookup below takes a moment: the old session must not sync the just opened game meanwhile
+        scope.launch {
+            if (ctx.blocksLocalNetwork(server.address)) {
+                Diag.info("ap", "saved server waits for local network access")
+                lanHeld = server
+            } else {
+                connectNow(server)
+            }
+        }
+    }
+
+    private fun connectNow(server: ApServerOut) {
+        lanHeld = null
         Diag.info("ap", "connecting the open game's saved server")
         connect(server.address, server.slot, saved = true)
+    }
+
+    // No session: nothing syncs and nothing reconnects until the next connect.
+    private fun stopSession() {
+        pollJob?.cancel()
+        sessions.replace(null)
+        lastTarget = null
+        status = "not connected"
+        hint = null
+    }
+
+    /** Local network access was just granted: connect the held server. */
+    fun connectHeld() {
+        lanHeld?.let(::connectSaved)
     }
 
     /** The open game's server moved (an archipelago.gg room on a new port): save [address] and reconnect there. */

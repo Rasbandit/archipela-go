@@ -113,4 +113,12 @@ class LocalNetworkTest {
         assertFalse(needsLocalNetworkPrompt("localhost:38281", listOf("127.0.0.1", "::1")))
         assertFalse(needsLocalNetworkPrompt("archipelago.gg:38281", emptyList())) // lookup failed
     }
+
+    @Test fun anAutomaticConnectWaitsOnlyForALanServerWithoutAccess() {
+        assertTrue(holdsForLocalNetwork(lacks = true, "192.168.1.2:38281", emptyList()))
+        assertTrue("caught by its address", holdsForLocalNetwork(lacks = true, "ap.example.com:38281", listOf("10.0.0.5")))
+        assertFalse("access granted", holdsForLocalNetwork(lacks = false, "192.168.1.2:38281", emptyList()))
+        assertFalse("not on the LAN", holdsForLocalNetwork(lacks = true, "archipelago.gg:38281", listOf("1.2.3.4")))
+        assertFalse("loopback is not gated", holdsForLocalNetwork(lacks = true, "localhost:38281", listOf("127.0.0.1")))
+    }
 }
