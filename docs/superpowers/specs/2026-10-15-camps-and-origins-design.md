@@ -69,8 +69,14 @@ turn into distance.
   used because one long arm of the zone, or one far street, would otherwise stretch every tier.
 - **No cap:** a huge zone makes long quests. The new-game screen shows how long the far side is on foot, so the player can
   draw a smaller zone if they want shorter quests.
-- **Tier to distance:** tier `t` of 10 targets `t x 9 %` of reach, so tier 10 lands at 90 %. The bands are near 0-30 %
-  (tiers 1-3), middle 30-60 % (tiers 4-7, compressed) and far 60-90 % (tiers 8-10).
+- **Tier to distance:** each band spreads its tiers evenly to its top edge, as a share of reach:
+
+  | Band | Tiers | Share of reach |
+  | -- | -- | -- |
+  | Near | 1, 2, 3 | 10, 20, 30 % |
+  | Middle | 4, 5, 6, 7 | 37.5, 45, 52.5, 60 % |
+  | Far | 8, 9, 10 | 70, 80, 90 % |
+
 - **Small zones:** when reach cannot give a tier its effort (a park that reaches 0.3 mi), the extra effort comes from dwell
   time or a second stop instead of distance. The new-game screen says so ("Lehi Park is small: hard quests will be longer
   stays, not farther walks").
@@ -128,7 +134,7 @@ not a game.
   - the walk recap closes at a second camp;
   - origins default to a camp in the zone, else the street nearest the centre;
   - reach uses the percentile, with no cap;
-  - tier 10 lands at 90 % of reach;
+  - tiers follow the band table (tier 3 at 30 %, tier 7 at 60 %, tier 10 at 90 % of reach);
   - tiers scale with zone size: a small and a big zone get different distances for the same tier;
   - small-zone fallback adds dwell.
 - **Engine:**
