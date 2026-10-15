@@ -183,13 +183,7 @@ internal class PresenceController(
         e.presenceSetWalkSensor(model.sensors.stepsAvailable)
         homeZone = e.presenceCircles().firstOrNull()
         e.presenceWifiCamp(
-            if (wifi == true) {
-                "home"
-            } else if (wifi == false) {
-                "other"
-            } else {
-                null
-            },
+            if (wifi == true) "home" else null,
             t,
         )
         if (!homeStarted) {

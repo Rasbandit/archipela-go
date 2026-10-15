@@ -1406,13 +1406,26 @@ impl Engine {
 
     fn sync_camps(&self) {
         let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.apply_camps(slot);
+        self.apply_camps(slot, self.store().camps());
     }
 
-    // Hand the saved camps to the open game and to the presence watch. Takes the game guard (lock order: game, then watch), so
-    // the camps only ever change together with the game, and a game installed meanwhile gets them too.
-    fn apply_camps(&self, mut game: MutexGuard<'_, Option<Game>>) {
-        let camps = self.store().camps();
+    // Change the saved camps with the game guard held (lock order: game, then watch), so two edits cannot interleave their
+    // read-modify-write of camps.json, then hand the result on.
+    fn edit_camps(&self, edit: impl FnOnce(&mut Vec<Camp>)) -> Result<(), CoreError> {
+        let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let store = self.store();
+        let mut camps = store.camps();
+        edit(&mut camps);
+        let saved = store.set_camps(&camps).map_err(err);
+        if saved.is_ok() {
+            self.apply_camps(slot, camps);
+        }
+        saved
+    }
+
+    // Hand the camps to the open game and to the presence watch. Takes the game guard, so the camps only ever change together
+    // with the game, and a game installed meanwhile gets them too.
+    fn apply_camps(&self, mut game: MutexGuard<'_, Option<Game>>, camps: Vec<Camp>) {
         if let Some(g) = game.as_mut() {
             g.set_camps(camps.iter().map(|c| c.point).collect());
         }
@@ -2005,17 +2018,12 @@ impl Engine {
     /// # Errors
     /// Returns an error if the file cannot be written.
     pub fn save_camp(&self, c: CampIn) -> Result<(), CoreError> {
-        let store = self.store();
-        let mut camps = store.camps();
         let id = if c.id.is_empty() { new_camp_id() } else { c.id };
         let camp = Camp { id, name: c.name, point: Point::new(c.lat, c.lon) };
-        match camps.iter_mut().find(|x| x.id == camp.id) {
+        self.edit_camps(|camps| match camps.iter_mut().find(|x| x.id == camp.id) {
             Some(x) => *x = camp,
             None => camps.push(camp),
-        }
-        store.set_camps(&camps).map_err(err)?;
-        self.sync_camps();
-        Ok(())
+        })
     }
 
     /// Remove a camp (an unknown id is ignored). The open game and presence follow at once.
@@ -2023,12 +2031,7 @@ impl Engine {
     /// # Errors
     /// Returns an error if the file cannot be written.
     pub fn delete_camp(&self, id: String) -> Result<(), CoreError> {
-        let store = self.store();
-        let mut camps = store.camps();
-        camps.retain(|c| c.id != id);
-        store.set_camps(&camps).map_err(err)?;
-        self.sync_camps();
-        Ok(())
+        self.edit_camps(|camps| camps.retain(|c| c.id != id))
     }
 
     /// The camp the player is at (the Wi-Fi's camp, else the last circle), `None` when not at a camp.
@@ -2049,7 +2052,7 @@ impl Engine {
         self.watch().start(t_ms);
     }
 
-    /// The (debounced) Wi-Fi reading: `Some(id)` on that camp's Wi-Fi, `Some` of an unknown id on another network, `None` unknown or off.
+    /// The (debounced) Wi-Fi reading. `Some(id)`: on a camp's Wi-Fi (an unknown id still counts, unnamed); `None`: on no camp's Wi-Fi, or unknown.
     pub fn presence_wifi_camp(&self, camp_id: Option<String>, t_ms: i64) {
         self.watch().on_wifi_camp(camp_id, t_ms);
     }
@@ -3622,6 +3625,20 @@ mod tests {
         e.delete_camp("b".into()).unwrap();
         assert_eq!(e.presence_state(), PresenceHome::Away, "the last camp is gone and there is no Wi-Fi");
         assert!(e.presence_camp().is_none());
+    }
+
+    #[test]
+    fn camp_wifi_going_none_starts_a_check_and_camp_wifi_goes_home() {
+        let e = engine_with_game("camps-wifi");
+        e.save_camp(camp_in("home", "Home", home())).unwrap();
+        e.presence_set_walk_sensor(true);
+        e.presence_wifi_camp(Some("home".into()), FIX_T_MS);
+        e.presence_start(FIX_T_MS);
+        assert_eq!(e.presence_state(), PresenceHome::Home);
+        e.presence_wifi_camp(None, FIX_T_MS + 1000);
+        assert_eq!(e.presence_state(), PresenceHome::Checking, "no camp Wi-Fi never keeps Home by itself");
+        e.presence_wifi_camp(Some("home".into()), FIX_T_MS + 2000);
+        assert_eq!(e.presence_state(), PresenceHome::Home);
     }
 
     #[test]
