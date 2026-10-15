@@ -728,7 +728,7 @@ pub struct RecapForagerOut {
 pub struct RecapOut {
     /// When the player left home, Unix ms.
     pub start_ms: i64,
-    /// When they arrived home, Unix ms.
+    /// When they arrived at a camp, Unix ms.
     pub end_ms: i64,
     /// Raw steps walked.
     pub steps: i64,
@@ -1268,6 +1268,8 @@ pub struct Engine {
     zones: Mutex<ZoneCache>,
     /// The fix spacing the phone last said it asks for ([`Self::set_fix_spacing_hint`]), handed to every game opened.
     fix_spacing_hint: Mutex<Option<i64>>,
+    /// The saved camps, kept in memory: loaded at construction and replaced by every edit, so presence never reads `camps.json`.
+    camps: Mutex<Vec<Camp>>,
     // Where the last fix's estimate was relative to the zones, worked out once in `on_fix` for presence to read.
     last_proximity: Mutex<Option<Proximity>>,
     /// The phone's region (ISO country code) that `Auto` units follow; empty until the app sets it.
@@ -1398,25 +1400,30 @@ impl Engine {
         drop(r);
     }
 
-    // The saved camps are the camp circles' centres.
-    fn with_home_center(self: Arc<Self>) -> Arc<Self> {
-        self.sync_camps();
+    // Load the saved camps (the camp circles' centres) once; from here on they live in memory and in `camps.json`.
+    fn with_camps(self: Arc<Self>) -> Arc<Self> {
+        let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.apply_camps(slot, self.store().camps());
         self
     }
 
-    fn sync_camps(&self) {
-        let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.apply_camps(slot, self.store().camps());
+    fn camps_now(&self) -> Vec<Camp> {
+        self.camps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    // The point of the camp the presence watch names (while at a camp), if any.
+    fn named_camp(&self) -> Option<Camp> {
+        let id = self.watch().camp()?.to_owned();
+        self.camps_now().into_iter().find(|c| c.id == id)
     }
 
     // Change the saved camps with the game guard held (lock order: game, then watch), so two edits cannot interleave their
     // read-modify-write of camps.json, then hand the result on.
     fn edit_camps(&self, edit: impl FnOnce(&mut Vec<Camp>)) -> Result<(), CoreError> {
         let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let store = self.store();
-        let mut camps = store.camps();
+        let mut camps = self.camps_now();
         edit(&mut camps);
-        let saved = store.set_camps(&camps).map_err(err);
+        let saved = self.store().set_camps(&camps).map_err(err);
         if saved.is_ok() {
             self.apply_camps(slot, camps);
         }
@@ -1426,6 +1433,7 @@ impl Engine {
     // Hand the camps to the open game and to the presence watch. Takes the game guard, so the camps only ever change together
     // with the game, and a game installed meanwhile gets them too.
     fn apply_camps(&self, mut game: MutexGuard<'_, Option<Game>>, camps: Vec<Camp>) {
+        self.camps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone_from(&camps);
         if let Some(g) = game.as_mut() {
             g.set_camps(camps.iter().map(|c| c.point).collect());
         }
@@ -1593,7 +1601,7 @@ impl Engine {
         let zones = zone_cache_of(&game, realms);
         *slot = Some(game);
         if let Some(g) = slot.as_mut() {
-            g.set_camps(self.store().camps().iter().map(|c| c.point).collect());
+            g.set_camps(self.camps_now().iter().map(|c| c.point).collect());
         }
         self.set_zones(slot, zones);
     }
@@ -1731,6 +1739,7 @@ impl Engine {
             save_policy: Mutex::new(SavePolicy::new(SAVE_INTERVAL_MS)),
             zones: Mutex::new(ZoneCache::default()),
             fix_spacing_hint: Mutex::new(None),
+            camps: Mutex::new(Vec::new()),
             last_proximity: Mutex::new(None),
             units: Mutex::new(resolve_units(Settings::load(&dir).units, "")),
             trap_alerts: std::sync::atomic::AtomicBool::new(Settings::load(&dir).trap_alerts),
@@ -1743,7 +1752,7 @@ impl Engine {
             home_watch: Mutex::new(HomeWatch::default()),
             dir,
         })
-        .with_home_center()
+        .with_camps()
     }
 
     /// Number of quest kinds in the catalog.
@@ -1995,7 +2004,7 @@ impl Engine {
 
     /// The saved camps.
     pub fn camps(&self) -> Vec<CampOut> {
-        self.store().camps().into_iter().map(camp_out).collect()
+        self.camps_now().into_iter().map(camp_out).collect()
     }
 
     /// Add a camp, or change the one with the same id (an empty id makes a new camp). The open game and presence follow at once.
@@ -2021,14 +2030,7 @@ impl Engine {
 
     /// The camp the player is at (the Wi-Fi's camp, else the last circle), `None` when not at a camp.
     pub fn presence_camp(&self) -> Option<CampOut> {
-        let id = {
-            let w = self.watch();
-            if w.state() != HomeState::Home {
-                return None;
-            }
-            w.camp()?.to_owned()
-        };
-        self.store().camps().into_iter().find(|c| c.id == id).map(camp_out)
+        self.named_camp().map(camp_out)
     }
 
     // ---------- presence: home ----------
@@ -2580,10 +2582,11 @@ impl Engine {
         self.events_out(ev)
     }
 
-    /// The phone arrived home (home Wi-Fi or the home circle): forager quests bank what they carry and the walk closes into its
-    /// recap (see `Game::arrive_at_camp`), kept with the game until dismissed; `RecapReady` says this call stored a new one. Safe to call
-    /// again.
+    /// The phone arrived at a camp (its Wi-Fi or its circle): forager quests bank what they carry and the walk closes into its
+    /// recap (see `Game::arrive_at_camp`), kept with the game until dismissed; `RecapReady` says this call stored a new one. The
+    /// arrival point is the camp the presence watch names, else the game's last accepted fix, else home. Safe to call again.
     pub fn bank_at_camp(&self, t_ms: i64) -> Vec<EventOut> {
+        let named = self.named_camp().map(|c| c.point);
         // Read the trace first (no game lock held), so closing the outing, storing the recap and saving happen in one pass.
         let Some((game_id, start)) = self.with_game(|g| (g.id.clone(), g.outing.as_ref().map(|o| o.start_ms))) else {
             return Vec::new();
@@ -2591,7 +2594,8 @@ impl Engine {
         let segs = start.map_or_else(Vec::new, |from| self.read_segments(&game_id, from, t_ms));
         let units = self.unit_system();
         let Some((id, ev, entries, ready)) = self.with_game(|g| {
-            let (ev, recap) = g.arrive_at_camp(t_ms);
+            let at = named.or_else(|| g.last_accepted_pos()).unwrap_or(g.home);
+            let (ev, recap) = g.arrive_at_camp(t_ms, at);
             let mut ready = None;
             if let Some(mut r) = recap {
                 if g.id != game_id {
@@ -3615,6 +3619,91 @@ mod tests {
         e.delete_camp("b".into()).unwrap();
         assert_eq!(e.presence_state(), PresenceHome::Away, "the last camp is gone and there is no Wi-Fi");
         assert!(e.presence_camp().is_none());
+    }
+
+    fn camp_b() -> Point {
+        destination(home(), 0.0, 3000.0)
+    }
+
+    /// Camps A ("home") and B ("b", 3 km north); the player left A and is on a walk with a forager carrying one item that banks on arrival.
+    fn two_camp_walker(name: &str) -> TestEngine {
+        let e = engine_with_game(name);
+        e.save_camp(camp_in("home", "Home", home())).unwrap();
+        e.save_camp(camp_in("b", "Cabin", camp_b())).unwrap();
+        e.presence_set_walk_sensor(true);
+        e.presence_wifi_camp(Some("home".into()), FIX_T_MS);
+        e.presence_start(FIX_T_MS);
+        e.presence_wifi_camp(None, FIX_T_MS + 1000);
+        leave_into_zone(&e, 1_000);
+        e.with_game(|g| {
+            g.outing.as_mut().unwrap().steps = 900;
+            let a = &mut g.assignments[0];
+            a.target = Target::Collect { pts: vec![home()], need: 1, r: 25.0, theme: "acorns".into() };
+            g.collected.insert(a.location_id, Collected { picked: [0u16].into(), carried: 1, banked: 0 });
+        });
+        e
+    }
+
+    #[test]
+    fn banking_at_a_second_camp_by_wifi_records_where_the_player_arrived() {
+        let e = two_camp_walker("camps-bank-at-b");
+        e.set_counting(false, 599_000);
+        e.presence_wifi_camp(Some("b".into()), FIX_T_MS + 600_000);
+        assert_eq!(e.presence_camp().map(|c| c.id), Some("b".to_string()));
+        let ev = e.bank_at_camp(600_000);
+        assert!(ev.iter().any(|x| matches!(x, EventOut::QuestDone { .. })), "banked and done at B: {ev:?}");
+        let r = e.pending_recap().expect("recap");
+        let q = r.quests.iter().find(|q| q.goal.contains("acorn") || !q.goal.is_empty()).expect("the forager is listed");
+        let at = q.at.as_ref().expect("with a place");
+        assert!((at.lat - camp_b().lat).abs() < 1e-9 && (at.lon - camp_b().lon).abs() < 1e-9, "at B, not at home: {at:?}");
+    }
+
+    #[test]
+    fn a_leash_around_home_blocks_banking_at_a_camp_outside_it() {
+        let e = two_camp_walker("camps-leash");
+        e.set_counting(false, 599_000);
+        e.with_game(|g| {
+            g.receive_item("Leash Trap", 0, Some(g.home));
+        });
+        e.presence_wifi_camp(Some("b".into()), FIX_T_MS + 600_000);
+        let ev = e.bank_at_camp(600_000);
+        assert!(!ev.iter().any(|x| matches!(x, EventOut::QuestDone { .. })), "camp B is outside the leash of home: {ev:?}");
+        assert_eq!(e.with_game(|g| g.collected.values().map(|c| (c.carried, c.banked)).collect::<Vec<_>>()), Some(vec![(1, 0)]));
+    }
+
+    #[test]
+    fn the_full_walk_from_one_camp_to_another_ends_in_a_recap() {
+        let e = engine_with_game("camps-flow");
+        e.save_camp(camp_in("home", "Home", home())).unwrap();
+        e.save_camp(camp_in("b", "Cabin", camp_b())).unwrap();
+        e.presence_set_walk_sensor(true);
+        e.presence_start(FIX_T_MS);
+        e.on_fix(fix_at(destination(home(), 0.0, 1500.0), FIX_T_MS + 1000), None, false);
+        assert_eq!(e.presence_state(), PresenceHome::Away);
+        leave_into_zone(&e, FIX_T_MS + 2000);
+        e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
+        for i in 0..apgo_core::home_watch::ARRIVE_FIXES {
+            e.on_fix(fix_at(destination(camp_b(), 90.0, 5.0), FIX_T_MS + 600_000 + i64::from(i) * 5_000), None, false);
+        }
+        assert_eq!((e.presence_state(), e.presence_camp().map(|c| c.name)), (PresenceHome::Home, Some("Cabin".to_string())));
+        e.set_counting(false, FIX_T_MS + 640_000);
+        let ev = e.bank_at_camp(FIX_T_MS + 650_000);
+        assert!(ev.iter().any(|x| matches!(x, EventOut::RecapReady)), "{ev:?}");
+        assert!(e.pending_recap().is_some());
+    }
+
+    #[test]
+    fn a_restart_at_a_second_camp_names_it_again() {
+        let e = engine_with_game("camps-restart");
+        e.save_camp(camp_in("home", "Home", home())).unwrap();
+        e.save_camp(camp_in("b", "Cabin", camp_b())).unwrap();
+        let again = Engine::new(e.dir.to_string_lossy().into_owned());
+        again.presence_set_walk_sensor(true);
+        again.presence_start(FIX_T_MS);
+        for i in 0..apgo_core::home_watch::ARRIVE_FIXES {
+            again.on_fix(fix_at(destination(camp_b(), 90.0, 5.0), FIX_T_MS + 1000 + i64::from(i) * 5_000), None, false);
+        }
+        assert_eq!((again.presence_state(), again.presence_camp().map(|c| c.name)), (PresenceHome::Home, Some("Cabin".to_string())));
     }
 
     #[test]

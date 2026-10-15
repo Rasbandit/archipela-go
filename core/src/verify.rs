@@ -179,6 +179,12 @@ impl Tracker {
         self.camps = camps;
     }
 
+    /// Whether this is a round trip whose far point was reached: arriving at a camp now is the way back, even without a fix there.
+    #[must_use]
+    pub fn returned_to_camp(&self) -> bool {
+        matches!(self.state, State::RoundTrip { reached_far: true, .. }) && !self.done
+    }
+
     /// A tracker for a collect quest that carries on from saved progress (a reopened game or a moved quest).
     #[must_use]
     pub fn with_collected(target: Target, camps: Vec<Point>, saved: Collected) -> Self {

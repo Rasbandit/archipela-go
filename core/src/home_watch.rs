@@ -179,13 +179,6 @@ impl HomeWatch {
         }
     }
 
-    /// The (debounced) home Wi-Fi reading: `Some(true)` on it, `Some(false)` on another network, `None` unknown or off. Joining it is
-    /// home; losing it at home leaves at once without a pin, and only checks with one. Only a change counts (the host may repeat it).
-    pub fn on_wifi(&mut self, home: Option<bool>, t_ms: i64) {
-        self.wifi_camp = None;
-        self.apply_wifi(home, t_ms);
-    }
-
     /// Camp Wi-Fi: `Some(id)` is the Wi-Fi of that camp (so the player is at a camp, that one), `None` is no camp's Wi-Fi. Joining
     /// another camp's Wi-Fi while at a camp renames the camp.
     pub fn on_wifi_camp(&mut self, camp: Option<String>, t_ms: i64) {
@@ -357,7 +350,7 @@ mod tests {
         let mut w = HomeWatch::default();
         w.set_walk_sensor(true);
         w.set_camps(vec![("home".into(), home())]);
-        w.on_wifi(Some(true), 0);
+        w.on_wifi_camp(Some("home".into()), 0);
         w.start(0);
         w
     }
@@ -375,14 +368,14 @@ mod tests {
         // GPS is off at home, so only steps can tell a walk out: without them a player in the circle would stay paused for good.
         let mut w = HomeWatch::default();
         w.set_camps(vec![("home".into(), home())]);
-        w.on_wifi(Some(true), 0);
+        w.on_wifi_camp(Some("home".into()), 0);
         w.start(0);
         assert!(!w.has_camps());
-        w.on_wifi(None, 1_000);
+        w.on_wifi_camp(None, 1_000);
         assert_eq!(w.state(), HomeState::Away, "a drop leaves, as before the circle");
         w.set_walk_sensor(true);
-        w.on_wifi(Some(true), 2_000);
-        w.on_wifi(None, 3_000);
+        w.on_wifi_camp(Some("home".into()), 2_000);
+        w.on_wifi_camp(None, 3_000);
         assert_eq!(w.state(), HomeState::Checking, "with steps the circle applies");
     }
 
@@ -390,7 +383,7 @@ mod tests {
     fn home_wifi_is_home_with_or_without_a_pin() {
         assert_eq!(at_home().state(), HomeState::Home);
         let mut no_pin = HomeWatch::default();
-        no_pin.on_wifi(Some(true), 0);
+        no_pin.on_wifi_camp(Some("home".into()), 0);
         no_pin.start(0);
         assert_eq!(no_pin.state(), HomeState::Home);
     }
@@ -398,9 +391,9 @@ mod tests {
     #[test]
     fn without_a_pin_a_wifi_drop_leaves_as_before() {
         let mut w = HomeWatch::default();
-        w.on_wifi(Some(true), 0);
+        w.on_wifi_camp(Some("home".into()), 0);
         w.start(0);
-        w.on_wifi(None, 1000);
+        w.on_wifi_camp(None, 1000);
         assert_eq!(w.state(), HomeState::Away);
     }
 
@@ -408,7 +401,7 @@ mod tests {
     fn with_a_pin_a_wifi_drop_only_checks_and_a_fix_inside_keeps_home() {
         // The owner's phone drops home Wi-Fi for minutes: that alone must not leave home or draw points there.
         let mut w = at_home();
-        w.on_wifi(None, 10_000);
+        w.on_wifi_camp(None, 10_000);
         assert_eq!(w.state(), HomeState::Checking);
         assert_eq!(w.due_ms(), Some(10_000 + CHECK_MS));
         w.on_fix(out(20.0), 25.0, 15_000); // indoors: coarse, but within the circle either way (20 + 25 <= 50)
@@ -420,17 +413,17 @@ mod tests {
     fn the_same_wifi_reading_again_starts_no_new_check() {
         // The host passes the reading on every evaluation: only a change counts, or a check that found home would restart at once.
         let mut w = at_home();
-        w.on_wifi(None, 0);
+        w.on_wifi_camp(None, 0);
         w.on_fix(out(5.0), 5.0, 1_000);
         assert_eq!(w.state(), HomeState::Home);
-        w.on_wifi(None, 2_000);
+        w.on_wifi_camp(None, 2_000);
         assert_eq!(w.state(), HomeState::Home);
     }
 
     #[test]
     fn an_unclear_fix_keeps_checking_and_the_deadline_falls_back_home() {
         let mut w = at_home();
-        w.on_wifi(None, 0);
+        w.on_wifi_camp(None, 0);
         w.on_fix(out(40.0), 30.0, 5_000); // could be either side
         assert_eq!(w.state(), HomeState::Checking);
         w.tick(CHECK_MS - 1);
@@ -480,7 +473,7 @@ mod tests {
     #[test]
     fn away_two_fixes_inside_bring_the_player_home_and_one_does_not() {
         let mut w = at_home();
-        w.on_wifi(None, 0);
+        w.on_wifi_camp(None, 0);
         w.on_fix(out(200.0), 5.0, 1_000);
         assert_eq!(w.state(), HomeState::Away);
         w.on_fix(out(30.0), 5.0, 600_000);
@@ -495,12 +488,12 @@ mod tests {
     #[test]
     fn away_a_wifi_drop_or_steps_change_nothing_and_home_wifi_arrives() {
         let mut w = at_home();
-        w.on_wifi(None, 0);
+        w.on_wifi_camp(None, 0);
         w.on_fix(out(200.0), 5.0, 1_000);
         walk(&mut w, 0, 2_000, 20);
-        w.on_wifi(None, 30_000);
+        w.on_wifi_camp(None, 30_000);
         assert_eq!(w.state(), HomeState::Away);
-        w.on_wifi(Some(true), 40_000);
+        w.on_wifi_camp(Some("home".into()), 40_000);
         assert_eq!(w.state(), HomeState::Home);
     }
 
@@ -557,7 +550,7 @@ mod tests {
     #[test]
     fn a_new_pin_or_none_takes_effect_at_once() {
         let mut w = at_home();
-        w.on_wifi(None, 0);
+        w.on_wifi_camp(None, 0);
         assert_eq!(w.state(), HomeState::Checking);
         w.set_camps(vec![]);
         assert_eq!(w.state(), HomeState::Away, "no pin: Wi-Fi alone decides, and it dropped");
@@ -567,7 +560,7 @@ mod tests {
     #[test]
     fn a_coarse_or_broken_fix_decides_nothing() {
         let mut w = at_home();
-        w.on_wifi(None, 0);
+        w.on_wifi_camp(None, 0);
         w.on_fix(out(500.0), f64::NAN, 1_000);
         w.on_fix(Point::new(f64::NAN, 0.0), 5.0, 2_000);
         assert_eq!(w.state(), HomeState::Checking);
@@ -601,7 +594,7 @@ mod tests {
         w.on_fix(out(5.0), 5.0, 1_000);
         w.on_fix(out(5.0), 5.0, 2_000);
         assert_eq!(w.camp(), Some("a"));
-        w.on_wifi(None, 3_000); // not on Wi-Fi: only a fix decides
+        w.on_wifi_camp(None, 3_000); // not on Wi-Fi: only a fix decides
         w.on_fix(out(110.0), 5.0, 4_000); // 110 m from a, 30 m from b: inside b's circle
         assert_ne!(w.state(), HomeState::Away);
         w.on_fix(out(150.0), 5.0, 5_000); // 70 m from b, past both circles
@@ -611,7 +604,7 @@ mod tests {
     #[test]
     fn no_camps_with_no_wifi_goes_away() {
         let mut w = at_home();
-        w.on_wifi(None, 0);
+        w.on_wifi_camp(None, 0);
         assert_eq!(w.state(), HomeState::Checking);
         w.set_camps(vec![]);
         assert_eq!(w.state(), HomeState::Away);
@@ -634,10 +627,10 @@ mod tests {
     fn plain_wifi_names_the_camp_nearest_the_last_fix() {
         let mut w = two_camps();
         w.on_fix(destination(camp_b(), 90.0, 5.0), 5.0, 1_000);
-        w.on_wifi(Some(true), 2_000);
+        w.on_wifi_camp(Some("home".into()), 2_000);
         assert_eq!((w.state(), w.camp()), (HomeState::Home, Some("b")));
         let mut none = two_camps();
-        none.on_wifi(Some(true), 0);
+        none.on_wifi_camp(Some("home".into()), 0);
         assert_eq!((none.state(), none.camp()), (HomeState::Home, None));
     }
 
