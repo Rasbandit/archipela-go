@@ -25,7 +25,7 @@ is". A zone far from home, or a small park, gets a sensible spread of near and f
 | **No caps or policing**: any number of camps, placed anywhere | Not our job to police play; explain the effect of a choice, never block it |
 | Home becomes **camp #1** | One concept, no special case |
 | Difficulty is a **share of the zone's reach from its origin** | Zone size decides the scale; "far" means the far side of this zone |
-| Bands **near 0-30 %, middle 30-60 %, far 60-90 %** of reach | The farthest quests stay inside the zone's outer streets |
+| Bands **near 0-30 %, middle 30-60 %, far 60-90 %** of reach; each tier's share is an average, drawn within ±10 % | The farthest quests stay inside the zone's outer streets; quests of one tier vary a little |
 | **No length cap**: the zone the player draws decides how far quests go | The player defines the play zone; we show the result ("far side is about a 2 h walk"), never trim it |
 | `minutes_per_tier` is **removed** (YAML and slot_data) | Zone size now sets every distance |
 | Carried items bank **at camps** (shops may bank later) | Round trips for foragers and fetch quests end at the nearest camp |
@@ -76,6 +76,9 @@ turn into distance.
   | Near | 1, 2, 3 | 10, 20, 30 % |
   | Middle | 4, 5, 6, 7 | 37.5, 45, 52.5, 60 % |
   | Far | 8, 9, 10 | 70, 80, 90 % |
+
+  Each share is an **average**: a quest's target is drawn within ±10 % of it (relative: tier 10 lands in 81-99 % of reach), so
+  quests of one tier vary a little and far quests stay inside the zone's outer streets.
 
 - **Effort of a tier:** the walking time to its share of reach (reach in minutes at the zone's walking speed x the share).
   - Quests that are not just a walk spend the same effort differently. A dwell splits it between the walk out and the stay; a
