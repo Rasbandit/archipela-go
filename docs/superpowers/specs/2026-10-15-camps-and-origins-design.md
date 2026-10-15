@@ -77,9 +77,13 @@ turn into distance.
   | Middle | 4, 5, 6, 7 | 37.5, 45, 52.5, 60 % |
   | Far | 8, 9, 10 | 70, 80, 90 % |
 
-- **Small zones:** when reach cannot give a tier its effort (a park that reaches 0.3 mi), the extra effort comes from dwell
-  time or a second stop instead of distance. The new-game screen says so ("Lehi Park is small: hard quests will be longer
-  stays, not farther walks").
+- **Effort of a tier:** the walking time to its share of reach (reach in minutes at the zone's walking speed x the share).
+  - Quests that are not just a walk spend the same effort differently. A dwell splits it between the walk out and the stay; a
+    trail or courier spreads it over its legs.
+  - So a tier means the same amount of play in every quest type.
+- **Small zones are short games, by the player's choice.** A park that reaches 0.3 mi makes every quest short, dwells
+  included. Nothing stretches them. The new-game screen says so ("Lehi Park is small: even far quests are about a 6 min
+  walk").
 - **Round trips:** foragers and fetch quests count the walk back to the nearest camp. Plain reach quests stay one way.
 
 ## What changes, by layer
@@ -136,7 +140,8 @@ not a game.
   - reach uses the percentile, with no cap;
   - tiers follow the band table (tier 3 at 30 %, tier 7 at 60 %, tier 10 at 90 % of reach);
   - tiers scale with zone size: a small and a big zone get different distances for the same tier;
-  - small-zone fallback adds dwell.
+  - a dwell splits its tier's effort between walk and stay;
+  - a small zone makes short quests (no stretching).
 - **Engine:**
   - camps persist;
   - `HomeWatch` with two camps (enter one, leave, enter the other);
