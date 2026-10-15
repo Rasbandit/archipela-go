@@ -215,7 +215,28 @@ impl Realm {
     }
 }
 
-/// Files under one directory: `realms.json`, `home.json`, `atlas/<realm id>.json`.
+/// The id of the camp that was the single home before camps existed.
+pub const HOME_CAMP_ID: &str = "home";
+
+/// A place the player returns to: home is the camp with id [`HOME_CAMP_ID`].
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Camp {
+    /// Stable id, given by the caller.
+    pub id: String,
+    /// Name shown to the player.
+    pub name: String,
+    /// Where the camp is.
+    pub point: Point,
+}
+
+impl Camp {
+    /// The camp "Home" at `point`.
+    fn home(point: Point) -> Self {
+        Self { id: HOME_CAMP_ID.into(), name: "Home".into(), point }
+    }
+}
+
+/// Files under one directory: `realms.json`, `camps.json` (once saved; `home.json` before), `atlas/<realm id>.json`.
 pub struct RealmStore {
     dir: PathBuf,
 }
@@ -325,19 +346,48 @@ impl RealmStore {
         std::fs::read_to_string(self.atlas_path(id)).ok().and_then(|s| serde_json::from_str(&s).ok())
     }
 
-    /// The saved home point, if any.
+    /// The saved camps, in order. Without `camps.json` the old `home.json` point (if any) becomes the camp
+    /// `"home"`; a corrupt file gives an empty list.
     #[must_use]
-    pub fn home(&self) -> Option<Point> {
-        std::fs::read_to_string(self.dir.join("home.json")).ok().and_then(|s| serde_json::from_str(&s).ok())
+    pub fn camps(&self) -> Vec<Camp> {
+        match std::fs::read_to_string(self.dir.join("camps.json")) {
+            Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+            Err(_) => self.legacy_home().map(|point| vec![Camp::home(point)]).unwrap_or_default(),
+        }
     }
 
-    /// Save the home point.
+    /// Replace the saved camps.
+    ///
+    /// # Errors
+    /// Returns a message if the file cannot be written.
+    pub fn set_camps(&self, camps: &[Camp]) -> Result<(), String> {
+        std::fs::create_dir_all(&self.dir).map_err(io)?;
+        std::fs::write(self.dir.join("camps.json"), serde_json::to_string(camps).map_err(|e| e.to_string())?).map_err(io)
+    }
+
+    /// The point of the camp `"home"`, else of the first camp, else `None`.
+    #[must_use]
+    pub fn home(&self) -> Option<Point> {
+        let camps = self.camps();
+        camps.iter().find(|c| c.id == HOME_CAMP_ID).or(camps.first()).map(|c| c.point)
+    }
+
+    /// Move the camp `"home"` to `home`, adding it (named "Home") when missing.
     ///
     /// # Errors
     /// Returns a message if the file cannot be written.
     pub fn set_home(&self, home: Point) -> Result<(), String> {
-        std::fs::create_dir_all(&self.dir).map_err(io)?;
-        std::fs::write(self.dir.join("home.json"), serde_json::to_string(&home).map_err(|e| e.to_string())?).map_err(io)
+        let mut camps = self.camps();
+        match camps.iter_mut().find(|c| c.id == HOME_CAMP_ID) {
+            Some(c) => c.point = home,
+            None => camps.insert(0, Camp::home(home)),
+        }
+        self.set_camps(&camps)
+    }
+
+    /// The pre-camps single home point.
+    fn legacy_home(&self) -> Option<Point> {
+        std::fs::read_to_string(self.dir.join("home.json")).ok().and_then(|s| serde_json::from_str(&s).ok())
     }
 }
 
@@ -564,6 +614,68 @@ mod tests {
         assert_eq!(store.home(), Some(Point::new(1.5, 2.5)));
         std::fs::write(store.dir().join("realms.json"), "not json").unwrap();
         assert!(store.list().is_empty(), "corrupt file must not crash");
+    }
+
+    fn camp(id: &str, name: &str, lat: f64) -> Camp {
+        Camp { id: id.into(), name: name.into(), point: Point::new(lat, 2.0) }
+    }
+
+    #[test]
+    fn camps_migrate_from_home_json() {
+        let store = RealmStore::new(tmp("camps-migrate"));
+        std::fs::create_dir_all(store.dir()).unwrap();
+        std::fs::write(store.dir().join("home.json"), serde_json::to_string(&Point::new(1.5, 2.5)).unwrap()).unwrap();
+        let expected = Camp { id: HOME_CAMP_ID.into(), name: "Home".into(), point: Point::new(1.5, 2.5) };
+        assert_eq!(store.camps(), vec![expected.clone()]);
+        assert!(!store.dir().join("camps.json").exists(), "reading does not write");
+        store.set_camps(&[expected, camp("b", "Cabin", 3.0)]).unwrap();
+        assert_eq!(store.camps().len(), 2);
+        assert!(store.dir().join("home.json").exists(), "home.json is left alone");
+    }
+
+    #[test]
+    fn camps_round_trip_two_camps() {
+        let store = RealmStore::new(tmp("camps-rt"));
+        let two = vec![camp("home", "Home", 1.0), camp("b", "Cabin", 3.0)];
+        store.set_camps(&two).unwrap();
+        assert_eq!(store.camps(), two);
+    }
+
+    #[test]
+    fn set_home_updates_the_home_camp_without_adding_one() {
+        let store = RealmStore::new(tmp("camps-sethome"));
+        store.set_camps(&[camp("b", "Cabin", 3.0), camp("home", "Home", 1.0)]).unwrap();
+        store.set_home(Point::new(9.0, 9.0)).unwrap();
+        let camps = store.camps();
+        assert_eq!(camps.len(), 2);
+        assert_eq!(store.home(), Some(Point::new(9.0, 9.0)));
+        assert_eq!(camps[1].name, "Home");
+        store.set_camps(&[camp("b", "Cabin", 3.0)]).unwrap();
+        store.set_home(Point::new(4.0, 4.0)).unwrap();
+        let camps = store.camps();
+        assert_eq!(camps.len(), 2, "inserted once");
+        assert_eq!(camps.iter().filter(|c| c.id == HOME_CAMP_ID).count(), 1);
+        assert_eq!(camps.iter().find(|c| c.id == HOME_CAMP_ID).unwrap().name, "Home");
+    }
+
+    #[test]
+    fn home_falls_back_to_the_first_camp_and_is_none_when_empty() {
+        let store = RealmStore::new(tmp("camps-fallback"));
+        assert_eq!(store.home(), None);
+        store.set_camps(&[camp("b", "Cabin", 3.0), camp("c", "Lake", 5.0)]).unwrap();
+        assert_eq!(store.home(), Some(Point::new(3.0, 2.0)));
+        store.set_camps(&[]).unwrap();
+        assert_eq!(store.home(), None);
+    }
+
+    #[test]
+    fn corrupt_camps_file_gives_an_empty_list() {
+        let store = RealmStore::new(tmp("camps-corrupt"));
+        std::fs::create_dir_all(store.dir()).unwrap();
+        std::fs::write(store.dir().join("home.json"), serde_json::to_string(&Point::new(1.0, 1.0)).unwrap()).unwrap();
+        std::fs::write(store.dir().join("camps.json"), "not json").unwrap();
+        assert!(store.camps().is_empty());
+        assert_eq!(store.home(), None);
     }
 
     #[test]
