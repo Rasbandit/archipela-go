@@ -1033,8 +1033,13 @@ impl Game {
 
     /// The player is at `p` at `t_ms`. Time away up to now is credited where they were; when that was unknown, the time and the
     /// held steps count where they are now (the first placement after counting resumed). Then the zones they are in follow `p`.
+    /// At home nothing is settled: when they got home is unknown, so the fix ends time away uncredited (see [`Self::away_on_fix`]).
     fn place_in_zones(&mut self, p: Point, t_ms: i64) {
         let now = self.zones_at(p);
+        if self.at_home(p) {
+            self.inside = Some(now);
+            return;
+        }
         match &self.inside {
             None => {
                 self.inside = Some(now);
@@ -1183,13 +1188,13 @@ impl Game {
             self.settle_away(t_ms);
             self.counters.away_mark = None;
         }
-        self.held_steps = 0; // a pause drops steps not yet placed; a resume starts from none
         if self.counting == on {
-            return;
+            return; // the app sets counting on every evaluate: steps held until the next fix stay held
         }
         self.counting = on;
-        // Whatever the player did while it was off must not be compared with what they do next. Steps resume from the leave mark
-        // when it is fresh (the walk out while leaving was confirmed); else the first reading after this is the new baseline.
+        self.held_steps = 0; // a pause drops steps not yet placed; a resume starts from none
+                             // Whatever the player did while it was off must not be compared with what they do next. Steps resume from the leave mark
+                             // when it is fresh (the walk out while leaving was confirmed); else the first reading after this is the new baseline.
         self.last_fix = None;
         let mark = self.leave_mark.take();
         self.counters.steps_last = mark.filter(|&(_, at)| on && t_ms.saturating_sub(at) <= LEAVE_MARK_MAX_MS).map(|(total, _)| total);
@@ -1422,7 +1427,7 @@ impl Game {
     /// Time away on a fix: one at home ends it (the stretch since the last event is not credited: when you got home is unknown);
     /// one elsewhere credits up to now (not while a trap blocks checks), or starts it.
     fn away_on_fix(&mut self, fix: &Fix, blocked: bool) {
-        let at_home = distance_m(fix.point(), self.home) <= HOME_RADIUS_M;
+        let at_home = self.at_home(fix.point());
         self.counters.last_at_home = Some(at_home);
         if at_home {
             self.counters.away_mark = None;
@@ -1432,6 +1437,11 @@ impl Game {
             self.counters.away_mark = Some(fix.t_ms);
             self.open_outing(fix.t_ms);
         }
+    }
+
+    /// Whether `p` is at home (within [`HOME_RADIUS_M`] of the home pin).
+    fn at_home(&self, p: Point) -> bool {
+        distance_m(p, self.home) <= HOME_RADIUS_M
     }
 
     /// A chain's counter as of `now_ms`: what is credited, plus the time away since the mark (worked out when asked, nothing ticks).
@@ -1587,10 +1597,13 @@ impl Game {
         if let Some(total) = steps_total {
             self.credit_steps(total);
         }
-        // Steps and time away since the last event were credited where the player was; now they are here.
+        // Steps and time away since the last event were credited where the player was; now they are here. A walk opens away from
+        // home only: one opened at home never closes without home Wi-Fi.
         if est.accepted || est.source == Source::Bridged {
             self.place_in_zones(est.point(), est.t_ms);
-            self.open_outing(est.t_ms);
+            if !self.at_home(est.point()) {
+                self.open_outing(est.t_ms);
+            }
             self.release_held_steps();
         }
         if matches!(est.verdict, LocVerdict::Reset | LocVerdict::Relocated) {
@@ -5345,5 +5358,56 @@ mod tests {
         g.on_steps(0, 2_000, None);
         g.on_steps(600, 3_000, None);
         assert!((progress(&g, "1:step_up") - 600.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_repeated_counting_on_keeps_the_steps_held_until_the_first_fix() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 5000 }]);
+        zone_1_area(&mut g);
+        g.set_counting(false, 0);
+        g.set_counting(true, 1_000);
+        g.on_steps(0, 2_000, None);
+        g.on_steps(800, 3_000, None);
+        g.set_counting(true, 3_500); // the app sets counting on every evaluate: nothing changed
+        g.on_estimate(&fixat(in_zone(&g), 4), None);
+        assert!((progress(&g, "1:step_up") - 800.0).abs() < 0.01, "{}", progress(&g, "1:step_up"));
+        assert_eq!(g.outing.as_ref().map(|o| o.steps), Some(800));
+    }
+
+    #[test]
+    fn steps_after_new_zone_areas_mid_walk_count_once_at_the_next_fix() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 5000 }]);
+        zone_1_area(&mut g);
+        g.on_estimate(&fixat(in_zone(&g), 1), None);
+        g.on_steps(0, 2_000, None);
+        g.on_steps(300, 3_000, None);
+        zone_1_area(&mut g); // a street rebuild mid-walk: where the player is is learned again
+        g.on_steps(700, 4_000, None); // held
+        g.on_estimate(&fixat(in_zone(&g), 5), Some(900));
+        assert!((progress(&g, "1:step_up") - 900.0).abs() < 0.01, "{}", progress(&g, "1:step_up"));
+        assert_eq!(g.outing.as_ref().map(|o| o.steps), Some(900), "the phone counted 900");
+    }
+
+    #[test]
+    fn a_fix_at_home_opens_no_walk_and_the_next_fix_away_does() {
+        let mut g = chain_game("step_up", vec![Target::Steps { n: 5000 }]);
+        zone_1_area(&mut g);
+        g.outing = None;
+        g.on_estimate(&fixat(g.home, 1), None);
+        assert!(g.outing.is_none(), "home is inside zone 1, but a walk starts away from it");
+        g.on_estimate(&fixat(in_zone(&g), 2), None);
+        assert_eq!(g.outing.as_ref().map(|o| o.start_ms), Some(2_000));
+    }
+
+    #[test]
+    fn a_gps_gap_that_ends_at_home_is_not_credited_as_time_away() {
+        let mut g = away_game(&[300.0]);
+        let p = in_zone(&g);
+        g.set_zone_areas(vec![(1, Shape::Circle { center: p, radius_m: 300.0 })]); // home lies outside zone 1
+        g.on_estimate(&fixat(p, 60), None);
+        g.on_estimate(&fixat(p, 120), None);
+        g.on_estimate(&fixat(g.home, 2_520), None); // the next fix, 40 min later, is at home
+        let c = g.counter_at(&g.chains()[0], 2_520_000);
+        assert!((c - 1.0).abs() < 0.01, "when the player got home is unknown: {c}");
     }
 }
