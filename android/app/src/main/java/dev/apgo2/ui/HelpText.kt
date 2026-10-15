@@ -244,6 +244,11 @@ internal object Help {
 
     fun recapZone(n: UInt) = "Zone $n"
 
+    // ---- camps
+    fun campLabel(name: String?) = name?.ifBlank { null } ?: "a camp"
+
+    fun atCamp(name: String?) = "At ${campLabel(name)}: paused"
+
     fun recapNoticeText(r: RecapOut): String {
         val time = "${AwayFormat.duration(r.endMs - r.startMs)} out"
         val n = r.questsDone.size
@@ -275,6 +280,7 @@ internal object SetupText {
         "Quests are tracked with the screen off. Your phone's battery saver can stop that; this lets the game keep running while you play."
     const val BATTERY_DONE = "Battery saver is off for this app. Tracking will keep running."
     const val BATTERY_BUTTON = "Open battery settings"
+    const val WIFI_NEEDS_CAMP = "Set your camp first, then add its Wi-Fi."
     const val HOME_NEEDS_WIFI = "Add your home Wi-Fi so the game pauses at home"
 }
 
@@ -284,7 +290,7 @@ internal object HomeOfferText {
     const val MUTE = "Not this one"
     const val LATER = "Later"
 
-    fun title(camp: String?) = "You're at ${camp?.ifBlank { null } ?: "a camp"}: add this Wi-Fi?"
+    fun title(camp: String?) = "You're at ${Help.campLabel(camp)}: add this Wi-Fi?"
 
     fun body(ssid: String) =
         "You are at a camp and connected to \"$ssid\". Add it as this camp's Wi-Fi so the game pauses and GPS turns off while you " +

@@ -7,6 +7,8 @@ import org.junit.Test
 class HomeWifiOfferTest {
     private val home = GeoFix(lat = 47.0, lon = 8.0, accuracyM = 0.0)
 
+    private val homeCamp = OfferCamp("home", "Home", home)
+
     private val now = 1_000_000_000L
 
     private val base =
@@ -15,7 +17,7 @@ class HomeWifiOfferTest {
             playing = true,
             fix = GeoFix(home.lat, home.lon, accuracyM = 10.0),
             fixAgeMs = 1_000L,
-            camps = listOf(OfferCamp("home", "Home", home)),
+            camps = listOf(homeCamp),
             wifi = WifiId("\"HomeNet\"", "aa:bb:cc:dd:ee:01"),
             muted = emptySet(),
             showing = false,
@@ -27,7 +29,7 @@ class HomeWifiOfferTest {
     private fun north(m: Double) = home.lat + m / 111_195.0
 
     @Test fun offersTheCleanedNetworkWhenEveryConditionHolds() {
-        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(base))
+        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(base)?.net)
     }
 
     @Test fun noOfferOnceAHomeNetworkIsSaved() {
@@ -44,13 +46,16 @@ class HomeWifiOfferTest {
     }
 
     @Test fun theFixMustBeWithin75mOfHome() {
-        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(base.copy(fix = GeoFix(north(74.9), home.lon, 10.0))))
+        assertEquals(
+            WifiId("HomeNet", "aa:bb:cc:dd:ee:01"),
+            HomeWifiOffer.decide(base.copy(fix = GeoFix(north(74.9), home.lon, 10.0)))?.net,
+        )
         assertNull(HomeWifiOffer.decide(base.copy(fix = GeoFix(north(75.1), home.lon, 10.0))))
         assertNull(HomeWifiOffer.decide(base.copy(fix = GeoFix(north(5_000.0), home.lon, 10.0))))
     }
 
     @Test fun theFixMustBeAccurateTo50m() {
-        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(base.copy(fix = GeoFix(home.lat, home.lon, 50.0))))
+        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(base.copy(fix = GeoFix(home.lat, home.lon, 50.0)))?.net)
         assertNull(HomeWifiOffer.decide(base.copy(fix = GeoFix(home.lat, home.lon, 50.1))))
     }
 
@@ -67,7 +72,7 @@ class HomeWifiOfferTest {
         assertEquals(
             "another network is still offered",
             WifiId("HomeNet", "aa:bb:cc:dd:ee:01"),
-            HomeWifiOffer.decide(base.copy(muted = setOf("CafeWifi"))),
+            HomeWifiOffer.decide(base.copy(muted = setOf("CafeWifi")))?.net,
         )
     }
 
@@ -79,13 +84,13 @@ class HomeWifiOfferTest {
         val tenMin = 10 * 60 * 1000L
         assertNull(HomeWifiOffer.decide(base.copy(dismissedAtMs = now)))
         assertNull(HomeWifiOffer.decide(base.copy(dismissedAtMs = now - tenMin + 1)))
-        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(base.copy(dismissedAtMs = now - tenMin)))
+        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(base.copy(dismissedAtMs = now - tenMin))?.net)
     }
 
     @Test fun onlyAFixFromTheLastTwoMinutesCounts() {
         val offered = WifiId("HomeNet", "aa:bb:cc:dd:ee:01")
-        assertEquals(offered, HomeWifiOffer.decide(base.copy(fixAgeMs = 119_000L)))
-        assertEquals("exactly 120 s still counts", offered, HomeWifiOffer.decide(base.copy(fixAgeMs = 120_000L)))
+        assertEquals(offered, HomeWifiOffer.decide(base.copy(fixAgeMs = 119_000L))?.net)
+        assertEquals("exactly 120 s still counts", offered, HomeWifiOffer.decide(base.copy(fixAgeMs = 120_000L))?.net)
         assertNull(HomeWifiOffer.decide(base.copy(fixAgeMs = 120_001L)))
         assertNull(HomeWifiOffer.decide(base.copy(fixAgeMs = 121_000L)))
         assertNull("a cached last-known fix from hours ago", HomeWifiOffer.decide(base.copy(fixAgeMs = 3 * 3_600_000L)))
@@ -96,18 +101,18 @@ class HomeWifiOfferTest {
     @Test fun aRealNameInQuotesStaysMutedAfterTheRoundTrip() {
         val quoted = base.copy(wifi = WifiId("\"\"Net\"\"", null))
         val offer = HomeWifiOffer.decide(quoted)
-        assertEquals(WifiId("\"Net\"", null), offer)
-        val muted = HomeWifiOffer.mute(emptySet(), offer!!.ssid!!)
+        assertEquals(WifiId("\"Net\"", null), offer?.net)
+        val muted = HomeWifiOffer.mute(emptySet(), offer!!.net.ssid!!)
         assertNull(HomeWifiOffer.decide(quoted.copy(muted = muted)))
     }
 
     @Test fun aNewOfferIsShownWhenNoneIsUp() {
-        assertEquals(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.next(null, base))
+        assertEquals(Offer(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), homeCamp), HomeWifiOffer.next(null, base))
         assertNull(HomeWifiOffer.next(null, base.copy(playing = false)))
     }
 
     @Test fun theShowingOfferIsKeptWhileItStillHolds() {
-        val showing = WifiId("HomeNet", "aa:bb:cc:dd:ee:01")
+        val showing = Offer(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), homeCamp)
         assertEquals(showing, HomeWifiOffer.next(showing, base.copy(showing = true)))
         assertEquals(
             "same network, other access point: keep the one on screen",
@@ -117,7 +122,7 @@ class HomeWifiOfferTest {
     }
 
     @Test fun theShowingOfferIsClearedWhenItNoLongerHolds() {
-        val showing = WifiId("HomeNet", "aa:bb:cc:dd:ee:01")
+        val showing = Offer(WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), homeCamp)
         assertNull("game closed", HomeWifiOffer.next(showing, base.copy(playing = false)))
         assertNull("Wi-Fi lost", HomeWifiOffer.next(showing, base.copy(wifi = null)))
         assertNull("walked away", HomeWifiOffer.next(showing, base.copy(fix = GeoFix(north(500.0), home.lon, 10.0))))
@@ -141,11 +146,44 @@ class HomeWifiOfferTest {
         val cabin = OfferCamp("cabin", "Cabin", GeoFix(north(2000.0), home.lon, 0.0))
         val atCabin = base.copy(camps = listOf(OfferCamp("home", "Home", home), cabin), fix = GeoFix(cabin.pin.lat, home.lon, 10.0))
         val homeSaved = listOf(HomeNetwork("HomeNet2", null, "home"))
-        assertEquals("cabin has none yet", WifiId("HomeNet", "aa:bb:cc:dd:ee:01"), HomeWifiOffer.decide(atCabin.copy(saved = homeSaved)))
+        assertEquals(
+            "cabin has none yet",
+            WifiId("HomeNet", "aa:bb:cc:dd:ee:01"),
+            HomeWifiOffer.decide(atCabin.copy(saved = homeSaved))?.net,
+        )
         assertNull("cabin has one", HomeWifiOffer.decide(atCabin.copy(saved = homeSaved + HomeNetwork("CabinNet", null, "cabin"))))
         assertNull(
             "this network is already a camp's",
             HomeWifiOffer.decide(atCabin.copy(saved = listOf(HomeNetwork("HomeNet", null, "home")))),
         )
+    }
+
+    @Test fun theOfferCarriesTheCampItIsFor() {
+        assertEquals(homeCamp, HomeWifiOffer.decide(base)?.camp)
+    }
+
+    @Test fun aNetworkSavedForAnUnknownCampIsIgnoredWhenFilteredToKnownCamps() {
+        val saved = listOf(HomeNetwork("HomeNet", null, "gone"))
+        assertEquals(emptyList<HomeNetwork>(), PresenceSignals.forCamps(saved, setOf("home")))
+        assertNull(PresenceSignals.campOf(WifiId("HomeNet", null), PresenceSignals.forCamps(saved, setOf("home"))))
+        assertEquals(
+            WifiId("HomeNet", "aa:bb:cc:dd:ee:01"),
+            HomeWifiOffer.decide(base.copy(saved = PresenceSignals.forCamps(saved, setOf("home"))))?.net,
+        )
+    }
+
+    @Test fun setupSavesForTheNearestCampElseTheOnlyCampElseNone() {
+        val cabin = OfferCamp("cabin", "Cabin", GeoFix(north(2000.0), home.lon, 0.0))
+        val nearHome = GeoFix(north(10.0), home.lon, 5.0)
+        assertEquals(homeCamp, HomeWifiOffer.campToSave(nearHome, listOf(homeCamp, cabin)))
+        assertEquals(
+            "far from both, two camps",
+            null,
+            HomeWifiOffer.campToSave(GeoFix(north(900.0), home.lon, 5.0), listOf(homeCamp, cabin)),
+        )
+        assertEquals("no fix, one camp", homeCamp, HomeWifiOffer.campToSave(null, listOf(homeCamp)))
+        assertEquals("far, one camp", homeCamp, HomeWifiOffer.campToSave(GeoFix(north(900.0), home.lon, 5.0), listOf(homeCamp)))
+        assertNull("no camps", HomeWifiOffer.campToSave(nearHome, emptyList()))
+        assertNull("no fix, two camps", HomeWifiOffer.campToSave(null, listOf(homeCamp, cabin)))
     }
 }

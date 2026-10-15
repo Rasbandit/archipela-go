@@ -1,5 +1,6 @@
 package dev.apgo2.presence
 
+import dev.apgo2.ui.Help
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -41,9 +42,9 @@ class PresenceSignalsTest {
     }
 
     @Test fun theChipNamesTheCampAndFallsBackWhenUnnamed() {
-        assertEquals("At Cabin, paused", PresenceText.chip(PresenceState.AtHome, true, "Cabin"))
-        assertEquals("At a camp, paused", PresenceText.chip(PresenceState.AtHome, true, null))
-        assertEquals("At a camp, paused", PresenceText.chip(PresenceState.AtHome, true, ""))
+        assertEquals("At Cabin: paused", PresenceText.chip(PresenceState.AtHome, true, "Cabin"))
+        assertEquals("At a camp: paused", PresenceText.chip(PresenceState.AtHome, true, null))
+        assertEquals("At a camp: paused", PresenceText.chip(PresenceState.AtHome, true, ""))
         assertEquals("Tracking", PresenceText.chip(PresenceState.InZone, true, "Cabin"))
     }
 
@@ -97,7 +98,7 @@ class PresenceSignalsTest {
     }
 
     @Test fun theChipSaysWhatIsHappeningAndReadsProtectionOffWhenNothingIsConfigured() {
-        assertEquals("At Home, paused", PresenceText.chip(PresenceState.AtHome, configured = true, camp = "Home"))
+        assertEquals(Help.atCamp("Home"), PresenceText.chip(PresenceState.AtHome, configured = true, camp = "Home"))
         assertEquals("In car, not counting", PresenceText.chip(PresenceState.InCar, configured = true))
         assertEquals("Outside zones, saving battery", PresenceText.chip(PresenceState.OutsideZones, configured = true))
         assertEquals("Tracking", PresenceText.chip(PresenceState.InZone, configured = true))

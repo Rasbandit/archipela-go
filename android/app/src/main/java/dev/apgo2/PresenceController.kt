@@ -13,6 +13,7 @@ import dev.apgo2.presence.GeoFix
 import dev.apgo2.presence.GpsMode
 import dev.apgo2.presence.HomeNetwork
 import dev.apgo2.presence.HomeWifiOffer
+import dev.apgo2.presence.Offer
 import dev.apgo2.presence.OfferCamp
 import dev.apgo2.presence.OfferSignals
 import dev.apgo2.presence.PresenceMonitor
@@ -23,6 +24,7 @@ import dev.apgo2.presence.PresenceState
 import dev.apgo2.presence.Signals
 import dev.apgo2.presence.WifiId
 import dev.apgo2.presence.Zone
+import dev.apgo2.ui.Help
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -52,8 +54,8 @@ internal class PresenceController(
         private set
     var locationPermitted by mutableStateOf(false)
 
-    /** The network the "You're home: add this Wi-Fi?" dialog offers, or `null` (see [HomeWifiOffer]). */
-    var homeOffer by mutableStateOf<WifiId?>(null)
+    /** The network the "You're at {camp}: add this Wi-Fi?" dialog offers, or `null` (see [HomeWifiOffer]). */
+    var homeOffer by mutableStateOf<Offer?>(null)
         private set
     private var offerDismissedAtMs: Long? = null
     var appVisible = true
@@ -83,12 +85,11 @@ internal class PresenceController(
 
     /** The camp circles presence uses (the map draws them); empty while Wi-Fi alone decides. Set on every evaluation. */
     var campZones by mutableStateOf<List<CircleOut>>(emptyList())
+        private set
 
     /** The camp presence is at, or `null` when unnamed or not at one. Set on every evaluation. */
     var campName by mutableStateOf<String?>(null)
-
-    /** The camp the offered network would be saved for (the nearest one). */
-    var homeOfferCamp by mutableStateOf<OfferCamp?>(null)
+        private set
 
     // The camp of the last Wi-Fi seen on a saved network: the debounced signal can outlive the reading by a few seconds.
     private var lastWifiCamp: String? = null
@@ -296,7 +297,7 @@ internal class PresenceController(
         val camps = model.engine.camps().map { OfferCamp(it.id, it.name, GeoFix(it.lat, it.lon, 0.0)) }
         val signals =
             OfferSignals(
-                saved = model.settings.homeNetworks,
+                saved = savedNetworks(),
                 playing = model.hud != null,
                 fix = fix,
                 fixAgeMs = fixAgeMs,
@@ -310,24 +311,22 @@ internal class PresenceController(
         val next = HomeWifiOffer.next(homeOffer, signals)
         if (next != homeOffer) Diag.info(TAG, if (next == null) "home wifi offer withdrawn" else "home wifi offer")
         homeOffer = next
-        homeOfferCamp = next?.let { HomeWifiOffer.nearestCamp(signals) }
     }
 
     /** "Add": save the offered network for the nearest camp; the at-camp rule takes over from here. */
     fun acceptHomeOffer() {
         checkHomeOffer(model.now()) // things may have changed while the dialog was up (e.g. Wi-Fi saved in setup)
-        val w = homeOffer
-        val camp = homeOfferCamp
-        val ssid = w?.ssid
-        if (w == null || camp == null || ssid == null) return
+        val offer = homeOffer
+        val ssid = offer?.net?.ssid
+        if (offer == null || ssid == null) return
         homeOffer = null
-        model.settings.addHome(HomeNetwork(ssid, w.bssid, camp.id))
+        model.settings.addHome(HomeNetwork(ssid, offer.net.bssid, offer.camp.id))
         evaluate()
     }
 
     /** "Not this one": never offer this network again. */
     fun muteHomeOffer() {
-        homeOffer?.ssid?.let { model.settings.muteHomeOffer(it) }
+        homeOffer?.net?.ssid?.let { model.settings.muteHomeOffer(it) }
         homeOffer = null
     }
 
@@ -337,11 +336,24 @@ internal class PresenceController(
         offerDismissedAtMs = model.now()
     }
 
-    private fun rawHome() = PresenceSignals.isHome(monitor.currentWifi, model.settings.homeNetworks)
+    // Only networks of camps that still exist count: a deleted camp's Wi-Fi is nothing any more.
+    private fun knownCampIds() =
+        model.engine
+            .camps()
+            .map { it.id }
+            .toSet()
+
+    private fun savedNetworks(known: Set<String> = knownCampIds()) = PresenceSignals.forCamps(model.settings.homeNetworks, known)
+
+    private fun rawHome() = PresenceSignals.isHome(monitor.currentWifi, savedNetworks())
 
     // The camp the Wi-Fi belongs to; the last one seen while the debounced signal still says "on camp Wi-Fi".
-    private fun wifiCamp(): String? =
-        (PresenceSignals.campOf(monitor.currentWifi, model.settings.homeNetworks) ?: lastWifiCamp).also { lastWifiCamp = it }
+    private fun wifiCamp(): String? {
+        val known = knownCampIds()
+        val seen = PresenceSignals.campOf(monitor.currentWifi, savedNetworks(known))
+        lastWifiCamp = (seen ?: lastWifiCamp)?.takeIf { it in known }
+        return lastWifiCamp
+    }
 
     private fun rawCar() =
         PresenceSignals.carConnected(monitor.connectedCarCandidates, model.settings.carDevices).also {
@@ -366,7 +378,7 @@ internal class PresenceController(
 
     private fun presenceText(s: PresenceState) =
         when (s) {
-            PresenceState.AtHome -> "At ${campName.orEmpty().ifBlank { "a camp" }}: paused"
+            PresenceState.AtHome -> Help.atCamp(campName)
             PresenceState.InCar -> "Car Bluetooth connected: not counting"
             PresenceState.OutsideZones -> "Outside every zone: saving battery"
             PresenceState.InZone -> "Tracking"

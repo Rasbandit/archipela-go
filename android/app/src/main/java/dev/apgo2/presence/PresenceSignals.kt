@@ -1,5 +1,7 @@
 package dev.apgo2.presence
 
+import dev.apgo2.ui.Help
+
 internal data class WifiId(
     val ssid: String?,
     val bssid: String?,
@@ -40,6 +42,12 @@ internal object PresenceSignals {
         val unreadable = cleanSsid(current?.ssid) == null && readableBssid(current) == null
         return if (unreadable) null else matching(current, saved).isNotEmpty()
     }
+
+    /** Only the networks of camps that still exist: a deleted camp's Wi-Fi is nothing any more. */
+    fun forCamps(
+        saved: List<HomeNetwork>,
+        known: Set<String>,
+    ): List<HomeNetwork> = saved.filter { it.campId in known }
 
     /** The camp whose saved network [current] is (a BSSID match wins over an SSID match), or `null` on none or when unreadable. */
     fun campOf(
@@ -85,7 +93,7 @@ internal object PresenceText {
         } else {
             when (state) {
                 PresenceState.InZone -> "Tracking"
-                PresenceState.AtHome -> "At ${camp.orEmpty().ifBlank { "a camp" }}, paused"
+                PresenceState.AtHome -> Help.atCamp(camp)
                 PresenceState.InCar -> "In car, not counting"
                 PresenceState.OutsideZones -> "Outside zones, saving battery"
                 PresenceState.Stopped -> "Not playing"

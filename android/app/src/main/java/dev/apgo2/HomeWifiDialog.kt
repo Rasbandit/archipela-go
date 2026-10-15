@@ -10,10 +10,10 @@ import dev.apgo2.ui.HomeOfferText
 /** "You're at {camp}: add this Wi-Fi?" for a camp with no network saved (see [dev.apgo2.presence.HomeWifiOffer]). */
 @Composable
 internal fun HomeWifiDialog(p: PresenceController) {
-    val ssid = p.homeOffer?.ssid ?: return
+    val ssid = p.homeOffer?.net?.ssid ?: return
     AlertDialog(
         onDismissRequest = p::dismissHomeOffer,
-        title = { Text(HomeOfferText.title(p.homeOfferCamp?.name)) },
+        title = { Text(HomeOfferText.title(p.homeOffer?.camp?.name)) },
         text = { Text(HomeOfferText.body(ssid)) },
         confirmButton = { TextButton(onClick = p::acceptHomeOffer) { Text(HomeOfferText.ADD) } },
         dismissButton = {

@@ -46,7 +46,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.apgo2.presence.CarChoices
 import dev.apgo2.presence.CarDevice
+import dev.apgo2.presence.GeoFix
 import dev.apgo2.presence.HomeNetwork
+import dev.apgo2.presence.HomeWifiOffer
+import dev.apgo2.presence.OfferCamp
 import dev.apgo2.presence.PresenceSignals
 import dev.apgo2.presence.WifiChoice
 import dev.apgo2.presence.WifiChoices
@@ -145,12 +148,23 @@ private class WifiStepState(
         }
     }
 
+    // The nearest camp to where the phone is, else the only camp; none when there is no camp to attach the network to.
+    private fun campToSave(): OfferCamp? {
+        val camps = m.engine.camps().map { OfferCamp(it.id, it.name, GeoFix(it.lat, it.lon, 0.0)) }
+        return HomeWifiOffer.campToSave(m.realLoc?.let { GeoFix(it.latitude, it.longitude, it.accuracy.toDouble()) }, camps)
+    }
+
+    private fun noCamp() {
+        note = SetupText.WIFI_NEEDS_CAMP
+    }
+
     fun toggle(
         c: WifiChoice,
         on: Boolean,
     ) {
         if (on) {
-            m.settings.addHome(HomeNetwork(c.ssid, c.bssid))
+            val camp = campToSave() ?: return noCamp()
+            m.settings.addHome(HomeNetwork(c.ssid, c.bssid, camp.id))
         } else {
             m.settings.removeHome(c.ssid)
             removed = removed + c.ssid
@@ -161,7 +175,8 @@ private class WifiStepState(
 
     fun addTyped() {
         val ssid = PresenceSignals.cleanSsid(typed) ?: return
-        m.settings.addHome(HomeNetwork(ssid, null))
+        val camp = campToSave() ?: return noCamp()
+        m.settings.addHome(HomeNetwork(ssid, null, camp.id))
         saved = m.settings.homeNetworks
         removed = removed - ssid
         typed = ""

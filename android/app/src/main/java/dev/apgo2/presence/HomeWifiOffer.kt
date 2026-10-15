@@ -20,6 +20,12 @@ internal data class OfferCamp(
     val pin: GeoFix,
 )
 
+/** A network to offer, with the camp it would be saved for. */
+internal data class Offer(
+    val net: WifiId,
+    val camp: OfferCamp,
+)
+
 /** What [HomeWifiOffer.decide] looks at. */
 internal data class OfferSignals(
     val saved: List<HomeNetwork>,
@@ -46,14 +52,23 @@ internal object HomeWifiOffer {
     const val MAX_FIX_AGE_MS = 2 * 60 * 1000L
     private const val EARTH_RADIUS_M = 6_371_000.0
 
-    /** The network to offer (SSID cleaned), or `null` when no offer should appear now. */
-    fun decide(s: OfferSignals): WifiId? {
+    /** The network to offer (SSID cleaned) and its camp, or `null` when no offer should appear now. */
+    fun decide(s: OfferSignals): Offer? {
         val net = PresenceSignals.usableNetwork(s.wifi) ?: return null
         val cooling = s.dismissedAtMs != null && s.nowMs - s.dismissedAtMs < LATER_COOLDOWN_MS
         val camp = nearestCamp(s)
         val needed = camp != null && s.saved.none { it.campId == camp.id } && PresenceSignals.campOf(net, s.saved) == null
         val ok = needed && s.playing && !s.showing && !cooling && net.ssid !in s.muted
-        return if (ok) net else null
+        return camp?.takeIf { ok }?.let { Offer(net, it) }
+    }
+
+    /** The camp a Wi-Fi chosen in setup is saved for: the nearest within [NEAR_HOME_M], else the only camp, else none. */
+    fun campToSave(
+        fix: GeoFix?,
+        camps: List<OfferCamp>,
+    ): OfferCamp? {
+        val near = fix?.let { f -> camps.minByOrNull { distanceM(f, it.pin) }?.takeIf { distanceM(f, it.pin) <= NEAR_HOME_M } }
+        return near ?: camps.singleOrNull()
     }
 
     /**
@@ -62,13 +77,13 @@ internal object HomeWifiOffer {
      * another network would be offered instead; that one comes on the next check.
      */
     fun next(
-        current: WifiId?,
+        current: Offer?,
         s: OfferSignals,
-    ): WifiId? {
+    ): Offer? {
         val fresh = decide(s.copy(showing = false))
         return when {
             current == null -> fresh
-            fresh?.ssid == current.ssid -> current
+            fresh?.net?.ssid == current.net.ssid -> current
             else -> null
         }
     }
