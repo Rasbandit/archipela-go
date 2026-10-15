@@ -15,7 +15,8 @@ pub const MIN_STEPS: i64 = 500;
 const THIN_M: f64 = 5.0;
 
 /// One quest finished on the walk, as the recap lists it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)] // a field added later must not make old walks unopenable
 pub struct RecapQuest {
     /// Display name of the quest.
     pub name: String,
@@ -32,7 +33,8 @@ pub struct RecapQuest {
 }
 
 /// One progressive chain that grew on the walk: its bar before and after, and where its checks fall.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)] // a field added later must not make old walks unopenable
 pub struct RecapChain {
     /// `"{zone}:{kind_id}"`.
     pub id: String,
@@ -51,7 +53,8 @@ pub struct RecapChain {
 }
 
 /// One forager (collect quest) that moved on the walk: its banked count before and after.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)] // a field added later must not make old walks unopenable
 pub struct RecapForager {
     /// Display name of the quest.
     pub name: String,
@@ -71,6 +74,7 @@ pub struct RecapForager {
 
 /// What one outing came to.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)] // a field added later must not make old walks unopenable
 pub struct Recap {
     /// When the player left home, Unix ms.
     pub start_ms: i64,
@@ -85,16 +89,12 @@ pub struct Recap {
     /// Names of the quests completed.
     pub quests_done: Vec<String>,
     /// The quests completed that stand alone (chain milestones are not listed), in the order they were finished.
-    #[serde(default)]
     pub quests: Vec<RecapQuest>,
     /// The chains that grew on the walk, by unit (steps, minutes, cells) then zone.
-    #[serde(default)]
     pub chains: Vec<RecapChain>,
     /// Steps that counted toward chains (slowed by the backpack), rounded.
-    #[serde(default)]
     pub counted_steps: i64,
     /// The foragers that banked or picked something on the walk, in quest order.
-    #[serde(default)]
     pub foragers: Vec<RecapForager>,
     /// Checks sent to the Archipelago server.
     pub checks_sent: u32,

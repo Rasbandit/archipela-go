@@ -2501,7 +2501,11 @@ impl Engine {
             let (ev, recap) = g.arrive_home(t_ms);
             let mut ready = None;
             if let Some(mut r) = recap {
-                if g.id == game_id {
+                if g.id != game_id {
+                    self.note(format!("walk {} of game {}: the game changed while its trace was read, the route is empty", r.end_ms, g.id));
+                } else if self.journal.is_none() {
+                    self.note(format!("walk {} of game {}: no journal, the route is empty", r.end_ms, g.id));
+                } else {
                     r.set_route(&segs.iter().map(|s| s.iter().map(|p| Point::new(p.lat, p.lon)).collect()).collect::<Vec<_>>());
                 }
                 g.recap = Some(r.clone());
@@ -2517,14 +2521,20 @@ impl Engine {
         }) else {
             return Vec::new();
         };
-        self.journal_do(|j| {
-            entries.iter().try_for_each(|e| j.log(&id, e))?;
-            if let Some(r) = &ready {
-                j.add_walk(&id, r)?;
-                j.log(&id, &JournalEvent { t_ms: r.end_ms, kind: kind::WALK.into(), detail: walk_summary(r, units), at: None })?;
+        // The bank's log lines, the walk and its log line commit together: never a walk row without its Activity row.
+        if let Some(j) = &self.journal {
+            let wrote = j.lock().unwrap_or_else(std::sync::PoisonError::into_inner).batch(|j| {
+                entries.iter().try_for_each(|e| j.log(&id, e))?;
+                if let Some(r) = &ready {
+                    j.add_walk(&id, r)?;
+                    j.log(&id, &JournalEvent { t_ms: r.end_ms, kind: kind::WALK.into(), detail: walk_summary(r, units), at: None })?;
+                }
+                Ok(())
+            });
+            if let Err(e) = wrote {
+                self.note(format!("journal write failed for the arrival of game {id} at {}: {e}", ready.as_ref().map_or(t_ms, |r| r.end_ms)));
             }
-            Ok(())
-        });
+        }
         let mut out = self.events_out(ev);
         if ready.is_some() {
             out.push(EventOut::RecapReady);
@@ -2540,7 +2550,7 @@ impl Engine {
         match read {
             Ok(r) => r.as_ref().map(RecapOut::from),
             Err(e) => {
-                self.note(format!("journal read failed: {e}"));
+                self.note(format!("walk {end_ms} unreadable: {e}"));
                 None
             }
         }
@@ -2997,6 +3007,49 @@ mod tests {
         e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
         e.bank_at_home(600_000);
         assert!(e.pending_recap().is_some_and(|r| r.distance_m == 0.0 && r.route.is_empty()));
+    }
+
+    /// Run `sql` on the engine's journal file through a second connection (to break it the way a bad write or old row would).
+    fn journal_sql(e: &Engine, sql: &str) {
+        rusqlite::Connection::open(e.dir.join("journal.db")).unwrap().execute_batch(sql).unwrap();
+    }
+
+    #[test]
+    fn a_failed_walk_write_keeps_no_walk_row_and_says_which_walk() {
+        let e = engine_with_game("walk-write-fails");
+        e.set_counting(false, 0);
+        leave_into_zone(&e, 1_000);
+        e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
+        e.take_diag();
+        journal_sql(&e, "DROP TABLE walks");
+        e.bank_at_home(600_000);
+        assert!(e.activity(50).iter().all(|a| a.kind != "walk"), "the log row commits with the walk row or not at all");
+        let diag = e.take_diag();
+        assert!(diag.iter().any(|d| d.contains("g1") && d.contains("600000")), "{diag:?}");
+    }
+
+    #[test]
+    fn an_unreadable_kept_walk_is_noted() {
+        let e = engine_with_game("walk-unreadable");
+        journal_sql(&e, "INSERT INTO walks (game, end_ms, recap) VALUES ('g1', 7, 'not json')");
+        e.take_diag();
+        assert!(e.walk_recap(7).is_none());
+        let diag = e.take_diag();
+        assert!(diag.iter().any(|d| d.starts_with("walk 7 unreadable:")), "{diag:?}");
+    }
+
+    #[test]
+    fn a_walk_recapped_without_a_journal_notes_its_lost_route() {
+        let mut e = engine_with_game("recap-no-journal");
+        Arc::get_mut(&mut e.e).expect("no other handle yet").journal = None;
+        e.set_counting(false, 0);
+        leave_into_zone(&e, 1_000);
+        e.with_game(|g| g.outing.as_mut().unwrap().steps = 900);
+        e.take_diag();
+        e.bank_at_home(600_000);
+        assert!(e.pending_recap().is_some_and(|r| r.route.is_empty()));
+        let diag = e.take_diag();
+        assert!(diag.iter().any(|d| d.contains("no journal") && d.contains("600000")), "{diag:?}");
     }
 
     #[test]

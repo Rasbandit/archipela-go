@@ -274,17 +274,16 @@ impl Journal {
         Ok(())
     }
 
-    /// The kept recap of the walk that ended at `end_ms` (the newest if there are several); `None` when there is none or it
-    /// cannot be read back.
+    /// The kept recap of the walk that ended at `end_ms` (the newest if there are several); `None` when there is none.
     ///
     /// # Errors
-    /// Returns any SQLite error.
+    /// Returns any SQLite error, or a conversion error when the stored recap cannot be read back.
     pub fn walk(&self, game: &str, end_ms: i64) -> rusqlite::Result<Option<Recap>> {
         let mut stmt = self.conn.prepare_cached("SELECT recap FROM walks WHERE game = ?1 AND end_ms = ?2 ORDER BY id DESC LIMIT 1")?;
         let mut rows = stmt.query((game, end_ms))?;
         let Some(row) = rows.next()? else { return Ok(None) };
         let json: String = row.get(0)?;
-        Ok(serde_json::from_str(&json).ok())
+        serde_json::from_str(&json).map(Some).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
     }
 
     /// Delete all points, events and walks of `game`.
@@ -524,14 +523,24 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_walk_row_is_none_and_the_newest_row_wins() {
+    fn an_unreadable_walk_row_is_an_error_and_the_newest_row_wins() {
         let j = Journal::open_memory().unwrap();
         j.conn.execute("INSERT INTO walks (game, end_ms, recap) VALUES ('g', 7, 'not json')", []).unwrap();
-        assert_eq!(j.walk("g", 7).unwrap(), None);
+        assert!(j.walk("g", 7).is_err(), "a walk that cannot be read is not the same as no walk");
         let mut r = walk_recap(7);
         r.steps = 1;
         j.add_walk("g", &r).unwrap();
         assert_eq!(j.walk("g", 7).unwrap(), Some(r));
+    }
+
+    #[test]
+    fn a_walk_kept_before_fields_were_added_still_opens() {
+        let j = Journal::open_memory().unwrap();
+        let old = r#"{"start_ms": 1, "end_ms": 7, "quests": [{"name": "Oak"}], "chains": [{"id": "1:step_up"}], "foragers": [{"name": "Acorns"}]}"#;
+        j.conn.execute("INSERT INTO walks (game, end_ms, recap) VALUES ('g', 7, ?1)", [old]).unwrap();
+        let r = j.walk("g", 7).unwrap().expect("the old walk opens");
+        assert_eq!((r.start_ms, r.end_ms, r.steps), (1, 7, 0));
+        assert_eq!((r.quests[0].name.as_str(), r.chains[0].id.as_str(), r.foragers[0].name.as_str()), ("Oak", "1:step_up", "Acorns"));
     }
 
     #[test]

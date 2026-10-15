@@ -9,10 +9,11 @@ use crate::num::round_u64;
 
 /// What a chain counts.
 /// Ordered as the recap lists chains: steps, minutes, cells.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChainUnit {
-    /// Steps taken.
+    /// Steps taken (the default only so an old recap missing the unit still opens).
+    #[default]
     Steps,
     /// Minutes spent away.
     Minutes,
