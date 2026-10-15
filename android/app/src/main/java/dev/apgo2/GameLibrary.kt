@@ -42,6 +42,7 @@ internal class GameLibrary(
                 }
             model.busy = null
             r.onSuccess {
+                model.ap.onGameClosed() // the Archipelago game open before is closed: its held server must not connect now
                 refreshStreets(null)
                 model.sim.resetClock()
                 model.log.clear()
@@ -111,6 +112,7 @@ internal class GameLibrary(
         Diag.info("game", "paused")
         model.stepCal.saveFrom(model.engine)
         model.engine.closeGame()
+        model.ap.onGameClosed()
         model.simPos = null
         model.selected = null
         model.refreshAll()

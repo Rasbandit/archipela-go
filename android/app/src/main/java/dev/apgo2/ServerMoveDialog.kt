@@ -2,6 +2,9 @@ package dev.apgo2
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -13,10 +16,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.apgo2.ui.ApgoIcons
+import dev.apgo2.ui.FeedbackText
+import dev.apgo2.ui.Tone
 
 /**
  * The open Archipelago game's server address, editable: an archipelago.gg room can lose its port and move to another one. The game
@@ -37,6 +44,29 @@ internal fun ServerButton(m: AppModel) {
             editing = false
             move(it)
         }, onDismiss = { editing = false })
+    }
+}
+
+/**
+ * Shown while the open game's home-network server waits for local network access (#171): the reason and a button that asks for it,
+ * or opens the app's settings once Android no longer shows its dialog. A grant connects at once; one made in Settings connects
+ * when the app comes back (ApController.onForeground).
+ */
+@Composable
+internal fun LanPrompt(m: AppModel) {
+    val ctx = LocalContext.current
+    val ask = rememberPermissionAsk(LOCAL_NETWORK_PERMISSION, { !ctx.lacksLocalNetwork() }) { if (it) m.ap.connectHeld() }
+    if (m.ap.lanHold.server == null) return
+    val label = if (ask.action == PermissionAsk.OpenSettings) "Open settings" else "Allow"
+    // Read at the tap, not when drawn: access granted meanwhile (Settings, New Game's prompt) connects instead of asking again.
+    val allow = { if (ctx.lacksLocalNetwork()) ask.ask() else m.ap.connectHeld() }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FeedbackText(LAN_HELD, Tone.Warning, Modifier.weight(1f))
+        TextButton(onClick = allow) { Text(label, fontSize = 12.sp) }
     }
 }
 

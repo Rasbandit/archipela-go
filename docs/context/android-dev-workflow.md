@@ -87,7 +87,8 @@ AGP 9.4.1, Gradle 9.8.1, Kotlin 2.4.20, Compose BOM 2026.09.00, UniFFI 0.32.2, c
 - Compose BOM 2026.09 requires `compileSdk = 37` (AAR metadata check fails otherwise).
 - targetSdk 37 (Android 17) blocks LAN traffic without `ACCESS_LOCAL_NETWORK` (a TCP connect just times out, Rust sockets included).
   `LocalNetwork.kt` asks on Connect when the server name or any resolved address is local, then always connects (VPN routes are not gated);
-  a hint shows after a denial or 10 s stuck connecting. `localhost` via `adb reverse` is loopback and not gated. Bluetooth shares the
+  a hint shows after a denial or 10 s stuck connecting. The open game's saved LAN server is not auto-connected without access
+  (no reconnect loop that cannot get through): Play shows an Allow / Open settings prompt, and a grant connects (#171). `localhost` via `adb reverse` is loopback and not gated. Bluetooth shares the
   Nearby devices group, so test the prompt from a fresh install.
 - `LocationManager.requestLocationUpdates(provider, minTime, minDistance, listener)` on the `fused` provider is served as **BALANCED**
   (Wi-Fi/cell, 20-100 m; the GPS chip stays off unless another app such as Maps keeps it on). Use `LocationRequest.Builder` with

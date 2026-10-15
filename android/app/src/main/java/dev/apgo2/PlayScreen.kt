@@ -183,6 +183,7 @@ private fun GameView(
 ) {
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         GameHeader(m, hud)
+        LanPrompt(m)
         // The map is the top of the screen. Under it the panel is shown (goal, summary, then progress in a scrolling part) or
         // hidden (only the goal, summary and any danger stay); its grip snaps between the two.
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
