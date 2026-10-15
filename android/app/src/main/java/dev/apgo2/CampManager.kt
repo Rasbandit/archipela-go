@@ -61,10 +61,13 @@ internal class CampManager(
     ) {
         scope.launch {
             val r = withContext(Dispatchers.IO) { runCatching(change) }
-            r.onFailure { model.fail("${what}_camp", "Could not $what the camp", it) }
-            model.camps = model.engine.camps()
-            model.presence.evaluate()
-            done(r.getOrNull())
+            try {
+                r.onFailure { model.fail("${what}_camp", "Could not $what the camp", it) }
+                model.camps = model.engine.camps()
+                model.presence.evaluate()
+            } finally {
+                done(r.getOrNull()) // always: the picker's one-save-at-a-time queue waits for it
+            }
         }
     }
 }

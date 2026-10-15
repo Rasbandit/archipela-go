@@ -1270,6 +1270,8 @@ pub struct Engine {
     fix_spacing_hint: Mutex<Option<i64>>,
     /// The saved camps, kept in memory: loaded at construction and replaced by every edit, so presence never reads `camps.json`.
     camps: Mutex<Vec<Camp>>,
+    /// `camps.json` was broken and no copy of it could be kept aside: edits are refused so it is never saved over.
+    camps_frozen: std::sync::atomic::AtomicBool,
     // Where the last fix's estimate was relative to the zones, worked out once in `on_fix` for presence to read.
     last_proximity: Mutex<Option<Proximity>>,
     /// The phone's region (ISO country code) that `Auto` units follow; empty until the app sets it.
@@ -1405,7 +1407,8 @@ impl Engine {
     fn with_camps(self: Arc<Self>) -> Arc<Self> {
         let (camps, problem) = self.store().camps_checked();
         if let Some(p) = problem {
-            self.note(p);
+            self.camps_frozen.store(!p.kept, std::sync::atomic::Ordering::SeqCst);
+            self.note(p.note);
         }
         let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.apply_camps(slot, camps);
@@ -1425,6 +1428,9 @@ impl Engine {
     // Change the saved camps with the game guard held (lock order: game, then watch), so two edits cannot interleave their
     // read-modify-write of camps.json, then hand the result on.
     fn edit_camps<T>(&self, edit: impl FnOnce(&mut Vec<Camp>) -> T) -> Result<T, CoreError> {
+        if self.camps_frozen.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(err("camps.json is broken and could not be backed up: not saving over it"));
+        }
         let slot = self.game.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut camps = self.camps_now();
         let out = edit(&mut camps);
@@ -1755,6 +1761,7 @@ impl Engine {
             zones: Mutex::new(ZoneCache::default()),
             fix_spacing_hint: Mutex::new(None),
             camps: Mutex::new(Vec::new()),
+            camps_frozen: std::sync::atomic::AtomicBool::new(false),
             last_proximity: Mutex::new(None),
             units: Mutex::new(resolve_units(Settings::load(&dir).units, "")),
             trap_alerts: std::sync::atomic::AtomicBool::new(Settings::load(&dir).trap_alerts),
@@ -3679,6 +3686,18 @@ mod tests {
         let names: Vec<String> = again.camps().into_iter().map(|c| c.name).collect();
         assert_eq!(names, ["Home", "Cabin"], "the home camp is saved with the new one");
         assert!(again.take_diag().iter().all(|m| !m.starts_with("camps.json")), "the file is sound again");
+    }
+
+    #[test]
+    fn a_broken_camps_file_that_could_not_be_kept_aside_is_never_saved_over() {
+        let e = engine_with_game("camps-unkept");
+        std::fs::write(e.dir.join("camps.json"), "not json").unwrap();
+        std::fs::create_dir_all(e.dir.join("camps.json.corrupt")).unwrap(); // the copy cannot be written
+        let e2 = Engine::new(e.dir.to_string_lossy().into_owned());
+        assert!(e2.take_diag().iter().any(|m| m.contains("could not keep a copy")));
+        assert!(e2.save_camp(camp_in("", "Cabin", destination(home(), 0.0, 3000.0))).is_err(), "saving would lose the camps for good");
+        assert!(e2.delete_camp("home".into()).is_err());
+        assert_eq!(std::fs::read_to_string(e.dir.join("camps.json")).unwrap(), "not json", "the broken file is untouched");
     }
 
     #[test]

@@ -175,4 +175,13 @@ class HomeWifiOfferTest {
             HomeWifiOffer.decide(base.copy(saved = PresenceSignals.forCamps(saved, setOf("home"))))?.net,
         )
     }
+
+    @Test fun onlyAFreshAccurateFixCanSayWhichCampThePlayerIsAt() {
+        val fix = GeoFix(home.lat, home.lon, 10.0)
+        assertEquals(fix, HomeWifiOffer.usableFix(fix, 1_000))
+        assertNull("a cached old location", HomeWifiOffer.usableFix(fix, HomeWifiOffer.MAX_FIX_AGE_MS + 1))
+        assertNull("stamped in the future", HomeWifiOffer.usableFix(fix, -1))
+        assertNull("no age", HomeWifiOffer.usableFix(fix, null))
+        assertNull("too blurry", HomeWifiOffer.usableFix(fix.copy(accuracyM = HomeWifiOffer.MAX_ACCURACY_M + 1), 1_000))
+    }
 }

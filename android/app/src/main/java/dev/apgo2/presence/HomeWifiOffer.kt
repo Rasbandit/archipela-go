@@ -82,9 +82,11 @@ internal object HomeWifiOffer {
      * The camp the player is at: the one the core finds within reach of a fresh, accurate fix. The age check keeps out a cached
      * last-known location (it keeps its original time), and a negative age (a fix stamped in the future) never passes.
      */
-    fun nearestCamp(s: OfferSignals): OfferCamp? {
-        val fix = s.fix
-        val fresh = s.fixAgeMs != null && s.fixAgeMs in 0..MAX_FIX_AGE_MS
-        return if (fix == null || !fresh || fix.accuracyM > MAX_ACCURACY_M) null else s.campNear(fix)
-    }
+    fun nearestCamp(s: OfferSignals): OfferCamp? = usableFix(s.fix, s.fixAgeMs)?.let(s.campNear)
+
+    /** [fix] when it is fresh and accurate enough to say which camp the player is at, else null (see [nearestCamp]). */
+    fun usableFix(
+        fix: GeoFix?,
+        ageMs: Long?,
+    ): GeoFix? = fix?.takeIf { ageMs != null && ageMs in 0..MAX_FIX_AGE_MS && it.accuracyM <= MAX_ACCURACY_M }
 }

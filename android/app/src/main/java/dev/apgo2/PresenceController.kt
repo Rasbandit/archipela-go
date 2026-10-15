@@ -194,7 +194,7 @@ internal class PresenceController(
         val e = model.engine
         e.presenceSetWalkSensor(model.sensors.stepsAvailable)
         campZones = e.presenceCircles()
-        e.presenceWifiCamp(if (wifi == true) wifiCamp() else null, t)
+        e.presenceWifiCamp(if (wifi == true) wifiCamp(t) else null, t)
         if (!homeStarted) {
             e.presenceStart(t)
             homeStarted = true
@@ -286,15 +286,7 @@ internal class PresenceController(
     // Runs after every fix and Wi-Fi change (both end in [evaluate]). A simulated position is not a real visit home. The fix is the
     // filter's estimate while it is from GPS ([HomeOfferFix]); otherwise the raw fix.
     private fun checkHomeOffer(t: Long) {
-        val pos = if (model.simPos == null) model.engine.position(t) else null
-        val loc = model.realLoc?.takeIf { it.hasAccuracy() && model.simPos == null }
-        val (fix, fixAgeMs) =
-            HomeOfferFix.choose(
-                pos,
-                loc?.let { GeoFix(it.latitude, it.longitude, it.accuracy.toDouble()) },
-                // Monotonic age, immune to GPS/wall-clock skew; the "Later" cooldown stays on the wall clock (nowMs).
-                loc?.let { (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / NANOS_PER_MS },
-            )
+        val (fix, fixAgeMs) = campFix(t)
         val signals =
             OfferSignals(
                 saved = savedNetworks(),
@@ -345,9 +337,23 @@ internal class PresenceController(
     private fun rawHome() = PresenceSignals.isHome(monitor.currentWifi, savedNetworks())
 
     // The camp the Wi-Fi belongs to; the last one seen while the debounced signal still says "on camp Wi-Fi".
-    private fun wifiCamp(): String? {
+    // The fix that may say which camp the player is at, with its age: the filter's GPS estimate, else the raw fix. A simulated
+    // position is not a real visit.
+    private fun campFix(t: Long): Pair<GeoFix?, Long?> {
+        val pos = if (model.simPos == null) model.engine.position(t) else null
+        val loc = model.realLoc?.takeIf { it.hasAccuracy() && model.simPos == null }
+        return HomeOfferFix.choose(
+            pos,
+            loc?.let { GeoFix(it.latitude, it.longitude, it.accuracy.toDouble()) },
+            // Monotonic age, immune to GPS/wall-clock skew; the "Later" cooldown stays on the wall clock (nowMs).
+            loc?.let { (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / NANOS_PER_MS },
+        )
+    }
+
+    private fun wifiCamp(t: Long): String? {
         val known = knownCampIds()
-        val near = model.realLoc?.let { runCatching { model.engine.nearestCamp(it.latitude, it.longitude) }.getOrNull()?.id }
+        // A network saved for several camps goes to the nearest of them, judged only from a fresh, accurate fix.
+        val near = campFix(t).let { (fix, age) -> HomeWifiOffer.usableFix(fix, age) }?.let { model.engine.nearestCamp(it.lat, it.lon)?.id }
         val seen = PresenceSignals.campOf(monitor.currentWifi, savedNetworks(known), near)
         lastWifiCamp = (seen ?: lastWifiCamp)?.takeIf { it in known }
         return lastWifiCamp

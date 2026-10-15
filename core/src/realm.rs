@@ -263,6 +263,16 @@ fn io(e: std::io::Error) -> String {
     e.to_string()
 }
 
+/// Why `camps.json` could not be used: a line for the diagnostics, and whether a copy of it was kept aside (when not, nothing may
+/// be saved over it: the camps in it would be lost for good).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CampsProblem {
+    /// What went wrong and where the copy is.
+    pub note: String,
+    /// Whether the broken file was copied aside, so writing a new `camps.json` loses nothing.
+    pub kept: bool,
+}
+
 impl RealmStore {
     /// A store rooted at `dir`.
     pub fn new(dir: impl Into<PathBuf>) -> Self {
@@ -373,7 +383,7 @@ impl RealmStore {
     /// point (if any) becomes the camp `"home"`. An unreadable or corrupt `camps.json` is copied to `camps.json.corrupt` (the first
     /// copy is kept, never overwritten) and the `home.json` camp stands in, so the player is never left without their home.
     #[must_use]
-    pub fn camps_checked(&self) -> (Vec<Camp>, Option<String>) {
+    pub fn camps_checked(&self) -> (Vec<Camp>, Option<CampsProblem>) {
         let path = self.dir.join("camps.json");
         let problem = match std::fs::read_to_string(&path) {
             Ok(s) => match serde_json::from_str(&s) {
@@ -385,13 +395,27 @@ impl RealmStore {
         };
         let legacy = self.legacy_home().map(|point| vec![Camp::home(point)]).unwrap_or_default();
         let Some(problem) = problem else { return (legacy, None) };
-        let aside = self.dir.join("camps.json.corrupt");
-        let kept = if aside.exists() { Ok(()) } else { std::fs::copy(&path, &aside).map(drop) };
-        let note = match kept {
-            Ok(()) => format!("camps.json unreadable: {problem}; kept as camps.json.corrupt"),
-            Err(e) => format!("camps.json unreadable: {problem}; could not keep a copy: {e}"),
+        let problem = match self.keep_aside(&path) {
+            Ok(name) => CampsProblem { note: format!("camps.json unreadable: {problem}; kept as {name}"), kept: true },
+            Err(e) => CampsProblem { note: format!("camps.json unreadable: {problem}; could not keep a copy: {e}"), kept: false },
         };
-        (legacy, Some(note))
+        (legacy, Some(problem))
+    }
+
+    // Copy the broken `camps.json` aside, never over an earlier copy: `camps.json.corrupt`, then `.corrupt.1`, `.2`, ... A copy that
+    // already holds these very bytes is reused, so reading the same broken file again makes no new copy. Returns the copy's name.
+    fn keep_aside(&self, path: &Path) -> Result<String, String> {
+        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        for n in 0..1000 {
+            let name = if n == 0 { "camps.json.corrupt".to_string() } else { format!("camps.json.corrupt.{n}") };
+            let aside = self.dir.join(&name);
+            match std::fs::read(&aside) {
+                Ok(old) if old == bytes => return Ok(name),
+                Ok(_) => {} // another incident's copy: try the next name
+                Err(_) => return std::fs::write(&aside, &bytes).map(|()| name).map_err(|e| e.to_string()),
+            }
+        }
+        Err("too many copies already".into())
     }
 
     /// Replace the saved camps. The file is replaced in one step (written beside it, then renamed over it), so a read at the same
@@ -698,7 +722,9 @@ mod tests {
         std::fs::write(store.dir().join("home.json"), serde_json::to_string(&Point::new(1.0, 1.0)).unwrap()).unwrap();
         let (camps, problem) = store.camps_checked();
         assert_eq!(camps, vec![Camp::home(Point::new(1.0, 1.0))]);
-        assert!(problem.unwrap().starts_with("camps.json unreadable: "));
+        let problem = problem.unwrap();
+        assert!(problem.note.starts_with("camps.json unreadable: "));
+        assert!(!problem.kept, "a directory cannot be copied aside, so saving over it must be refused");
     }
 
     #[test]
@@ -710,13 +736,17 @@ mod tests {
         let (camps, problem) = store.camps_checked();
         assert_eq!(camps, vec![Camp::home(Point::new(1.0, 1.0))]);
         let problem = problem.unwrap();
-        assert!(problem.starts_with("camps.json unreadable: ") && problem.ends_with("; kept as camps.json.corrupt"), "{problem}");
+        assert!(problem.note.starts_with("camps.json unreadable: ") && problem.note.ends_with("; kept as camps.json.corrupt"), "{}", problem.note);
+        assert!(problem.kept);
         let corrupt = store.dir().join("camps.json.corrupt");
         assert_eq!(std::fs::read_to_string(&corrupt).unwrap(), "not json");
         assert_eq!(store.home(), Some(Point::new(1.0, 1.0)));
         std::fs::write(store.dir().join("camps.json"), "still not json").unwrap();
-        assert!(store.camps_checked().1.is_some());
+        let second = store.camps_checked().1.unwrap();
+        assert!(second.kept && second.note.ends_with("; kept as camps.json.corrupt.1"), "{}", second.note);
         assert_eq!(std::fs::read_to_string(&corrupt).unwrap(), "not json", "the first copy is kept");
+        assert_eq!(std::fs::read_to_string(store.dir().join("camps.json.corrupt.1")).unwrap(), "still not json", "a later incident gets its own copy");
+        assert!(store.camps_checked().1.unwrap().note.ends_with("; kept as camps.json.corrupt.1"), "the same broken file is not copied twice");
         assert_eq!(store.camps(), vec![Camp::home(Point::new(1.0, 1.0))]);
     }
 
