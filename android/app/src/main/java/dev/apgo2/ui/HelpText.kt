@@ -175,11 +175,15 @@ internal object Help {
 
     val chainScope =
         HelpTopic(
-            "Where chains count",
+            CHAIN_SCOPE,
             "Steps, time away and map squares only count inside your zones, never outside them. " +
                 "This zone only: walking in a zone fills that zone's chains. " +
                 "Any zone: walking in any zone fills the chains of every zone you have opened.",
         )
+
+    const val CHAIN_SCOPE = "Where chains count"
+    const val SCOPE_THIS_ZONE = "This zone only"
+    const val SCOPE_ANY_ZONE = "Any zone"
 
     val units =
         HelpTopic(

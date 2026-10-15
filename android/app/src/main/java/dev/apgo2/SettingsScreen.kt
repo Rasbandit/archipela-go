@@ -25,8 +25,8 @@ private val SCOPE_OPTIONS = listOf(ChainScope.THIS_ZONE, ChainScope.ANY_ZONE)
 
 private fun scopeLabel(s: ChainScope) =
     when (s) {
-        ChainScope.THIS_ZONE -> "This zone only"
-        ChainScope.ANY_ZONE -> "Any zone"
+        ChainScope.THIS_ZONE -> Help.SCOPE_THIS_ZONE
+        ChainScope.ANY_ZONE -> Help.SCOPE_ANY_ZONE
     }
 
 private fun unitLabel(c: UnitChoice) =
@@ -49,7 +49,7 @@ internal fun SettingsScreen(
         Text("Settings", style = MaterialTheme.typography.titleLarge)
         LabelWithHelp("Distance units", Help.units)
         ChoiceChips(UNIT_OPTIONS, m.units.choice, m.units::choose, ::unitLabel)
-        LabelWithHelp("Where chains count", Help.chainScope)
+        LabelWithHelp(Help.CHAIN_SCOPE, Help.chainScope)
         ChoiceChips(SCOPE_OPTIONS, m.chainScope.scope, m.chainScope::choose, ::scopeLabel)
         SwitchRow("Trap alerts", Help.trapAlerts, m.trapSettings.on, m.trapSettings::set)
         if (m.isDebuggable) {
