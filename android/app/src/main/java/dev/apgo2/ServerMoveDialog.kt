@@ -56,10 +56,10 @@ internal fun ServerButton(m: AppModel) {
 internal fun LanPrompt(m: AppModel) {
     val ctx = LocalContext.current
     val ask = rememberPermissionAsk(LOCAL_NETWORK_PERMISSION, { !ctx.lacksLocalNetwork() }) { if (it) m.ap.connectHeld() }
-    if (m.ap.lanHeld == null) return
+    if (m.ap.lanHold.server == null) return
     val label = if (ask.action == PermissionAsk.OpenSettings) "Open settings" else "Allow"
-    // Already granted (in Settings, or from New Game's prompt) while held: connect rather than a button that does nothing.
-    val allow = if (ask.action == PermissionAsk.Granted) m.ap::connectHeld else ask::ask
+    // Read at the tap, not when drawn: access granted meanwhile (Settings, New Game's prompt) connects instead of asking again.
+    val allow = { if (ctx.lacksLocalNetwork()) ask.ask() else m.ap.connectHeld() }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,

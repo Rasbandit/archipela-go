@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.apgo_ffi.ApServerOut
 import java.net.InetAddress
 
 // Android 17 (apps targeting API 37) blocks traffic to the local network unless ACCESS_LOCAL_NETWORK is granted: a TCP
@@ -140,5 +141,36 @@ internal fun rememberLanAwareConnect(
                 connect(url)
             }
         }
+    }
+}
+
+/**
+ * The open game's saved LAN server, not connected because local network access is missing (#171): Play shows a prompt while
+ * [server] is set. The one owner of when a held server may connect, so a hold never outlives its game.
+ */
+internal class LanHold {
+    var server by mutableStateOf<ApServerOut?>(null)
+        private set
+
+    fun hold(s: ApServerOut) {
+        server = s
+    }
+
+    fun drop() {
+        server = null
+    }
+
+    /**
+     * The held server to connect now, or null to keep waiting: only once access is granted (not [lacks]) and its game is still
+     * open ([gameOpen]); a hold whose game was paused or closed is dropped instead, never connected.
+     */
+    fun release(
+        lacks: Boolean,
+        gameOpen: Boolean,
+    ): ApServerOut? {
+        val s = server
+        if (s == null || (gameOpen && lacks)) return null
+        drop()
+        return s.takeIf { gameOpen }
     }
 }

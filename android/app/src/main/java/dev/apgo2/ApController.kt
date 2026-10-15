@@ -112,11 +112,10 @@ internal class ApController(
 
     // The open game's saved server on the home network, not connected because local network access is missing (#171): Play asks
     // for it instead of a reconnect loop that could never get through.
-    var lanHeld by mutableStateOf<ApServerOut?>(null)
-        private set
+    val lanHold = LanHold()
 
-    // Bumped by every connect and game open: a saved server's LAN lookup that finishes after one of them is stale and dropped.
-    private var connectGen = 0
+    // The saved server's LAN lookup (connectSaved); cancelled by any connect, game open or close, so a late answer never acts.
+    private var lookupJob: Job? = null
     private var syncedChecked = false
     private var pollJob: Job? = null
 
@@ -148,8 +147,7 @@ internal class ApController(
             everConnected = saved
             reconnect.reset()
         }
-        lanHeld = null // a connect anywhere ends a hold (the player connected from New Game, or access was granted)
-        connectGen++
+        forgetHold() // a connect anywhere ends a hold (the player connected from New Game, or access was granted)
         syncedChecked = false
         syncedFor = null
         status = "connecting" // not the old session's "disconnected" until the first drain (a quick foreground would reconnect again)
@@ -224,10 +222,9 @@ internal class ApController(
      * else drain and sync now rather than at the next server message (the player is looking).
      */
     fun onForeground() {
-        // Held: nothing to refresh. Back from the settings page with access granted, connect it (still open, not paused); still
-        // without access, keep waiting (no teardown, no lookup).
-        val held = lanHeld ?: return refreshSession()
-        if (!ctx.lacksLocalNetwork() && model.engine.openGameId() != null) connectNow(held)
+        // Held: no session to refresh. Back from the settings page with access granted, connect it; still without access, keep
+        // waiting (no teardown, no lookup).
+        if (lanHold.server == null) refreshSession() else connectHeld()
     }
 
     private fun refreshSession() {
@@ -257,8 +254,7 @@ internal class ApController(
      * core decides, Engine.apServerToConnect). Not on every refresh: a player connecting elsewhere from New Game stays there.
      */
     fun onGameOpened() {
-        lanHeld = null // another game's server, or this one's again below
-        connectGen++ // a lookup still running for the game opened before must not connect or hold its server now
+        forgetHold() // another game's server, or this one's again below
         savedServer = model.engine.apSavedServer()
         val here = lastTarget?.takeIf { session != null }?.let { (url, slot) -> ApServerOut(url, slot) }
         model.engine.apServerToConnect(here)?.let(::connectSaved)
@@ -269,18 +265,26 @@ internal class ApController(
     private fun connectSaved(server: ApServerOut) {
         if (!ctx.lacksLocalNetwork()) return connectNow(server)
         stopSession() // the lookup below takes a moment: the old session must not sync the just opened game meanwhile
-        val gen = ++connectGen
-        scope.launch {
-            val blocks = ctx.blocksLocalNetwork(server.address)
-            if (gen != connectGen || model.engine.openGameId() == null) return@launch // another connect, game or a pause came first
-            if (blocks) {
-                Diag.info("ap", "saved server waits for local network access")
-                lanHeld = server
-            } else {
-                connectNow(server)
+        lookupJob?.cancel()
+        lookupJob =
+            scope.launch {
+                if (ctx.blocksLocalNetwork(server.address)) {
+                    Diag.info("ap", "saved server waits for local network access")
+                    lanHold.hold(server)
+                } else {
+                    connectNow(server)
+                }
             }
-        }
     }
+
+    // No hold and no lookup that could still set one.
+    private fun forgetHold() {
+        lookupJob?.cancel()
+        lanHold.drop()
+    }
+
+    /** The open game was closed (paused, or a solo game started instead): its held server must never connect later. */
+    fun onGameClosed() = forgetHold()
 
     private fun connectNow(server: ApServerOut) {
         Diag.info("ap", "connecting the open game's saved server")
@@ -296,9 +300,9 @@ internal class ApController(
         hint = null
     }
 
-    /** Local network access was just granted: connect the held server. */
+    /** Connect the held server once local network access is granted and its game is still open (LanHold.release). */
     fun connectHeld() {
-        lanHeld?.let(::connectSaved)
+        lanHold.release(ctx.lacksLocalNetwork(), model.engine.openGameId() != null)?.let(::connectNow)
     }
 
     /** The open game's server moved (an archipelago.gg room on a new port): save [address] and reconnect there. */
@@ -308,9 +312,9 @@ internal class ApController(
             moved.onSuccess {
                 Diag.info("ap", "server moved")
                 savedServer = model.engine.apSavedServer()
-                // Replaces the session to the old address. Not held: the Server dialog already asked for local network access, and
-                // after a denial it connects anyway (a VPN route is not gated) with LAN_HINT.
-                savedServer?.let(::connectNow)
+                // Replaces the session to the old address; held like any saved server when access is still missing (after a
+                // denial in the Server dialog), so a blocked LAN address never starts a reconnect loop.
+                savedServer?.let(::connectSaved)
             }
             moved.onFailure { model.fail("move_server", "Could not change the server", it) }
         }
@@ -329,10 +333,7 @@ internal class ApController(
             if (session !== s) return false // reconnected mid-poll: these events belong to the old server
             active = events.isNotEmpty()
             events.forEach { handle(s, it) }
-            s.status().let {
-                if (it != status) Diag.info("ap", "status", "status" to it)
-                status = it
-            }
+            updateStatus(s.status())
             // The open Archipelago game, from the engine's memory; none (no game, a solo game, or paused) forgets the last sync, so a
             // game reopened after a pause catches up at once.
             val game = model.engine.openGameId()?.takeIf { model.hud?.backend == "archipelago" }
@@ -346,6 +347,13 @@ internal class ApController(
             }
         }
         return active
+    }
+
+    private fun updateStatus(now: String) {
+        if (now != status) Diag.info("ap", "status", "status" to now)
+        // LAN_HINT was a guess while stuck connecting: the connection got through. Other hints (a refused slot) stay.
+        if (now == CONNECTED && hint == LAN_HINT) hint = null
+        status = now
     }
 
     /** Start a game from the connected slot's data. */
