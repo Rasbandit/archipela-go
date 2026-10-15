@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -178,7 +179,7 @@ private fun CampsCard(m: AppModel) {
         value = first?.let { runCatching { mapSnapshot(context, PreviewFrame(it, CAMP_PREVIEW_ZOOM)) }.getOrNull() }
     }
     Card(
-        Modifier.fillMaxWidth().clickable { m.campsOpen = true },
+        Modifier.fillMaxWidth().clickable(onClickLabel = CampText.OPEN_HINT, role = Role.Button) { m.campsOpen = true },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(2.dp, ApgoPalette.camp),
     ) {

@@ -271,6 +271,7 @@ internal object SetupText {
     const val BATTERY_DONE = "Battery saver is off for this app. Tracking will keep running."
     const val BATTERY_BUTTON = "Open battery settings"
     const val WIFI_NEEDS_CAMP = "Set your camp first, then add its Wi-Fi."
+    const val WIFI_FOR_CAMP = "Networks for this camp:"
     const val HOME_NEEDS_WIFI = "Add a camp's Wi-Fi so the game pauses there"
 }
 
@@ -300,7 +301,8 @@ internal object CampText {
     const val NEXT = "Next"
     const val WAITING_FOR_LOCATION = "Waiting for your location…"
     const val USE_MY_LOCATION = "Use my location"
-    const val DELETE_DESCRIPTION = "Delete camp"
+    const val EDIT_HINT = "Edit camp"
+    const val OPEN_HINT = "Open your camps"
     const val DELETE_BODY = "The Wi-Fi networks saved for it go with it. Games already started keep their quests."
     const val BACK = "Back"
 
@@ -311,6 +313,10 @@ internal object CampText {
     fun title(count: Int) = "$NAME · $count"
 
     fun deleteTitle(name: String) = "Delete $name?"
+
+    fun deleteDescription(name: String) = "Delete $name"
+
+    fun wifiFor(name: String) = "Wi-Fi for $name"
 
     fun distance(meters: Double?) = meters?.let { "${Units.distance(it)} away" }
 }

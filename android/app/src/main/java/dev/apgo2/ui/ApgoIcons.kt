@@ -111,6 +111,7 @@ import com.composables.icons.lucide.Undo2
 import com.composables.icons.lucide.User
 import com.composables.icons.lucide.UtensilsCrossed
 import com.composables.icons.lucide.Waves
+import com.composables.icons.lucide.Wifi
 import com.composables.icons.lucide.Wrench
 import com.composables.icons.lucide.X
 
@@ -139,6 +140,7 @@ internal object ApgoIcons {
     // Actions
     val Add = Lucide.Plus
     val Delete = Lucide.Trash2
+    val Wifi = Lucide.Wifi
     val Rescan = Lucide.RefreshCw
     val Undo = Lucide.Undo2
     val Redo = Lucide.Redo2

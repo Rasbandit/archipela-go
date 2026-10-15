@@ -145,4 +145,9 @@ class HelpTextTest {
         assertEquals("You're at Cabin: add this Wi-Fi?", HomeOfferText.title("Cabin"))
         assertEquals("You're at a camp: add this Wi-Fi?", HomeOfferText.title(null))
     }
+
+    @Test fun campRowActionsNameTheCampForScreenReaders() {
+        assertEquals("Delete Cabin", CampText.deleteDescription("Cabin"))
+        assertEquals("Wi-Fi for Cabin", CampText.wifiFor("Cabin"))
+    }
 }

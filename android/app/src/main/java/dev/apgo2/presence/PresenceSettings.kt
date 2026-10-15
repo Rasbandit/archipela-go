@@ -5,8 +5,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import dev.apgo2.Diag
 import org.json.JSONArray
 import org.json.JSONObject
+
+private const val TAG = "presence-settings"
 
 /** App-level presence settings (platform identifiers, so they live in preferences, not in the core). */
 internal class PresenceSettings(
@@ -68,7 +71,10 @@ internal class PresenceSettings(
                     }
                 }.getOrNull()
             }
-        }.getOrDefault(emptyList())
+        }.getOrElse {
+            Diag.warn(TAG, "saved home networks unreadable; none are used", "reason" to it.toString())
+            emptyList()
+        }
 
     private fun parseCar(): List<CarDevice> =
         runCatching {
@@ -78,15 +84,33 @@ internal class PresenceSettings(
             }
         }.getOrDefault(emptyList())
 
+    /** Save [n] for its camp, replacing the same network saved for that camp; one network may serve several camps. */
     fun addHome(n: HomeNetwork) {
-        val key = PresenceSignals.cleanSsid(n.ssid) ?: n.ssid
-        homeNetworks = homeNetworks.filterNot { (PresenceSignals.cleanSsid(it.ssid) ?: it.ssid) == key } + n
+        homeNetworks = homeNetworks.filterNot { sameNetwork(it, n.ssid, n.campId) } + n
     }
 
-    fun removeHome(ssid: String) {
-        val key = PresenceSignals.cleanSsid(ssid) ?: ssid
-        homeNetworks = homeNetworks.filterNot { (PresenceSignals.cleanSsid(it.ssid) ?: it.ssid) == key }
+    /** Forget network [ssid] for camp [campId] only; other camps keep it. */
+    fun removeHome(
+        ssid: String,
+        campId: String,
+    ) {
+        homeNetworks = homeNetworks.filterNot { sameNetwork(it, ssid, campId) }
     }
+
+    /** Tick ([on]) or untick network [ssid] for camp [campId] (the Wi-Fi setup step). */
+    fun setHome(
+        ssid: String,
+        bssid: String?,
+        campId: String,
+        on: Boolean,
+    ) = if (on) addHome(HomeNetwork(ssid, bssid, campId)) else removeHome(ssid, campId)
+
+    // A saved network is keyed by its cleaned name and its camp.
+    private fun sameNetwork(
+        n: HomeNetwork,
+        ssid: String,
+        campId: String,
+    ) = n.campId == campId && (PresenceSignals.cleanSsid(n.ssid) ?: n.ssid) == (PresenceSignals.cleanSsid(ssid) ?: ssid)
 
     /** How many saved networks pause camp [campId]. */
     fun networkCount(campId: String): Int = homeNetworks.count { it.campId == campId }

@@ -20,6 +20,10 @@ internal class SetupWizard(
     var startStep = SetupStep.Home
         private set
 
+    /** The camp the Wi-Fi step opens on (a camp row's Wi-Fi button), or null to let the step pick. */
+    var wifiCamp: String? = null
+        private set
+
     /** How far along the wizard the player is, for the camps card. */
     fun progress() =
         SetupProgress(
@@ -29,9 +33,13 @@ internal class SetupWizard(
             model.settings.setupDone,
         )
 
-    /** Open the wizard on [from] (the first step by default). */
-    fun open(from: SetupStep? = null) {
+    /** Open the wizard on [from] (the first step by default), with the Wi-Fi step on camp [camp] when given. */
+    fun open(
+        from: SetupStep? = null,
+        camp: String? = null,
+    ) {
         startStep = from ?: SetupStep.Home
+        wifiCamp = camp
         visible = true
     }
 

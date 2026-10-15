@@ -1,6 +1,7 @@
 package dev.apgo2
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +29,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -91,7 +95,9 @@ private fun CampList(
         OutlinedButton(onClick = { m.setup.open(SetupStep.Wifi) }) { Text(CampText.WIFI_AND_CAR) }
         if (rows.isEmpty()) Text(CampText.UNSET, fontSize = 13.sp)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(rows, key = { it.id }) { r -> CampRowCard(r, onEdit = { onEdit(r.id) }, onDelete = { asking = r }) }
+            items(rows, key = { it.id }) { r ->
+                CampRowCard(r, onEdit = { onEdit(r.id) }, onWifi = { m.setup.open(SetupStep.Wifi, r.id) }, onDelete = { asking = r })
+            }
         }
     }
 }
@@ -100,9 +106,12 @@ private fun CampList(
 private fun CampRowCard(
     r: CampRow,
     onEdit: () -> Unit,
+    onWifi: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Card(onClick = onEdit, modifier = Modifier.fillMaxWidth()) {
+    Card(
+        Modifier.fillMaxWidth().clip(CardDefaults.shape).clickable(onClickLabel = CampText.EDIT_HINT, role = Role.Button, onClick = onEdit),
+    ) {
         Row(
             Modifier.padding(start = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -119,8 +128,9 @@ private fun CampRowCard(
                 val detail = listOfNotNull(CampText.distance(r.distanceM), if (r.hasWifi) CampText.WIFI_SAVED else CampText.NO_WIFI)
                 Text(detail.joinToString(" · "), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            IconButton(onClick = onWifi) { Icon(ApgoIcons.Wifi, contentDescription = CampText.wifiFor(r.name)) }
             IconButton(onClick = onDelete) {
-                Icon(ApgoIcons.Delete, contentDescription = CampText.DELETE_DESCRIPTION, tint = ApgoPalette.tone(Tone.Danger))
+                Icon(ApgoIcons.Delete, contentDescription = CampText.deleteDescription(r.name), tint = ApgoPalette.tone(Tone.Danger))
             }
         }
     }

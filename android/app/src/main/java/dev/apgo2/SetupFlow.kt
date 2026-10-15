@@ -27,7 +27,7 @@ internal fun SetupFlow(m: AppModel) {
         }
 
         SetupStep.Wifi -> {
-            WifiStep(m, onBack = { step = SetupStep.Home }, onNext = { step = SetupStep.Car })
+            WifiStep(m, m.setup.wifiCamp, onBack = { step = SetupStep.Home }, onNext = { step = SetupStep.Car })
         }
 
         SetupStep.Car -> {

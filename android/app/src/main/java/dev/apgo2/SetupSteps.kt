@@ -11,6 +11,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -46,16 +47,16 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.apgo2.presence.CarChoices
 import dev.apgo2.presence.CarDevice
-import dev.apgo2.presence.HomeNetwork
 import dev.apgo2.presence.PresenceSignals
+import dev.apgo2.presence.WifiCamp
 import dev.apgo2.presence.WifiChoice
 import dev.apgo2.presence.WifiChoices
 import dev.apgo2.presence.WifiScanner
+import dev.apgo2.ui.ChoiceChips
 import dev.apgo2.ui.FeedbackText
 import dev.apgo2.ui.SetupText
 import dev.apgo2.ui.Tone
 import kotlinx.coroutines.delay
-import uniffi.apgo_ffi.CampOut
 
 /**
  * The frame every text step shares: title, why it matters, a fixed [header] (search), a list that scrolls in the space left over,
@@ -109,8 +110,14 @@ private const val SCAN_WAIT_MS = 3_000L
 private class WifiStepState(
     private val m: AppModel,
     private val scanner: WifiScanner,
+    preselect: String?,
 ) {
     var saved by mutableStateOf(m.settings.homeNetworks)
+
+    // The camp the ticked networks are saved for (see [WifiCamp.pick]); null only while there is no camp.
+    var campId by mutableStateOf(
+        WifiCamp.pick(m.camps.map { it.id }, preselect, m.realLoc?.let { m.engine.nearestCamp(it.latitude, it.longitude)?.id }),
+    )
     var nearby by mutableStateOf(scanner.nearby())
     var query by mutableStateOf("")
     var typed by mutableStateOf("")
@@ -120,7 +127,7 @@ private class WifiStepState(
     var note by mutableStateOf<String?>(null)
     var scanning by mutableStateOf(false)
 
-    fun choices() = WifiChoices.merge(saved, m.presence.monitor.currentNetwork(), nearby + removed, query)
+    fun choices() = WifiChoices.merge(WifiCamp.savedFor(saved, campId), m.presence.monitor.currentNetwork(), nearby + removed, query)
 
     fun inRange() = nearby.mapNotNull { PresenceSignals.cleanSsid(it) }.toSet()
 
@@ -146,32 +153,21 @@ private class WifiStepState(
         }
     }
 
-    // The nearest camp to where the phone is (the core decides), else the only camp; none when there is no camp to attach the network to.
-    private fun campToSave(): CampOut? = m.realLoc?.let { m.engine.nearestCamp(it.latitude, it.longitude) } ?: m.camps.singleOrNull()
-
-    private fun noCamp() {
-        note = SetupText.WIFI_NEEDS_CAMP
-    }
-
     fun toggle(
         c: WifiChoice,
         on: Boolean,
     ) {
-        if (on) {
-            val camp = campToSave() ?: return noCamp()
-            m.settings.addHome(HomeNetwork(c.ssid, c.bssid, camp.id))
-        } else {
-            m.settings.removeHome(c.ssid)
-            removed = removed + c.ssid
-        }
+        val camp = campId ?: return
+        m.settings.setHome(c.ssid, c.bssid, camp, on)
+        if (!on) removed = removed + c.ssid
         saved = m.settings.homeNetworks
         m.presence.evaluate()
     }
 
     fun addTyped() {
         val ssid = PresenceSignals.cleanSsid(typed) ?: return
-        val camp = campToSave() ?: return noCamp()
-        m.settings.addHome(HomeNetwork(ssid, null, camp.id))
+        val camp = campId ?: return
+        m.settings.setHome(ssid, null, camp, on = true)
         saved = m.settings.homeNetworks
         removed = removed - ssid
         typed = ""
@@ -187,15 +183,19 @@ private class WifiStepState(
         }
 }
 
-/** Step 2: tick every Wi-Fi network your home uses. Saving a name covers every access point on it. */
+/**
+ * Step 2: tick every Wi-Fi network a camp uses, for the camp chosen at the top ([campId] preselects one). Saving a name covers every
+ * access point on it.
+ */
 @Composable
 internal fun WifiStep(
     m: AppModel,
+    campId: String?,
     onBack: () -> Unit,
     onNext: () -> Unit,
 ) {
     val ctx = LocalContext.current
-    val state = remember { WifiStepState(m, WifiScanner(ctx)) }
+    val state = remember { WifiStepState(m, WifiScanner(ctx), campId) }
     LaunchedEffect(state.scanning) { if (state.scanning) state.readScanWhenDone() }
     LaunchedEffect(m.presence.locationPermitted) { if (m.presence.locationPermitted) state.readLastResults() }
     StepPage(
@@ -206,6 +206,7 @@ internal fun WifiStep(
         onBack = onBack,
         onNext = onNext,
         header = {
+            WifiCampChips(m, state)
             WifiSearch(state)
             if (!m.presence.locationPermitted) FeedbackText(SetupText.WIFI_NEEDS_LOCATION, Tone.Warning)
             state.note?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -213,6 +214,31 @@ internal fun WifiStep(
         footer = { WifiAdd(state) },
     ) {
         WifiChoiceList(state)
+    }
+}
+
+// Which camp the list is for. With no camp there is nothing to save networks for yet.
+@Composable
+private fun WifiCampChips(
+    m: AppModel,
+    state: WifiStepState,
+) {
+    val selected = state.campId
+    if (m.camps.isEmpty() || selected == null) return FeedbackText(SetupText.WIFI_NEEDS_CAMP, Tone.Warning)
+    Column {
+        Text(SetupText.WIFI_FOR_CAMP, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ChoiceChips(
+            m.camps.map { it.id },
+            selected,
+            { state.campId = it },
+            { id ->
+                m.camps
+                    .firstOrNull { it.id == id }
+                    ?.name
+                    .orEmpty()
+            },
+            Modifier.horizontalScroll(rememberScrollState()),
+        )
     }
 }
 
