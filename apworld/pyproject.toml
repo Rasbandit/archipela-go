@@ -7,7 +7,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "pytest>=8",
+    "pytest>=9.2.0",
     "ruff>=0.8",
     "pyright>=1.1.390",
     "jsonschema>=4.23",
